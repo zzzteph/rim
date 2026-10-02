@@ -1,0 +1,101 @@
+﻿{
+    "reviewed_at":  "2026-10-02",
+    "timezone":  "Europe/Berlin",
+    "source_version":  "0.5.8",
+    "isolation":  "Copy only; Session and Settings paths redirected to res://",
+    "files":  [
+                  {
+                      "path":  "scripts/capture_node.gd.uid",
+                      "sha256":  "e89d43177cee0dc023331d7ef2734dff98200783351a8e38ded4f94e4de8b1f5"
+                  },
+                  {
+                      "path":  "scripts/city_layer.gd",
+                      "sha256":  "df850c19d3c88791aa31aa5957ddae65818701e497d84984ea2bd53043a32808"
+                  },
+                  {
+                      "path":  "scripts/city_layer.gd.uid",
+                      "sha256":  "6c49c31b288b74246850a88713855794e9ba52ef3e3cc73b136a8f295d3b7d27"
+                  },
+                  {
+                      "path":  "scripts/glyphs.gd",
+                      "sha256":  "318344cddd102b33f6399b98b1940e903ce64c728e680612b124a59b4473d017"
+                  },
+                  {
+                      "path":  "scripts/glyphs.gd.uid",
+                      "sha256":  "adb9220f9a5469cbc849050d790a0dc6d9deaf906a75625189291f82dec0f282"
+                  },
+                  {
+                      "path":  "scripts/glyph_icon.gd",
+                      "sha256":  "951a3622b2d3a9a4e7bc6def2d05bd1359aac42ab9576733e71ded6facc7770a"
+                  },
+                  {
+                      "path":  "scripts/glyph_icon.gd.uid",
+                      "sha256":  "e0894edd5607833ef11efe0784ffdeb11480eef05598f499024c91508135ddc2"
+                  },
+                  {
+                      "path":  "scripts/graph.gd",
+                      "sha256":  "d81bbfc510a5cd5725dab7bd56e3610414223ad379c85e7125a37c44ae8e796f"
+                  },
+                  {
+                      "path":  "scripts/graph.gd.uid",
+                      "sha256":  "d7453bd80df91cce1febc22c10206042df225b0541dfb0850d8ac684cc76f3cb"
+                  },
+                  {
+                      "path":  "scripts/main.gd",
+                      "sha256":  "47be344fcb2c7aa5766619537bca8e9cd7609c8b09bb6b30a9d8dfff4907dccb"
+                  },
+                  {
+                      "path":  "scripts/main.gd.uid",
+                      "sha256":  "c394b2406afd959cc5067cd80130eb76a9e61b818270399af863078d328ad766"
+                  },
+                  {
+                      "path":  "scripts/menu.gd",
+                      "sha256":  "f37786a0680b6de0c3fd1ed2da637af8662b0ffb318912118db35c903bb6bc44"
+                  },
+                  {
+                      "path":  "scripts/menu.gd.uid",
+                      "sha256":  "a071ecca395f114ad915bd0956b036a465e685cdf897c71c36ec959b80991493"
+                  },
+                  {
+                      "path":  "scripts/minimap.gd",
+                      "sha256":  "1611b9d71ae7b2cfd1b2eb4c66050e3dcc47b4dbc3ced48c421a1ad6f26226f9"
+                  },
+                  {
+                      "path":  "scripts/minimap.gd.uid",
+                      "sha256":  "c271d2369d49cc6a7673f4e43be7221d0a5c79cb14294bda7c8565f77877acd3"
+                  },
+                  {
+                      "path":  "scripts/session.gd",
+                      "sha256":  "e35c7dfcd32d3c072ac2c7907dbb2b203257f488d1d88be94b318f6c116993cb"
+                  },
+                  {
+                      "path":  "scripts/session.gd.uid",
+                      "sha256":  "72f450d7f98fc2a9e9e1da49e024619be32282f417b9801f5dc02b43f6abb04c"
+                  },
+                  {
+                      "path":  "scripts/settings.gd",
+                      "sha256":  "0243955d1b8cfe1e6b3cd05887acf4c849eafebb1332438851b780099613969a"
+                  },
+                  {
+                      "path":  "scripts/settings.gd.uid",
+                      "sha256":  "53525977731b7972f578201f1181cf991d83ee44ff9a7f846cd0833614cc5d80"
+                  },
+                  {
+                      "path":  "scripts/ui.gd",
+                      "sha256":  "7ff20db32fd892a5fae1dcadafe10daca06da550b6db9178aae14e544687096f"
+                  },
+                  {
+                      "path":  "scripts/ui.gd.uid",
+                      "sha256":  "295ece020478b34c2ada2bf7de07a35a5fcd6f1461b70030e727da6b0601c148"
+                  },
+                  {
+                      "path":  "scenes/main.tscn",
+                      "sha256":  "595e47ecb17a297c692a738789e384dea900e90627900c780ecd7d7e3ca72ec7"
+                  },
+                  {
+                      "path":  "scenes/menu.tscn",
+                      "sha256":  "6b36a5679944e504b4443176db3bc00c02fd85af52a7b6189b82ca5f692151e4"
+                  }
+              ],
+    "project_sha256":  "283432c82bb248c5b99441a89472a118495fa02b8310fd22798ad28d2d79b8d3"
+}

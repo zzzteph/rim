@@ -1,0 +1,18 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+{"observed":{"edge_after_crossing":2,"live_parent":4,"packet_route":[3,2]},"probe":"stale_packet_route_after_reparent"}
+{"observed":{"new_parent":3,"old_parent":1,"parent_after_undo":-1,"path_after_undo":[],"pending_after_restore":2,"pending_after_source":2,"restored_parent":1},"probe":"reroute_undo_loses_old_tunnel_legal_commands"}
+{"observed":{"pending_child":3,"pending_exists":false},"probe":"undo_pending_child"}
+{"observed":{"selected_tunnel":2,"selected_type":""},"probe":"undo_selected_tunnel"}
+{"observed":{"target_quarantine":1.5,"warn_remaining":5.9},"probe":"sweep_warning_quarantine"}
+{"observed":{"enabled_nonhub":0,"reported_progress":2.0},"probe":"linked_structure_contract_includes_off"}
+{"observed":{"market_on":false,"packets":[{"dir":1,"dist":0.0,"idx":0,"res":"credits","route":[2],"value":1.0}]},"probe":"input_arrival_off_converter"}
+{"observed":{"disabled":true,"duration_after_second":20.0,"first_charge":20.0,"second_charge":20.0},"probe":"overclock_off_and_repeat"}
+{"observed":{"center_region":1,"destination_slots_after":-1,"destination_slots_before":0,"origin_region":0,"placed":true,"placement_error":""},"probe":"district_slots_origin_center_mismatch"}
+{"observed":{"occupied_tunnel_cell":3,"path_after":["(7, 8)","(7, 9)"],"placed":true,"placement_error":""},"probe":"construction_over_existing_tunnel"}
+{"observed":{"count":15,"examples":[{"cell":[40,64],"cell_district":"residential","collision":true,"render_district":"slums","rendered":false},{"cell":[41,64],"cell_district":"residential","collision":true,"render_district":"slums","rendered":false},{"cell":[42,64],"cell_district":"residential","collision":true,"render_district":"slums","rendered":false},{"cell":[28,70],"cell_district":"slums","collision":false,"render_district":"residential","rendered":true},{"cell":[29,70],"cell_district":"slums","collision":false,"render_district":"residential","rendered":true}]},"probe":"city_vacancy_render_collision"}
+{"observed":{"count":53,"examples":[[73,38],[65,42],[69,42],[77,42],[65,46]]},"probe":"farm_narrow_render_wide_collision"}
+{"observed":{"different_centers":164,"examples":[{"center":[5,5],"disk":4,"square":6},{"center":[6,5],"disk":5,"square":6},{"center":[9,5],"disk":2,"square":4},{"center":[10,5],"disk":2,"square":4},{"center":[12,5],"disk":2,"square":4}]},"probe":"coverage_square_versus_disk"}
+{"observed":{"botfarm_error":"Cloud Cryptojacker needs Cycles ground (The Registry or Server Farms), whole footprint.","nest_error":"","package_error":"Poisoned Package needs Cycles ground (The Registry or Server Farms), whole footprint."},"probe":"advanced_cycles_residential"}

@@ -1,0 +1,227 @@
+[
+  {
+    "id": "SIM-I01",
+    "title": "Run balance scenarios without rendering",
+    "action": "Add a headless scenario runner using the real fixed-tick simulator and declarative legal construction/action sequences.",
+    "player_value": "Make large-seed economy comparisons reproducible before changing costs or rates.",
+    "acceptance": "One command runs at least 100 seeds and exports first Cycles delivery, first Cash, time to research, stuck runs and time to goal; scenario actions obey normal placement/payment rules.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I02",
+    "title": "Record reproducible full-run action replays",
+    "action": "Store initial rules/seed and ordered player commands with tick numbers; replay them against the same rules version.",
+    "player_value": "Turn a player-reported network failure into an exact reproducible fixture.",
+    "acceptance": "Replay an opening, reroute, sweep response and undo sequence twice; state digests match at every recorded checkpoint.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I03",
+    "title": "Apply simulation commands at tick boundaries",
+    "action": "Queue validated commands and apply each once at a specified simulation tick, leaving hover/camera feedback immediate.",
+    "player_value": "Remove frame-timing variation from placements, payments and defenses.",
+    "acceptance": "A timestamped command sequence run at30,60 and144 presentation frames/sec produces the same balances, routes and threat outcomes.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I04",
+    "title": "Give city, contracts, threats and packet loss separate RNG streams",
+    "action": "Derive subsystem seeds from the run seed and persist their independent state.",
+    "player_value": "Keep a map and existing packet outcomes stable when unrelated contract-generation logic changes.",
+    "acceptance": "Increasing contract draws must leave city layout and a fixed packet-loss test unchanged; all streams survive Continue.",
+    "relation": "New; extends B23 without duplicating its missing-state fix",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I05",
+    "title": "Extract a presentation-independent simulation core",
+    "action": "Move resource, graph, packet and threat state updates behind a core with explicit step/command/state interfaces.",
+    "player_value": "Support rapid balance testing and future UI work without coupling game rules to the scene tree.",
+    "acceptance": "A scripted 100-second run produces equivalent outcomes through the normal scene and a core-only headless runner.",
+    "relation": "New",
+    "effort": "L"
+  },
+  {
+    "id": "SIM-I06",
+    "title": "Fuzz legal action sequences against state invariants",
+    "action": "Generate build/connect/toggle/remove/undo/save/continue sequences and check graph validity, references, resource conservation and route legality.",
+    "player_value": "Catch combinations that hand-written happy-path probes miss.",
+    "acceptance": "A fixed seed suite completes thousands of legal actions with no negative reserves, dangling references, loops or occupied-road routes; failing sequences shrink to a replay.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I07",
+    "title": "Check bounded routing against an independent oracle",
+    "action": "Compare A* to BFS for existence within the step budget, and to a direction-aware shortest-path oracle when turn cost matters.",
+    "player_value": "Detect feasible roads rejected by the routing heuristic and poor paths before players encounter them.",
+    "acceptance": "Curated chokepoints and seeded street fixtures agree on path existence at exact length limits; every admitted route is valid.",
+    "relation": "Refines T30; merge with that item instead of counting separately",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I08",
+    "title": "Lint the game-definition tables",
+    "action": "Validate shared IDs, resources, sizes, costs, recipes, unlocks, district mappings, colors and glyphs at import or startup.",
+    "player_value": "Prevent an added structure from shipping with a missing price, resource or visual identity.",
+    "acceptance": "Deliberately missing protocol/recipe/resource IDs fail with clear diagnostics; the current complete definitions pass.",
+    "relation": "New",
+    "effort": "S"
+  },
+  {
+    "id": "SIM-I09",
+    "title": "Create a repeatable simulation performance budget",
+    "action": "Benchmark fixed seeds at several network and in-transit packet sizes, reporting tick-time distribution and allocations.",
+    "player_value": "Keep late-game networks responsive as content grows.",
+    "acceptance": "Benchmark fixtures with100,500 and1000 structures publish p50/p95 tick cost and peak packet counts; regressions above the documented budget fail the performance check.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I10",
+    "title": "Batch identical in-transit packet state",
+    "action": "Represent packets that share resource/value/route/timing as counts or compact batches; render a bounded representative sample.",
+    "player_value": "Reduce memory and CPU costs while retaining readable traffic and correct reserves.",
+    "acceptance": "Dense fixtures match the scalar simulator's resource totals and seeded loss policy within a defined statistical/deterministic model while reducing allocations and tick time.",
+    "relation": "New",
+    "effort": "L"
+  },
+  {
+    "id": "SIM-I11",
+    "title": "Bound catch-up work after long frames",
+    "action": "Specify a wall-time catch-up policy and limit work per presentation frame; retain or explicitly discard excess elapsed time according to the run mode.",
+    "player_value": "Avoid multi-second input freezes after a stalled frame.",
+    "acceptance": "Inject a5-second frame stall; input remains responsive and all deadlines, boosts, sweeps and production advance consistently under the documented policy.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I12",
+    "title": "Index footprint occupancy directly",
+    "action": "Maintain a tile-to-node index updated atomically with construction and undo; share authoritative building data with placement and routing.",
+    "player_value": "Make map interactions scale better than repeated full-node scans.",
+    "acceptance": "Queries match the reference scan after build/remove/undo/load, and route benchmark cost improves at500+ nodes.",
+    "relation": "Refines T32; merge with that item instead of counting separately",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I13",
+    "title": "Rebuild network structure only when topology changes",
+    "action": "Cache parent/child adjacency and connection traversal behind a topology revision; continue recalculating only state-dependent load/threat fields.",
+    "player_value": "Save per-tick work in large stable networks.",
+    "acceptance": "An idle1000-node graph stops rebuilding adjacency every tick; toggles and quarantine still update reachability at the correct tick.",
+    "relation": "Refines T32; merge with that item instead of counting separately",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I14",
+    "title": "Reject disconnected road searches before full A*",
+    "action": "Maintain reusable street-component information, then account for temporary footprint/lane blockers when deciding whether a full route search is necessary.",
+    "player_value": "Make clearly impossible long links respond immediately.",
+    "acceptance": "Disconnected-city fixtures return a blocked result without exploring the whole map; dynamic blockers never cause a valid route to be rejected by stale component data.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I15",
+    "title": "Use a proper priority queue for the route frontier",
+    "action": "Replace linear minimum scans and repeated array membership checks with a heap plus explicit deterministic tie-breaks.",
+    "player_value": "Reduce route-preview stalls on long or crowded paths.",
+    "acceptance": "Long-route fixtures return equivalent or better valid paths with lower measured search time; identical inputs always select the same route.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I16",
+    "title": "Make resource precision an explicit rule",
+    "action": "Use integer subunits or a defined quantization policy for fractional Cash, fuel, timers and accumulated production; convert to display units at the UI boundary.",
+    "player_value": "Keep long sessions and repeated fractional transactions consistent.",
+    "acceptance": "Million-step fractional-production fixtures stay within the declared error bound; saving and loading does not change conserved quantities.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I17",
+    "title": "Add an inspectable single-tick planning control",
+    "action": "Permit advancing one fixed simulation tick or one simulated second while planning pause is active, with updated packet/threat inspection.",
+    "player_value": "Help players understand exactly when a resource moves or a defense takes effect.",
+    "acceptance": "Each advance updates all simulation timers once, leaves camera/UI usable, and never opens or bypasses a blocking modal.",
+    "relation": "New; builds on the planning-pause fix without duplicating it",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I18",
+    "title": "Compare candidate network changes in a disposable simulation fork",
+    "action": "Run a bounded preview of two candidate configurations from the same copied state and report reserves, delivered resources and failure risk.",
+    "player_value": "Let players assess an expensive change against their actual network.",
+    "acceptance": "Comparisons use matched random streams, never mutate the live run, and label assumptions/horizon; cancelling returns unchanged resources and routes.",
+    "relation": "New; distinct from the construction-cost preview in T25",
+    "effort": "L"
+  },
+  {
+    "id": "SIM-I19",
+    "title": "Make construction and replacement graph changes transactional",
+    "action": "Stage a proposed graph, complete route/cost validation, then commit it once with a reversible before/after record.",
+    "player_value": "Keep a failed multi-part construction from leaving an incomplete network.",
+    "acceptance": "Failure at any validation step changes neither graph, resources nor history; accepted replacements undo to the exact prior state.",
+    "relation": "Refines T28/T29 and SIM-N01; merge rather than add an independent count",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I20",
+    "title": "Offer consistent ordinary-run speed controls",
+    "action": "Add a small explicit speed selector using simulation time rather than presentation delta; display it beside pause.",
+    "player_value": "Let players slow a difficult defense or accelerate a stable production wait.",
+    "acceptance": "At0.5x/1x/2x, production, packets, deadlines, boosts and threats scale together while camera/UI behavior stays constant; disable inappropriate speeds during blocking screens.",
+    "relation": "New; ordinary-run interaction, beyond sandbox configuration",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I21",
+    "title": "Apply manual commands to a whole selected branch",
+    "action": "Preview branch members and allow explicit grouped enable/disable/output-limit commands with a clear aggregate consequence.",
+    "player_value": "Reduce repeated late-game clicking without requiring an automation scripting system.",
+    "acceptance": "A selected branch applies a command only to listed eligible descendants; unsupported nodes are identified, and cancellation makes no state change.",
+    "relation": "New; distinct from conditional automation policies N14",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I22",
+    "title": "Let players name important structures",
+    "action": "Store an optional player label and display it consistently in inspections, contracts/alerts where relevant and selection navigation.",
+    "player_value": "Make large networks easier to remember and discuss.",
+    "acceptance": "Labels survive Continue, update immediately and do not replace the canonical type or node ID used by simulation and replays.",
+    "relation": "New",
+    "effort": "S"
+  },
+  {
+    "id": "SIM-I23",
+    "title": "Support placement defaults for repeated builds",
+    "action": "Allow a tool's initial output limit or disabled-at-construction setting to be selected before placing several producers.",
+    "player_value": "Avoid placing a large batch at full output and immediately revisiting every structure to throttle it.",
+    "acceptance": "New structures inherit the shown preset; preset selection changes no existing structures and remains visible while the tool is armed.",
+    "relation": "New",
+    "effort": "S"
+  },
+  {
+    "id": "SIM-I24",
+    "title": "Allow limited route waypoint constraints",
+    "action": "Let a player pin one or more legal street cells for a link, then route and price the combined path before committing.",
+    "player_value": "Make congested road use a deliberate planning choice instead of relying entirely on one automatic path.",
+    "acceptance": "Each segment respects map/occupancy/lane rules, the combined route respects total length, and removing a waypoint restores normal automatic routing.",
+    "relation": "New",
+    "effort": "M"
+  },
+  {
+    "id": "SIM-I25",
+    "title": "Expose occupied street-lane cells during routing",
+    "action": "Add an optional routing overlay showing available and occupied physical lane slots, distinct from packets-per-second capacity.",
+    "player_value": "Explain why a nearby link cannot use an otherwise visible road.",
+    "acceptance": "At0–4 occupied lanes each road cell shows the correct count; build/remove/reroute/undo updates it immediately and available cells agree with route admission.",
+    "relation": "New; distinct from effective throughput display T26",
+    "effort": "M"
+  }
+]

@@ -1,0 +1,43 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+B27_build {"scroll":{"font":19,"h":500.0,"visible":true,"w":284.0,"x":8.0,"y":236.0},"status":{"font":14,"h":67.0,"visible":true,"w":284.0,"x":8.0,"y":742.0}}
+B27_tech {"scroll":{"font":19,"h":560.0,"visible":true,"w":284.0,"x":8.0,"y":199.0},"status":{"font":14,"h":67.0,"visible":true,"w":284.0,"x":8.0,"y":765.0}}
+B29_scale200 {"body":{"font":16,"h":9955.0,"visible":false,"w":1.0,"x":8.0,"y":8.0},"status":{"font":14,"h":67.0,"visible":true,"w":284.0,"x":8.0,"y":742.0},"tabs":[{"rect":{"font":16,"h":31.0,"visible":true,"w":55.0,"x":8.0,"y":162.0},"text":"Build"},{"rect":{"font":16,"h":31.0,"visible":true,"w":55.0,"x":65.0,"y":162.0},"text":"Tech"},{"rect":{"font":16,"h":31.0,"visible":true,"w":55.0,"x":122.0,"y":162.0},"text":"Stats"},{"rect":{"font":16,"h":31.0,"visible":true,"w":55.0,"x":179.0,"y":162.0},"text":"Jobs"},{"rect":{"font":16,"h":31.0,"visible":true,"w":56.0,"x":236.0,"y":162.0},"text":"Menu"}],"top":{"font":18,"h":26.0,"visible":true,"w":893.0,"x":312.0,"y":7.0}}
+B29_scale200_visible_inspector {"body":{"font":16,"h":75.0,"visible":true,"w":284.0,"x":8.0,"y":233.0},"title":{"font":20,"h":28.0,"visible":true,"w":284.0,"x":8.0,"y":199.0}}
+B30_selected_menu {"info":{"font":19,"h":109.0,"visible":true,"w":284.0,"x":8.0,"y":199.0},"menu":{"font":19,"h":347.0,"visible":false,"w":284.0,"x":8.0,"y":1501.0}}
+B31_tool_help {"info":{"font":19,"h":109.0,"visible":false,"w":284.0,"x":8.0,"y":199.0},"title":"Phishing Kit"}
+B32_save_feedback "→ Build a Phishing Kit on blue Intel ground (Glasshouse Row or The Feeds) and link it to C2 — you need Intel to sell."
+B33_unlinked_alert {"text":"","visible":false}
+B35_settings_pause {"paused":false,"visible":true}
+B37_modal_shortcut {"node_on":false}
+B36_escape_settings {"paused":true,"visible":true}
+B36_escape_settings_again {"paused":false,"visible":true}
+B38_modal_background_focus {"background_focus":true}
+B38_modal_background_activation {"tool":"phish"}
+B34_alert_conflicts {"selected_id":1,"selected_tunnel":2,"title":"DNS Tunnel"}
+B34_alert_armed_tool {"selected_id":1,"title":"Phishing Kit","tool":"phish"}
+B47_warning_overlap {"overlap":true,"rate":{"font":15,"h":22.0,"visible":true,"w":361.0,"x":312.0,"y":42.0},"warning":{"font":17,"h":24.0,"visible":true,"w":359.0,"x":300.0,"y":42.0}}
+B48_roof_hit {"hit":-1,"hub":1,"hub_cell":"(1, 51)","roof_cell":"(3, 50)"}
+B28_jobs {"board":{"font":19,"h":566.0,"visible":true,"w":284.0,"x":8.0,"y":199.0},"cards":[{"font":19,"h":10.0,"visible":true,"w":284.0,"x":8.0,"y":199.0},{"font":15,"h":22.0,"visible":true,"w":284.0,"x":8.0,"y":215.0},{"font":19,"h":170.0,"visible":true,"w":284.0,"x":8.0,"y":243.0},{"font":19,"h":170.0,"visible":true,"w":284.0,"x":8.0,"y":419.0},{"font":19,"h":170.0,"visible":true,"w":284.0,"x":8.0,"y":595.0}],"status":{"font":14,"h":67.0,"visible":true,"w":284.0,"x":8.0,"y":771.0}}
+B40_victory {"label":{"font":28,"h":81.0,"visible":true,"w":883.0,"x":468.0,"y":208.0},"panel":{"font":19,"h":201.0,"visible":true,"w":899.0,"x":460.0,"y":200.0}}
+B39_pause_mouse_blocker {"dim_mouse_filter":0,"overlay":{"font":19,"h":720.0,"visible":true,"w":1280.0,"x":0.0,"y":0.0}}
+NEW_stats_fit {"stats":{"font":19,"h":551.0,"visible":true,"w":284.0,"x":8.0,"y":199.0},"status":{"font":14,"h":67.0,"visible":true,"w":284.0,"x":8.0,"y":756.0}}
+NEW_settings_200_fit {"panel":{"font":38,"h":476.0,"visible":true,"w":460.0,"x":410.0,"y":160.0}}
+NEW_long_resources {"rect":{"font":18,"h":26.0,"visible":true,"w":1319.0,"x":312.0,"y":7.0},"text":"Cycles 1000000  Intel 1000000  Crypto 1000000  Tools 1000000  Research 1000000  Cash 1000000   |   Trace 95%  ⚠   |   Up 0.0/s feed 100%   |   Goal 100%"}
+NEW_tool_selection_conflict {"build_visible":false,"info":{"font":19,"h":161.0,"visible":true,"w":284.0,"x":8.0,"y":199.0},"selected_tunnel":2,"tool":"phish"}
+NEW_proxy_inspector {"body":"The Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nZone: The Sprawl    Footprint: 2×2\nTunnel out: DNS Tunnel, latency 2 pkt → C2 Server\nStatus: DISABLED","title":"Proxy  (from Mirai Dropper)   [DISABLED]"}
+NEW_forge_inspector {"actual_conv":{"fuel":"compute","fuelcost":3.0,"in":"data","out":"tools","rate":0.6},"body":"A zero-day lab. Refines Intel (burning Cycles) into Tools — the exploits you need to breach ICE.\nZone: The Sprawl    Footprint: 2×2\nConverts Intel → Tools at 1/s (burns 3 Cycles each) while linked to C2.\nTunnel out: DNS Tunnel, latency 2 pkt → C2 Server\nStatus: DISABLED"}
+NEW_lab_inspector {"actual_conv":{"fuel":"compute","fuelcost":2.0,"in":"data","out":"research","rate":0.5},"body":"A reverse-engineering rig. Grinds Intel (burning Cycles) into Research — the know-how to unlock new facilities.\nZone: The Sprawl    Footprint: 2×2\nConverts Intel → Research at 1/s (burns 2 Cycles each) while linked to C2.\nTunnel out: DNS Tunnel, latency 2 pkt → C2 Server\nStatus: DISABLED"}
+NEW_proxy_intel_inspector {"body":"An Emotet-style mail lure sprayed across an office. Sweeps Intel from inboxes in range.\nZone: The Sprawl    Footprint: 2×2\nSweeps Intel within 6 tiles.\nTunnel out: DNS Tunnel, latency 2 pkt → C2 Server\nStatus: DISABLED"}
+NEW_quarantine_inspector {"body":"An Emotet-style mail lure sprayed across an office. Sweeps Intel from inboxes in range.\nZone: The Sprawl    Footprint: 2×2\nProduces: Intel 1.0/s\nCovers 5 buildings  →  ×1.0 output (denser = more)\nSweeps Intel within 6 tiles.\nTunnel out: DNS Tunnel, latency 2 pkt → C2 Server\nStatus: OFFLINE — no path to C2","parent":1,"quarantine":4.9}
+NEW_hot_trace_loss_label {"body":"iodine-style: data smuggled inside DNS queries. Small, cheap, silent.\nLatency: 2 pkt    Capacity: 3/s\nLinks Phishing Kit → C2 Server\nNote: 22% distance loss on this long link (normal). A Proxy or a shorter hop reduces it.","edge":{"cap":3.0,"delivered":0.776,"frac":0.776,"offered":1.0,"over":false},"path_cells":2,"trace":94.76}
+NEW_sweep_hops {"route_edges":1,"text":"⚠ ICE SWEEP — 2 hops to C2"}
+NEW_modal_keyboard_pan {"camera_moved":true,"raw_key_pressed":true}
+B49_seed_texture {"same_texture":true}
+B44_legend_palette {"matches_settings":false,"same_label_color":true}
+B41_menu_motion {"animation_time_after_one_second":1.0,"reduced_motion":true}
+NEW_minimap_outside_drag {"camera":"(-422.5352, -810.8109)","map_min":"(0,0)"}
+B45_slow_drag {"recognized":false,"total_motion":40,"viewport_mouse":"(700.0, 400.0)"}
+B46_latched_pan {"pan_without_buttons":true,"viewport_mouse":"(700.0, 400.0)"}

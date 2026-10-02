@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://ckdt7syglb5rj"
+
+[deps]
+
+files=["res://review/REVERIFIED_BACKLOG.Type.translation", "res://review/REVERIFIED_BACKLOG.Priority.translation", "res://review/REVERIFIED_BACKLOG.Evidence.translation", "res://review/REVERIFIED_BACKLOG.Effort.translation", "res://review/REVERIFIED_BACKLOG.Area.translation", "res://review/REVERIFIED_BACKLOG.Title.translation", "res://review/REVERIFIED_BACKLOG.Observation.translation", "res://review/REVERIFIED_BACKLOG.Action.translation", "res://review/REVERIFIED_BACKLOG.Acceptance.translation", "res://review/REVERIFIED_BACKLOG.Source.translation", "res://review/REVERIFIED_BACKLOG.Status.translation", "res://review/REVERIFIED_BACKLOG.Prior_ID.translation", "res://review/REVERIFIED_BACKLOG.Dependency.translation", "res://review/REVERIFIED_BACKLOG.Evidence.translation"]
+
+source_file="res://review/REVERIFIED_BACKLOG.csv"
+dest_files=["res://review/REVERIFIED_BACKLOG.Type.translation", "res://review/REVERIFIED_BACKLOG.Priority.translation", "res://review/REVERIFIED_BACKLOG.Evidence.translation", "res://review/REVERIFIED_BACKLOG.Effort.translation", "res://review/REVERIFIED_BACKLOG.Area.translation", "res://review/REVERIFIED_BACKLOG.Title.translation", "res://review/REVERIFIED_BACKLOG.Observation.translation", "res://review/REVERIFIED_BACKLOG.Action.translation", "res://review/REVERIFIED_BACKLOG.Acceptance.translation", "res://review/REVERIFIED_BACKLOG.Source.translation", "res://review/REVERIFIED_BACKLOG.Status.translation", "res://review/REVERIFIED_BACKLOG.Prior_ID.translation", "res://review/REVERIFIED_BACKLOG.Dependency.translation", "res://review/REVERIFIED_BACKLOG.Evidence.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

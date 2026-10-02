@@ -1,0 +1,42 @@
+﻿[
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\city_layer.gd",
+        "Hash":  "DF850C19D3C88791AA31AA5957DDAE65818701E497D84984EA2BD53043A32808"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\glyphs.gd",
+        "Hash":  "318344CDDD102B33F6399B98B1940E903CE64C728E680612B124A59B4473D017"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\glyph_icon.gd",
+        "Hash":  "951A3622B2D3A9A4E7BC6DEF2D05BD1359AAC42AB9576733E71DED6FACC7770A"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\graph.gd",
+        "Hash":  "D81BBFC510A5CD5725DAB7BD56E3610414223AD379C85E7125A37C44AE8E796F"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\main.gd",
+        "Hash":  "30A0A1B4A6CBADFD22B5DE01021ED62798899141EDBD4C717DFC5D8F71F17D63"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\menu.gd",
+        "Hash":  "F37786A0680B6DE0C3FD1ED2DA637AF8662B0FFB318912118DB35C903BB6BC44"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\minimap.gd",
+        "Hash":  "1611B9D71AE7B2CFD1B2EB4C66050E3DCC47B4DBC3CED48C421A1AD6F26226F9"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\session.gd",
+        "Hash":  "E35C7DFCD32D3C072AC2C7907DBB2B203257F488D1D88BE94B318F6C116993CB"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\settings.gd",
+        "Hash":  "0243955D1B8CFE1E6B3CD05887ACF4C849EAFEBB1332438851B780099613969A"
+    },
+    {
+        "Path":  "C:\\Users\\steph\\Documents\\GitHub\\rim\\scripts\\ui.gd",
+        "Hash":  "A30A2A1BE5F2EDE71632CB7454F378C7DE2D76262F4184EF6B005ABE13397007"
+    }
+]

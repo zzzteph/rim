@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://ljqh42un2ncu"
+
+[deps]
+
+files=["res://review/REVERIFY_100_IMPROVEMENTS.Type.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Priority.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Evidence.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Effort.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Area.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Title.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Observation.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Action.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Acceptance.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Source.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Status.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Prior_ID.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Dependency.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Evidence.translation"]
+
+source_file="res://review/REVERIFY_100_IMPROVEMENTS.csv"
+dest_files=["res://review/REVERIFY_100_IMPROVEMENTS.Type.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Priority.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Evidence.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Effort.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Area.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Title.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Observation.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Action.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Acceptance.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Source.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Status.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Prior_ID.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Dependency.translation", "res://review/REVERIFY_100_IMPROVEMENTS.Evidence.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

@@ -1,0 +1,62 @@
+{
+  "source_version": "0.5.6",
+  "review_date": "2026-10-02",
+  "timezone": "Europe/Berlin",
+  "source_scripts": [
+    {
+      "file": "scripts/city_layer.gd",
+      "sha256": "df850c19d3c88791aa31aa5957ddae65818701e497d84984ea2bd53043a32808",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/glyph_icon.gd",
+      "sha256": "951a3622b2d3a9a4e7bc6def2d05bd1359aac42ab9576733e71ded6facc7770a",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/glyphs.gd",
+      "sha256": "318344cddd102b33f6399b98b1940e903ce64c728e680612b124a59b4473d017",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/graph.gd",
+      "sha256": "d81bbfc510a5cd5725dab7bd56e3610414223ad379c85e7125a37c44ae8e796f",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/main.gd",
+      "sha256": "30a0a1b4a6cbadfd22b5de01021ed62798899141edbd4c717dfc5d8f71f17d63",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/menu.gd",
+      "sha256": "f37786a0680b6de0c3fd1ed2da637af8662b0ffb318912118db35c903bb6bc44",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/minimap.gd",
+      "sha256": "1611b9d71ae7b2cfd1b2eb4c66050e3dcc47b4dbc3ced48c421a1ad6f26226f9",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/session.gd",
+      "sha256": "e35c7dfcd32d3c072ac2c7907dbb2b203257f488d1d88be94b318f6c116993cb",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/settings.gd",
+      "sha256": "0243955d1b8cfe1e6b3cd05887acf4c849eafebb1332438851b780099613969a",
+      "snapshot_gameplay_matches": true
+    },
+    {
+      "file": "scripts/ui.gd",
+      "sha256": "a30a2a1be5f2ede71632cb7454f378c7de2d76262f4184ef6b005abe13397007",
+      "snapshot_gameplay_matches": true
+    }
+  ],
+  "snapshot_differences": [
+    "Session.SAVE_PATH redirected into snapshot",
+    "Settings.PATH redirected into snapshot",
+    "Text file BOM/line ending differences from copying"
+  ]
+}

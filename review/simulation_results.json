@@ -1,0 +1,113 @@
+[
+	{
+		"observed": {
+			"boost_saved": false,
+			"contracts_saved": false,
+			"notoriety_saved": false,
+			"packet_value_saved": false,
+			"quarantine_saved": false,
+			"run_time_saved": false
+		},
+		"probe": "save_schema"
+	},
+	{
+		"observed": {
+			"loaded_value": 1.0,
+			"original_value": 0.5
+		},
+		"probe": "packet_reload_value"
+	},
+	{
+		"observed": {
+			"child_reachable": true,
+			"disabled_link_has_live_edge": true,
+			"disabled_node_reachable": true,
+			"total_upkeep": 0.05
+		},
+		"probe": "disabled_junction"
+	},
+	{
+		"observed": {
+			"market_on": false,
+			"packet_resource_after_crossing": "credits"
+		},
+		"probe": "disabled_market_conversion"
+	},
+	{
+		"observed": {
+			"data_debited": 3.0,
+			"in_transit_packets": 3,
+			"offered": 0.0
+		},
+		"probe": "converter_load"
+	},
+	{
+		"observed": {
+			"advertised_cap": 3.0,
+			"delivered_exceeds_cap": true,
+			"model_delivered": 11.54,
+			"offered": 115.4
+		},
+		"probe": "capacity_floor"
+	},
+	{
+		"observed": {
+			"blackout_seconds": 4.0,
+			"cash_after": 75.0,
+			"cut_parent": -1
+		},
+		"probe": "sweep_after_cut_tunnel"
+	},
+	{
+		"observed": {
+			"cash_reward": 50.0,
+			"compute_after": 80.0,
+			"research_reward": 5.0
+		},
+		"probe": "stock_contract"
+	},
+	{
+		"observed": {
+			"placed": true,
+			"spot": [
+				4,
+				2
+			],
+			"tools_after_build": -1.0
+		},
+		"probe": "converter_ice_affordability"
+	},
+	{
+		"observed": {
+			"tools_after_clamp_and_undo": 1.0
+		},
+		"probe": "unpaid_ice_undo"
+	},
+	{
+		"observed": {
+			"accumulator": 0.3,
+			"packets_after_refill": 1
+		},
+		"probe": "converter_buffer"
+	},
+	{
+		"observed": {
+			"cycles_after_load": 1000.0,
+			"cycles_after_undo": 1005.0,
+			"loaded_tunnel_absent": true
+		},
+		"probe": "load_stale_undo"
+	},
+	{
+		"observed": {
+			"can_afford_mirai": false,
+			"cash_after_100_seconds": 0.0,
+			"cycles_after_100_seconds": 0.0,
+			"data_after_100_seconds": 0.0,
+			"producers": 0,
+			"structures": 4,
+			"undo_records_after_continue": 0
+		},
+		"probe": "legal_opening_recovery"
+	}
+]

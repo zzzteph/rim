@@ -1,0 +1,13 @@
+{
+  "version": "0.5.8",
+  "previous_findings": 50,
+  "previous_closed": 0,
+  "further_findings": 12,
+  "audit_findings": 62,
+  "defects": 55,
+  "rule_mismatches": 7,
+  "engine_backed_findings": 55,
+  "improvement_proposals": 100,
+  "total_rows": 162,
+  "production_hashes_unchanged": true
+}

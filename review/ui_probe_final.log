@@ -1,0 +1,36 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+VIEWPORT [P: (0.0, 0.0), S: (1280.0, 720.0)]
+BUILD [P: (8.0, 236.0), S: (284.0, 500.0)] visible=true min=(284.0, 500.0)
+STATUS [P: (8.0, 742.0), S: (284.0, 67.0)] visible=true min=(1.0, 67.0)
+HUD [P: (312.0, 7.0), S: (893.0, 26.0)] visible=true min=(893.0, 26.0)
+DEFAULT FONTS top/body/status 18/16/14
+TECH [P: (8.0, 199.0), S: (284.0, 560.0)] visible=true min=(284.0, 560.0)
+TECH STATUS [P: (8.0, 765.0), S: (284.0, 67.0)] visible=true min=(1.0, 67.0)
+SCALE200 BUILD [P: (8.0, 236.0), S: (284.0, 500.0)] visible=true min=(284.0, 500.0)
+SCALE200 STATUS [P: (8.0, 742.0), S: (284.0, 67.0)] visible=true min=(1.0, 67.0)
+SCALE200 FONTS top/body/status 18/16/14
+SCALE200 TAB Build [P: (8.0, 162.0), S: (55.0, 31.0)] visible=true min=(8.0, 31.0) fontsize=16
+SCALE200 TAB Tech [P: (65.0, 162.0), S: (55.0, 31.0)] visible=true min=(8.0, 31.0) fontsize=16
+SCALE200 TAB Stats [P: (122.0, 162.0), S: (55.0, 31.0)] visible=true min=(8.0, 31.0) fontsize=16
+SCALE200 TAB Jobs [P: (179.0, 162.0), S: (55.0, 31.0)] visible=true min=(8.0, 31.0) fontsize=16
+SCALE200 TAB Menu [P: (236.0, 162.0), S: (56.0, 31.0)] visible=true min=(8.0, 31.0) fontsize=16
+ARMED INFO [P: (8.0, 8.0), S: (1.0, 3336.0)] visible=false min=(1.0, 3336.0) title=Phishing Kit
+SELECTED MENU [P: (8.0, 1501.0), S: (284.0, 217.0)] visible=false min=(62.0, 217.0) INFO [P: (8.0, 199.0), S: (284.0, 109.0)] visible=true min=(1.0, 109.0)
+TUNNEL THEN TOOL selection=1 build=false info=true
+SAVE FEEDBACK status=→ Build a Phishing Kit on blue Intel ground (Glasshouse Row or The Feeds) and link it to C2 — you need Intel to sell.
+SETTINGS PAUSED false visible=true
+SETTINGS ESC PAUSED true visible=true
+SETTINGS ESC AGAIN PAUSED false visible=true
+JOBS [P: (8.0, 199.0), S: (284.0, 566.0)] visible=true min=(105.0, 566.0)
+JOBS STATUS [P: (8.0, 771.0), S: (284.0, 67.0)] visible=true min=(1.0, 67.0)
+JOB CHILD [P: (8.0, 199.0), S: (284.0, 10.0)] visible=true min=(3.0, 10.0)
+JOB CHILD [P: (8.0, 215.0), S: (284.0, 22.0)] visible=true min=(105.0, 22.0)
+JOB CHILD [P: (8.0, 243.0), S: (284.0, 170.0)] visible=true min=(24.0, 170.0)
+JOB CHILD [P: (8.0, 419.0), S: (284.0, 170.0)] visible=true min=(24.0, 170.0)
+JOB CHILD [P: (8.0, 595.0), S: (284.0, 170.0)] visible=true min=(24.0, 170.0)
+VICTORY PAUSED false overlay=true
+VICTORY LABEL [P: (468.0, 208.0), S: (883.0, 81.0)] visible=true min=(883.0, 81.0) PANEL [P: (460.0, 200.0), S: (899.0, 201.0)] visible=true min=(899.0, 201.0)
+FOCUS <Object#null>

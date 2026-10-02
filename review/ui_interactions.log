@@ -1,0 +1,13 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2582)
+UNLINKED OFFLINE ALERT false connected=false
+SETTINGS SHORTCUT disabled=true
+PREMODAL FOCUS @Button@43:<Button#35433481786>
+MODAL FOCUS @Button@43:<Button#35433481786> background=true
+MODAL ENTER TOOL phish
+ALERT AFTER TUNNEL selected_id=1 selected_tunnel=2 title=DNS Tunnel
+WARNING RECT [P: (300.0, 42.0), S: (359.0, 24.0)] RATE RECT [P: (312.0, 42.0), S: (361.0, 22.0)] overlap=true
+ROOFTOP HIT -1 hub=1 roofcell=(3, 50) hubcell=(1, 51)
+SLOW40PX DRAG recognized=false

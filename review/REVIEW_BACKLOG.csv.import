@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://y5v01fwuwq3a"
+
+[deps]
+
+files=["res://review/REVIEW_BACKLOG.Type.translation", "res://review/REVIEW_BACKLOG.Priority.translation", "res://review/REVIEW_BACKLOG.Evidence.translation", "res://review/REVIEW_BACKLOG.Effort.translation", "res://review/REVIEW_BACKLOG.Area.translation", "res://review/REVIEW_BACKLOG.Title.translation", "res://review/REVIEW_BACKLOG.Observation or proposal.translation", "res://review/REVIEW_BACKLOG.Recommended action or player value.translation", "res://review/REVIEW_BACKLOG.Source.translation"]
+
+source_file="res://review/REVIEW_BACKLOG.csv"
+dest_files=["res://review/REVIEW_BACKLOG.Type.translation", "res://review/REVIEW_BACKLOG.Priority.translation", "res://review/REVIEW_BACKLOG.Evidence.translation", "res://review/REVIEW_BACKLOG.Effort.translation", "res://review/REVIEW_BACKLOG.Area.translation", "res://review/REVIEW_BACKLOG.Title.translation", "res://review/REVIEW_BACKLOG.Observation or proposal.translation", "res://review/REVIEW_BACKLOG.Recommended action or player value.translation", "res://review/REVIEW_BACKLOG.Source.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true
