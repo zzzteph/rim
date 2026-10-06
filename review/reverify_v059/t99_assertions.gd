@@ -385,17 +385,28 @@ func run() -> void:
 	var pb: Rect2 = game._path_bounds(2)
 	check("B52_path_bounds_cover_detour", pb.size.y >= 30.0 * game.TILE, "h=%s" % pb.size.y)
 
-	# Contracts: progress is baselined at acceptance — holding the amount never auto-wins
+	# Contracts: progress is baselined at acceptance — holding the amount never auto-wins, and
+	# SIM09: a direct wallet increase (refund / emergency grant) must NOT advance a delivery job.
 	reset()
 	game.resources.compute = 80.0
+	game._delivered_total = {}
 	game.contracts = [{"id": 1, "kind": "stock", "res": "compute", "amount": 20.0, "accepted": false, "done": false, "reward_cash": 50.0, "reward_rp": 5.0, "deadline": 90.0, "client": "TestCo", "desc": "Deliver 20 Cycles"}]
 	game.accept_contract(1)
 	game._update_contracts(0.1)
 	var done_now: bool = game.contracts.size() > 0 and game.contracts[0].done
-	game.resources.compute += 20.0
+	game.resources.compute += 20.0   # a refund-style wallet bump, not a delivery
 	game._update_contracts(0.1)
-	var done_earned: bool = game.contracts.size() > 0 and game.contracts[0].done
-	check("Contract_no_autowin", (not done_now) and done_earned, "immediate=%s after_earning=%s" % [done_now, done_earned])
+	var done_refund: bool = game.contracts.size() > 0 and game.contracts[0].done
+	check("Contract_no_autowin", (not done_now) and (not done_refund), "immediate=%s after_refund=%s" % [done_now, done_refund])
+
+	# SIM09: genuine C2 deliveries advance the job, and later consumption does not un-complete it.
+	game._delivered_total["compute"] = 20.0   # 20 units actually banked at C2
+	game._update_contracts(0.1)
+	var done_delivered: bool = game.contracts.size() > 0 and game.contracts[0].done
+	game.resources.compute = 0.0              # a Market/Lab consumes the stock afterwards
+	game._update_contracts(0.1)
+	var still_done: bool = game.contracts.size() > 0 and game.contracts[0].done
+	check("SIM09_delivery_counts_not_wallet", done_delivered and still_done, "delivered=%s still_done=%s" % [done_delivered, still_done])
 
 	# B09: a footprint over an active tunnel cell is refused
 	reset()
@@ -440,6 +451,213 @@ func run() -> void:
 	# region 1 must be judged by region 1 (full), not region 0 (empty).
 	check("B54_slots_use_centre_district", game._slots_left(Vector2i(5, 3)) <= 0 and game._slots_left(Vector2i(4, 2)) > 0,
 		"centre_slots=%d origin_slots=%d" % [game._slots_left(Vector2i(5, 3)), game._slots_left(Vector2i(4, 2))])
+
+	# B04: a converting Market reports non-zero offered load on its edge
+	reset()
+	game.resources.data = 100.0
+	game._sim_tick(1.0)
+	check("B04_converter_load_counted", float(game._edge.get(2, {}).get("offered", 0.0)) > 0.0,
+		"offered=%s" % game._edge.get(2, {}).get("offered", "?"))
+
+	# B10: _is_building_cell matches the authoritative _block_desc geometry (incl. farm narrow)
+	reset()
+	game._generate_city()
+	var mism := 0
+	for by in range(0, 25):
+		for bx in range(0, 25):
+			var d = game._block_desc(bx, by)
+			for ly in range(3):
+				for lx in range(3):
+					var expect: bool = d.rendered and not (d.narrow and ly >= 1)
+					if game._is_building_cell(Vector2i(bx * 4 + lx, by * 4 + ly)) != expect:
+						mism += 1
+	check("B10_building_matches_render", mism == 0, "mismatches=%d" % mism)
+
+	# B48: a click on the elevated tower silhouette selects the node; its ground cell does not
+	reset()
+	var o48: Vector2i = game.nodes[2].cell
+	var pr48 = game.STRUCT.get(game.nodes[2].type, {"h": 14})
+	var h48 := float(pr48.h)
+	var roof := Vector2((float(o48.x) + 0.5) * game.TILE + h48 * 0.35, float(o48.y) * game.TILE - h48 * 0.5)
+	check("B48_silhouette_selects_tower",
+		game._node_at_silhouette(roof) == 2 and game._node_at(Vector2i(floori(roof.x / game.TILE), floori(roof.y / game.TILE))) == -1,
+		"sil=%d" % game._node_at_silhouette(roof))
+
+	# B43: a producer marker follows the colour-blind resource palette
+	reset()
+	var S = root.get_node("Settings")
+	S.cb = true
+	var cbcol: Color = game._sem_color("botfarm")
+	var cbexp: Color = S.res_color("compute")
+	S.cb = false
+	check("B43_marker_follows_palette", cbcol == cbexp)
+
+	# T15: canonical operational vocabulary, one state per condition
+	reset()
+	game.nodes[3] = node(3, "nest", Vector2i(13, 5), 1, [Vector2i(12, 5)])
+	game._connected = {1: true, 2: true, 3: true}
+	game._edge = {}
+	var ok15 := true
+	ok15 = ok15 and game._op_state(3) == "producing"
+	game.nodes[3].on = false
+	ok15 = ok15 and game._op_state(3) == "disabled"
+	game.nodes[3].on = true
+	game.nodes[3].relay = true
+	ok15 = ok15 and game._op_state(3) == "forwarding"
+	game.nodes[3].relay = false
+	game.nodes[3].parent = -1
+	ok15 = ok15 and game._op_state(3) == "unlinked"
+	game.nodes[3].parent = 1
+	game._connected.erase(3)
+	ok15 = ok15 and game._op_state(3) == "offline"
+	game._connected = {1: true, 2: true, 3: true}
+	game.nodes[3].quarantine = 5.0
+	ok15 = ok15 and game._op_state(3) == "quarantined"
+	game.nodes[3].quarantine = 0.0
+	game._edge = {3: {"over": true}}
+	ok15 = ok15 and game._op_state(3) == "overloaded"
+	check("T15_canonical_states", ok15,
+		"producing/disabled/forwarding/unlinked/offline/quarantined/overloaded")
+
+	# T42: an unaccepted contract can be declined; an accepted one cannot
+	reset()
+	game.contracts = [{"id": 5, "kind": "stock", "res": "compute", "amount": 20.0, "accepted": false, "done": false, "client": "X", "desc": "d", "reward_cash": 0.0, "reward_rp": 0.0, "deadline": 90.0}]
+	game.decline_contract(5)
+	var declined_ok: bool = game.contracts.is_empty()
+	game.contracts = [{"id": 6, "kind": "stock", "res": "compute", "amount": 20.0, "accepted": true, "done": false, "client": "Y", "desc": "d", "reward_cash": 0.0, "reward_rp": 0.0, "deadline": 90.0}]
+	game.decline_contract(6)
+	check("T42_decline_unaccepted_only", declined_ok and game.contracts.size() == 1,
+		"declined=%s accepted_kept=%d" % [declined_ok, game.contracts.size()])
+
+	# T26: the inspector capacity source reflects the EFFECTIVE edge cap set by the simulation
+	reset()
+	game.nodes[2].parent = 1
+	game._connected = {1: true, 2: true}
+	game._sim_tick(0.1)
+	check("T26_effective_cap_present", game._edge.has(2) and game._edge[2].has("cap"),
+		"cap=%s" % game._edge.get(2, {}).get("cap", "?"))
+
+	# T29: reroute is cancel-safe, one atomic swap, and undo restores the exact old edge
+	reset()
+	game.nodes[3] = node(3, "fence", Vector2i(13, 9), 1, [Vector2i(12, 9)])
+	game._connected = {1: true, 2: true, 3: true}
+	var old_parent: int = game.nodes[2].parent   # 1 (hub)
+	game.selected_id = 2
+	game.begin_reroute()
+	var arming: bool = game._rerouting and game.pending_child == 2 and game.nodes[2].parent == old_parent  # old link intact while arming
+	game._try_tunnel(game.nodes[3].cell)          # commit to the new parent
+	var swapped: bool = game.nodes[2].parent == 3 and not game._rerouting and game.pending_child == -1
+	game.undo_last()
+	var restored29: bool = game.nodes[2].parent == old_parent
+	check("T29_reroute_atomic_undo", arming and swapped and restored29,
+		"arm=%s swap=%s restored=%s" % [arming, swapped, restored29])
+
+	# T42 (generation): contracts only offer resources the player can actually produce
+	reset()
+	game._connected = {1: true, 2: true}   # only hub + a Market (fence → credits), no producers
+	game.nodes[3] = node(3, "phish", Vector2i(13, 5), 1, [Vector2i(12, 5)])
+	game._connected[3] = true
+	var reach = game._reachable_resources()
+	check("T42_reachable_resources", ("data" in reach) and not ("crypto" in reach),
+		"reach=%s" % str(reach))
+
+	# SIM01: a malformed path point ([[1]]) is refused and the live run is left intact
+	clear_saves()
+	reset()
+	game.save_game()
+	var sp: String = root.get_node("Session").SAVE_PATH
+	var draw = JSON.parse_string(FileAccess.get_file_as_string(sp))
+	for nk in draw.nodes:
+		draw.nodes[nk].path = [[1]]   # 1-element point → _apply_save would index-error
+		break
+	var wf3 := FileAccess.open(sp, FileAccess.WRITE); wf3.store_string(JSON.stringify(draw)); wf3.close()
+	var nbefore: int = game.nodes.size()
+	check("SIM01_malformed_path_refused", game.load_game() == false and game.nodes.size() == nbefore)
+
+	# SIM01/SIM02: graph / schema invariants are validated before application
+	reset()
+	var sdang = game._serialize(); sdang.nodes["2"].parent = 999
+	var sresearch = game._serialize(); sresearch.researched = ["not_a_real_tech"]
+	var sdup = game._serialize(); sdup.next_id = 1
+	var szoom = game._serialize(); szoom.camera = [0.0, 0.0, 0.0]
+	check("SIM02_validates_graph_and_numbers",
+		game._validate_save(sdang) != "" and game._validate_save(sresearch) != ""
+		and game._validate_save(sdup) != "" and game._validate_save(szoom) != ""
+		and game._validate_save(game._serialize()) == "")
+
+	# SIM05: saving over a parseable-but-invalid current file preserves the last-good backup
+	clear_saves()
+	reset(); game.resources.compute = 111.0; game.save_game()
+	reset(); game.resources.compute = 222.0; game.save_game()   # backup now = 111
+	var cf3 := FileAccess.open(sp, FileAccess.WRITE); cf3.store_string('{"version":"x"}'); cf3.close()
+	reset(); game.resources.compute = 333.0; game.save_game()   # must NOT clobber the backup
+	var bak = game._json_or_null(FileAccess.get_file_as_string(root.get_node("Session").BACKUP_PATH))
+	check("SIM05_backup_preserved_over_invalid",
+		typeof(bak) == TYPE_DICTIONARY and game._validate_save(bak) == "" and approx(float(bak.resources.compute), 111.0),
+		"backup_compute=%s" % (bak.resources.compute if typeof(bak) == TYPE_DICTIONARY else "?"))
+
+	# SIM10: a processor that cannot afford fuel offers ZERO conversion load (no phantom overload).
+	# fence (Market) converts data->credits with no fuel; forge consumes a fuel resource.
+	reset()
+	game.nodes = {1: node(1, "hub", Vector2i(5, 5)), 2: node(2, "forge", Vector2i(9, 5), 1, [Vector2i(8, 5)])}
+	game._connected = {1: true, 2: true}
+	var cv: Dictionary = game.CONV.get("forge", {})
+	if cv.has("fuel"):
+		game.resources[cv.in] = 50.0
+		game.resources[cv.fuel] = 0.0
+		var starved_load: float = game._node_traffic(2)
+		game.resources[cv.fuel] = 100.0
+		var fed_load: float = game._node_traffic(2)
+		check("SIM10_fuel_starved_offers_zero", approx(starved_load, 0.0) and fed_load > 0.0, "starved=%s fed=%s" % [starved_load, fed_load])
+	else:
+		check("SIM10_fuel_starved_offers_zero", true, "forge has no fuel cost — n/a")
+
+	# SIM13: a DISABLED forwarder still carrying its children's packets keeps emitting its TCP
+	# noise; a truly idle (no-transit) link is quiet. Both scenarios share the same disabled TCP
+	# fence; only the child's activity differs, so the trace delta isolates the forwarding noise.
+	# (Start from a mid-range trace so steady decay doesn't clamp the difference to the 0 floor.)
+	var _sim13 := func(child_on: bool) -> float:
+		reset()
+		game.nodes = {
+			1: node(1, "hub", Vector2i(5, 5)),
+			2: node(2, "fence", Vector2i(9, 5), 1, [Vector2i(8, 5)]),   # disabled TCP forwarder
+			3: node(3, "nest", Vector2i(13, 5), 2, [Vector2i(12, 5)]),  # producer behind it
+		}
+		game.nodes[2].tunnel = "tcp"; game.nodes[2].on = false
+		game.nodes[3].tunnel = "dns"; game.nodes[3].on = child_on
+		game.trace = 50.0
+		game._sim_tick(1.0)
+		return game.trace
+	var trace_forwarding: float = _sim13.call(true)   # child producing → fence link carries transit
+	var trace_idle: float = _sim13.call(false)         # child off → fence link idle
+	check("SIM13_disabled_forwarder_still_noisy", trace_forwarding > trace_idle,
+		"forwarding=%.3f idle=%.3f (TCP transit noise applied despite on=false)" % [trace_forwarding, trace_idle])
+
+	# SIM16: DDoS is a recovery action — it clears quarantine timers, not just Trace.
+	reset()
+	game.resources.compute = 1000.0; game.resources.tools = 10.0
+	game.nodes[2].quarantine = 7.0
+	game.trace = 80.0
+	game.scrub_trace()
+	check("SIM16_ddos_clears_quarantine",
+		approx(float(game.nodes[2].get("quarantine", 0.0)), 0.0) and approx(game.trace, 0.0),
+		"q=%s trace=%s" % [game.nodes[2].get("quarantine", 0.0), game.trace])
+
+	# RIM-079: the cached binary-search point lookup must match the linear walk at every distance
+	# and beyond both ends (used for packet heads/trails/drops in either travel direction).
+	reset()
+	var poly := PackedVector2Array([Vector2(0, 0), Vector2(100, 0), Vector2(100, 40), Vector2(160, 40), Vector2(160, 200)])
+	var cum := PackedFloat32Array()
+	cum.resize(poly.size()); cum[0] = 0.0
+	var tot := 0.0
+	for s in range(poly.size() - 1):
+		tot += poly[s].distance_to(poly[s + 1]); cum[s + 1] = tot
+	var pl := {"pts": poly, "cum": cum, "total": tot}
+	var worst := 0.0
+	for q in 60:
+		var dd := float(q) / 49.0 * tot   # sweep the whole route and a bit past the far end
+		worst = maxf(worst, game._point_on(pl, dd).distance_to(game._point_at_dist(poly, dd)))
+	check("RIM079_point_on_matches_linear", worst < 0.01, "max deviation=%.5f px over [0,total+] samples" % worst)
 
 	print("\nT99 SUMMARY: %d passed, %d failed" % [pass_count, fail_count])
 	var out := FileAccess.open("res://t99_results.json", FileAccess.WRITE)

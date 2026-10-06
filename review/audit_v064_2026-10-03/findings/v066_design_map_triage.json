@@ -1,0 +1,313 @@
+{
+  "snapshot_directory": "source_v066",
+  "declared_project_version": "0.6.7",
+  "warning": "Directory suffix and declared project version differ; content is authoritative.",
+  "source_hashes": {
+    "main.gd": "7f17d3fa31f0f671e1f1a68cc5351e19fdf359a6d3dd529654ba634497200f60",
+    "minimap.gd": "b69fbc050eea1b6ae5c600fc6a5a4f51f22057af414e11b9dbb050900ecdf0a2",
+    "menu.gd": "3eb070f726f749dd73ae10207759c03f5438dcf7126fc752ed6614d85ae9dc5b",
+    "ui.gd": "b55b420b1522f248a58e100cfd0156919108402f81da456adbb14397d97eacce"
+  },
+  "method": "Read-only source triage against source_v065, preserving labelled v064 screenshot/headless evidence only where relevant code still supports the claim. No new runtime playthrough is claimed.",
+  "design_count_after_replacements": 13,
+  "map_count": 14,
+  "removed_fixed": [
+    {
+      "key": "D-CONTRACT-ROTATION",
+      "status": "fixed_remove",
+      "source": "scripts/main.gd:2097",
+      "evidence": "decline_contract removes unaccepted offers, advances cooldown to at most six seconds, and Jobs provides a Decline button."
+    },
+    {
+      "key": "D-CONTRACT-ELIGIBILITY",
+      "status": "fixed_remove",
+      "source": "scripts/main.gd:1716",
+      "evidence": "_reachable_resources collects connected enabled producer/converter outputs; stock options filter through this set, with a Cycles fallback."
+    }
+  ],
+  "promote_replacements": [
+    "D-INPLACE-UPGRADES",
+    "D-SEED-REPLAY"
+  ],
+  "design": [
+    {
+      "key": "D-HOST-DISCOVERY",
+      "title": "Add a small discover-and-compromise loop before automation",
+      "status": "present",
+      "current_source": "scripts/main.gd:1408",
+      "anchor_function": "_try_place_node",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Placement still instantly creates an owned producer; discovery/acquisition states remain a proposal."
+    },
+    {
+      "key": "D-HOST-OWNERSHIP",
+      "title": "Make compromised hosts look acquired rather than newly constructed",
+      "status": "present",
+      "current_source": "scripts/main.gd:2373",
+      "anchor_function": "_draw_building",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Player nodes still use tiered architecture, roof and window profiles. Canonical inspector operational-state labels do not change ownership rendering."
+    },
+    {
+      "key": "D-OPENING-CYCLES",
+      "title": "Teach a sustainable Cycles backbone before expanding Intel sales",
+      "status": "present",
+      "current_source": "scripts/main.gd:1283",
+      "anchor_function": "_next_step",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "The new post-build recovery-reserve forecast does not change _next_step: opening guidance still asks for Intel before testing sustainable Cycles income."
+    },
+    {
+      "key": "D-START-FAIRNESS",
+      "title": "Validate an accessible starter route for each generated map",
+      "status": "present",
+      "current_source": "scripts/main.gd:378",
+      "anchor_function": "_place_hub",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Generation and first-residential hub placement remain unvalidated for a guaranteed affordable opening route."
+    },
+    {
+      "key": "D-GOAL-REINVESTMENT",
+      "title": "Separate victory progress from the wallet spent on upgrades",
+      "status": "present",
+      "current_source": "scripts/main.gd:1754",
+      "anchor_function": "_sim_tick",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Victory still uses current credits >= 1000; facility and tunnel Cash purchases reduce that same wallet."
+    },
+    {
+      "key": "D-SPIRE-PAYOFF",
+      "title": "Give the central Spire a simple end-of-run purpose",
+      "status": "present",
+      "current_source": "scripts/main.gd:334",
+      "anchor_function": "_generate_city",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Spire remains an ICE-3 district with no unique completion operation; Cash is still the only win check."
+    },
+    {
+      "key": "D-SEED-REPLAY",
+      "title": "Allow players to replay and share a map seed",
+      "status": "promote_replacement",
+      "current_source": "scripts/menu.gd:171",
+      "anchor_function": "_new_game",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Promote replacement: New Game still assigns randi(), with no seed field or restart-same-seed action. Menu Accessibility additions do not provide map replay."
+    },
+    {
+      "key": "D-INPLACE-UPGRADES",
+      "title": "Permit a small set of producer upgrades that preserve the route",
+      "status": "promote_replacement",
+      "current_source": "scripts/main.gd:1534",
+      "anchor_function": "_remove_node",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Promote replacement: begin_reroute changes an existing edge, not producer type. Replacing a producer still requires removal, which detaches its children."
+    },
+    {
+      "key": "D-ONION-NICHE",
+      "title": "Make Onion Routing's long-reach promise measurable",
+      "status": "present",
+      "current_source": "scripts/main.gd:60",
+      "anchor_function": "constants",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Every TUNNEL_MAXLEN remains 255; long-route niche recommendation is still valid."
+    },
+    {
+      "key": "D-RESEARCH-IDLE",
+      "title": "Stop optional Labs consuming inputs after the last useful unlock",
+      "status": "present",
+      "current_source": "scripts/main.gd:1754",
+      "anchor_function": "_sim_tick",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Lab consumption still runs after the finite TECH set is fully unlocked; no auto-standby or repeatable Research use was added."
+    },
+    {
+      "key": "D-QUIET-COUNTERPLAY",
+      "title": "Make going quiet a meaningful answer to escalating pursuit",
+      "status": "present",
+      "current_source": "scripts/main.gd:1754",
+      "anchor_function": "_sim_tick",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Notoriety still never decays and independently charges sweeps. New reroute affordance adds active evasion but does not make quieting prevent notoriety-driven pursuit."
+    },
+    {
+      "key": "D-CONTRACT-DEADLINE-BALANCE",
+      "title": "Account for route latency and supply rate in contract difficulty",
+      "status": "present",
+      "current_source": "scripts/main.gd:2009",
+      "anchor_function": "_gen_contract",
+      "anchor_body_identical_to_v065": false,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Stock eligibility is now filtered, but quantity/deadline/reward tiers remain fixed and do not use actual rates, slow_factor or route latency. Narrow the evidence to those remaining factors.",
+      "evidence_override": "Stock offers are now filtered to currently reachable resource types. Stock/node/Cash deadlines remain 90/120/100 seconds with random quantities; no current income, slow_factor or route-travel allowance affects their difficulty.",
+      "reproduction_override": "Compare the same eligible 50-Intel/90-second offer on a short sustainable route versus a long starved route; eligibility may match while attainable delivery differs."
+    },
+    {
+      "key": "D-COVERAGE-CEILING",
+      "title": "Align coverage tuning with the actual radius-four grid ceiling",
+      "status": "present",
+      "current_source": "scripts/main.gd:1632",
+      "anchor_function": "_coverage",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Radius, four-cell blocks, integer disk and coverage/5 are unchanged; the seven-building, 1.4 upper-bound proof still applies."
+    }
+  ],
+  "map": [
+    {
+      "key": "MAP01",
+      "title": "Armed tunnel and Proxy tools still miss visible tower roofs",
+      "status": "present",
+      "current_source": "scripts/main.gd:1461",
+      "anchor_function": "_try_tunnel",
+      "anchor_body_identical_to_v065": false,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "_try_tunnel and _try_convert_relay still call _node_at(cell); the new rerouting path also uses the same footprint target policy. Prior headless roof-hit proof remains applicable."
+    },
+    {
+      "key": "MAP02",
+      "title": "Undo can leave a stationary route preview showing an obsolete route",
+      "status": "present",
+      "current_source": "scripts/main.gd:763",
+      "anchor_function": "_cached_preview",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Cache key still uses only cell, pending source and tool. Undo target removal/restore still does not invalidate this cache; new reroute Undo also clears only _pl_cache."
+    },
+    {
+      "key": "MAP03",
+      "title": "Empty-cell route endpoints can display OK but cannot be committed",
+      "status": "present",
+      "current_source": "scripts/main.gd:742",
+      "anchor_function": "_preview_route",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Empty-cell fallback can still return blocked=false and OK while commit requires an existing node."
+    },
+    {
+      "key": "MAP04",
+      "title": "Proxy tunnel previews overstate upkeep by 2.5 times",
+      "status": "present",
+      "current_source": "scripts/main.gd:1031",
+      "anchor_function": "_update_hint",
+      "anchor_body_identical_to_v065": false,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Tunnel preview still uses length*UPKEEP; actual Proxy source upkeep still applies 0.4. Post-build reserve forecast is in the structure branch only."
+    },
+    {
+      "key": "MAP05",
+      "title": "Keep the pointed-at host stable when wheel-zooming",
+      "status": "present",
+      "current_source": "scripts/main.gd:1186",
+      "anchor_function": "_zoom",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "_zoom still changes scale without preserving the world point beneath the pointer."
+    },
+    {
+      "key": "MAP06",
+      "title": "Bound camera travel and provide a quick return to C2",
+      "status": "present",
+      "current_source": "scripts/main.gd:1551",
+      "anchor_function": "_process",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Pan/drag/edge updates still have no world clamp and no dedicated return-to-C2 control is present."
+    },
+    {
+      "key": "MAP07",
+      "title": "The top HUD can trigger unintended upward edge-panning",
+      "status": "present",
+      "current_source": "scripts/main.gd:1551",
+      "anchor_function": "_process",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Edge-pan still triggers y<=22 when x>=300, including the top HUD."
+    },
+    {
+      "key": "MAP08",
+      "title": "Preserve map proportions in the minimap",
+      "status": "present",
+      "current_source": "scripts/minimap.gd:64",
+      "anchor_function": "_draw",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Minimap draw/click transforms and 284x148 UI size are unchanged; aspect-distortion finding remains."
+    },
+    {
+      "key": "MAP09",
+      "title": "Minimap view rectangle includes world hidden behind the UI",
+      "status": "present",
+      "current_source": "scripts/minimap.gd:64",
+      "anchor_function": "_draw",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Minimap outline still uses the full viewport, including the covered left panel and top HUD."
+    },
+    {
+      "key": "MAP10",
+      "title": "Show currently accessible territory on the minimap",
+      "status": "present",
+      "current_source": "scripts/minimap.gd:53",
+      "anchor_function": "_bake_grid",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Minimap texture still colours all districts without the current access/vision overlay."
+    },
+    {
+      "key": "MAP11",
+      "title": "Use the minimap to locate network health and the current selection",
+      "status": "present",
+      "current_source": "scripts/minimap.gd:64",
+      "anchor_function": "_draw",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Canonical _op_state now exists for the inspector, but minimap markers still ignore it, selection and sweep position."
+    },
+    {
+      "key": "MAP12",
+      "title": "ICE tracers cut across buildings instead of following their real tunnels",
+      "status": "present",
+      "current_source": "scripts/main.gd:2139",
+      "anchor_function": "_draw",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Threat warning lines and tracer still interpolate directly between node centres rather than _edge_pts."
+    },
+    {
+      "key": "MAP13",
+      "title": "Short-link labels are covered by the structures they describe",
+      "status": "present",
+      "current_source": "scripts/main.gd:2139",
+      "anchor_function": "_draw",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Link labels still paint before structures at the route midpoint with no collision handling/backing. Prior short-link screenshot evidence remains mechanically relevant."
+    },
+    {
+      "key": "MAP14",
+      "title": "Fog blocks and legal placement disagree at vision boundaries",
+      "status": "present",
+      "current_source": "scripts/main.gd:807",
+      "anchor_function": "_vision_list",
+      "anchor_body_identical_to_v065": true,
+      "validation": "source_rechecked_frozen_snapshot",
+      "notes": "Fog still marks whole 4x4 blocks from one centre-cell test while placement checks every footprint cell against exact radius."
+    }
+  ],
+  "not_promoted_prior_candidate": {
+    "key": "D-OPERATOR-ACKNOWLEDGEMENT",
+    "status": "partially_implemented_do_not_promote_unchanged",
+    "evidence": "UI now queues action messages by severity and retains a 12-message history, so original no-event-history wording is stale. History still has no visible recall flow, but that would need a narrower separate proposal."
+  }
+}

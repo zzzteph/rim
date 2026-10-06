@@ -1,0 +1,189 @@
+{
+  "version": "0.6.6",
+  "recheck": "Read-only current-source diff against frozen source_v065. No fresh v066 runtime probes; v064/v065 measurements remain labelled baseline evidence.",
+  "selected_controls": [
+    {
+      "key": "UI-CONTROLS-01",
+      "status": "present",
+      "current_source": "scripts/menu.gd:165",
+      "notes": "Startup/menu controls retain fixed fonts. Only the new preview labels read Settings.text_scale; do not claim all new accessibility-preview text ignores scaling."
+    },
+    {
+      "key": "UI-CONTROLS-04",
+      "status": "present_replacement",
+      "current_source": "scripts/menu.gd:38",
+      "notes": "Replace resolved CONTROLS02 with this startup-focus proposal. _ready still never focuses a startup action; _open_settings focuses Reduced motion only after the new modal opens."
+    },
+    {
+      "key": "UI-CONTROLS-05",
+      "status": "present",
+      "current_source": "scripts/ui.gd:530",
+      "notes": "In-game modal focus helper still assigns the first button without forward/backward trapping. New menu-side modal also only assigns initial focus. Baseline actual key-event evidence remains qualified v064."
+    },
+    {
+      "key": "UI-CONTROLS-06",
+      "status": "present",
+      "current_source": "scripts/ui.gd:516",
+      "notes": "Closing Settings restores paused state but no focus. New menu._close_settings also only hides its panel. Baseline nested Pause/Settings focus evidence is unchanged logic."
+    },
+    {
+      "key": "UI-CONTROLS-07",
+      "status": "present",
+      "current_source": "scripts/ui.gd:653",
+      "notes": "Victory layout is unchanged: fixed centered offset, wrapping large scorecard and no bounded scroll/action footer. The baseline 200% overflow reproduction remains relevant; new reroute/contract UI does not alter this modal."
+    },
+    {
+      "key": "UI-CONTROLS-08",
+      "status": "present",
+      "current_source": "scripts/ui.gd:138",
+      "notes": "Primary tabs retain fixed shared sidebar width and scaling plus clipping; no responsive layout/full-label help added."
+    },
+    {
+      "key": "UI-CONTROLS-09",
+      "status": "present",
+      "current_source": "scripts/ui.gd:228",
+      "notes": "Menu/Pause exits and Load still call session replacement directly, with no unsaved decision. Startup preference persistence is separate from run saving."
+    },
+    {
+      "key": "UI-CONTROLS-13",
+      "status": "present_changed_extent",
+      "current_source": "scripts/ui.gd:338",
+      "notes": "Long inspector body still precedes all controls and status remains near the bottom. New Reroute adds another below-body action; do not reuse old action pixel coordinates as freshly measured v066 geometry."
+    },
+    {
+      "key": "UI-CONTROLS-14",
+      "status": "present",
+      "current_source": "scripts/ui.gd:361",
+      "notes": "Overclock still has only its short label and no cost/duration/remaining boost preview. Canonical operational-state text does not add that context."
+    },
+    {
+      "key": "UI-CONTROLS-16",
+      "status": "partially_addressed",
+      "current_source": "scripts/ui.gd:1070",
+      "notes": "New _op_state exposes input-starved/overloaded/disabled/forwarding causes and selected tunnel shows effective capacity. Remaining proposal: actual current production/processing and C2 delivery metrics, fuel-limited reason, and retained potential capacity while disabled. Remove the blanket claim that no input-starvation/route-limit state exists."
+    },
+    {
+      "key": "UI-CONTROLS-17",
+      "status": "present",
+      "current_source": "scripts/ui.gd:1032",
+      "notes": "Latency still labels _edge_len/path-size as pkt. Effective admission-capacity improvement is a separate metric and must be credited."
+    },
+    {
+      "key": "UI-CONTROLS-19",
+      "status": "present",
+      "current_source": "scripts/ui.gd:343",
+      "notes": "Dismantle still lacks branch/refund/undo impact preview. Reroute now exists as an alternative operational action; do not imply removal is the sole available change."
+    },
+    {
+      "key": "UI-CONTROLS-20",
+      "status": "present",
+      "current_source": "scripts/ui.gd:1033",
+      "notes": "Links still use _node_name for both ends and return type-level names. Keep controlled two-node fixture wording, not a claim of current legal-play reenactment."
+    }
+  ],
+  "selected_panels": [
+    {
+      "key": "UI-PANELS-01",
+      "status": "present",
+      "current_source": "scripts/ui.gd:571",
+      "notes": "Fixed52px button and non-wrapping name/cost child labels unchanged. Baseline overlap geometry remains baseline evidence, source-rechecked v066."
+    },
+    {
+      "key": "UI-PANELS-02",
+      "status": "present_proposal",
+      "current_source": "scripts/ui.gd:893",
+      "notes": "show_info still excludes hover_tool, but complete delayed tooltip remains. Retain as immediate-hover-preview improvement/dead-preview cleanup, not absence of hover help."
+    },
+    {
+      "key": "UI-PANELS-03",
+      "status": "present",
+      "current_source": "scripts/ui.gd:572",
+      "notes": "Locked tool tooltip still lacks required technology; unlock-state processing unchanged."
+    },
+    {
+      "key": "UI-PANELS-04",
+      "status": "present_partially_improved_elsewhere",
+      "current_source": "scripts/ui.gd:595",
+      "notes": "Palette costs remain static and show no per-resource affordability deficits. Armed-tool hint now forecasts Cycles after build and warns about recovery reserve; credit this and narrow the proposal to preselection palette/remaining resource shortages."
+    },
+    {
+      "key": "UI-PANELS-05",
+      "status": "present",
+      "current_source": "scripts/ui.gd:589",
+      "notes": "Palette still shows name/cost and qualitative homage rather than production/processing recipes. New selected-state/effective-capacity text does not add pre-build recipe comparison."
+    },
+    {
+      "key": "UI-PANELS-06",
+      "status": "present",
+      "current_source": "scripts/ui.gd:572",
+      "notes": "Links palette still lacks consistent numeric comparisons. Selected tunnel now shows protocol/effective capacity, but that does not populate palette capacity/upkeep/trace/loss comparison."
+    },
+    {
+      "key": "UI-PANELS-09",
+      "status": "present",
+      "current_source": "scripts/ui.gd:570",
+      "notes": "Custom tool Buttons still have empty own text and no explicit accessibility name; retain proposal status until platform announcement is tested."
+    },
+    {
+      "key": "UI-PANELS-10",
+      "status": "present",
+      "current_source": "scripts/ui.gd:606",
+      "notes": "Research rows still show name/desc/action without explicit unlocked palette names."
+    },
+    {
+      "key": "UI-PANELS-11",
+      "status": "present",
+      "current_source": "scripts/ui.gd:935",
+      "notes": "Prerequisite is still a long clipped button string, with no wrapping reason label or tooltip added. Baseline font measurement remains qualified."
+    },
+    {
+      "key": "UI-PANELS-13",
+      "status": "present",
+      "current_source": "scripts/ui.gd:938",
+      "notes": "Eligible unaffordable research still shows cost only and disables the button without local current balance/deficit."
+    },
+    {
+      "key": "UI-PANELS-15",
+      "status": "present_changed_card_structure",
+      "current_source": "scripts/ui.gd:729",
+      "notes": "Whole-card queue_free/rebuild logic remains. New unaccepted cards wrap Accept/Decline in a row, so the baseline helper's fixed get_child(3) Button assumption cannot be replayed unchanged; focus-loss cause is source-confirmed current."
+    },
+    {
+      "key": "UI-PANELS-16",
+      "status": "present",
+      "current_source": "scripts/ui.gd:751",
+      "notes": "Displayed 'Add N linked structures' is unchanged and main.gd:2051 still excludes relay=true. Precise reproduction should link a newly converted unlinked Proxy during an accepted job."
+    },
+    {
+      "key": "UI-PANELS-17",
+      "status": "present",
+      "current_source": "scripts/ui.gd:910",
+      "notes": "Completed feedback remains inside Jobs; main marks done without emitting completion message, and tab has no badge. New Decline/filtering does not notify completion."
+    },
+    {
+      "key": "UI-PANELS-20",
+      "status": "present_changed_board_options",
+      "current_source": "scripts/ui.gd:740",
+      "notes": "Card order remains main.contracts arrival order. Unwanted offers can now be declined; do not claim offers are irremovable. Claimable/active prioritization or badge grouping still absent."
+    }
+  ],
+  "resolved_or_parked_updates": [
+    {
+      "key": "UI-CONTROLS-02",
+      "status": "resolved_core_scope_remove_from_selected",
+      "current_source": "scripts/menu.gd:41",
+      "notes": "Startup Accessibility panel now exists with reduced motion, colour-blind palette, high contrast and text size plus live preview. Remove old no-startup-settings claim. Packet style remains game-side, so do not claim every optional acceptance detail was implemented."
+    },
+    {
+      "key": "UI-CONTROLS-18",
+      "status": "partially_addressed_parked",
+      "current_source": "scripts/ui.gd:354",
+      "notes": "Selected structures now expose Reroute tunnel(R) with cancel-safe old link and undo. Selected tunnel itself still exposes removal, and protocol upgrade choice is not implemented. Parked point must not claim contextual rerouting is wholly absent."
+    }
+  ],
+  "cross_scope_notes": [
+    "SIM16 remains: quarantined detail still says 'wait it out or DDoS' at ui.gd:1097, while scrub_trace still does not clear quarantine. New Smokescreen tooltip accurately describes Trace/sweep effects but does not correct that contradictory inspector text.",
+    "Job decline/eligibility changes resolve or alter design contract-rotation/eligibility proposals outside this selected UI scope; root/design agent should credit those changes.",
+    "Effective capacity and canonical state improve diagnostics, not current producer/processor throughput or fuel-starvation reporting."
+  ]
+}

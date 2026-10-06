@@ -1,0 +1,752 @@
+{
+	"background_activation": {
+		"focus": {
+			"path": "/root/Main/UILayer/UI/@Panel@10/@VBoxContainer@11/@HBoxContainer@13/@Button@16",
+			"text": "Stats"
+		},
+		"settings_visible": true,
+		"tab": "stats"
+	},
+	"focus_steps": [
+		{
+			"path": "/root/Main/UILayer/UI/@Control@244/@PanelContainer@246/@VBoxContainer@247/@HBoxContainer@251/@Button@250",
+			"text": "Off"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Control@244/@PanelContainer@246/@VBoxContainer@247/@HBoxContainer@254/@Button@253",
+			"text": "Off"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Control@244/@PanelContainer@246/@VBoxContainer@247/@HBoxContainer@257/@Button@256",
+			"text": "Off"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Control@244/@PanelContainer@246/@VBoxContainer@247/@HBoxContainer@260/@Button@259",
+			"text": "Code"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Control@244/@PanelContainer@246/@VBoxContainer@247/@HBoxContainer@263/@Button@262",
+			"text": "100%"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Control@244/@PanelContainer@246/@VBoxContainer@247/@Button@264",
+			"text": "Close"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Panel@10/@VBoxContainer@11/@HBoxContainer@13/@Button@14",
+			"text": "Build"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Panel@10/@VBoxContainer@11/@HBoxContainer@13/@Button@15",
+			"text": "Tech"
+		},
+		{
+			"path": "/root/Main/UILayer/UI/@Panel@10/@VBoxContainer@11/@HBoxContainer@13/@Button@16",
+			"text": "Stats"
+		}
+	],
+	"inspector": {
+		"boost_body": "The Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nZone: The Sprawl    Footprint: 2×2\nProduces: Cycles 1.6/s\nCovers 4 buildings  →  ×0.8 output (denser = more)\nTunnel out: DNS Tunnel, latency 0 pkt → C2 Server\nStatus: ONLINE",
+		"boost_time": 20.0,
+		"disabled_body": "The Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nZone: The Sprawl    Footprint: 2×2\nTunnel out: DNS Tunnel, latency 0 pkt → C2 Server\nStatus: DISABLED",
+		"normal_body": "The Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nZone: The Sprawl    Footprint: 2×2\nProduces: Cycles 0.8/s\nCovers 4 buildings  →  ×0.8 output (denser = more)\nTunnel out: DNS Tunnel, latency 0 pkt → C2 Server\nStatus: ONLINE",
+		"output_0_minus_disabled": false,
+		"output_100_plus_disabled": false,
+		"overclock_text": "⚡ Overclock  (O)",
+		"overclock_tooltip": "",
+		"scaled": {
+			"body": {
+				"bottom": 1335.0,
+				"position": [
+					8.0,
+					282.0
+				],
+				"right": 297.0,
+				"size": [
+					289.0,
+					1053.0
+				]
+			},
+			"dismantle": {
+				"bottom": 1402.0,
+				"position": [
+					8.0,
+					1341.0
+				],
+				"right": 297.0,
+				"size": [
+					289.0,
+					61.0
+				]
+			},
+			"overclock": {
+				"bottom": 1536.0,
+				"position": [
+					8.0,
+					1475.0
+				],
+				"right": 297.0,
+				"size": [
+					289.0,
+					61.0
+				]
+			},
+			"power": {
+				"bottom": 1469.0,
+				"position": [
+					8.0,
+					1408.0
+				],
+				"right": 297.0,
+				"size": [
+					289.0,
+					61.0
+				]
+			},
+			"row": {
+				"bottom": 1603.0,
+				"position": [
+					8.0,
+					1542.0
+				],
+				"right": 297.0,
+				"size": [
+					289.0,
+					61.0
+				]
+			},
+			"scroll": {
+				"bottom": 667.0,
+				"position": [
+					8.0,
+					221.0
+				],
+				"right": 305.0,
+				"size": [
+					297.0,
+					446.0
+				]
+			}
+		},
+		"tunnel_body": "iodine-style: data smuggled inside DNS queries. Small, cheap, silent.\nLatency: 0 pkt    Capacity: 3/s\nLinks Mirai Dropper → Mirai Dropper"
+	},
+	"menu": {
+		"controls": [
+			{
+				"font": 52,
+				"rect": {
+					"bottom": 262.0,
+					"position": [
+						480.0,
+						190.0
+					],
+					"right": 800.0,
+					"size": [
+						320.0,
+						72.0
+					]
+				},
+				"text": "R I M"
+			},
+			{
+				"font": 14,
+				"rect": {
+					"bottom": 292.0,
+					"position": [
+						480.0,
+						272.0
+					],
+					"right": 800.0,
+					"size": [
+						320.0,
+						20.0
+					]
+				},
+				"text": "a game about cyberspace"
+			},
+			{
+				"font": 11,
+				"rect": {
+					"bottom": 490.0,
+					"position": [
+						480.0,
+						474.0
+					],
+					"right": 800.0,
+					"size": [
+						320.0,
+						16.0
+					]
+				},
+				"text": "v0.6.4"
+			},
+			{
+				"font": 16,
+				"rect": {
+					"bottom": 368.0,
+					"position": [
+						480.0,
+						330.0
+					],
+					"right": 800.0,
+					"size": [
+						320.0,
+						38.0
+					]
+				},
+				"text": "New Game"
+			},
+			{
+				"font": 16,
+				"rect": {
+					"bottom": 416.0,
+					"position": [
+						480.0,
+						378.0
+					],
+					"right": 800.0,
+					"size": [
+						320.0,
+						38.0
+					]
+				},
+				"text": "Continue"
+			},
+			{
+				"font": 16,
+				"rect": {
+					"bottom": 464.0,
+					"position": [
+						480.0,
+						426.0
+					],
+					"right": 800.0,
+					"size": [
+						320.0,
+						38.0
+					]
+				},
+				"text": "Quit"
+			}
+		],
+		"initial_focus": {
+			"path": "null",
+			"text": ""
+		},
+		"text_scale": 2.0
+	},
+	"modal_sizes": [
+		{
+			"logical_viewport": [
+				1280.0,
+				720.0
+			],
+			"pause_panel": {
+				"bottom": 547.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					367.0
+				]
+			},
+			"pause_quit": {
+				"bottom": 539.0,
+				"position": [
+					368.0,
+					495.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					44.0
+				]
+			},
+			"scale": 1.0,
+			"settings_close": {
+				"bottom": 504.0,
+				"position": [
+					418.0,
+					462.0
+				],
+				"right": 862.0,
+				"size": [
+					444.0,
+					42.0
+				]
+			},
+			"settings_panel": {
+				"bottom": 512.0,
+				"position": [
+					410.0,
+					160.0
+				],
+				"right": 870.0,
+				"size": [
+					460.0,
+					352.0
+				]
+			},
+			"viewport": [
+				1280,
+				720
+			],
+			"win_last_button": {
+				"bottom": 457.0,
+				"position": [
+					368.0,
+					413.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					44.0
+				]
+			},
+			"win_panel": {
+				"bottom": 465.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					285.0
+				]
+			},
+			"win_text": "GOAL REACHED — 1000 CASH\nTime 120:00    Peak 123.5 Cash/s    Packets 123456    Peak Trace 99%    Nodes 1"
+		},
+		{
+			"logical_viewport": [
+				1280.0,
+				720.0
+			],
+			"pause_panel": {
+				"bottom": 687.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					507.0
+				]
+			},
+			"pause_quit": {
+				"bottom": 679.0,
+				"position": [
+					368.0,
+					618.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					61.0
+				]
+			},
+			"scale": 2.0,
+			"settings_close": {
+				"bottom": 661.0,
+				"position": [
+					418.0,
+					600.0
+				],
+				"right": 959.0,
+				"size": [
+					541.0,
+					61.0
+				]
+			},
+			"settings_panel": {
+				"bottom": 669.0,
+				"position": [
+					410.0,
+					160.0
+				],
+				"right": 967.0,
+				"size": [
+					557.0,
+					509.0
+				]
+			},
+			"viewport": [
+				1280,
+				720
+			],
+			"win_last_button": {
+				"bottom": 883.0,
+				"position": [
+					368.0,
+					822.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					61.0
+				]
+			},
+			"win_panel": {
+				"bottom": 891.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					711.0
+				]
+			},
+			"win_text": "GOAL REACHED — 1000 CASH\nTime 120:00    Peak 123.5 Cash/s    Packets 123456    Peak Trace 99%    Nodes 1"
+		},
+		{
+			"logical_viewport": [
+				1280.0,
+				750.0
+			],
+			"pause_panel": {
+				"bottom": 562.0,
+				"position": [
+					360.0,
+					195.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					367.0
+				]
+			},
+			"pause_quit": {
+				"bottom": 554.0,
+				"position": [
+					368.0,
+					510.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					44.0
+				]
+			},
+			"scale": 1.0,
+			"settings_close": {
+				"bottom": 519.0,
+				"position": [
+					418.0,
+					477.0
+				],
+				"right": 862.0,
+				"size": [
+					444.0,
+					42.0
+				]
+			},
+			"settings_panel": {
+				"bottom": 527.0,
+				"position": [
+					410.0,
+					175.0
+				],
+				"right": 870.0,
+				"size": [
+					460.0,
+					352.0
+				]
+			},
+			"viewport": [
+				1024,
+				600
+			],
+			"win_last_button": {
+				"bottom": 472.0,
+				"position": [
+					368.0,
+					428.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					44.0
+				]
+			},
+			"win_panel": {
+				"bottom": 480.0,
+				"position": [
+					360.0,
+					195.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					285.0
+				]
+			},
+			"win_text": "GOAL REACHED — 1000 CASH\nTime 120:00    Peak 123.5 Cash/s    Packets 123456    Peak Trace 99%    Nodes 1"
+		},
+		{
+			"logical_viewport": [
+				1280.0,
+				750.0
+			],
+			"pause_panel": {
+				"bottom": 702.0,
+				"position": [
+					360.0,
+					195.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					507.0
+				]
+			},
+			"pause_quit": {
+				"bottom": 694.0,
+				"position": [
+					368.0,
+					633.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					61.0
+				]
+			},
+			"scale": 2.0,
+			"settings_close": {
+				"bottom": 676.0,
+				"position": [
+					418.0,
+					615.0
+				],
+				"right": 959.0,
+				"size": [
+					541.0,
+					61.0
+				]
+			},
+			"settings_panel": {
+				"bottom": 684.0,
+				"position": [
+					410.0,
+					175.0
+				],
+				"right": 967.0,
+				"size": [
+					557.0,
+					509.0
+				]
+			},
+			"viewport": [
+				1024,
+				600
+			],
+			"win_last_button": {
+				"bottom": 898.0,
+				"position": [
+					368.0,
+					837.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					61.0
+				]
+			},
+			"win_panel": {
+				"bottom": 906.0,
+				"position": [
+					360.0,
+					195.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					711.0
+				]
+			},
+			"win_text": "GOAL REACHED — 1000 CASH\nTime 120:00    Peak 123.5 Cash/s    Packets 123456    Peak Trace 99%    Nodes 1"
+		},
+		{
+			"logical_viewport": [
+				1280.0,
+				720.0
+			],
+			"pause_panel": {
+				"bottom": 547.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					367.0
+				]
+			},
+			"pause_quit": {
+				"bottom": 539.0,
+				"position": [
+					368.0,
+					495.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					44.0
+				]
+			},
+			"scale": 1.0,
+			"settings_close": {
+				"bottom": 504.0,
+				"position": [
+					418.0,
+					462.0
+				],
+				"right": 862.0,
+				"size": [
+					444.0,
+					42.0
+				]
+			},
+			"settings_panel": {
+				"bottom": 512.0,
+				"position": [
+					410.0,
+					160.0
+				],
+				"right": 870.0,
+				"size": [
+					460.0,
+					352.0
+				]
+			},
+			"viewport": [
+				1366,
+				768
+			],
+			"win_last_button": {
+				"bottom": 457.0,
+				"position": [
+					368.0,
+					413.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					44.0
+				]
+			},
+			"win_panel": {
+				"bottom": 465.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					285.0
+				]
+			},
+			"win_text": "GOAL REACHED — 1000 CASH\nTime 120:00    Peak 123.5 Cash/s    Packets 123456    Peak Trace 99%    Nodes 1"
+		},
+		{
+			"logical_viewport": [
+				1280.0,
+				720.0
+			],
+			"pause_panel": {
+				"bottom": 687.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					507.0
+				]
+			},
+			"pause_quit": {
+				"bottom": 679.0,
+				"position": [
+					368.0,
+					618.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					61.0
+				]
+			},
+			"scale": 2.0,
+			"settings_close": {
+				"bottom": 661.0,
+				"position": [
+					418.0,
+					600.0
+				],
+				"right": 959.0,
+				"size": [
+					541.0,
+					61.0
+				]
+			},
+			"settings_panel": {
+				"bottom": 669.0,
+				"position": [
+					410.0,
+					160.0
+				],
+				"right": 967.0,
+				"size": [
+					557.0,
+					509.0
+				]
+			},
+			"viewport": [
+				1366,
+				768
+			],
+			"win_last_button": {
+				"bottom": 883.0,
+				"position": [
+					368.0,
+					822.0
+				],
+				"right": 912.0,
+				"size": [
+					544.0,
+					61.0
+				]
+			},
+			"win_panel": {
+				"bottom": 891.0,
+				"position": [
+					360.0,
+					180.0
+				],
+				"right": 920.0,
+				"size": [
+					560.0,
+					711.0
+				]
+			},
+			"win_text": "GOAL REACHED — 1000 CASH\nTime 120:00    Peak 123.5 Cash/s    Packets 123456    Peak Trace 99%    Nodes 1"
+		}
+	],
+	"nested_settings_closed_focus": {
+		"path": "null",
+		"text": ""
+	},
+	"settings_closed_focus": {
+		"path": "/root/Main/UILayer/UI/@Panel@10/@VBoxContainer@11/@HBoxContainer@13/@Button@16",
+		"text": "Stats"
+	}
+}

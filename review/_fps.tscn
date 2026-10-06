@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b_fps_probe_rim"]
+
+[ext_resource type="Script" path="res://review/_fps.gd" id="1"]
+
+[node name="FPS" type="Node"]
+script = ExtResource("1")

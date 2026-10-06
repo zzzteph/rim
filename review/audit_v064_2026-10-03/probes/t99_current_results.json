@@ -1,0 +1,256 @@
+{
+	"failed": 0,
+	"passed": 50,
+	"results": [
+		{
+			"detail": "",
+			"id": "B16_schema_packet_value",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B18_schema_boost",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B17_schema_quarantine",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B17_schema_notoriety",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B19_schema_contracts",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B20_schema_stats",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B23_schema_rng",
+			"pass": true
+		},
+		{
+			"detail": "value=0.5",
+			"id": "B16_packet_value_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B18_boost_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B17_quarantine_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B17_notoriety_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B17_sweep_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B17_blackout_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B19_contracts_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B20_stats_roundtrip",
+			"pass": true
+		},
+		{
+			"detail": "delta=0.5 remaining=0",
+			"id": "B16_banks_half_once",
+			"pass": true
+		},
+		{
+			"detail": "want -8800929583911013601 got -8800929583911013601",
+			"id": "B23_rng_state_restored",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B23_rng_next_draw_matches",
+			"pass": true
+		},
+		{
+			"detail": "tun=-1 pan=false rt=0.0 acc=0.0 hint=false",
+			"id": "B24_transient_cleared",
+			"pass": true
+		},
+		{
+			"detail": "before=1000.0 after=1000.0",
+			"id": "B24_stale_undo_no_mint",
+			"pass": true
+		},
+		{
+			"detail": "returned=false nodes=2 hub=true",
+			"id": "B21_reject_empty_object",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B21_reject_no_hub",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B22_backup_created",
+			"pass": true
+		},
+		{
+			"detail": "recovered=true compute=111.0",
+			"id": "T95_recover_from_backup",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B21_insession_refuse_corrupt",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B02_ice_refused_zero_tools",
+			"pass": true
+		},
+		{
+			"detail": "tools=0.0 nodes=2",
+			"id": "B02_no_charge_no_node",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B02_ice_build_with_tools",
+			"pass": true
+		},
+		{
+			"detail": "tools=1.0",
+			"id": "B02_undo_refunds_exact_tool",
+			"pass": true
+		},
+		{
+			"detail": "built_fences=3 cycles=15.0 can_nest=true undo=0",
+			"id": "B01_recovers_after_continue",
+			"pass": true
+		},
+		{
+			"detail": "off=0.1 on=0.1",
+			"id": "B05_disabled_forwards_not_free",
+			"pass": true
+		},
+		{
+			"detail": "credits=0.0 data=1.0",
+			"id": "B06_off_market_no_sell",
+			"pass": true
+		},
+		{
+			"detail": "remaining=0",
+			"id": "B07_stale_route_cancelled",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B11_undo_clears_pending",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B12_undo_clears_selected_tunnel",
+			"pass": true
+		},
+		{
+			"detail": "parent=1 pending=-1",
+			"id": "B53_stale_armed_rejected",
+			"pass": true
+		},
+		{
+			"detail": "warn=5.9 q=0.0",
+			"id": "B14_no_quarantine_during_warn",
+			"pass": true
+		},
+		{
+			"detail": "dist=0.15 trace_hot=true",
+			"id": "B58_loss_components_split",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B59_hop_count",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B51_state_wakes_repaint",
+			"pass": true
+		},
+		{
+			"detail": "h=840.0",
+			"id": "B52_path_bounds_cover_detour",
+			"pass": true
+		},
+		{
+			"detail": "immediate=false after_earning=true",
+			"id": "Contract_no_autowin",
+			"pass": true
+		},
+		{
+			"detail": "err=An active tunnel runs here — reroute or remove it before building.",
+			"id": "B09_reject_build_over_tunnel",
+			"pass": true
+		},
+		{
+			"detail": "sweep_empty=true",
+			"id": "B13_reroute_swept_breaks_trace",
+			"pass": true
+		},
+		{
+			"detail": "n_off=1",
+			"id": "B33_offline_counts_unlinked",
+			"pass": true
+		},
+		{
+			"detail": "centre_slots=0 origin_slots=2",
+			"id": "B54_slots_use_centre_district",
+			"pass": true
+		},
+		{
+			"detail": "offered=6.0",
+			"id": "B04_converter_load_counted",
+			"pass": true
+		},
+		{
+			"detail": "mismatches=0",
+			"id": "B10_building_matches_render",
+			"pass": true
+		},
+		{
+			"detail": "sil=2",
+			"id": "B48_silhouette_selects_tower",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B43_marker_follows_palette",
+			"pass": true
+		}
+	]
+}

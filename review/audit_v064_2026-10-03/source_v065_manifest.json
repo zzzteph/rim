@@ -1,0 +1,98 @@
+﻿[
+    {
+        "path":  "scripts\\capture_node.gd.uid",
+        "sha256":  "E89D43177CEE0DC023331D7EF2734DFF98200783351A8E38DED4F94E4DE8B1F5"
+    },
+    {
+        "path":  "scripts\\city_layer.gd",
+        "sha256":  "DF850C19D3C88791AA31AA5957DDAE65818701E497D84984EA2BD53043A32808"
+    },
+    {
+        "path":  "scripts\\city_layer.gd.uid",
+        "sha256":  "6C49C31B288B74246850A88713855794E9BA52EF3E3CC73B136A8F295D3B7D27"
+    },
+    {
+        "path":  "scripts\\glyphs.gd",
+        "sha256":  "318344CDDD102B33F6399B98B1940E903CE64C728E680612B124A59B4473D017"
+    },
+    {
+        "path":  "scripts\\glyphs.gd.uid",
+        "sha256":  "ADB9220F9A5469CBC849050D790A0DC6D9DEAF906A75625189291F82DEC0F282"
+    },
+    {
+        "path":  "scripts\\glyph_icon.gd",
+        "sha256":  "811169332004443AB77EA5061B9C3D4A594884D05F343C85A35DE6B7E9A645C3"
+    },
+    {
+        "path":  "scripts\\glyph_icon.gd.uid",
+        "sha256":  "E0894EDD5607833EF11EFE0784FFDEB11480EEF05598F499024C91508135DDC2"
+    },
+    {
+        "path":  "scripts\\graph.gd",
+        "sha256":  "F022398B88DC24D662C6CE4C4110506897AAC5F7FF8240C982D02B833C3A9F35"
+    },
+    {
+        "path":  "scripts\\graph.gd.uid",
+        "sha256":  "D7453BD80DF91CCE1FEBC22C10206042DF225B0541DFB0850D8AC684CC76F3CB"
+    },
+    {
+        "path":  "scripts\\main.gd",
+        "sha256":  "84D9B7795942546ABEB37521C3F9FD5BAA4C1FAD0008595C3A08D2A782600EFB"
+    },
+    {
+        "path":  "scripts\\main.gd.uid",
+        "sha256":  "C394B2406AFD959CC5067CD80130EB76A9E61B818270399AF863078D328AD766"
+    },
+    {
+        "path":  "scripts\\menu.gd",
+        "sha256":  "ABFC9EEE9394C0F0E559B442A862619E2CA1724D1C6D74C6CE5BFB5850ABA6E5"
+    },
+    {
+        "path":  "scripts\\menu.gd.uid",
+        "sha256":  "A071ECCA395F114AD915BD0956B036A465E685CDF897C71C36EC959B80991493"
+    },
+    {
+        "path":  "scripts\\minimap.gd",
+        "sha256":  "B69FBC050EEA1B6AE5C600FC6A5A4F51F22057AF414E11B9DBB050900ECDF0A2"
+    },
+    {
+        "path":  "scripts\\minimap.gd.uid",
+        "sha256":  "C271D2369D49CC6A7673F4E43BE7221D0A5C79CB14294BDA7C8565F77877ACD3"
+    },
+    {
+        "path":  "scripts\\session.gd",
+        "sha256":  "932AF08C9A6B80969EA8B0870B9A0DB007099D6B5CE4AEBBBF7EF256EB4D25D0"
+    },
+    {
+        "path":  "scripts\\session.gd.uid",
+        "sha256":  "72F450D7F98FC2A9E9E1DA49E024619BE32282F417B9801F5DC02B43F6ABB04C"
+    },
+    {
+        "path":  "scripts\\settings.gd",
+        "sha256":  "0243955D1B8CFE1E6B3CD05887ACF4C849EAFEBB1332438851B780099613969A"
+    },
+    {
+        "path":  "scripts\\settings.gd.uid",
+        "sha256":  "53525977731B7972F578201F1181CF991D83EE44FF9A7F846CD0833614CC5D80"
+    },
+    {
+        "path":  "scripts\\ui.gd",
+        "sha256":  "C8953DF20D92967D16890BBEA2559A4E54D6754960D2FC51867A3295A1A1B67B"
+    },
+    {
+        "path":  "scripts\\ui.gd.uid",
+        "sha256":  "295ECE020478B34C2ADA2BF7DE07A35A5FCD6F1461B70030E727DA6B0601C148"
+    },
+    {
+        "path":  "scenes\\main.tscn",
+        "sha256":  "595E47ECB17A297C692A738789E384DEA900E90627900C780ECD7D7E3CA72EC7"
+    },
+    {
+        "path":  "scenes\\menu.tscn",
+        "sha256":  "6B36A5679944E504B4443176DB3BC00C02FD85AF52A7B6189B82CA5F692151E4"
+    },
+    {
+        "path":  "project.godot",
+        "sha256":  "1FAB9531ECCAA05B63E2581D70A47F71073D42FF0860B1C5E133199D99F883FB"
+    }
+]

@@ -1,0 +1,13 @@
+﻿{
+    "date":  "2026-10-04",
+    "city_source_sha256":  "74641F82ACF12E49ED2F59EF81CF13221D7850937AD92BEFFAA847C05E7D54AA",
+    "city_doc_sha256":  "83611E666AB50FA230C12A5F07A8EC60122E1D66BF60C8AEA0F41A901C7560D7",
+    "engine":  "Godot4.7.2.stable.official.ed1daf0bf",
+    "method":  "Isolated temporary project with copied city source and minimal Session/Settings stubs. Calls _generate without adding city node to tree. No full game or player saves accessed.",
+    "normal_seeds":  "1–100 inclusive for each of small, medium, large",
+    "no_water_seeds":  "1–100 inclusive for each of small, medium, large; disable_water=true before _generate; terrain RNG sequence differs from normal",
+    "connectivity":  "Four-neighbour flood fill, including bridge road cells. Water components count all river/lake cells; disconnected diagonal cells may touch at corners visually.",
+    "building_access_caveat":  "No direct road adjacency is diagnostic only; no path-based access claim. Unserved blocks have no road-adjacent cell; this does not measure connection to main road network.",
+    "park_definition":  "At least one deco cell exactly equal to park. Paths and other green decoration do not satisfy this measure.",
+    "existing_checks":  "All8 existing city_checks.gd checks passed on copied source. Test performs only a few fixed-seed cases and does not enforce global connectivity."
+}

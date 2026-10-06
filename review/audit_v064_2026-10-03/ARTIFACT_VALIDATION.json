@@ -1,0 +1,10 @@
+{
+  "json_count": 100,
+  "csv_count": 100,
+  "markdown_count": 100,
+  "unique_findings": 100,
+  "viewer_payload_matches": true,
+  "viewer_local_links_valid": true,
+  "frozen_source_links_valid": true,
+  "browser_rendered_findings": 100
+}

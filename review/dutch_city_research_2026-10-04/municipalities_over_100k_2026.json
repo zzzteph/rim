@@ -1,0 +1,162 @@
+﻿[
+    {
+        "code":  "GM0363",
+        "municipality":  "Amsterdam",
+        "population":  941927
+    },
+    {
+        "code":  "GM0599",
+        "municipality":  "Rotterdam",
+        "population":  673804
+    },
+    {
+        "code":  "GM0518",
+        "municipality":  "\u0027s-Gravenhage",
+        "population":  569468
+    },
+    {
+        "code":  "GM0344",
+        "municipality":  "Utrecht",
+        "population":  378121
+    },
+    {
+        "code":  "GM0772",
+        "municipality":  "Eindhoven",
+        "population":  249783
+    },
+    {
+        "code":  "GM0014",
+        "municipality":  "Groningen",
+        "population":  244427
+    },
+    {
+        "code":  "GM0034",
+        "municipality":  "Almere",
+        "population":  232619
+    },
+    {
+        "code":  "GM0855",
+        "municipality":  "Tilburg",
+        "population":  230746
+    },
+    {
+        "code":  "GM0758",
+        "municipality":  "Breda",
+        "population":  190204
+    },
+    {
+        "code":  "GM0268",
+        "municipality":  "Nijmegen",
+        "population":  189871
+    },
+    {
+        "code":  "GM0202",
+        "municipality":  "Arnhem",
+        "population":  171822
+    },
+    {
+        "code":  "GM0200",
+        "municipality":  "Apeldoorn",
+        "population":  169212
+    },
+    {
+        "code":  "GM0392",
+        "municipality":  "Haarlem",
+        "population":  168898
+    },
+    {
+        "code":  "GM0394",
+        "municipality":  "Haarlemmermeer",
+        "population":  166978
+    },
+    {
+        "code":  "GM0479",
+        "municipality":  "Zaanstad",
+        "population":  165201
+    },
+    {
+        "code":  "GM0307",
+        "municipality":  "Amersfoort",
+        "population":  163764
+    },
+    {
+        "code":  "GM0153",
+        "municipality":  "Enschede",
+        "population":  162683
+    },
+    {
+        "code":  "GM0796",
+        "municipality":  "\u0027s-Hertogenbosch",
+        "population":  162295
+    },
+    {
+        "code":  "GM0193",
+        "municipality":  "Zwolle",
+        "population":  134147
+    },
+    {
+        "code":  "GM0637",
+        "municipality":  "Zoetermeer",
+        "population":  130836
+    },
+    {
+        "code":  "GM0546",
+        "municipality":  "Leiden",
+        "population":  130328
+    },
+    {
+        "code":  "GM0080",
+        "municipality":  "Leeuwarden",
+        "population":  130162
+    },
+    {
+        "code":  "GM0935",
+        "municipality":  "Maastricht",
+        "population":  126026
+    },
+    {
+        "code":  "GM0228",
+        "municipality":  "Ede",
+        "population":  125331
+    },
+    {
+        "code":  "GM0505",
+        "municipality":  "Dordrecht",
+        "population":  122991
+    },
+    {
+        "code":  "GM1783",
+        "municipality":  "Westland",
+        "population":  118874
+    },
+    {
+        "code":  "GM0484",
+        "municipality":  "Alphen aan den Rijn",
+        "population":  117284
+    },
+    {
+        "code":  "GM0361",
+        "municipality":  "Alkmaar",
+        "population":  113196
+    },
+    {
+        "code":  "GM0503",
+        "municipality":  "Delft",
+        "population":  110089
+    },
+    {
+        "code":  "GM0114",
+        "municipality":  "Emmen",
+        "population":  109881
+    },
+    {
+        "code":  "GM0150",
+        "municipality":  "Deventer",
+        "population":  105111
+    },
+    {
+        "code":  "GM0983",
+        "municipality":  "Venlo",
+        "population":  104195
+    }
+]

@@ -1,0 +1,3607 @@
+{
+	"category_scroll": {
+		"after": 0,
+		"before": 24,
+		"first_processor": {
+			"min": [
+				8.0,
+				52.0
+			],
+			"pos": [
+				8.0,
+				280.0
+			],
+			"size": [
+				284.0,
+				52.0
+			]
+		},
+		"viewport": {
+			"min": [
+				284.0,
+				120.0
+			],
+			"pos": [
+				8.0,
+				280.0
+			],
+			"size": [
+				284.0,
+				303.0
+			]
+		}
+	},
+	"completed": {
+		"done": true,
+		"message": "baseline"
+	},
+	"hover": {
+		"info": "The Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nCost: 10 Cycles",
+		"inspector_visible": false
+	},
+	"jobs_after": {
+		"cards": 5,
+		"focus": "<Object#null>",
+		"old_valid": false
+	},
+	"jobs_before": {
+		"cards": 5,
+		"focus": "@Button@267:<Button#50885298350>"
+	},
+	"research": [
+		{
+			"disabled": true,
+			"rect": {
+				"min": [
+					8.0,
+					35.0
+				],
+				"pos": [
+					16.0,
+					313.0
+				],
+				"size": [
+					260.0,
+					35.0
+				]
+			},
+			"text": "Research  (10 RP)",
+			"text_width": 157.0,
+			"tid": "scraping",
+			"tooltip": ""
+		},
+		{
+			"disabled": true,
+			"rect": {
+				"min": [
+					8.0,
+					35.0
+				],
+				"pos": [
+					16.0,
+					448.0
+				],
+				"size": [
+					260.0,
+					35.0
+				]
+			},
+			"text": "Research  (10 RP)",
+			"text_width": 157.0,
+			"tid": "supply_chain",
+			"tooltip": ""
+		},
+		{
+			"disabled": true,
+			"rect": {
+				"min": [
+					8.0,
+					35.0
+				],
+				"pos": [
+					16.0,
+					558.0
+				],
+				"size": [
+					260.0,
+					35.0
+				]
+			},
+			"text": "Research  (15 RP)",
+			"text_width": 157.0,
+			"tid": "cloud",
+			"tooltip": ""
+		},
+		{
+			"disabled": true,
+			"rect": {
+				"min": [
+					8.0,
+					35.0
+				],
+				"pos": [
+					16.0,
+					693.0
+				],
+				"size": [
+					260.0,
+					35.0
+				]
+			},
+			"text": "Research  (15 RP)",
+			"text_width": 157.0,
+			"tid": "laundering",
+			"tooltip": ""
+		},
+		{
+			"disabled": true,
+			"rect": {
+				"min": [
+					8.0,
+					35.0
+				],
+				"pos": [
+					16.0,
+					803.0
+				],
+				"size": [
+					260.0,
+					35.0
+				]
+			},
+			"text": "Research  (20 RP)",
+			"text_width": 157.0,
+			"tid": "exploits",
+			"tooltip": ""
+		},
+		{
+			"disabled": true,
+			"rect": {
+				"min": [
+					8.0,
+					35.0
+				],
+				"pos": [
+					16.0,
+					913.0
+				],
+				"size": [
+					260.0,
+					35.0
+				]
+			},
+			"text": "Research  (20 RP)",
+			"text_width": 157.0,
+			"tid": "onion",
+			"tooltip": ""
+		},
+		{
+			"disabled": true,
+			"rect": {
+				"min": [
+					8.0,
+					35.0
+				],
+				"pos": [
+					16.0,
+					1023.0
+				],
+				"size": [
+					260.0,
+					35.0
+				]
+			},
+			"text": "Locked — needs Exploit Development",
+			"text_width": 345.0,
+			"tid": "http2",
+			"tooltip": ""
+		}
+	],
+	"scales": [
+		{
+			"build_scroll": {
+				"min": [
+					284.0,
+					120.0
+				],
+				"pos": [
+					8.0,
+					236.0
+				],
+				"size": [
+					284.0,
+					427.0
+				]
+			},
+			"scale": 1.0,
+			"tabs": [
+				{
+					"font": 16,
+					"rect": {
+						"min": [
+							8.0,
+							31.0
+						],
+						"pos": [
+							8.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							31.0
+						]
+					},
+					"text": "Build"
+				},
+				{
+					"font": 16,
+					"rect": {
+						"min": [
+							8.0,
+							31.0
+						],
+						"pos": [
+							65.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							31.0
+						]
+					},
+					"text": "Tech"
+				},
+				{
+					"font": 16,
+					"rect": {
+						"min": [
+							8.0,
+							31.0
+						],
+						"pos": [
+							122.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							31.0
+						]
+					},
+					"text": "Stats"
+				},
+				{
+					"font": 16,
+					"rect": {
+						"min": [
+							8.0,
+							31.0
+						],
+						"pos": [
+							179.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							31.0
+						]
+					},
+					"text": "Jobs"
+				},
+				{
+					"font": 16,
+					"rect": {
+						"min": [
+							8.0,
+							31.0
+						],
+						"pos": [
+							236.0,
+							162.0
+						],
+						"size": [
+							56.0,
+							31.0
+						]
+					},
+					"text": "Menu"
+				}
+			],
+			"tools": [
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							236.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "nest",
+					"content": {
+						"min": [
+							172.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							236.0
+						],
+						"size": [
+							172.0,
+							52.0
+						]
+					},
+					"cost": "10 Cycles",
+					"cost_rect": {
+						"min": [
+							67.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							263.0
+						],
+						"size": [
+							116.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "Mirai Dropper",
+					"name_rect": {
+						"min": [
+							116.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							238.0
+						],
+						"size": [
+							116.0,
+							24.0
+						]
+					},
+					"tooltip": "Mirai Dropper\nThe Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nCost: 10 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							291.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "package",
+					"content": {
+						"min": [
+							249.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							291.0
+						],
+						"size": [
+							249.0,
+							52.0
+						]
+					},
+					"cost": "40 Cycles, 10 Intel, 40 Cash",
+					"cost_rect": {
+						"min": [
+							193.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							318.0
+						],
+						"size": [
+							193.0,
+							22.0
+						]
+					},
+					"disabled": true,
+					"name": "Poisoned Package",
+					"name_rect": {
+						"min": [
+							148.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							293.0
+						],
+						"size": [
+							193.0,
+							24.0
+						]
+					},
+					"tooltip": "Poisoned Package\nA typosquatted npm package quietly pulled into a thousand CI builds. A supply-chain compromise — big Cycles.\nCost: 40 Cycles, 10 Intel, 40 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							346.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "botfarm",
+					"content": {
+						"min": [
+							249.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							346.0
+						],
+						"size": [
+							249.0,
+							52.0
+						]
+					},
+					"cost": "30 Cycles, 10 Intel, 60 Cash",
+					"cost_rect": {
+						"min": [
+							193.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							373.0
+						],
+						"size": [
+							193.0,
+							22.0
+						]
+					},
+					"disabled": true,
+					"name": "Cloud Cryptojacker",
+					"name_rect": {
+						"min": [
+							157.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							348.0
+						],
+						"size": [
+							193.0,
+							24.0
+						]
+					},
+					"tooltip": "Cloud Cryptojacker\nStolen cloud keys spin up racks of instances on someone else's bill. Heavy Cycles.\nCost: 30 Cycles, 10 Intel, 60 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							401.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "phish",
+					"content": {
+						"min": [
+							153.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							401.0
+						],
+						"size": [
+							153.0,
+							52.0
+						]
+					},
+					"cost": "12 Cycles",
+					"cost_rect": {
+						"min": [
+							67.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							428.0
+						],
+						"size": [
+							97.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "Phishing Kit",
+					"name_rect": {
+						"min": [
+							97.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							403.0
+						],
+						"size": [
+							97.0,
+							24.0
+						]
+					},
+					"tooltip": "Phishing Kit\nAn Emotet-style mail lure sprayed across an office. Sweeps Intel from inboxes in range.\nCost: 12 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							456.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "scraper",
+					"content": {
+						"min": [
+							179.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							456.0
+						],
+						"size": [
+							179.0,
+							52.0
+						]
+					},
+					"cost": "15 Cycles",
+					"cost_rect": {
+						"min": [
+							67.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							483.0
+						],
+						"size": [
+							123.0,
+							22.0
+						]
+					},
+					"disabled": true,
+					"name": "Scraper Botnet",
+					"name_rect": {
+						"min": [
+							123.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							458.0
+						],
+						"size": [
+							123.0,
+							24.0
+						]
+					},
+					"tooltip": "Scraper Botnet\nCredential-stuffing bots grinding leaked dumps against logins across the feeds. Sweeps Intel in range.\nCost: 15 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							511.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "salami",
+					"content": {
+						"min": [
+							249.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							511.0
+						],
+						"size": [
+							249.0,
+							52.0
+						]
+					},
+					"cost": "30 Cycles, 20 Intel, 30 Cash",
+					"cost_rect": {
+						"min": [
+							193.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							538.0
+						],
+						"size": [
+							193.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "Magecart Skimmer",
+					"name_rect": {
+						"min": [
+							155.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							513.0
+						],
+						"size": [
+							193.0,
+							24.0
+						]
+					},
+					"tooltip": "Magecart Skimmer\nA few lines of JavaScript on a checkout page. Skims card data — pays out in Crypto.\nCost: 30 Cycles, 20 Intel, 30 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							567.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "fence",
+					"content": {
+						"min": [
+							187.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							567.0
+						],
+						"size": [
+							187.0,
+							52.0
+						]
+					},
+					"cost": "25 Cycles",
+					"cost_rect": {
+						"min": [
+							67.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							594.0
+						],
+						"size": [
+							131.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "Darknet Market",
+					"name_rect": {
+						"min": [
+							131.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							569.0
+						],
+						"size": [
+							131.0,
+							24.0
+						]
+					},
+					"tooltip": "Darknet Market\nA Silk Road stall. Sells your stolen Intel for Cash.\nCost: 25 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							622.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "forge",
+					"content": {
+						"min": [
+							249.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							622.0
+						],
+						"size": [
+							249.0,
+							52.0
+						]
+					},
+					"cost": "30 Cycles, 10 Intel, 30 Cash",
+					"cost_rect": {
+						"min": [
+							193.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							649.0
+						],
+						"size": [
+							193.0,
+							22.0
+						]
+					},
+					"disabled": true,
+					"name": "Exploit Forge",
+					"name_rect": {
+						"min": [
+							107.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							624.0
+						],
+						"size": [
+							193.0,
+							24.0
+						]
+					},
+					"tooltip": "Exploit Forge\nA zero-day lab. Refines Intel (burning Cycles) into Tools — the exploits you need to breach ICE.\nCost: 30 Cycles, 10 Intel, 30 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							677.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "mixer",
+					"content": {
+						"min": [
+							240.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							677.0
+						],
+						"size": [
+							240.0,
+							52.0
+						]
+					},
+					"cost": "25 Cycles, 5 Intel, 50 Cash",
+					"cost_rect": {
+						"min": [
+							184.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							704.0
+						],
+						"size": [
+							184.0,
+							22.0
+						]
+					},
+					"disabled": true,
+					"name": "Crypto Mixer",
+					"name_rect": {
+						"min": [
+							107.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							679.0
+						],
+						"size": [
+							184.0,
+							24.0
+						]
+					},
+					"tooltip": "Crypto Mixer\nA tumbler that launders stolen Crypto into clean, spendable Cash.\nCost: 25 Cycles, 5 Intel, 50 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							732.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "lab",
+					"content": {
+						"min": [
+							185.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							732.0
+						],
+						"size": [
+							185.0,
+							52.0
+						]
+					},
+					"cost": "25 Cycles, 10 Intel",
+					"cost_rect": {
+						"min": [
+							129.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							759.0
+						],
+						"size": [
+							129.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "Research Lab",
+					"name_rect": {
+						"min": [
+							110.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							734.0
+						],
+						"size": [
+							129.0,
+							24.0
+						]
+					},
+					"tooltip": "Research Lab\nA reverse-engineering rig. Grinds Intel (burning Cycles) into Research — the know-how to unlock new facilities.\nCost: 25 Cycles, 10 Intel"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							787.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "relay",
+					"content": {
+						"min": [
+							123.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							787.0
+						],
+						"size": [
+							123.0,
+							52.0
+						]
+					},
+					"cost": "15 Cycles",
+					"cost_rect": {
+						"min": [
+							67.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							814.0
+						],
+						"size": [
+							67.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "Proxy",
+					"name_rect": {
+						"min": [
+							47.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							789.0
+						],
+						"size": [
+							67.0,
+							24.0
+						]
+					},
+					"tooltip": "Proxy\nTurn ANY producer into a pure data proxy: it stops producing but forwards packets toward C2 at MINIMUM upkeep, sees far (scout/repeater), and merges many thin links into one fat trunk. Build proxies to push your reach toward new districts cheaply.\nCost: 15 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							843.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "dns",
+					"content": {
+						"min": [
+							153.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							843.0
+						],
+						"size": [
+							153.0,
+							52.0
+						]
+					},
+					"cost": "5 Cycles",
+					"cost_rect": {
+						"min": [
+							58.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							870.0
+						],
+						"size": [
+							97.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "DNS Tunnel",
+					"name_rect": {
+						"min": [
+							97.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							845.0
+						],
+						"size": [
+							97.0,
+							24.0
+						]
+					},
+					"tooltip": "DNS Tunnel\niodine-style: data smuggled inside DNS queries. Small, cheap, silent.\nCost: 5 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							898.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "vpn",
+					"content": {
+						"min": [
+							187.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							898.0
+						],
+						"size": [
+							187.0,
+							52.0
+						]
+					},
+					"cost": "20 Cycles, 10 Cash",
+					"cost_rect": {
+						"min": [
+							131.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							925.0
+						],
+						"size": [
+							131.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "VPN Tunnel",
+					"name_rect": {
+						"min": [
+							96.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							900.0
+						],
+						"size": [
+							131.0,
+							24.0
+						]
+					},
+					"tooltip": "VPN Tunnel\nWireGuard: an encrypted link. Medium throughput, and it actively COOLS your Trace.\nCost: 20 Cycles, 10 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							953.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "tcp",
+					"content": {
+						"min": [
+							187.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							953.0
+						],
+						"size": [
+							187.0,
+							52.0
+						]
+					},
+					"cost": "20 Cycles, 10 Cash",
+					"cost_rect": {
+						"min": [
+							131.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							980.0
+						],
+						"size": [
+							131.0,
+							22.0
+						]
+					},
+					"disabled": false,
+					"name": "Reverse Shell",
+					"name_rect": {
+						"min": [
+							109.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							955.0
+						],
+						"size": [
+							131.0,
+							24.0
+						]
+					},
+					"tooltip": "Reverse Shell\nA fat pipe straight back to C2. Fast — and LOUD (raises Trace).\nCost: 20 Cycles, 10 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							1008.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "http",
+					"content": {
+						"min": [
+							187.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							1008.0
+						],
+						"size": [
+							187.0,
+							52.0
+						]
+					},
+					"cost": "35 Cycles, 25 Cash",
+					"cost_rect": {
+						"min": [
+							131.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							1035.0
+						],
+						"size": [
+							131.0,
+							22.0
+						]
+					},
+					"disabled": true,
+					"name": "HTTP/2 Flood",
+					"name_rect": {
+						"min": [
+							109.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							1010.0
+						],
+						"size": [
+							131.0,
+							24.0
+						]
+					},
+					"tooltip": "HTTP/2 Flood\nA multiplexed firehose. Huge throughput, pricey, moderately loud.\nCost: 35 Cycles, 25 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							1063.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "proxy",
+					"content": {
+						"min": [
+							245.0,
+							47.0
+						],
+						"pos": [
+							16.0,
+							1063.0
+						],
+						"size": [
+							245.0,
+							52.0
+						]
+					},
+					"cost": "25 Cycles, 15 Cash, 1 Tools",
+					"cost_rect": {
+						"min": [
+							189.0,
+							22.0
+						],
+						"pos": [
+							72.0,
+							1090.0
+						],
+						"size": [
+							189.0,
+							22.0
+						]
+					},
+					"disabled": true,
+					"name": "Onion Route",
+					"name_rect": {
+						"min": [
+							104.0,
+							24.0
+						],
+						"pos": [
+							72.0,
+							1065.0
+						],
+						"size": [
+							189.0,
+							24.0
+						]
+					},
+					"tooltip": "Onion Route\nBounces through many hops — reaches far-off districts, costs a Tool.\nCost: 25 Cycles, 15 Cash, 1 Tools"
+				}
+			]
+		},
+		{
+			"build_scroll": {
+				"min": [
+					284.0,
+					120.0
+				],
+				"pos": [
+					8.0,
+					258.0
+				],
+				"size": [
+					284.0,
+					385.0
+				]
+			},
+			"scale": 1.5,
+			"tabs": [
+				{
+					"font": 24,
+					"rect": {
+						"min": [
+							8.0,
+							42.0
+						],
+						"pos": [
+							8.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							42.0
+						]
+					},
+					"text": "Build"
+				},
+				{
+					"font": 24,
+					"rect": {
+						"min": [
+							8.0,
+							42.0
+						],
+						"pos": [
+							65.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							42.0
+						]
+					},
+					"text": "Tech"
+				},
+				{
+					"font": 24,
+					"rect": {
+						"min": [
+							8.0,
+							42.0
+						],
+						"pos": [
+							122.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							42.0
+						]
+					},
+					"text": "Stats"
+				},
+				{
+					"font": 24,
+					"rect": {
+						"min": [
+							8.0,
+							42.0
+						],
+						"pos": [
+							179.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							42.0
+						]
+					},
+					"text": "Jobs"
+				},
+				{
+					"font": 24,
+					"rect": {
+						"min": [
+							8.0,
+							42.0
+						],
+						"pos": [
+							236.0,
+							162.0
+						],
+						"size": [
+							56.0,
+							42.0
+						]
+					},
+					"text": "Menu"
+				}
+			],
+			"tools": [
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							258.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "nest",
+					"content": {
+						"min": [
+							232.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							258.0
+						],
+						"size": [
+							232.0,
+							69.0
+						]
+					},
+					"cost": "10 Cycles",
+					"cost_rect": {
+						"min": [
+							101.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							295.0
+						],
+						"size": [
+							176.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "Mirai Dropper",
+					"name_rect": {
+						"min": [
+							176.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							258.0
+						],
+						"size": [
+							176.0,
+							36.0
+						]
+					},
+					"tooltip": "Mirai Dropper\nThe Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nCost: 10 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							313.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "package",
+					"content": {
+						"min": [
+							350.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							313.0
+						],
+						"size": [
+							350.0,
+							69.0
+						]
+					},
+					"cost": "40 Cycles, 10 Intel, 40 Cash",
+					"cost_rect": {
+						"min": [
+							294.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							350.0
+						],
+						"size": [
+							294.0,
+							32.0
+						]
+					},
+					"disabled": true,
+					"name": "Poisoned Package",
+					"name_rect": {
+						"min": [
+							225.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							313.0
+						],
+						"size": [
+							294.0,
+							36.0
+						]
+					},
+					"tooltip": "Poisoned Package\nA typosquatted npm package quietly pulled into a thousand CI builds. A supply-chain compromise — big Cycles.\nCost: 40 Cycles, 10 Intel, 40 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							368.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "botfarm",
+					"content": {
+						"min": [
+							350.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							368.0
+						],
+						"size": [
+							350.0,
+							69.0
+						]
+					},
+					"cost": "30 Cycles, 10 Intel, 60 Cash",
+					"cost_rect": {
+						"min": [
+							294.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							405.0
+						],
+						"size": [
+							294.0,
+							32.0
+						]
+					},
+					"disabled": true,
+					"name": "Cloud Cryptojacker",
+					"name_rect": {
+						"min": [
+							239.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							368.0
+						],
+						"size": [
+							294.0,
+							36.0
+						]
+					},
+					"tooltip": "Cloud Cryptojacker\nStolen cloud keys spin up racks of instances on someone else's bill. Heavy Cycles.\nCost: 30 Cycles, 10 Intel, 60 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							423.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "phish",
+					"content": {
+						"min": [
+							204.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							423.0
+						],
+						"size": [
+							204.0,
+							69.0
+						]
+					},
+					"cost": "12 Cycles",
+					"cost_rect": {
+						"min": [
+							101.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							460.0
+						],
+						"size": [
+							148.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "Phishing Kit",
+					"name_rect": {
+						"min": [
+							148.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							423.0
+						],
+						"size": [
+							148.0,
+							36.0
+						]
+					},
+					"tooltip": "Phishing Kit\nAn Emotet-style mail lure sprayed across an office. Sweeps Intel from inboxes in range.\nCost: 12 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							478.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "scraper",
+					"content": {
+						"min": [
+							244.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							478.0
+						],
+						"size": [
+							244.0,
+							69.0
+						]
+					},
+					"cost": "15 Cycles",
+					"cost_rect": {
+						"min": [
+							101.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							515.0
+						],
+						"size": [
+							188.0,
+							32.0
+						]
+					},
+					"disabled": true,
+					"name": "Scraper Botnet",
+					"name_rect": {
+						"min": [
+							188.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							478.0
+						],
+						"size": [
+							188.0,
+							36.0
+						]
+					},
+					"tooltip": "Scraper Botnet\nCredential-stuffing bots grinding leaked dumps against logins across the feeds. Sweeps Intel in range.\nCost: 15 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							533.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "salami",
+					"content": {
+						"min": [
+							350.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							533.0
+						],
+						"size": [
+							350.0,
+							69.0
+						]
+					},
+					"cost": "30 Cycles, 20 Intel, 30 Cash",
+					"cost_rect": {
+						"min": [
+							294.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							570.0
+						],
+						"size": [
+							294.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "Magecart Skimmer",
+					"name_rect": {
+						"min": [
+							237.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							533.0
+						],
+						"size": [
+							294.0,
+							36.0
+						]
+					},
+					"tooltip": "Magecart Skimmer\nA few lines of JavaScript on a checkout page. Skims card data — pays out in Crypto.\nCost: 30 Cycles, 20 Intel, 30 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							589.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "fence",
+					"content": {
+						"min": [
+							255.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							589.0
+						],
+						"size": [
+							255.0,
+							69.0
+						]
+					},
+					"cost": "25 Cycles",
+					"cost_rect": {
+						"min": [
+							101.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							616.0
+						],
+						"size": [
+							131.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "Darknet Market",
+					"name_rect": {
+						"min": [
+							199.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							591.0
+						],
+						"size": [
+							199.0,
+							36.0
+						]
+					},
+					"tooltip": "Darknet Market\nA Silk Road stall. Sells your stolen Intel for Cash.\nCost: 25 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							644.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "forge",
+					"content": {
+						"min": [
+							350.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							644.0
+						],
+						"size": [
+							350.0,
+							69.0
+						]
+					},
+					"cost": "30 Cycles, 10 Intel, 30 Cash",
+					"cost_rect": {
+						"min": [
+							294.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							671.0
+						],
+						"size": [
+							294.0,
+							32.0
+						]
+					},
+					"disabled": true,
+					"name": "Exploit Forge",
+					"name_rect": {
+						"min": [
+							163.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							646.0
+						],
+						"size": [
+							193.0,
+							36.0
+						]
+					},
+					"tooltip": "Exploit Forge\nA zero-day lab. Refines Intel (burning Cycles) into Tools — the exploits you need to breach ICE.\nCost: 30 Cycles, 10 Intel, 30 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							699.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "mixer",
+					"content": {
+						"min": [
+							337.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							699.0
+						],
+						"size": [
+							337.0,
+							69.0
+						]
+					},
+					"cost": "25 Cycles, 5 Intel, 50 Cash",
+					"cost_rect": {
+						"min": [
+							281.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							726.0
+						],
+						"size": [
+							281.0,
+							32.0
+						]
+					},
+					"disabled": true,
+					"name": "Crypto Mixer",
+					"name_rect": {
+						"min": [
+							162.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							701.0
+						],
+						"size": [
+							184.0,
+							36.0
+						]
+					},
+					"tooltip": "Crypto Mixer\nA tumbler that launders stolen Crypto into clean, spendable Cash.\nCost: 25 Cycles, 5 Intel, 50 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							754.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "lab",
+					"content": {
+						"min": [
+							251.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							754.0
+						],
+						"size": [
+							251.0,
+							69.0
+						]
+					},
+					"cost": "25 Cycles, 10 Intel",
+					"cost_rect": {
+						"min": [
+							195.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							781.0
+						],
+						"size": [
+							195.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "Research Lab",
+					"name_rect": {
+						"min": [
+							167.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							756.0
+						],
+						"size": [
+							167.0,
+							36.0
+						]
+					},
+					"tooltip": "Research Lab\nA reverse-engineering rig. Grinds Intel (burning Cycles) into Research — the know-how to unlock new facilities.\nCost: 25 Cycles, 10 Intel"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							809.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "relay",
+					"content": {
+						"min": [
+							157.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							809.0
+						],
+						"size": [
+							157.0,
+							69.0
+						]
+					},
+					"cost": "15 Cycles",
+					"cost_rect": {
+						"min": [
+							101.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							836.0
+						],
+						"size": [
+							101.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "Proxy",
+					"name_rect": {
+						"min": [
+							71.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							811.0
+						],
+						"size": [
+							71.0,
+							36.0
+						]
+					},
+					"tooltip": "Proxy\nTurn ANY producer into a pure data proxy: it stops producing but forwards packets toward C2 at MINIMUM upkeep, sees far (scout/repeater), and merges many thin links into one fat trunk. Build proxies to push your reach toward new districts cheaply.\nCost: 15 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							865.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "dns",
+					"content": {
+						"min": [
+							203.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							865.0
+						],
+						"size": [
+							203.0,
+							69.0
+						]
+					},
+					"cost": "5 Cycles",
+					"cost_rect": {
+						"min": [
+							88.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							892.0
+						],
+						"size": [
+							97.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "DNS Tunnel",
+					"name_rect": {
+						"min": [
+							147.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							867.0
+						],
+						"size": [
+							147.0,
+							36.0
+						]
+					},
+					"tooltip": "DNS Tunnel\niodine-style: data smuggled inside DNS queries. Small, cheap, silent.\nCost: 5 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							920.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "vpn",
+					"content": {
+						"min": [
+							255.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							920.0
+						],
+						"size": [
+							255.0,
+							69.0
+						]
+					},
+					"cost": "20 Cycles, 10 Cash",
+					"cost_rect": {
+						"min": [
+							199.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							947.0
+						],
+						"size": [
+							199.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "VPN Tunnel",
+					"name_rect": {
+						"min": [
+							146.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							922.0
+						],
+						"size": [
+							146.0,
+							36.0
+						]
+					},
+					"tooltip": "VPN Tunnel\nWireGuard: an encrypted link. Medium throughput, and it actively COOLS your Trace.\nCost: 20 Cycles, 10 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							975.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "tcp",
+					"content": {
+						"min": [
+							255.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							975.0
+						],
+						"size": [
+							255.0,
+							69.0
+						]
+					},
+					"cost": "20 Cycles, 10 Cash",
+					"cost_rect": {
+						"min": [
+							199.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							1002.0
+						],
+						"size": [
+							199.0,
+							32.0
+						]
+					},
+					"disabled": false,
+					"name": "Reverse Shell",
+					"name_rect": {
+						"min": [
+							166.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							977.0
+						],
+						"size": [
+							166.0,
+							36.0
+						]
+					},
+					"tooltip": "Reverse Shell\nA fat pipe straight back to C2. Fast — and LOUD (raises Trace).\nCost: 20 Cycles, 10 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							1030.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "http",
+					"content": {
+						"min": [
+							255.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							1030.0
+						],
+						"size": [
+							255.0,
+							69.0
+						]
+					},
+					"cost": "35 Cycles, 25 Cash",
+					"cost_rect": {
+						"min": [
+							199.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							1057.0
+						],
+						"size": [
+							199.0,
+							32.0
+						]
+					},
+					"disabled": true,
+					"name": "HTTP/2 Flood",
+					"name_rect": {
+						"min": [
+							166.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							1032.0
+						],
+						"size": [
+							166.0,
+							36.0
+						]
+					},
+					"tooltip": "HTTP/2 Flood\nA multiplexed firehose. Huge throughput, pricey, moderately loud.\nCost: 35 Cycles, 25 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							1085.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "proxy",
+					"content": {
+						"min": [
+							345.0,
+							69.0
+						],
+						"pos": [
+							16.0,
+							1085.0
+						],
+						"size": [
+							345.0,
+							69.0
+						]
+					},
+					"cost": "25 Cycles, 15 Cash, 1 Tools",
+					"cost_rect": {
+						"min": [
+							289.0,
+							32.0
+						],
+						"pos": [
+							72.0,
+							1112.0
+						],
+						"size": [
+							289.0,
+							32.0
+						]
+					},
+					"disabled": true,
+					"name": "Onion Route",
+					"name_rect": {
+						"min": [
+							158.0,
+							36.0
+						],
+						"pos": [
+							72.0,
+							1087.0
+						],
+						"size": [
+							189.0,
+							36.0
+						]
+					},
+					"tooltip": "Onion Route\nBounces through many hops — reaches far-off districts, costs a Tool.\nCost: 25 Cycles, 15 Cash, 1 Tools"
+				}
+			]
+		},
+		{
+			"build_scroll": {
+				"min": [
+					284.0,
+					120.0
+				],
+				"pos": [
+					8.0,
+					280.0
+				],
+				"size": [
+					284.0,
+					303.0
+				]
+			},
+			"scale": 2.0,
+			"tabs": [
+				{
+					"font": 32,
+					"rect": {
+						"min": [
+							8.0,
+							53.0
+						],
+						"pos": [
+							8.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							53.0
+						]
+					},
+					"text": "Build"
+				},
+				{
+					"font": 32,
+					"rect": {
+						"min": [
+							8.0,
+							53.0
+						],
+						"pos": [
+							65.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							53.0
+						]
+					},
+					"text": "Tech"
+				},
+				{
+					"font": 32,
+					"rect": {
+						"min": [
+							8.0,
+							53.0
+						],
+						"pos": [
+							122.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							53.0
+						]
+					},
+					"text": "Stats"
+				},
+				{
+					"font": 32,
+					"rect": {
+						"min": [
+							8.0,
+							53.0
+						],
+						"pos": [
+							179.0,
+							162.0
+						],
+						"size": [
+							55.0,
+							53.0
+						]
+					},
+					"text": "Jobs"
+				},
+				{
+					"font": 32,
+					"rect": {
+						"min": [
+							8.0,
+							53.0
+						],
+						"pos": [
+							236.0,
+							162.0
+						],
+						"size": [
+							56.0,
+							53.0
+						]
+					},
+					"text": "Menu"
+				}
+			],
+			"tools": [
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							280.0
+						],
+						"size": [
+							276.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "nest",
+					"content": {
+						"min": [
+							287.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							280.0
+						],
+						"size": [
+							287.0,
+							90.0
+						]
+					},
+					"cost": "10 Cycles",
+					"cost_rect": {
+						"min": [
+							132.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							328.0
+						],
+						"size": [
+							231.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "Mirai Dropper",
+					"name_rect": {
+						"min": [
+							231.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							280.0
+						],
+						"size": [
+							231.0,
+							47.0
+						]
+					},
+					"tooltip": "Mirai Dropper\nThe Mirai botnet: default-password cameras and routers conscripted by the thousand. Each pwned device donates Cycles.\nCost: 10 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							335.0
+						],
+						"size": [
+							276.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "package",
+					"content": {
+						"min": [
+							440.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							335.0
+						],
+						"size": [
+							440.0,
+							90.0
+						]
+					},
+					"cost": "40 Cycles, 10 Intel, 40 Cash",
+					"cost_rect": {
+						"min": [
+							384.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							383.0
+						],
+						"size": [
+							384.0,
+							42.0
+						]
+					},
+					"disabled": true,
+					"name": "Poisoned Package",
+					"name_rect": {
+						"min": [
+							295.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							335.0
+						],
+						"size": [
+							384.0,
+							47.0
+						]
+					},
+					"tooltip": "Poisoned Package\nA typosquatted npm package quietly pulled into a thousand CI builds. A supply-chain compromise — big Cycles.\nCost: 40 Cycles, 10 Intel, 40 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							390.0
+						],
+						"size": [
+							276.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "botfarm",
+					"content": {
+						"min": [
+							440.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							390.0
+						],
+						"size": [
+							440.0,
+							90.0
+						]
+					},
+					"cost": "30 Cycles, 10 Intel, 60 Cash",
+					"cost_rect": {
+						"min": [
+							384.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							438.0
+						],
+						"size": [
+							384.0,
+							42.0
+						]
+					},
+					"disabled": true,
+					"name": "Cloud Cryptojacker",
+					"name_rect": {
+						"min": [
+							313.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							390.0
+						],
+						"size": [
+							384.0,
+							47.0
+						]
+					},
+					"tooltip": "Cloud Cryptojacker\nStolen cloud keys spin up racks of instances on someone else's bill. Heavy Cycles.\nCost: 30 Cycles, 10 Intel, 60 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							445.0
+						],
+						"size": [
+							276.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "phish",
+					"content": {
+						"min": [
+							249.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							445.0
+						],
+						"size": [
+							249.0,
+							90.0
+						]
+					},
+					"cost": "12 Cycles",
+					"cost_rect": {
+						"min": [
+							132.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							493.0
+						],
+						"size": [
+							193.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "Phishing Kit",
+					"name_rect": {
+						"min": [
+							193.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							445.0
+						],
+						"size": [
+							193.0,
+							47.0
+						]
+					},
+					"tooltip": "Phishing Kit\nAn Emotet-style mail lure sprayed across an office. Sweeps Intel from inboxes in range.\nCost: 12 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							500.0
+						],
+						"size": [
+							276.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "scraper",
+					"content": {
+						"min": [
+							301.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							500.0
+						],
+						"size": [
+							301.0,
+							90.0
+						]
+					},
+					"cost": "15 Cycles",
+					"cost_rect": {
+						"min": [
+							132.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							548.0
+						],
+						"size": [
+							245.0,
+							42.0
+						]
+					},
+					"disabled": true,
+					"name": "Scraper Botnet",
+					"name_rect": {
+						"min": [
+							245.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							500.0
+						],
+						"size": [
+							245.0,
+							47.0
+						]
+					},
+					"tooltip": "Scraper Botnet\nCredential-stuffing bots grinding leaked dumps against logins across the feeds. Sweeps Intel in range.\nCost: 15 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							555.0
+						],
+						"size": [
+							276.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "salami",
+					"content": {
+						"min": [
+							440.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							555.0
+						],
+						"size": [
+							440.0,
+							90.0
+						]
+					},
+					"cost": "30 Cycles, 20 Intel, 30 Cash",
+					"cost_rect": {
+						"min": [
+							384.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							603.0
+						],
+						"size": [
+							384.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "Magecart Skimmer",
+					"name_rect": {
+						"min": [
+							310.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							555.0
+						],
+						"size": [
+							384.0,
+							47.0
+						]
+					},
+					"tooltip": "Magecart Skimmer\nA few lines of JavaScript on a checkout page. Skims card data — pays out in Crypto.\nCost: 30 Cycles, 20 Intel, 30 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							611.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "fence",
+					"content": {
+						"min": [
+							316.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							611.0
+						],
+						"size": [
+							316.0,
+							90.0
+						]
+					},
+					"cost": "25 Cycles",
+					"cost_rect": {
+						"min": [
+							132.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							638.0
+						],
+						"size": [
+							132.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "Darknet Market",
+					"name_rect": {
+						"min": [
+							260.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							613.0
+						],
+						"size": [
+							260.0,
+							47.0
+						]
+					},
+					"tooltip": "Darknet Market\nA Silk Road stall. Sells your stolen Intel for Cash.\nCost: 25 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							666.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "forge",
+					"content": {
+						"min": [
+							440.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							666.0
+						],
+						"size": [
+							440.0,
+							90.0
+						]
+					},
+					"cost": "30 Cycles, 10 Intel, 30 Cash",
+					"cost_rect": {
+						"min": [
+							384.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							693.0
+						],
+						"size": [
+							384.0,
+							42.0
+						]
+					},
+					"disabled": true,
+					"name": "Exploit Forge",
+					"name_rect": {
+						"min": [
+							213.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							668.0
+						],
+						"size": [
+							213.0,
+							47.0
+						]
+					},
+					"tooltip": "Exploit Forge\nA zero-day lab. Refines Intel (burning Cycles) into Tools — the exploits you need to breach ICE.\nCost: 30 Cycles, 10 Intel, 30 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							721.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "mixer",
+					"content": {
+						"min": [
+							423.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							721.0
+						],
+						"size": [
+							423.0,
+							90.0
+						]
+					},
+					"cost": "25 Cycles, 5 Intel, 50 Cash",
+					"cost_rect": {
+						"min": [
+							367.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							748.0
+						],
+						"size": [
+							367.0,
+							42.0
+						]
+					},
+					"disabled": true,
+					"name": "Crypto Mixer",
+					"name_rect": {
+						"min": [
+							213.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							723.0
+						],
+						"size": [
+							213.0,
+							47.0
+						]
+					},
+					"tooltip": "Crypto Mixer\nA tumbler that launders stolen Crypto into clean, spendable Cash.\nCost: 25 Cycles, 5 Intel, 50 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							776.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "lab",
+					"content": {
+						"min": [
+							312.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							776.0
+						],
+						"size": [
+							312.0,
+							90.0
+						]
+					},
+					"cost": "25 Cycles, 10 Intel",
+					"cost_rect": {
+						"min": [
+							256.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							803.0
+						],
+						"size": [
+							256.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "Research Lab",
+					"name_rect": {
+						"min": [
+							218.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							778.0
+						],
+						"size": [
+							218.0,
+							47.0
+						]
+					},
+					"tooltip": "Research Lab\nA reverse-engineering rig. Grinds Intel (burning Cycles) into Research — the know-how to unlock new facilities.\nCost: 25 Cycles, 10 Intel"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							831.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "relay",
+					"content": {
+						"min": [
+							188.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							831.0
+						],
+						"size": [
+							188.0,
+							90.0
+						]
+					},
+					"cost": "15 Cycles",
+					"cost_rect": {
+						"min": [
+							132.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							858.0
+						],
+						"size": [
+							132.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "Proxy",
+					"name_rect": {
+						"min": [
+							93.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							833.0
+						],
+						"size": [
+							93.0,
+							47.0
+						]
+					},
+					"tooltip": "Proxy\nTurn ANY producer into a pure data proxy: it stops producing but forwards packets toward C2 at MINIMUM upkeep, sees far (scout/repeater), and merges many thin links into one fat trunk. Build proxies to push your reach toward new districts cheaply.\nCost: 15 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							887.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "dns",
+					"content": {
+						"min": [
+							248.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							887.0
+						],
+						"size": [
+							248.0,
+							90.0
+						]
+					},
+					"cost": "5 Cycles",
+					"cost_rect": {
+						"min": [
+							115.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							914.0
+						],
+						"size": [
+							115.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "DNS Tunnel",
+					"name_rect": {
+						"min": [
+							192.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							889.0
+						],
+						"size": [
+							192.0,
+							47.0
+						]
+					},
+					"tooltip": "DNS Tunnel\niodine-style: data smuggled inside DNS queries. Small, cheap, silent.\nCost: 5 Cycles"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							942.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "vpn",
+					"content": {
+						"min": [
+							316.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							942.0
+						],
+						"size": [
+							316.0,
+							90.0
+						]
+					},
+					"cost": "20 Cycles, 10 Cash",
+					"cost_rect": {
+						"min": [
+							260.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							969.0
+						],
+						"size": [
+							260.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "VPN Tunnel",
+					"name_rect": {
+						"min": [
+							191.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							944.0
+						],
+						"size": [
+							191.0,
+							47.0
+						]
+					},
+					"tooltip": "VPN Tunnel\nWireGuard: an encrypted link. Medium throughput, and it actively COOLS your Trace.\nCost: 20 Cycles, 10 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							997.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "tcp",
+					"content": {
+						"min": [
+							316.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							997.0
+						],
+						"size": [
+							316.0,
+							90.0
+						]
+					},
+					"cost": "20 Cycles, 10 Cash",
+					"cost_rect": {
+						"min": [
+							260.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							1024.0
+						],
+						"size": [
+							260.0,
+							42.0
+						]
+					},
+					"disabled": false,
+					"name": "Reverse Shell",
+					"name_rect": {
+						"min": [
+							218.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							999.0
+						],
+						"size": [
+							218.0,
+							47.0
+						]
+					},
+					"tooltip": "Reverse Shell\nA fat pipe straight back to C2. Fast — and LOUD (raises Trace).\nCost: 20 Cycles, 10 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							1052.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "http",
+					"content": {
+						"min": [
+							316.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							1052.0
+						],
+						"size": [
+							316.0,
+							90.0
+						]
+					},
+					"cost": "35 Cycles, 25 Cash",
+					"cost_rect": {
+						"min": [
+							260.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							1079.0
+						],
+						"size": [
+							260.0,
+							42.0
+						]
+					},
+					"disabled": true,
+					"name": "HTTP/2 Flood",
+					"name_rect": {
+						"min": [
+							217.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							1054.0
+						],
+						"size": [
+							217.0,
+							47.0
+						]
+					},
+					"tooltip": "HTTP/2 Flood\nA multiplexed firehose. Huge throughput, pricey, moderately loud.\nCost: 35 Cycles, 25 Cash"
+				},
+				{
+					"button": {
+						"min": [
+							8.0,
+							52.0
+						],
+						"pos": [
+							8.0,
+							1107.0
+						],
+						"size": [
+							284.0,
+							52.0
+						]
+					},
+					"button_text": "",
+					"code": "proxy",
+					"content": {
+						"min": [
+							433.0,
+							90.0
+						],
+						"pos": [
+							16.0,
+							1107.0
+						],
+						"size": [
+							433.0,
+							90.0
+						]
+					},
+					"cost": "25 Cycles, 15 Cash, 1 Tools",
+					"cost_rect": {
+						"min": [
+							377.0,
+							42.0
+						],
+						"pos": [
+							72.0,
+							1134.0
+						],
+						"size": [
+							377.0,
+							42.0
+						]
+					},
+					"disabled": true,
+					"name": "Onion Route",
+					"name_rect": {
+						"min": [
+							206.0,
+							47.0
+						],
+						"pos": [
+							72.0,
+							1109.0
+						],
+						"size": [
+							206.0,
+							47.0
+						]
+					},
+					"tooltip": "Onion Route\nBounces through many hops — reaches far-off districts, costs a Tool.\nCost: 25 Cycles, 15 Cash, 1 Tools"
+				}
+			]
+		}
+	]
+}

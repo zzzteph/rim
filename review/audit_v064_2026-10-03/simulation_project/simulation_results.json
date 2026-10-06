@@ -1,0 +1,128 @@
+{
+	"capacity_soft_ceiling": {
+		"cap": 3.0,
+		"delivered": 3.21333333333333,
+		"dist_loss": 0.03,
+		"frac": 0.803333333333333,
+		"offered": 4.0,
+		"over": true,
+		"over_loss": 0.166666666666667,
+		"trace_hot": false
+	},
+	"consumed_deliveries_contract": {
+		"actual_delivered_fixture": 20.0,
+		"done": false,
+		"progress": 15.0
+	},
+	"converter_no_fuel": {
+		"fuel": 0.0,
+		"spawned": 0,
+		"traffic": 1.2
+	},
+	"disabled_inflight_converter": {
+		"on": false,
+		"tools": 1.0
+	},
+	"disabled_overclock": {
+		"boost": 20.0,
+		"cost": 20.0,
+		"production": {}
+	},
+	"disabled_tunnel_noise": {
+		"downstream_production": {
+			"data": 1.0
+		},
+		"operational_connection": true,
+		"trace": 9.88,
+		"upkeep": 0.5
+	},
+	"footprint_ice_bypass": {
+		"centre_ice": 1,
+		"origin": "(75, 9)",
+		"origin_ice": 0,
+		"tools_paid": 0.0
+	},
+	"invalid_backup_rotation": {
+		"valid_after": false,
+		"valid_before": true
+	},
+	"legal_placement_refund_contract": {
+		"done": true,
+		"packets_delivered": 0,
+		"placed_origins": [
+			"(0, 0)",
+			"(5, 0)"
+		],
+		"progress": 20.0
+	},
+	"nest_slot_bypass": {
+		"district_cap": 2,
+		"nests_placed": 3,
+		"origins": [
+			"(31, 29)",
+			"(36, 29)",
+			"(43, 29)"
+		],
+		"slots_left": -1
+	},
+	"offline_overclock": {
+		"boost": 20.0,
+		"chain": [],
+		"cost": 20.0
+	},
+	"save_bad_path": "",
+	"save_cycle": "",
+	"save_duplicate_id": "",
+	"save_invalid_ranges": "",
+	"save_missing_contract_fields": "",
+	"save_missing_packet_fields": "",
+	"save_missing_tunnel": "",
+	"save_unknown_research": "",
+	"save_unknown_tunnel": "",
+	"save_unknown_version": "",
+	"saved_iteration_order": {
+		"restored_ids": [
+			1,
+			10,
+			2
+		],
+		"target_after": 10,
+		"target_before": 2
+	},
+	"scrub_retains_quarantine": {
+		"message": "DDoS smokescreen launched — Trace scrubbed to 0.",
+		"quarantine": 5.0,
+		"trace": 0.0
+	},
+	"stale_downward_route": {
+		"intermediate": 2,
+		"packets": [
+			{
+				"dir": -1,
+				"dist": 1.0,
+				"idx": 1,
+				"res": "data",
+				"route": [
+					2,
+					3
+				],
+				"value": 1.0
+			}
+		],
+		"processor_parent": 1
+	},
+	"wallet_market_price": {
+		"price_after_spending": 0.75,
+		"price_before": 0.5
+	},
+	"win_run_time_after": 10.1,
+	"win_run_time_before": 0.1,
+	"zero_output_emergency": {
+		"compute": 0.0,
+		"has_income": true,
+		"production": {
+			"compute": 0.0
+		},
+		"reserve": false
+	}
+}

@@ -1,0 +1,91 @@
+[
+    {
+        "labels_outside_own_region":  36,
+        "labels_over_road":  72,
+        "labels_over_water":  47,
+        "no_park_blocks":  [
+
+                           ],
+        "non_house_buildings_at_edge":  0,
+        "shop_blocks_total":  100,
+        "shopping_without_mall":  33,
+        "size":  "small",
+        "split_downtown":  [
+
+                           ],
+        "too_few_park_blocks":  [
+
+                                ],
+        "too_few_shop_blocks":  [
+
+                                ],
+        "total_labels":  499,
+        "two_tier_jumps":  0
+    },
+    {
+        "labels_outside_own_region":  49,
+        "labels_over_road":  187,
+        "labels_over_water":  79,
+        "no_park_blocks":  [
+
+                           ],
+        "non_house_buildings_at_edge":  0,
+        "shop_blocks_total":  200,
+        "shopping_without_mall":  36,
+        "size":  "medium",
+        "split_downtown":  [
+                               5,
+                               8,
+                               12,
+                               24,
+                               33,
+                               40,
+                               44,
+                               56,
+                               61,
+                               69,
+                               70,
+                               72,
+                               74,
+                               84,
+                               97
+                           ],
+        "too_few_park_blocks":  [
+
+                                ],
+        "too_few_shop_blocks":  [
+
+                                ],
+        "total_labels":  816,
+        "two_tier_jumps":  0
+    },
+    {
+        "labels_outside_own_region":  82,
+        "labels_over_road":  207,
+        "labels_over_water":  73,
+        "no_park_blocks":  [
+
+                           ],
+        "non_house_buildings_at_edge":  0,
+        "shop_blocks_total":  300,
+        "shopping_without_mall":  52,
+        "size":  "large",
+        "split_downtown":  [
+                               11,
+                               12,
+                               38,
+                               43,
+                               71,
+                               75,
+                               83
+                           ],
+        "too_few_park_blocks":  [
+
+                                ],
+        "too_few_shop_blocks":  [
+
+                                ],
+        "total_labels":  1281,
+        "two_tier_jumps":  0
+    }
+]

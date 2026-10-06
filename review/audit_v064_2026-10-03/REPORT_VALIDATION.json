@@ -1,0 +1,45 @@
+{
+  "total": 100,
+  "unique_keys": 100,
+  "unique_ids": 100,
+  "reviewed_version": "v0.6.7",
+  "counts": {
+    "kind": {
+      "bug": 44,
+      "improvement": 56
+    },
+    "priority": {
+      "P1": 13,
+      "P2": 82,
+      "P3": 5
+    },
+    "evidence_level": {
+      "verified_runtime": 47,
+      "proposal": 32,
+      "source_confirmed": 21
+    },
+    "category": {
+      "Simulation and saves": 16,
+      "Menus and inspector": 13,
+      "Build, research and jobs": 14,
+      "HUD, Stats and alerts": 18,
+      "Rendering and performance": 12,
+      "Game design": 13,
+      "Map and minimap": 14
+    }
+  },
+  "excluded_count": 27,
+  "source_links_valid": true,
+  "production_drift_after_latest": [
+    {
+      "path": "project.godot",
+      "reviewed": "CF01960FE107FE709B949654DE0BAAE0A364B33F5B87DEEEA03C38FB55A7A916",
+      "current": "35D01BDC700C2692467D12808D802B691794ED3823D0F1A269F5B33F4CECE1D3"
+    },
+    {
+      "path": "scripts\\menu.gd",
+      "reviewed": "3EB070F726F749DD73AE10207759C03F5438DCF7126FC752ED6614D85AE9DC5B",
+      "current": "EBB2DD3077482ABB40E3798C7EADAED4E224A1047D063D8D64D4159F58318C9D"
+    }
+  ]
+}

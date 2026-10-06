@@ -1,0 +1,40 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+{"fixture":"synthetic star, cap_rate=0, single-cell paths; CPU scaling only","iterations":80,"max_ms":0.052,"mean_ms":0.0235875,"name":"sim_tick_star","nodes":1,"p50_ms":0.021,"p95_ms":0.043}
+{"iterations":150,"max_ms":0.25,"mean_ms":0.00957333333333334,"name":"visual_signature","nodes":1,"p50_ms":0.007,"p95_ms":0.01}
+{"iterations":100,"max_ms":0.199,"mean_ms":0.06941,"name":"ui_process_build","nodes":1,"p50_ms":0.059,"p95_ms":0.138,"tab":"build"}
+{"iterations":100,"max_ms":0.232,"mean_ms":0.10611,"name":"ui_process_stats","nodes":1,"p50_ms":0.078,"p95_ms":0.198,"tab":"stats"}
+{"iterations":150,"max_ms":0.005,"mean_ms":0.00334,"name":"minimap_process_cached","nodes":1,"p50_ms":0.003,"p95_ms":0.004}
+{"iterations":150,"max_ms":0.005,"mean_ms":0.002,"name":"vision_cached","nodes":1,"p50_ms":0.002,"p95_ms":0.004}
+{"iterations":12,"map":"100x100, 625 fog blocks","max_ms":0.586,"mean_ms":0.571416666666667,"name":"vision_rebuild","nodes":1,"p50_ms":0.572,"p95_ms":0.586}
+{"fixture":"synthetic deep chain, cap_rate=0; CPU scaling only","iterations":50,"max_ms":0.052,"mean_ms":0.02374,"name":"sim_tick_chain","nodes":1,"p50_ms":0.021,"p95_ms":0.04}
+{"fixture":"synthetic star, cap_rate=0, single-cell paths; CPU scaling only","iterations":80,"max_ms":2.325,"mean_ms":1.3615375,"name":"sim_tick_star","nodes":50,"p50_ms":1.233,"p95_ms":2.254}
+{"iterations":150,"max_ms":0.183,"mean_ms":0.0999266666666667,"name":"visual_signature","nodes":50,"p50_ms":0.091,"p95_ms":0.162}
+{"iterations":100,"max_ms":0.857,"mean_ms":0.49576,"name":"ui_process_build","nodes":50,"p50_ms":0.52,"p95_ms":0.774,"tab":"build"}
+{"iterations":100,"max_ms":0.965,"mean_ms":0.55987,"name":"ui_process_stats","nodes":50,"p50_ms":0.598,"p95_ms":0.76,"tab":"stats"}
+{"iterations":150,"max_ms":0.077,"mean_ms":0.0286466666666666,"name":"minimap_process_cached","nodes":50,"p50_ms":0.026,"p95_ms":0.044}
+{"iterations":150,"max_ms":0.037,"mean_ms":0.0300933333333333,"name":"vision_cached","nodes":50,"p50_ms":0.03,"p95_ms":0.031}
+{"iterations":12,"map":"100x100, 625 fog blocks","max_ms":13.391,"mean_ms":10.23275,"name":"vision_rebuild","nodes":50,"p50_ms":10.393,"p95_ms":13.391}
+{"fixture":"synthetic deep chain, cap_rate=0; CPU scaling only","iterations":50,"max_ms":3.631,"mean_ms":1.90926,"name":"sim_tick_chain","nodes":50,"p50_ms":2.061,"p95_ms":2.683}
+{"fixture":"synthetic star, cap_rate=0, single-cell paths; CPU scaling only","iterations":80,"max_ms":7.196,"mean_ms":4.57815,"name":"sim_tick_star","nodes":150,"p50_ms":3.88,"p95_ms":6.727}
+{"iterations":150,"max_ms":0.681,"mean_ms":0.387706666666667,"name":"visual_signature","nodes":150,"p50_ms":0.298,"p95_ms":0.559}
+{"iterations":100,"max_ms":2.492,"mean_ms":0.98495,"name":"ui_process_build","nodes":150,"p50_ms":0.878,"p95_ms":1.567,"tab":"build"}
+{"iterations":100,"max_ms":1.553,"mean_ms":0.89117,"name":"ui_process_stats","nodes":150,"p50_ms":0.776,"p95_ms":1.471,"tab":"stats"}
+{"iterations":150,"max_ms":0.107,"mean_ms":0.0712866666666667,"name":"minimap_process_cached","nodes":150,"p50_ms":0.069,"p95_ms":0.091}
+{"iterations":150,"max_ms":0.145,"mean_ms":0.0608333333333333,"name":"vision_cached","nodes":150,"p50_ms":0.046,"p95_ms":0.095}
+{"iterations":12,"map":"100x100, 625 fog blocks","max_ms":30.315,"mean_ms":22.4433333333333,"name":"vision_rebuild","nodes":150,"p50_ms":20.98,"p95_ms":30.315}
+{"fixture":"synthetic deep chain, cap_rate=0; CPU scaling only","iterations":50,"max_ms":8.036,"mean_ms":4.98684,"name":"sim_tick_chain","nodes":150,"p50_ms":4.575,"p95_ms":7.665}
+{"fixture":"synthetic star, cap_rate=0, single-cell paths; CPU scaling only","iterations":80,"max_ms":22.855,"mean_ms":13.0580875,"name":"sim_tick_star","nodes":400,"p50_ms":11.925,"p95_ms":19.261}
+{"iterations":150,"max_ms":3.685,"mean_ms":0.986086666666667,"name":"visual_signature","nodes":400,"p50_ms":0.792,"p95_ms":1.471}
+{"iterations":100,"max_ms":5.107,"mean_ms":1.92239,"name":"ui_process_build","nodes":400,"p50_ms":1.774,"p95_ms":2.949,"tab":"build"}
+{"iterations":100,"max_ms":4.73,"mean_ms":2.65647,"name":"ui_process_stats","nodes":400,"p50_ms":2.424,"p95_ms":4.083,"tab":"stats"}
+{"iterations":150,"max_ms":0.422,"mean_ms":0.224486666666667,"name":"minimap_process_cached","nodes":400,"p50_ms":0.186,"p95_ms":0.363}
+{"iterations":150,"max_ms":0.492,"mean_ms":0.1531,"name":"vision_cached","nodes":400,"p50_ms":0.124,"p95_ms":0.269}
+{"iterations":12,"map":"100x100, 625 fog blocks","max_ms":46.304,"mean_ms":40.24625,"name":"vision_rebuild","nodes":400,"p50_ms":39.696,"p95_ms":46.304}
+{"fixture":"synthetic deep chain, cap_rate=0; CPU scaling only","iterations":50,"max_ms":21.376,"mean_ms":13.36688,"name":"sim_tick_chain","nodes":400,"p50_ms":11.269,"p95_ms":19.964}
+{"actual_city":true,"iterations":8,"max_ms":0.575,"mean_ms":0.55825,"name":"a_star_preview","p50_ms":0.557,"p95_ms":0.575,"seed":12345,"target":"(11, 11)"}
+{"actual_city":true,"iterations":8,"max_ms":6.318,"mean_ms":5.882875,"name":"a_star_preview","p50_ms":5.894,"p95_ms":6.318,"seed":12345,"target":"(79, 79)"}
+{"actual_city":true,"iterations":8,"max_ms":6.971,"mean_ms":6.41475,"name":"a_star_preview","p50_ms":6.385,"p95_ms":6.971,"seed":12345,"target":"(99, 99)"}
+{"fixture":"synthetic one-edge winding route","iterations":80,"max_ms":0.47,"mean_ms":0.235525,"name":"packet_movement","p50_ms":0.227,"p95_ms":0.282,"packets":100,"path_cells":120,"polyline_points":62}
+{"fixture":"synthetic one-edge winding route","iterations":80,"max_ms":5.207,"mean_ms":2.7150125,"name":"packet_movement","p50_ms":2.387,"p95_ms":4.665,"packets":1000,"path_cells":120,"polyline_points":62}
+{"fixture":"synthetic one-edge winding route","iterations":80,"max_ms":14.181,"mean_ms":9.2348,"name":"packet_movement","p50_ms":8.49,"p95_ms":13.647,"packets":3000,"path_cells":120,"polyline_points":62}

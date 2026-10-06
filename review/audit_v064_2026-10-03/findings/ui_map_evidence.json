@@ -1,0 +1,38 @@
+{
+  "snapshot_note": "The three runtime probes ran against isolated source v0.6.4. SHA256 comparison confirms main.gd and minimap.gd are identical to source_v065. UI screenshot evidence is labelled with its v0.6.4 capture; map code findings remain valid.",
+  "verified_runtime": [
+    "MAP01",
+    "MAP02",
+    "MAP04",
+    "MAP08",
+    "MAP13"
+  ],
+  "source_confirmed": [
+    "MAP03",
+    "MAP05",
+    "MAP06",
+    "MAP07",
+    "MAP09",
+    "MAP12",
+    "MAP14",
+    "MAP15"
+  ],
+  "proposals": [
+    "MAP10",
+    "MAP11"
+  ],
+  "probe": "map_project/map_probe.gd",
+  "probe_results": "map_project/map_probe_results.json",
+  "screenshots_reviewed": [
+    "02_new_game",
+    "04_unlinked_producer",
+    "05_first_link",
+    "06_selected_producer",
+    "07_disabled_producer",
+    "20_accessible_map",
+    "21_before_seed_load",
+    "22_after_seed_load_without_rebake",
+    "23_after_manual_rebake_control"
+  ],
+  "reserved_root_findings": "Different-seed static city rebake and same-seed/count/camera minimap node-position invalidation are deliberately excluded. No performance conclusion is drawn from render_results or blank-camera render screenshots."
+}

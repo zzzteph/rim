@@ -1,0 +1,13 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+ASSERT CK1_repeatable                 PASS  lots=253 roads=178
+ASSERT CK2_valid_footprints           PASS  cells=226 occ=226
+ASSERT CK3_road_reciprocal            PASS  connections symmetric
+ASSERT CK4_road_classes               PASS  straight=70 bend=40 T=44 cross=11 end=18
+ASSERT CK5_no_perimeter_frame         PASS  border road 4/98
+ASSERT CK6_bridge_continuity          PASS  bridges=1 discontinuous=0
+ASSERT CK7_reserved_sites             PASS  downtown=true mall=true park=true
+ASSERT CK8_one_tier_adjacency         PASS  max residential tier jump = 1
+LAND SHARES (large 303, 1140 tiles): res=282 com=55 bus=70 green=136 open=0 water=42 road=410(35%) countryside=145
+
+CITY CHECKS: 8 passed, 0 failed

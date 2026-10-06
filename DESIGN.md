@@ -8,6 +8,78 @@ consumers) and *Factorio* (belts, merging, bottlenecks, auto-generated maps).
 Version scheme: `X.Y.Z`, starting `0.0.0`. Each digit is 0–9; on 10 it rolls
 over (`0.0.9 → 0.1.0`, `0.9.9 → 1.0.0`).
 
+---
+
+## The game now (v0.7.4): two connected map scales
+
+RIM is a 2D cyberpunk hacking/automation game with an unseen operator and **two connected map
+scales** (SimCity/Constructor city presentation; Stellaris hierarchy/exploration). One New
+Game / Continue experience, no walking avatar. Entry point: **New Game** (`scripts/netrun.gd`,
+`scenes/netrun.tscn`). The city size is chosen on the menu (Small 10×10 / Medium 24×24 / Large
+40×40; the grid unit is a **building lot**).
+
+**Global city map.** A continuous architectural city of districts, streets and a 2.5-D skyline.
+Each building is a "system" with links to other buildings. Buildings start **grey/unknown**;
+**scanning a building reveals its links** to neighbours (discovered links are drawn, hidden ones
+stay invisible). You expand along discovered links from buildings where you hold a foothold. Click
+a reachable building to open its **local** network directly; Esc returns to the city (camera and
+selection restored).
+
+**Local building map.** A schematic component graph inside one building. It opens with **one entry
+component**; scanning a revealed component discovers its direct neighbours (progressive discovery
+at both scales, independent). Component types and install slots (brief §3):
+
+| Component | Slots | Capacity | Affinity |
+|---|--:|--:|---|
+| IoT | 2 | 2 | Cycles |
+| Web server | 4 | 4 | Cycles |
+| File server | 4 | 4 | Intel |
+| Database | 6 | 3 | Intel |
+| PC | 6 | 4 | balanced (×0.5) |
+
+**Control via attack cards.** Hacking a component spends resources through **technique cards** in
+three research branches — **credentials / vulnerabilities / phishing**. A card applies only if the
+target has the matching trait (login / software / human) and succeeds (deterministic) when its
+power ≥ the target's relevant defence (password / software / awareness). Basic cards are free from
+the start and beat easy Rim targets; tier-2 cards (Brute Force / Service Exploit / Targeted Phish)
+are unlocked by spending **Research** (produced by an installed Research Lab program). Ineligible
+or under-powered cards are refused with the reason and never charge. Capturing the **first**
+component establishes a building **foothold** and a route to C2 — no program required to expand.
+Capturing **every** component (including hidden ones) grants full control; the win check requires
+all actual components, never just the visible subset.
+
+**Programs & economy.** Install programs (the reused catalogue: Mirai/Poisoned Package/Cloud
+Cryptojacker → Cycles; Phishing Kit/Scraper → Intel; Magecart → Crypto; Darknet Market Intel→Cash;
+Mixer Crypto→Cash; Forge Intel+Cycles→Tools; Lab Intel+Cycles→Research) into a captured
+component's slots — **several per component**. A producer matching the component's affinity runs at
+100%, otherwise ×0.5. Output flows as **real packets** along the building route to C2; converters
+consume banked inputs. Programs can be disabled/removed; undo-safe where applicable.
+
+**Overload & recapture (risk).** Slots and supported capacity are different constraints. Active
+program **load** above a component's **capacity** overloads it; sustained overload degrades its
+**access integrity** (MVP: 7%/s per unit over capacity) until it hits 0 and the component is
+**lost** (ownership drops, installed programs go dormant, the building loses that foothold).
+Reducing load stops the damage and integrity recovers (4%/s). A lost component must be
+**re-captured** with a card.
+
+**Tuning defaults (MVP, documented — not settled numbers):** scan 2 Cycles; basic card power 3 /
+tier-2 power 6; defences scale by organization so the Rim opens with basic cards and deeper orgs
+need research; capacity load is per-component and separate from banked cost; dormant-on-loss
+programs; deterministic previewed cards; bounded Cycles emergency trickle when stranded with no
+income. All verified by `review/netrun_assertions.gd` (12 checks). Accessibility (text scale,
+palette, reduced motion) flows from the shared `Settings` autoload; atomic validated save/load
+persists both graphs, hidden+discovered identities, programs, research, resources and cameras.
+
+**Not in this slice (separate scope):** rival operators, campaigns, audio, storage subsystems,
+local per-component transport detail, and the optional efficiency/reconnaissance/stability upgrade
+families.
+
+## Legacy prototype (off-menu): botnet placement game
+
+> The sections below describe the original `main.tscn` placement game. It is kept
+> for its mature systems (A* tunnels, packet economy, ICE Sweep antagonist,
+> persistence, accessibility) but is not the current game.
+
 ## Core loop
 
 1. Hacked homes produce **Compute**.

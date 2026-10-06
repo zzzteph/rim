@@ -1,0 +1,100 @@
+{
+	"proxy_upkeep": {
+		"actual_total_upkeep": 0.02,
+		"fixture_note": "Cache populated from an actual route to C2 before calling _update_hint; no physical mouse hover is claimed.",
+		"path_length": 1,
+		"preview_formula": 0.05,
+		"preview_hint": "DNS Tunnel → latency 1 pkt, upkeep 0.05 CPU/s, cost 5 Cycles   [OK]   cursor [-25, -13]",
+		"ratio": 2.5,
+		"relay": true
+	},
+	"roof_tool_hit": {
+		"cell": "(3, 0)",
+		"footprint_hit": -1,
+		"pending_source": 2,
+		"silhouette_hit": 1,
+		"tunnel_result": "Click a node.",
+		"world_point": "(74.0, 20.0)"
+	},
+	"seed": 1321476956,
+	"stale_preview": {
+		"before": {
+			"blocked": false,
+			"len": "12.0",
+			"pts": [
+				[
+					72.0,
+					144.0
+				],
+				[
+					84.0,
+					156.0
+				],
+				[
+					84.0,
+					180.0
+				],
+				[
+					276.0,
+					180.0
+				],
+				[
+					276.0,
+					132.0
+				],
+				[
+					288.0,
+					120.0
+				]
+			],
+			"why": ""
+		},
+		"cached_after": {
+			"blocked": false,
+			"len": "12.0",
+			"pts": [
+				[
+					72.0,
+					144.0
+				],
+				[
+					84.0,
+					156.0
+				],
+				[
+					84.0,
+					180.0
+				],
+				[
+					276.0,
+					180.0
+				],
+				[
+					276.0,
+					132.0
+				],
+				[
+					288.0,
+					120.0
+				]
+			],
+			"why": ""
+		},
+		"cached_differs_from_fresh": true,
+		"cached_equals_before": true,
+		"fresh_after": {
+			"blocked": true,
+			"len": "inf",
+			"pts": [],
+			"why": "NO CLEAR ROUTE — blocked, or further than 255 pkt"
+		},
+		"pending_unchanged": true,
+		"source_exists": true,
+		"target_exists_after_undo": false
+	},
+	"starter": {
+		"id": 2,
+		"message": "Mirai Dropper deployed. Link it back to C2 with a tunnel.  (Ctrl+Z to undo)"
+	},
+	"target_cell": "(13, 4)"
+}

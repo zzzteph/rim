@@ -1,0 +1,51 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 576.40 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 3060 Laptop GPU
+
+{"action":"screenshot","error":0,"name":"01_menu","size":[1280,720]}
+SCRIPT ERROR: Invalid access to property or key 'disabled' on a base object of type 'previously freed'.
+   at: press_named (C:/Users/steph/Documents/GitHub/rim/review/audit_v064_2026-10-03/probes/playthrough.gd:55)
+   GDScript backtrace (most recent call first):
+       [0] press_named (C:/Users/steph/Documents/GitHub/rim/review/audit_v064_2026-10-03/probes/playthrough.gd:55)
+       [1] click (C:/Users/steph/Documents/GitHub/rim/review/audit_v064_2026-10-03/probes/playthrough.gd:33)
+       [2] settle (C:/Users/steph/Documents/GitHub/rim/review/audit_v064_2026-10-03/probes/playthrough.gd:13)
+{"action":"new_game","hub":"(1, 1)","seed":2869548981}
+{"action":"screenshot","error":0,"name":"02_new_game","size":[1280,720]}
+{"action":"screenshot","error":0,"name":"03_payload_armed","size":[1280,720]}
+{"action":"world_click","cell":[2,5],"message":"Can't place: Must sit on a building — not an empty street or plaza.","mouse_cell":"(13, 2)","nodes":1,"screen":[640.0,432.0]}
+{"action":"screenshot","error":0,"name":"04_unlinked_producer","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Links"}
+{"action":"world_click","cell":[2,5],"message":"Click a node.","mouse_cell":"(13, 2)","nodes":1,"screen":[640.0,432.0]}
+{"action":"world_click","cell":[2,2],"message":"Click a node.","mouse_cell":"(13, 2)","nodes":1,"screen":[640.0,360.0]}
+{"action":"first_link","cash":0.0,"parent":-1,"producer":1}
+{"action":"screenshot","error":0,"name":"05_first_link","size":[1280,720]}
+{"action":"twelve_seconds","packets_delivered":0,"resources":{"compute":80.0,"credits":0.0,"crypto":0.0,"data":0.0,"research":0.0,"tools":0.0},"upkeep":0.0}
+{"action":"world_click","cell":[2,5],"message":"","mouse_cell":"(13, 2)","nodes":1,"screen":[640.0,432.0]}
+{"action":"screenshot","error":0,"name":"06_selected_producer","size":[1280,720]}
+{"action":"screenshot","error":0,"name":"07_disabled_producer","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Tech"}
+{"action":"screenshot","error":0,"name":"08_tech","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Jobs"}
+{"action":"screenshot","error":0,"name":"09_jobs","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Stats"}
+{"action":"screenshot","error":0,"name":"10_stats","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Menu"}
+{"action":"screenshot","error":0,"name":"11_menu_tab","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Save Game"}
+{"action":"click_button","disabled":false,"text":"Load Game"}
+{"action":"click_button","disabled":false,"text":"⚙ Settings"}
+{"action":"screenshot","error":0,"name":"12_settings_100","size":[1280,720]}
+{"action":"screenshot","error":0,"name":"13_settings_200","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Close"}
+{"action":"screenshot","error":0,"name":"14_menu_200","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Build"}
+{"action":"screenshot","error":0,"name":"15_build_200","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Tech"}
+{"action":"screenshot","error":0,"name":"16_tech_200","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Jobs"}
+{"action":"screenshot","error":0,"name":"17_jobs_200","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Stats"}
+{"action":"screenshot","error":0,"name":"18_stats_200","size":[1280,720]}
+{"action":"screenshot","error":0,"name":"19_pause","size":[1280,720]}
+{"action":"click_button","disabled":false,"text":"Build"}
+{"action":"screenshot","error":0,"name":"20_accessible_map","size":[1280,720]}
+{"action":"complete","nodes":1,"packets_delivered":0,"resources":{"compute":80.0,"credits":0.0,"crypto":0.0,"data":0.0,"research":0.0,"tools":0.0},"seed":2869548981}

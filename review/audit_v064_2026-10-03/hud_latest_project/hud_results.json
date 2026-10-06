@@ -1,0 +1,122 @@
+{
+	"load_message_timeline": {
+		"displayed": "Contract paid in discarded timeline",
+		"history": [
+			"Contract paid in discarded timeline",
+			"Contract expired in discarded timeline",
+			"Game loaded."
+		],
+		"pending": [
+			{
+				"sev": 2,
+				"text": "Contract expired in discarded timeline"
+			},
+			{
+				"sev": 0,
+				"text": "Game loaded."
+			}
+		]
+	},
+	"overload_jump": {
+		"selected_id": 2,
+		"selected_tunnel": -1
+	},
+	"planning_pause": {
+		"pause_overlay_visible": false,
+		"paused": true,
+		"status": "Hover hint",
+		"top_text": "Cycles 80  Intel 0  Crypto 0  Tools 0  Research 77  Cash 0   |   Trace 0%   |   Up 0.0/s feed 100%   |   Goal 0%"
+	},
+	"quarantine_alert": "⚠ 1 structure(s) OFFLINE / unlinked  →",
+	"queue_bound": {
+		"history_count": 12,
+		"pending_count": 110
+	},
+	"rates_legend": {
+		"intersects": true,
+		"legend_rect": {
+			"h": 23.0,
+			"w": 519.0,
+			"x": 600.0,
+			"y": 42.0
+		},
+		"rate_rect": {
+			"h": 22.0,
+			"w": 409.0,
+			"x": 312.0,
+			"y": 42.0
+		},
+		"rates": "Cycles -99.9/s    Intel +1000.0/s    Cash +150.0/s    ETA 0:06"
+	},
+	"repeated_alert_jump": {
+		"first": 2,
+		"second": 2
+	},
+	"repeated_same_message": {
+		"last_message": "Can't place: Not enough resources.",
+		"timer": 0.0,
+		"visible_status": "Hover hint"
+	},
+	"same_frame_history": [
+		"Second same-frame result"
+	],
+	"scaled_hud": {
+		"legend_rect": {
+			"h": 45.0,
+			"w": 799.0,
+			"x": 600.0,
+			"y": 42.0
+		},
+		"stats_scroll_rect": {
+			"h": 235.0,
+			"w": 292.0,
+			"x": 8.0,
+			"y": 221.0
+		},
+		"status": "→ Build a Phishing Kit on blue Intel ground (Glasshouse Row or The Feeds) and link it to C2 — you need Intel to sell.",
+		"status_rect": {
+			"h": 250.0,
+			"w": 292.0,
+			"x": 8.0,
+			"y": 462.0
+		},
+		"top_rect": {
+			"h": 50.0,
+			"w": 956.0,
+			"x": 312.0,
+			"y": 7.0
+		},
+		"top_text": "Cy 80  In 0  Cr 0  To 0  Re 77  Ca 0  |  Tr 0%  |  Up 0  Goal 0%",
+		"top_text_width": 1005.0,
+		"viewport_w": 1280
+	},
+	"stats_research": {
+		"stats_text": "Cycles: 80\nIntel: 0\nCrypto: 0\nTools: 0\nCash: 0 / 1000\n\nTrace: 0%\nStructures: 3\nTunnels: 2\nIn transit: 0\nUpkeep: 0.00 Cycles/s\nFeed: 100%\n\nSeed: 12345",
+		"stored_research": 77.0
+	},
+	"warn_alert": {
+		"alert_rect": {
+			"h": 30.0,
+			"w": 340.0,
+			"x": 924.0,
+			"y": 70.0
+		},
+		"banner_rect": {
+			"h": 24.0,
+			"w": 988.0,
+			"x": 300.0,
+			"y": 66.0
+		},
+		"banner_text_width": 988.0,
+		"text_intersects": true
+	},
+	"warning_fifo": {
+		"displayed": "Routine selection 0",
+		"last_queued": {
+			"sev": 2,
+			"text": "ICE reached your C2 — BLACKOUT"
+		},
+		"pending_count": 10,
+		"warning_wait_lower_bound_s": 22.0
+	}
+}

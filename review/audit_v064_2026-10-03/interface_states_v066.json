@@ -1,0 +1,1678 @@
+[
+	{
+		"controls": [
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@6",
+				"rect": [
+					8.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Build"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@7",
+				"rect": [
+					65.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Tech"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@8",
+				"rect": [
+					122.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Stats"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@9",
+				"rect": [
+					179.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Jobs"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@10",
+				"rect": [
+					236.0,
+					162.0,
+					56.0,
+					31.0
+				],
+				"text": "Menu"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@12",
+				"rect": [
+					8.0,
+					199.0,
+					93.0,
+					31.0
+				],
+				"text": "Hacks"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@13",
+				"rect": [
+					103.0,
+					199.0,
+					93.0,
+					31.0
+				],
+				"text": "Proc"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@14",
+				"rect": [
+					198.0,
+					199.0,
+					94.0,
+					31.0
+				],
+				"text": "Links"
+			},
+			{
+				"font_size": 19,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25",
+				"rect": [
+					8.0,
+					236.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25/@HBoxContainer@24/@VBoxContainer@23/@Label@21",
+				"rect": [
+					72.0,
+					238.0,
+					116.0,
+					24.0
+				],
+				"text": "Mirai Dropper"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25/@HBoxContainer@24/@VBoxContainer@23/@Label@22",
+				"rect": [
+					72.0,
+					263.0,
+					116.0,
+					22.0
+				],
+				"text": "10 Cycles"
+			},
+			{
+				"font_size": 19,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31",
+				"rect": [
+					8.0,
+					291.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31/@HBoxContainer@30/@VBoxContainer@29/@Label@27",
+				"rect": [
+					72.0,
+					293.0,
+					193.0,
+					24.0
+				],
+				"text": "Poisoned Package"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31/@HBoxContainer@30/@VBoxContainer@29/@Label@28",
+				"rect": [
+					72.0,
+					318.0,
+					193.0,
+					22.0
+				],
+				"text": "40 Cycles, 10 Intel, 40 Cash"
+			},
+			{
+				"font_size": 19,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37",
+				"rect": [
+					8.0,
+					346.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37/@HBoxContainer@36/@VBoxContainer@35/@Label@33",
+				"rect": [
+					72.0,
+					348.0,
+					193.0,
+					24.0
+				],
+				"text": "Cloud Cryptojacker"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37/@HBoxContainer@36/@VBoxContainer@35/@Label@34",
+				"rect": [
+					72.0,
+					373.0,
+					193.0,
+					22.0
+				],
+				"text": "30 Cycles, 10 Intel, 60 Cash"
+			},
+			{
+				"font_size": 19,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43",
+				"rect": [
+					8.0,
+					401.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43/@HBoxContainer@42/@VBoxContainer@41/@Label@39",
+				"rect": [
+					72.0,
+					403.0,
+					97.0,
+					24.0
+				],
+				"text": "Phishing Kit"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43/@HBoxContainer@42/@VBoxContainer@41/@Label@40",
+				"rect": [
+					72.0,
+					428.0,
+					97.0,
+					22.0
+				],
+				"text": "12 Cycles"
+			},
+			{
+				"font_size": 19,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49",
+				"rect": [
+					8.0,
+					456.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49/@HBoxContainer@48/@VBoxContainer@47/@Label@45",
+				"rect": [
+					72.0,
+					458.0,
+					123.0,
+					24.0
+				],
+				"text": "Scraper Botnet"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49/@HBoxContainer@48/@VBoxContainer@47/@Label@46",
+				"rect": [
+					72.0,
+					483.0,
+					123.0,
+					22.0
+				],
+				"text": "15 Cycles"
+			},
+			{
+				"font_size": 19,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55",
+				"rect": [
+					8.0,
+					511.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55/@HBoxContainer@54/@VBoxContainer@53/@Label@51",
+				"rect": [
+					72.0,
+					513.0,
+					193.0,
+					24.0
+				],
+				"text": "Magecart Skimmer"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55/@HBoxContainer@54/@VBoxContainer@53/@Label@52",
+				"rect": [
+					72.0,
+					538.0,
+					193.0,
+					22.0
+				],
+				"text": "30 Cycles, 20 Intel, 30 Cash"
+			},
+			{
+				"font_size": 14,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@Label@218",
+				"rect": [
+					8.0,
+					692.0,
+					284.0,
+					20.0
+				],
+				"text": "Controlled alert layout fixture"
+			},
+			{
+				"font_size": 18,
+				"path": "/root/Main/UILayer/UI/@Label@178",
+				"rect": [
+					312.0,
+					7.0,
+					956.0,
+					26.0
+				],
+				"text": "Cycles 78  Intel 0  Crypto 0  Tools 0  Research 0  Cash 0   |   Trace 95%  ⚠   |   Up 0.1/s feed 50%   |   Goal 0%"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@181/@Label@180",
+				"rect": [
+					627.0,
+					42.0,
+					49.0,
+					23.0
+				],
+				"text": "Cycles"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@184/@Label@183",
+				"rect": [
+					717.0,
+					42.0,
+					36.0,
+					23.0
+				],
+				"text": "Intel"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@187/@Label@186",
+				"rect": [
+					794.0,
+					42.0,
+					52.0,
+					23.0
+				],
+				"text": "Crypto"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@190/@Label@189",
+				"rect": [
+					887.0,
+					42.0,
+					41.0,
+					23.0
+				],
+				"text": "Tools"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@193/@Label@192",
+				"rect": [
+					969.0,
+					42.0,
+					71.0,
+					23.0
+				],
+				"text": "Research"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@196/@Label@195",
+				"rect": [
+					1081.0,
+					42.0,
+					38.0,
+					23.0
+				],
+				"text": "Cash"
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Label@198",
+				"rect": [
+					300.0,
+					66.0,
+					988.0,
+					24.0
+				],
+				"text": "⚠ ICE SWEEP INBOUND — 5s to impact  ·  DDoS = scatter it + wipe Trace; or cut/reroute the swept link to break the trace"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Label@199",
+				"rect": [
+					312.0,
+					42.0,
+					1.0,
+					22.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@201",
+				"rect": [
+					924.0,
+					70.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ 1 tunnel(s) OVERLOADED  →"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@202",
+				"rect": [
+					924.0,
+					103.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ 1 structure(s) OFFLINE / unlinked  →"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@203",
+				"rect": [
+					924.0,
+					136.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ Network STARVED 50%  →"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@204",
+				"rect": [
+					924.0,
+					169.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ Trace CRITICAL 95%  →"
+			}
+		],
+		"name": "25_alerts_100"
+	},
+	{
+		"controls": [
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@6",
+				"rect": [
+					8.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Build"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@7",
+				"rect": [
+					65.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Tech"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@8",
+				"rect": [
+					122.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Stats"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@9",
+				"rect": [
+					179.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Jobs"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@10",
+				"rect": [
+					236.0,
+					162.0,
+					56.0,
+					53.0
+				],
+				"text": "Menu"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@12",
+				"rect": [
+					8.0,
+					221.0,
+					93.0,
+					53.0
+				],
+				"text": "Hacks"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@13",
+				"rect": [
+					103.0,
+					221.0,
+					93.0,
+					53.0
+				],
+				"text": "Proc"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@14",
+				"rect": [
+					198.0,
+					221.0,
+					94.0,
+					53.0
+				],
+				"text": "Links"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25",
+				"rect": [
+					8.0,
+					280.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25/@HBoxContainer@24/@VBoxContainer@23/@Label@21",
+				"rect": [
+					72.0,
+					280.0,
+					231.0,
+					47.0
+				],
+				"text": "Mirai Dropper"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25/@HBoxContainer@24/@VBoxContainer@23/@Label@22",
+				"rect": [
+					72.0,
+					328.0,
+					231.0,
+					42.0
+				],
+				"text": "10 Cycles"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31",
+				"rect": [
+					8.0,
+					335.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31/@HBoxContainer@30/@VBoxContainer@29/@Label@27",
+				"rect": [
+					72.0,
+					335.0,
+					384.0,
+					47.0
+				],
+				"text": "Poisoned Package"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31/@HBoxContainer@30/@VBoxContainer@29/@Label@28",
+				"rect": [
+					72.0,
+					383.0,
+					384.0,
+					42.0
+				],
+				"text": "40 Cycles, 10 Intel, 40 Cash"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37",
+				"rect": [
+					8.0,
+					390.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37/@HBoxContainer@36/@VBoxContainer@35/@Label@33",
+				"rect": [
+					72.0,
+					390.0,
+					384.0,
+					47.0
+				],
+				"text": "Cloud Cryptojacker"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37/@HBoxContainer@36/@VBoxContainer@35/@Label@34",
+				"rect": [
+					72.0,
+					438.0,
+					384.0,
+					42.0
+				],
+				"text": "30 Cycles, 10 Intel, 60 Cash"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43",
+				"rect": [
+					8.0,
+					445.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43/@HBoxContainer@42/@VBoxContainer@41/@Label@39",
+				"rect": [
+					72.0,
+					445.0,
+					193.0,
+					47.0
+				],
+				"text": "Phishing Kit"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43/@HBoxContainer@42/@VBoxContainer@41/@Label@40",
+				"rect": [
+					72.0,
+					493.0,
+					193.0,
+					42.0
+				],
+				"text": "12 Cycles"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49",
+				"rect": [
+					8.0,
+					500.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49/@HBoxContainer@48/@VBoxContainer@47/@Label@45",
+				"rect": [
+					72.0,
+					500.0,
+					245.0,
+					47.0
+				],
+				"text": "Scraper Botnet"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49/@HBoxContainer@48/@VBoxContainer@47/@Label@46",
+				"rect": [
+					72.0,
+					548.0,
+					245.0,
+					42.0
+				],
+				"text": "15 Cycles"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55",
+				"rect": [
+					8.0,
+					555.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55/@HBoxContainer@54/@VBoxContainer@53/@Label@51",
+				"rect": [
+					72.0,
+					555.0,
+					384.0,
+					47.0
+				],
+				"text": "Magecart Skimmer"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55/@HBoxContainer@54/@VBoxContainer@53/@Label@52",
+				"rect": [
+					72.0,
+					603.0,
+					384.0,
+					42.0
+				],
+				"text": "30 Cycles, 20 Intel, 30 Cash"
+			},
+			{
+				"font_size": 28,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@Label@218",
+				"rect": [
+					8.0,
+					631.0,
+					284.0,
+					81.0
+				],
+				"text": "Controlled alert layout fixture"
+			},
+			{
+				"font_size": 36,
+				"path": "/root/Main/UILayer/UI/@Label@178",
+				"rect": [
+					312.0,
+					7.0,
+					956.0,
+					50.0
+				],
+				"text": "Cy 78  In 0  Cr 0  To 0  Re 0  Ca 0  |  Tr 95%  ⚠  |  Up 0  Goal 0%"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@181/@Label@180",
+				"rect": [
+					627.0,
+					42.0,
+					96.0,
+					45.0
+				],
+				"text": "Cycles"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@184/@Label@183",
+				"rect": [
+					764.0,
+					42.0,
+					70.0,
+					45.0
+				],
+				"text": "Intel"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@187/@Label@186",
+				"rect": [
+					875.0,
+					42.0,
+					103.0,
+					45.0
+				],
+				"text": "Crypto"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@190/@Label@189",
+				"rect": [
+					1019.0,
+					42.0,
+					82.0,
+					45.0
+				],
+				"text": "Tools"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@193/@Label@192",
+				"rect": [
+					1142.0,
+					42.0,
+					141.0,
+					45.0
+				],
+				"text": "Research"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@196/@Label@195",
+				"rect": [
+					1324.0,
+					42.0,
+					75.0,
+					45.0
+				],
+				"text": "Cash"
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Label@198",
+				"rect": [
+					300.0,
+					66.0,
+					1974.0,
+					47.0
+				],
+				"text": "⚠ ICE SWEEP INBOUND — 5s to impact  ·  DDoS = scatter it + wipe Trace; or cut/reroute the swept link to break the trace"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Label@199",
+				"rect": [
+					312.0,
+					42.0,
+					1.0,
+					42.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@201",
+				"rect": [
+					924.0,
+					70.0,
+					340.0,
+					50.0
+				],
+				"text": "⚠ 1 tunnel(s) OVERLOADED  →"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@202",
+				"rect": [
+					924.0,
+					123.0,
+					340.0,
+					50.0
+				],
+				"text": "⚠ 1 structure(s) OFFLINE / unlinked  →"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@203",
+				"rect": [
+					924.0,
+					176.0,
+					340.0,
+					50.0
+				],
+				"text": "⚠ Network STARVED 50%  →"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@204",
+				"rect": [
+					924.0,
+					229.0,
+					340.0,
+					50.0
+				],
+				"text": "⚠ Trace CRITICAL 95%  →"
+			}
+		],
+		"name": "26_alerts_200"
+	},
+	{
+		"controls": [
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@6",
+				"rect": [
+					8.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Build"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@7",
+				"rect": [
+					65.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Tech"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@8",
+				"rect": [
+					122.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Stats"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@9",
+				"rect": [
+					179.0,
+					162.0,
+					55.0,
+					31.0
+				],
+				"text": "Jobs"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@10",
+				"rect": [
+					236.0,
+					162.0,
+					56.0,
+					31.0
+				],
+				"text": "Menu"
+			},
+			{
+				"font_size": 20,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@207/@VBoxContainer@208/@Label@209",
+				"rect": [
+					8.0,
+					199.0,
+					284.0,
+					28.0
+				],
+				"text": "DNS Tunnel"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@207/@VBoxContainer@208/@Label@210",
+				"rect": [
+					8.0,
+					233.0,
+					284.0,
+					335.0
+				],
+				"text": "iodine-style: data smuggled inside DNS queries. Small, cheap, silent.\nLatency: 1 pkt    Capacity: 3/s\nLinks Mirai Dropper → C2 Server\n⚠ OVERLOADED: carrying 10.0/s but this link holds only 3.0/s. Use a fatter tunnel (Reverse Shell), split the load via a Proxy, or lower the source's Output.\nDelivery 25% — losses: 2% distance, 74% overload, 20% ICE (Trace hot). A Proxy/shorter hop cuts distance; scrub Trace to lift the ICE penalty."
+			},
+			{
+				"font_size": 19,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@207/@VBoxContainer@208/@Button@211",
+				"rect": [
+					8.0,
+					574.0,
+					284.0,
+					44.0
+				],
+				"text": "Dismantle  (Del)"
+			},
+			{
+				"font_size": 14,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@Label@218",
+				"rect": [
+					8.0,
+					692.0,
+					284.0,
+					20.0
+				],
+				"text": "Controlled alert layout fixture"
+			},
+			{
+				"font_size": 18,
+				"path": "/root/Main/UILayer/UI/@Label@178",
+				"rect": [
+					312.0,
+					7.0,
+					956.0,
+					26.0
+				],
+				"text": "Cycles 78  Intel 0  Crypto 0  Tools 0  Research 0  Cash 0   |   Trace 95%  ⚠   |   Up 0.1/s feed 50%   |   Goal 0%"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@181/@Label@180",
+				"rect": [
+					627.0,
+					42.0,
+					49.0,
+					23.0
+				],
+				"text": "Cycles"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@184/@Label@183",
+				"rect": [
+					717.0,
+					42.0,
+					36.0,
+					23.0
+				],
+				"text": "Intel"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@187/@Label@186",
+				"rect": [
+					794.0,
+					42.0,
+					52.0,
+					23.0
+				],
+				"text": "Crypto"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@190/@Label@189",
+				"rect": [
+					887.0,
+					42.0,
+					41.0,
+					23.0
+				],
+				"text": "Tools"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@193/@Label@192",
+				"rect": [
+					969.0,
+					42.0,
+					71.0,
+					23.0
+				],
+				"text": "Research"
+			},
+			{
+				"font_size": 16,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@196/@Label@195",
+				"rect": [
+					1081.0,
+					42.0,
+					38.0,
+					23.0
+				],
+				"text": "Cash"
+			},
+			{
+				"font_size": 17,
+				"path": "/root/Main/UILayer/UI/@Label@198",
+				"rect": [
+					300.0,
+					66.0,
+					988.0,
+					24.0
+				],
+				"text": "⚠ ICE SWEEP INBOUND — 5s to impact  ·  DDoS = scatter it + wipe Trace; or cut/reroute the swept link to break the trace"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@Label@199",
+				"rect": [
+					312.0,
+					42.0,
+					1.0,
+					22.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@201",
+				"rect": [
+					924.0,
+					70.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ 1 tunnel(s) OVERLOADED  →"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@202",
+				"rect": [
+					924.0,
+					103.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ 1 structure(s) OFFLINE / unlinked  →"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@203",
+				"rect": [
+					924.0,
+					136.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ Network STARVED 50%  →"
+			},
+			{
+				"font_size": 15,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@204",
+				"rect": [
+					924.0,
+					169.0,
+					340.0,
+					30.0
+				],
+				"text": "⚠ Trace CRITICAL 95%  →"
+			}
+		],
+		"name": "27_tunnel_inspector"
+	},
+	{
+		"controls": [
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@6",
+				"rect": [
+					8.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Build"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@7",
+				"rect": [
+					65.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Tech"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@8",
+				"rect": [
+					122.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Stats"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@9",
+				"rect": [
+					179.0,
+					162.0,
+					55.0,
+					53.0
+				],
+				"text": "Jobs"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@5/@Button@10",
+				"rect": [
+					236.0,
+					162.0,
+					56.0,
+					53.0
+				],
+				"text": "Menu"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@12",
+				"rect": [
+					8.0,
+					221.0,
+					93.0,
+					53.0
+				],
+				"text": "Hacks"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@13",
+				"rect": [
+					103.0,
+					221.0,
+					93.0,
+					53.0
+				],
+				"text": "Proc"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@HBoxContainer@11/@Button@14",
+				"rect": [
+					198.0,
+					221.0,
+					94.0,
+					53.0
+				],
+				"text": "Links"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25",
+				"rect": [
+					8.0,
+					280.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25/@HBoxContainer@24/@VBoxContainer@23/@Label@21",
+				"rect": [
+					72.0,
+					280.0,
+					231.0,
+					47.0
+				],
+				"text": "Mirai Dropper"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@25/@HBoxContainer@24/@VBoxContainer@23/@Label@22",
+				"rect": [
+					72.0,
+					328.0,
+					231.0,
+					42.0
+				],
+				"text": "10 Cycles"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31",
+				"rect": [
+					8.0,
+					335.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31/@HBoxContainer@30/@VBoxContainer@29/@Label@27",
+				"rect": [
+					72.0,
+					335.0,
+					384.0,
+					47.0
+				],
+				"text": "Poisoned Package"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@31/@HBoxContainer@30/@VBoxContainer@29/@Label@28",
+				"rect": [
+					72.0,
+					383.0,
+					384.0,
+					42.0
+				],
+				"text": "40 Cycles, 10 Intel, 40 Cash"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37",
+				"rect": [
+					8.0,
+					390.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37/@HBoxContainer@36/@VBoxContainer@35/@Label@33",
+				"rect": [
+					72.0,
+					390.0,
+					384.0,
+					47.0
+				],
+				"text": "Cloud Cryptojacker"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@37/@HBoxContainer@36/@VBoxContainer@35/@Label@34",
+				"rect": [
+					72.0,
+					438.0,
+					384.0,
+					42.0
+				],
+				"text": "30 Cycles, 10 Intel, 60 Cash"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43",
+				"rect": [
+					8.0,
+					445.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43/@HBoxContainer@42/@VBoxContainer@41/@Label@39",
+				"rect": [
+					72.0,
+					445.0,
+					193.0,
+					47.0
+				],
+				"text": "Phishing Kit"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@43/@HBoxContainer@42/@VBoxContainer@41/@Label@40",
+				"rect": [
+					72.0,
+					493.0,
+					193.0,
+					42.0
+				],
+				"text": "12 Cycles"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49",
+				"rect": [
+					8.0,
+					500.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49/@HBoxContainer@48/@VBoxContainer@47/@Label@45",
+				"rect": [
+					72.0,
+					500.0,
+					245.0,
+					47.0
+				],
+				"text": "Scraper Botnet"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@49/@HBoxContainer@48/@VBoxContainer@47/@Label@46",
+				"rect": [
+					72.0,
+					548.0,
+					245.0,
+					42.0
+				],
+				"text": "15 Cycles"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55",
+				"rect": [
+					8.0,
+					555.0,
+					284.0,
+					52.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 34,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55/@HBoxContainer@54/@VBoxContainer@53/@Label@51",
+				"rect": [
+					72.0,
+					555.0,
+					384.0,
+					47.0
+				],
+				"text": "Magecart Skimmer"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@ScrollContainer@17/@VBoxContainer@18/@VBoxContainer@19/@Button@55/@HBoxContainer@54/@VBoxContainer@53/@Label@52",
+				"rect": [
+					72.0,
+					603.0,
+					384.0,
+					42.0
+				],
+				"text": "30 Cycles, 20 Intel, 30 Cash"
+			},
+			{
+				"font_size": 28,
+				"path": "/root/Main/UILayer/UI/@Panel@2/@VBoxContainer@3/@Label@218",
+				"rect": [
+					8.0,
+					631.0,
+					284.0,
+					81.0
+				],
+				"text": "Controlled alert layout fixture"
+			},
+			{
+				"font_size": 36,
+				"path": "/root/Main/UILayer/UI/@Label@178",
+				"rect": [
+					312.0,
+					7.0,
+					956.0,
+					50.0
+				],
+				"text": "Cy 78  In 0  Cr 0  To 0  Re 0  Ca 1000  |  Tr 0%  |  Up 0  Goal 100%"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@181/@Label@180",
+				"rect": [
+					627.0,
+					42.0,
+					96.0,
+					45.0
+				],
+				"text": "Cycles"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@184/@Label@183",
+				"rect": [
+					764.0,
+					42.0,
+					70.0,
+					45.0
+				],
+				"text": "Intel"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@187/@Label@186",
+				"rect": [
+					875.0,
+					42.0,
+					103.0,
+					45.0
+				],
+				"text": "Crypto"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@190/@Label@189",
+				"rect": [
+					1019.0,
+					42.0,
+					82.0,
+					45.0
+				],
+				"text": "Tools"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@193/@Label@192",
+				"rect": [
+					1142.0,
+					42.0,
+					141.0,
+					45.0
+				],
+				"text": "Research"
+			},
+			{
+				"font_size": 32,
+				"path": "/root/Main/UILayer/UI/@HBoxContainer@197/@HBoxContainer@196/@Label@195",
+				"rect": [
+					1324.0,
+					42.0,
+					75.0,
+					45.0
+				],
+				"text": "Cash"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@Label@199",
+				"rect": [
+					312.0,
+					42.0,
+					1.0,
+					42.0
+				],
+				"text": ""
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@201",
+				"rect": [
+					924.0,
+					70.0,
+					340.0,
+					50.0
+				],
+				"text": "⚠ 1 tunnel(s) OVERLOADED  →"
+			},
+			{
+				"font_size": 30,
+				"path": "/root/Main/UILayer/UI/@VBoxContainer@200/@Button@202",
+				"rect": [
+					924.0,
+					123.0,
+					340.0,
+					50.0
+				],
+				"text": "⚠ 1 structure(s) OFFLINE / unlinked  →"
+			},
+			{
+				"font_size": 56,
+				"path": "/root/Main/UILayer/UI/@Control@230/@PanelContainer@232/@VBoxContainer@233/@Label@234",
+				"rect": [
+					368.0,
+					188.0,
+					544.0,
+					477.0
+				],
+				"text": "GOAL REACHED — 1000 CASH\nTime 0:20    Peak 0.0 Cash/s    Packets 14    Peak Trace 0%    Nodes 2"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Control@230/@PanelContainer@232/@VBoxContainer@233/@Button@235",
+				"rect": [
+					368.0,
+					673.0,
+					544.0,
+					61.0
+				],
+				"text": "Keep Playing"
+			},
+			{
+				"font_size": 38,
+				"path": "/root/Main/UILayer/UI/@Control@230/@PanelContainer@232/@VBoxContainer@233/@Button@236",
+				"rect": [
+					368.0,
+					742.0,
+					544.0,
+					61.0
+				],
+				"text": "Main Menu"
+			}
+		],
+		"name": "28_victory_200"
+	},
+	{
+		"fonts": [
+			{
+				"font_size": 52,
+				"text": "R I M"
+			},
+			{
+				"font_size": 14,
+				"text": "a game about cyberspace"
+			},
+			{
+				"font_size": 16,
+				"text": "New Game"
+			},
+			{
+				"font_size": 16,
+				"text": "Continue"
+			},
+			{
+				"font_size": 16,
+				"text": "⚙ Accessibility"
+			},
+			{
+				"font_size": 16,
+				"text": "Quit"
+			},
+			{
+				"font_size": 11,
+				"text": "v0.6.7"
+			},
+			{
+				"font_size": 28,
+				"text": "Accessibility"
+			},
+			{
+				"font_size": 18,
+				"text": "Reduced motion"
+			},
+			{
+				"font_size": 16,
+				"text": "On"
+			},
+			{
+				"font_size": 18,
+				"text": "Colour-blind palette"
+			},
+			{
+				"font_size": 16,
+				"text": "Off"
+			},
+			{
+				"font_size": 18,
+				"text": "High contrast"
+			},
+			{
+				"font_size": 16,
+				"text": "Off"
+			},
+			{
+				"font_size": 18,
+				"text": "Text size"
+			},
+			{
+				"font_size": 16,
+				"text": "200%"
+			},
+			{
+				"font_size": 16,
+				"text": "Preview:"
+			},
+			{
+				"font_size": 36,
+				"text": "Cycles 1234"
+			},
+			{
+				"font_size": 36,
+				"text": "Intel 567"
+			},
+			{
+				"font_size": 36,
+				"text": "Cash 89"
+			},
+			{
+				"font_size": 32,
+				"text": "⚠ TUNNEL OVERLOADED"
+			},
+			{
+				"font_size": 16,
+				"text": "Close"
+			}
+		],
+		"name": "29_main_menu_200",
+		"settings_scale": 2.0
+	}
+]

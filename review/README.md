@@ -1,5 +1,7 @@
 **RIM review artifacts**
 
+Current city redesign: read [CLAUDE_BRIEF.md](../CLAUDE_BRIEF.md) first. It consolidates the latest user direction and earlier decisions; [CITY_REDESIGN_DECISIONS.md](CITY_REDESIGN_DECISIONS.md) records the reviewed source inventory and superseded rules. The historical reviews below remain evidence for their recorded versions.
+
 Latest: [v0.5.8 reverified review and 100 improvements](REVERIFIED_REVIEW.md), [162-row sortable backlog](REVERIFIED_BACKLOG.csv), [100 improvements](REVERIFY_100_IMPROVEMENTS.csv), and [reproduction instructions](REVERIFY_README.md). The earlier artifacts below are preserved as the v0.5.6 review.
 
 Read [GAME_REVIEW.md](C:/Users/steph/Documents/GitHub/rim/review/GAME_REVIEW.md) for the full assessment and [REVIEW_BACKLOG.csv](C:/Users/steph/Documents/GitHub/rim/review/REVIEW_BACKLOG.csv) for its 120 sortable entries.

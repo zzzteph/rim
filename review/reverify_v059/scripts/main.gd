@@ -16,6 +16,8 @@ const PACKET_SPEED := 60.0    # px/second a packet travels (× slow_factor when 
 const NEST_SPACING := 5.0     # min tiles between Compute nodes
 const GOAL_CREDITS := 1000.0
 const TICK_DT := 0.1
+const MAX_CATCHUP_TICKS := 6   # RIM-084: fixed-dt sim ticks per visual frame during catch-up
+const MAX_ACCUM := 2.0         # RIM-084: cap carried sim debt; only a >2s stall drops time
 const MIN_FEED := 0.25        # a starved network never drops below this speed — always recoverable
 
 # Per-second production (1 packet/s each; a DNS holds 3, TCP holds 10)
@@ -151,6 +153,10 @@ const ZONE_PRODUCER := {"glasshouse": "phish", "vault": "salami", "registry": "p
 # What each producer yields (display name), so a producer can go on ANY district of the
 # matching resource/colour (e.g. any Intel/blue ground), not just one exact district.
 const PRODUCER_RES := {"nest": "Cycles", "package": "Cycles", "botfarm": "Cycles", "phish": "Intel", "scraper": "Intel", "salami": "Crypto"}
+# B43: a producer's output resource KEY and resource-name → key, so markers can borrow the
+# SAME semantic (colour-blind-aware) palette as the resource packets.
+const PRODUCER_OUT := {"nest": "compute", "package": "compute", "botfarm": "compute", "phish": "data", "scraper": "data", "salami": "crypto"}
+const RES_KEY := {"Cycles": "compute", "Intel": "data", "Crypto": "crypto"}
 const ZONE_COLOR := {  # ground tint = the resource you can place there
 	"residential": Color(0.4, 0.95, 0.55),   # Cycles (green)
 	"registry":    Color(0.65, 0.9, 0.35),   # Cycles (lime)
@@ -209,11 +215,16 @@ var won := false
 
 var current_tool := ""
 var pending_child := -1
+var _rerouting := false   # T29: arming a LINKED node to move its tunnel to a new parent
 var message := "Pick a tool from the left, then click the map."
 var hint := ""
 var selected_id := -1
 var selected_tunnel := -1
 var paused := false
+var ui = null                 # back-reference to the UI, registered by ui.gd
+var pause_menu := false       # the modal PAUSE MENU is open (distinct from planning pause) — B39
+var modal_open := false       # a blocking modal (Settings / win) is open; set each frame by ui — B35-B38
+var _menu_prev_paused := false
 var seed := 0
 var warn_overload := false
 var _panning := false
@@ -228,6 +239,7 @@ var _cursor_shape := 0  # Input.CURSOR_ARROW — cached so we only set it on cha
 var _hint_cell := Vector2i(-99999, -99999)
 var _hint_pending := -1
 var _hint_tool := ""
+var _hint_topo := -1   # MAP02: topology revision the cached preview was computed against
 var _hint_route := {}
 # cached fog-of-war vision list — rebuilt only when the node set changes
 var _vis_sig := []
@@ -239,19 +251,24 @@ var _last_cam_zoom := Vector2.ONE
 var _last_mouse := Vector2.ZERO
 var _last_vsig := 0            # last visual-state signature (B51 paused-repaint wake)
 var _vsig_init := false
+var _last_cb_pal := false      # B43: re-bake the city when the colour-blind palette changes
+var world_rev := 0             # PERF02: bumped on load so minimap/caches refresh even same-seed
+var _topo_rev := 0             # MAP02: bumped on every placement/removal/restore/reroute
+var _vis_rev := 0              # RIM-082: bumped on visible, non-topology mutations (toggle/rate/boost/quarantine)
+var _rate_rev := 0             # RIM-081: bumped once per sim tick, for data-cadence sidebar refresh
 
 
 # A cheap hash of everything a discrete action can change on-screen, so repaint gating can
 # wake once on toggles/dismantle/undo/settings/selection even while paused and stationary.
+# RIM-082: constant-time repaint signature. Per-node visual state no longer hashed every frame;
+# instead topology changes bump _topo_rev (place/tunnel/relay/dismantle/restore/reroute) and the
+# remaining visible per-node mutations (enable/disable, rate, overclock, quarantine set/clear)
+# bump _vis_rev. Scalar HUD/selection/settings state is cheap and stays inline. Idle paused
+# detection is now O(1) regardless of node count, while every discrete change still repaints once.
 func _visual_sig() -> int:
-	var h := hash([nodes.size(), selected_id, selected_tunnel, pending_child, _undo.size(),
+	return hash([_topo_rev, _vis_rev, selected_id, selected_tunnel, pending_child,
 		sweep.is_empty(), _blackout_t > 0.0, won, message,
 		Settings.reduced_motion, Settings.high_contrast, Settings.cb, Settings.dots, Settings.text_scale])
-	for id in nodes:
-		var n = nodes[id]
-		h = hash([h, id, n.parent, n.get("on", true), n.get("relay", false),
-			n.get("boost_t", 0.0) > 0.0, n.get("cap_rate", 1.0), n.get("quarantine", 0.0) > 0.0])
-	return h
 
 # ICE Sweep antagonist + run stats
 var notoriety := 0.0          # non-decaying heat driver: sets sweep strength/frequency
@@ -260,6 +277,7 @@ var _sweep_charge := 0.0      # accumulates toward launching the next sweep
 var _blackout_t := 0.0        # C2 blackout timer (production paused) after a sweep lands
 var _run_time := 0.0          # seconds of active play, for the end-run scorecard
 var _packets_delivered := 0
+var _delivered_total := {}    # SIM09: cumulative units banked at C2 per resource (never refunds/grants)
 var _max_trace := 0.0
 var _peak_cash_rate := 0.0
 var _deliver_flash := {}      # resource -> flash timer (delivery juice)
@@ -408,6 +426,37 @@ func _node_at(cell: Vector2i) -> int:
 		if _covers(id, cell):
 			return id
 	return -1
+
+
+# B48: hit-test the visible 2.5D silhouette (ground footprint up to the elevated roof), so a
+# click on the drawn tower selects it even though the footprint sits below/left of the roof.
+# Among overlapping hits the frontmost (largest cell.y + size, matching paint order) wins.
+func _node_at_silhouette(wpos: Vector2) -> int:
+	var best := -1
+	var best_front := -1.0
+	for id in nodes:
+		var o: Vector2i = nodes[id].cell
+		var s: int = nodes[id].size
+		var pr: Dictionary = STRUCT.get("relay" if nodes[id].get("relay", false) else nodes[id].type, {"h": 14})
+		var h: float = float(pr.h)
+		var base := Rect2(o.x * TILE, o.y * TILE, s * TILE, s * TILE)
+		var top := Rect2(base.position + Vector2(h * 0.35, -h), base.size)
+		if base.merge(top).has_point(wpos):
+			var front := float(o.y + s)
+			if front > best_front:
+				best_front = front
+				best = id
+	return best
+
+
+# MAP01: one visible-node resolver shared by inspect, tunnel endpoints and Proxy conversion —
+# prefer the ground footprint, then fall back to the drawn 2.5D silhouette so a click on an
+# elevated roof picks the same frontmost tower. Empty ground still resolves to -1 (no node op).
+func _pick_node(cell: Vector2i) -> int:
+	var id := _node_at(cell)
+	if id == -1:
+		id = _node_at_silhouette(get_global_mouse_position())
+	return id
 
 
 func _is_parent_ok(id: int) -> bool:
@@ -719,21 +768,27 @@ func _preview_route(cell: Vector2i) -> Dictionary:
 		if p1.is_empty():
 			return {"pts": PackedVector2Array(), "len": INF, "blocked": true,
 				"why": "NO CLEAR ROUTE — blocked, or further than %d pkt" % _lag(ml)}
-		return {"pts": _pts_for_path(pending_child, hovered, p1), "len": float(p1.size()), "blocked": false}
+		# MAP03: a distinct node under the cursor is a commit-ready endpoint.
+		return {"pts": _pts_for_path(pending_child, hovered, p1), "len": float(p1.size()), "blocked": false, "endpoint": true}
 	var p2 := _find_path_to_cell(pending_child, cell, ml)
 	if p2.is_empty():
 		return {"pts": PackedVector2Array(), "len": INF, "blocked": true,
 			"why": "NO CLEAR ROUTE — blocked, or further than %d pkt" % _lag(ml)}
-	return {"pts": _pts_for_path(pending_child, -1, p2), "len": float(p2.size()), "blocked": false}
+	# MAP03: the geometry reaches this empty street, but an empty cell is not a valid endpoint —
+	# the tunnel can only commit onto a node. Show reachable-but-incomplete, not a false OK.
+	return {"pts": _pts_for_path(pending_child, -1, p2), "len": float(p2.size()), "blocked": false, "endpoint": false}
 
 
 # Route preview cached by (cell, pending child, tool) so A* runs only when the
 # hovered cell changes, not every frame while dragging a link.
 func _cached_preview(cell: Vector2i) -> Dictionary:
-	if cell != _hint_cell or pending_child != _hint_pending or current_tool != _hint_tool:
+	# MAP02: the topology revision is part of the key, so a stationary-pointer Undo / restore /
+	# dismantle / reroute refreshes the preview's validity, geometry and cost before the next click.
+	if cell != _hint_cell or pending_child != _hint_pending or current_tool != _hint_tool or _topo_rev != _hint_topo:
 		_hint_cell = cell
 		_hint_pending = pending_child
 		_hint_tool = current_tool
+		_hint_topo = _topo_rev
 		_hint_route = _preview_route(cell)
 	return _hint_route
 
@@ -808,16 +863,31 @@ func _is_visible(cell: Vector2i, vl: Array) -> bool:
 
 
 # A cell is a building cell (not street/plaza) — must match the city render.
+# B10: ONE authoritative descriptor of a city block's building, shared by placement/coverage/
+# routing (_is_building_cell) and the render (_paint_city), so they can never disagree. The
+# block-centre district decides vacancy/sparsity; Server Farms render a single front row.
+func _block_desc(bx: int, by: int) -> Dictionary:
+	var dtype: String = _tile_type(Vector2i(bx * 4 + 1, by * 4 + 1))
+	var sparse: bool = dtype == "slums"
+	return {"dtype": dtype, "rendered": _h2(bx, by) % 10 >= (4 if sparse else 2), "narrow": dtype == "farm"}
+
+
 func _is_building_cell(cell: Vector2i) -> bool:
 	if not _in_map(cell):
 		return false
 	var P := 4
 	var bx := cell.x / P
 	var by := cell.y / P
-	if cell.x - bx * P >= 3 or cell.y - by * P >= 3:
+	var lx := cell.x - bx * P
+	var ly := cell.y - by * P
+	if lx >= 3 or ly >= 3:
 		return false  # street gutter
-	var sparse: bool = _tile_type(cell) == "slums"
-	return _h2(bx, by) % 10 >= (4 if sparse else 2)  # not a vacant lot
+	var d := _block_desc(bx, by)
+	if not d.rendered:
+		return false  # vacant lot
+	if d.narrow and ly >= 1:
+		return false  # Server Farms occupy only the front row
+	return true
 
 
 func _reaches_hub(id: int) -> bool:
@@ -859,12 +929,47 @@ func _polyline(edge_id: int) -> Dictionary:
 	if _pl_cache.has(edge_id):
 		return _pl_cache[edge_id]
 	var pts := _edge_pts(edge_id, nodes[edge_id].parent)
+	# RIM-078/079: cache the prefix-sum of segment lengths alongside the polyline so a point-at-
+	# distance lookup is a binary search instead of a walk from the start. Invalidated with the
+	# rest of _pl_cache whenever topology changes (place/tunnel/dismantle/restore/reroute).
+	var cum := PackedFloat32Array()
+	cum.resize(pts.size())
 	var total := 0.0
+	if pts.size() > 0:
+		cum[0] = 0.0
 	for s in range(pts.size() - 1):
 		total += pts[s].distance_to(pts[s + 1])
-	var d := {"pts": pts, "total": total}
+		cum[s + 1] = total
+	var d := {"pts": pts, "total": total, "cum": cum}
 	_pl_cache[edge_id] = d
 	return d
+
+
+# RIM-079: world point a given distance along a cached polyline, via binary search over the
+# prefix-sum. Identical result to _point_at_dist for any distance and either travel direction.
+func _point_on(pl: Dictionary, dist: float) -> Vector2:
+	var pts: PackedVector2Array = pl.pts
+	if pts.size() == 0:
+		return Vector2.ZERO
+	if pts.size() == 1:
+		return pts[0]
+	var cum: PackedFloat32Array = pl.cum
+	var total: float = float(pl.total)
+	if dist <= 0.0:
+		return pts[0]
+	if dist >= total:
+		return pts[pts.size() - 1]
+	# find the last vertex whose cumulative distance is <= dist
+	var lo := 0
+	var hi := cum.size() - 1
+	while lo + 1 < hi:
+		var mid := (lo + hi) >> 1
+		if cum[mid] <= dist:
+			lo = mid
+		else:
+			hi = mid
+	var seg := cum[lo + 1] - cum[lo]
+	return pts[lo].lerp(pts[lo + 1], (dist - cum[lo]) / seg) if seg > 0.0 else pts[lo]
 
 
 # Edge ids from a node up to (not including) the Hub; [] if it doesn't reach.
@@ -890,7 +995,7 @@ func _enter_edge(p: Dictionary) -> bool:
 	if loss > 0.0 and rng.randf() < loss:
 		var pl := _polyline(e)
 		var at: float = 0.0 if p.dir == 1 else float(pl.total)
-		_drops.append({"pos": _point_at_dist(pl.pts, at), "t": 0.6})
+		_drops.append({"pos": _point_on(pl, at), "t": 0.6})
 		return false
 	return true
 
@@ -899,7 +1004,13 @@ func _enter_edge(p: Dictionary) -> bool:
 func _spawn(res: String, route: Array, dir: int, value := 1.0) -> void:
 	if route.is_empty():
 		return
-	var p := {"res": res, "route": route, "idx": 0, "dir": dir, "dist": 0.0, "value": value}
+	# SIM08: snapshot each route node's live parent at spawn. A packet is cancelled the moment
+	# any edge it still has to ride has been reparented since launch — for BOTH directions, not
+	# just upbound. Unchanged routes keep matching, so untouched packets still arrive exactly once.
+	var snap := []
+	for r in route:
+		snap.append(int(nodes[r].parent) if nodes.has(r) else -1)
+	var p := {"res": res, "route": route, "idx": 0, "dir": dir, "dist": 0.0, "value": value, "snap": snap}
 	if _enter_edge(p):
 		packets.append(p)
 
@@ -912,8 +1023,9 @@ func _move_packets(dt: float) -> void:
 		var p: Dictionary = packets[i]
 		var alive := true
 		var e: int = p.route[p.idx]
-		if not nodes.has(e) or nodes[e].parent == -1 or not _connected.has(e):
-			alive = false  # its tunnel is gone or disconnected
+		var snap: Array = p.get("snap", [])
+		if not nodes.has(e) or nodes[e].parent == -1 or not _connected.has(e) or (p.idx < snap.size() and int(nodes[e].parent) != int(snap[p.idx])):
+			alive = false  # its tunnel is gone, disconnected, or reparented since launch (SIM08)
 		else:
 			var pl := _polyline(e)
 			p.dist += speed * dt
@@ -929,8 +1041,10 @@ func _move_packets(dt: float) -> void:
 				if p.idx >= p.route.size():
 					if p.dir == 1:
 						if at_node == hub_id:
-							resources[p.res] = resources.get(p.res, 0.0) + float(p.get("value", 1.0))
+							var dv := float(p.get("value", 1.0))
+							resources[p.res] = resources.get(p.res, 0.0) + dv
 							_packets_delivered += 1
+							_delivered_total[p.res] = float(_delivered_total.get(p.res, 0.0)) + dv  # SIM09
 							_deliver_flash[p.res] = 0.5
 					else:
 						# input reached the processor — send the product back to C2
@@ -942,10 +1056,10 @@ func _move_packets(dt: float) -> void:
 					alive = false
 				else:
 					e = p.route[p.idx]
-					# B07: the next stored hop must still match live topology. If the source was
-					# reparented mid-flight, the stored route is stale — cancel the packet (loss)
-					# rather than ride a dead route toward the wrong parent.
-					if not nodes.has(e) or nodes[e].parent == -1 or (p.dir == 1 and e != at_node):
+					# SIM08: the next stored hop must still match the launch-time snapshot in BOTH
+					# directions. If any node on the remaining route was reparented mid-flight, the
+					# stored geometry is stale — cancel (loss) rather than ride a dead route.
+					if not nodes.has(e) or nodes[e].parent == -1 or (p.idx < snap.size() and int(nodes[e].parent) != int(snap[p.idx])) or (p.dir == 1 and e != at_node):
 						alive = false
 					else:
 						pl = _polyline(e)
@@ -974,6 +1088,16 @@ func _point_at_dist(pts: PackedVector2Array, dist: float) -> Vector2:
 	return pts[pts.size() - 1]
 
 
+# MAP04: the single source of truth for a tunnel's upkeep, used by BOTH the build/reroute
+# preview and the live simulation. A converted Proxy forwards cheaply (×0.4), so previewing a
+# route from a Proxy must apply the same discount instead of overstating upkeep by 2.5×.
+func _effective_upkeep(tunnel: String, length: float, is_relay: bool) -> float:
+	var u := length * float(UPKEEP[tunnel])
+	if is_relay:
+		u *= 0.4
+	return u
+
+
 func _cost_str(code: String) -> String:
 	var parts := PackedStringArray()
 	for k in COST[code]:
@@ -995,12 +1119,15 @@ func _update_hint() -> void:
 		else:
 			var route := _cached_preview(cell)
 			var length: float = route.len
-			var upk := (length if length < INF else 0.0) * float(UPKEEP[current_tool])
+			var src_relay: bool = nodes.has(pending_child) and nodes[pending_child].get("relay", false)
+			var upk := _effective_upkeep(current_tool, (length if length < INF else 0.0), src_relay)
 			var tag := "OK"
 			if route.blocked:
 				tag = str(route.get("why", "NO CLEAR ROUTE"))
 			elif length > _tool_maxlen(current_tool):
 				tag = "LATENCY TOO HIGH (max %d pkt — add a Proxy)" % _lag(_tool_maxlen(current_tool))
+			elif not route.get("endpoint", true):
+				tag = "CHOOSE A NODE — reaches here, but a tunnel must end on a structure"  # MAP03
 			var lat := "—" if length == INF else str(_lag(length))
 			hint = "%s → latency %s pkt, upkeep %.2f CPU/s, cost %s   [%s]   %s" % [
 				_tool_name(current_tool), lat, upk, _cost_str(current_tool), tag, at]
@@ -1016,24 +1143,42 @@ func _update_hint() -> void:
 		var ice := _zone_ice(cell - Vector2i(sz / 2, sz / 2))
 		if ice > 0:
 			extra += "   ⚠ ICE tier %d here — breaching costs +%d Tools (Trace +%d)" % [ice, ice, int(ICE_TRACE)]
+		# T25: forecast the Cycles left after this build and warn if it breaks the recovery reserve
+		var after: float = float(resources.compute) - float(COST[current_tool].get("compute", 0.0))
+		extra += "   → %d Cycles after" % int(after)
+		if after < EMERGENCY_FLOOR:
+			extra += " ⚠ below the %d-Cycle recovery reserve" % int(EMERGENCY_FLOOR)
 		hint = "Cost %s%s   %s" % [_cost_str(current_tool), extra, at]
 
 
 # ---------- Input ----------
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
-		# Esc cancels the armed tool / selection first (no need to right-click); only
-		# opens the pause menu when nothing is active.
-		if current_tool != "" or pending_child != -1 or selected_id != -1 or selected_tunnel != -1:
+		# B36: Esc dismisses the frontmost modal first; then cancels the armed tool / selection;
+		# then toggles the modal pause MENU when nothing else is active.
+		if modal_open and ui != null:
+			ui.close_topmost_modal()
+		elif pause_menu:
+			pause_menu = false
+			paused = _menu_prev_paused
+		elif current_tool != "" or pending_child != -1 or selected_id != -1 or selected_tunnel != -1:
 			set_tool("cancel")
 			selected_id = -1
 			selected_tunnel = -1
 		else:
-			set_paused(not paused)
+			_menu_prev_paused = paused
+			pause_menu = true
+			paused = true
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_DELETE and (selected_tunnel != -1 or (selected_id != -1 and selected_id != hub_id)):
+		# B37: a blocking modal or the pause menu swallows gameplay shortcuts
+		if modal_open or pause_menu:
+			return
+		if event.keycode == KEY_SPACE:
+			set_paused(not paused)   # B39: non-modal planning pause — the map stays interactive
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_DELETE and (selected_tunnel != -1 or (selected_id != -1 and selected_id != hub_id)):
 			remove_selected()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_Z and event.ctrl_pressed:
@@ -1045,6 +1190,9 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_O and selected_id != -1:
 			overclock_selected()
 			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_R and selected_id != -1 and selected_id != hub_id:
+			begin_reroute()   # T29: reroute the selected structure's tunnel
+			get_viewport().set_input_as_handled()
 		elif (event.keycode == KEY_MINUS or event.keycode == KEY_KP_SUBTRACT) and selected_id != -1:
 			adjust_rate_selected(-0.25)  # lower output limit
 			get_viewport().set_input_as_handled()
@@ -1054,6 +1202,14 @@ func _input(event: InputEvent) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# B37: while a blocking modal / pause menu is open, the map ignores mouse input (planning
+	# pause is non-modal and still interactive — it sets neither flag).
+	if modal_open or pause_menu:
+		if event is InputEventMouseButton and not event.pressed:
+			_lmb_down = false
+			_rmb_down = false
+			_panning = false
+		return
 	# mouse events over the left control panel belong to the UI, never the map —
 	# this stops a click that lands on the panel from also deselecting / acting on the map
 	if (event is InputEventMouseButton or event is InputEventMouseMotion) and get_viewport().get_mouse_position().x < 300.0:
@@ -1115,6 +1271,7 @@ func _zoom(mult: float) -> void:
 
 func set_tool(code: String) -> void:
 	pending_child = -1
+	_rerouting = false
 	if code == "cancel":
 		current_tool = ""
 		message = "Cancelled."
@@ -1167,7 +1324,7 @@ func _handle_click(cell: Vector2i) -> void:
 		_try_place_node(current_tool, cell)
 	else:
 		# no tool: select the structure or tunnel under the cursor (K&M-style)
-		var id := _node_at(cell)
+		var id := _pick_node(cell)   # MAP01/B48: footprint then visible-tower silhouette
 		if id != -1:
 			selected_id = id
 			selected_tunnel = -1
@@ -1182,6 +1339,7 @@ func _handle_click(cell: Vector2i) -> void:
 func _handle_right_click(cell: Vector2i) -> void:
 	if pending_child != -1:
 		pending_child = -1
+		_rerouting = false   # T29: cancel a reroute — the old link is left intact
 		message = "Tunnel cancelled."
 		return
 	if current_tool != "":
@@ -1350,7 +1508,7 @@ func _try_place_node(code: String, cell: Vector2i) -> void:
 
 
 func _try_convert_relay(cell: Vector2i) -> void:
-	var id := _node_at(cell)
+	var id := _pick_node(cell)   # MAP01: roof clicks resolve to the visible tower too
 	if id == -1 or id == hub_id or not _is_producer(nodes[id].type):
 		message = "Click one of your producer structures to turn it into a %s." % DEFS["relay"].name
 		return
@@ -1366,8 +1524,21 @@ func _try_convert_relay(cell: Vector2i) -> void:
 	message = "Converted to a %s — it stops producing and now just routes data toward C2 at low upkeep." % DEFS["relay"].name
 
 
+# T29: arm a LINKED structure to move its tunnel to a new parent. The old link stays in place
+# until a new target is committed, so cancelling leaves the network exactly as it was.
+func begin_reroute() -> void:
+	if selected_id == -1 or selected_id == hub_id or not nodes.has(selected_id) or nodes[selected_id].parent == -1:
+		message = "Select a linked structure first, then Reroute to move its tunnel."
+		return
+	pending_child = selected_id
+	current_tool = str(nodes[selected_id].tunnel)   # keep the same tunnel protocol
+	_rerouting = true
+	selected_id = -1
+	message = "Rerouting %s — click a new node to link toward. Esc / right-click cancels (old link stays)." % _node_name(pending_child)
+
+
 func _try_tunnel(cell: Vector2i) -> void:
-	var id := _node_at(cell)
+	var id := _pick_node(cell)   # MAP01: roof clicks resolve to the visible tower too
 	if id == -1:
 		message = "Click a node."
 		return
@@ -1384,9 +1555,10 @@ func _try_tunnel(cell: Vector2i) -> void:
 	# choosing parent
 	if not nodes.has(pending_child):   # B53/B11: armed source vanished (undone) — drop the stale arm
 		pending_child = -1
+		_rerouting = false
 		message = "That link source no longer exists. Pick a structure to link from."
 		return
-	if nodes[pending_child].parent != -1:
+	if nodes[pending_child].parent != -1 and not _rerouting:
 		# B53: the source got (re)linked since it was armed (e.g. an Undo restored its old
 		# link). Committing now would silently replace that link and lose it to Undo. Refuse.
 		pending_child = -1
@@ -1400,27 +1572,41 @@ func _try_tunnel(cell: Vector2i) -> void:
 		return
 	var path := _find_path(pending_child, id, _tool_maxlen(current_tool))
 	if path.is_empty():
+		# T29: a failed reroute leaves the existing link untouched (cancel-safe)
 		message = "No clear route — blocked by tunnels or structures, or further than %d pkt. Use a Proxy or an Onion Route." % _lag(_tool_maxlen(current_tool))
 		return
-	if not _can_afford(current_tool):
+	if not _rerouting and not _can_afford(current_tool):
 		message = "Not enough resources for a %s." % _tool_name(current_tool)
 		return
-	_pay(current_tool)
 	# pick a lane so parallel tunnels on shared cells don't overlap visually
 	var used := _used_cells()
 	var lane := 0
 	for c in path:
 		lane = maxi(lane, int(used.get(c, 0)))
-	nodes[pending_child].parent = id
-	nodes[pending_child].tunnel = current_tool
-	nodes[pending_child].path = path
-	nodes[pending_child].lane = clampi(lane, 0, LANES - 1)
-	_push_undo({"t": "tunnel", "child": pending_child, "cost": COST[current_tool].duplicate()})
-	_pl_cache.clear()
-	if _reaches_hub(pending_child):
-		message = "%s tunnel linked." % current_tool.to_upper()
+	if _rerouting:
+		# T29: ONE atomic edge transaction — capture the exact old edge, swap in the new one,
+		# and push an undo that restores the original link. No extra charge (the link exists).
+		var old_edge := {"parent": int(nodes[pending_child].parent), "tunnel": str(nodes[pending_child].tunnel),
+			"path": nodes[pending_child].path.duplicate(), "lane": int(nodes[pending_child].get("lane", 0))}
+		nodes[pending_child].parent = id
+		nodes[pending_child].tunnel = current_tool
+		nodes[pending_child].path = path
+		nodes[pending_child].lane = clampi(lane, 0, LANES - 1)
+		_push_undo({"t": "reroute", "child": pending_child, "old": old_edge})
+		_rerouting = false
+		message = "Rerouted — %s now links through %s.  (Ctrl+Z to restore the old link)" % [_node_name(pending_child), _node_name(id)]
 	else:
-		message = "%s linked — but this branch still has NO path to the Hub. Connect it onward (it shows red)." % current_tool.to_upper()
+		_pay(current_tool)
+		nodes[pending_child].parent = id
+		nodes[pending_child].tunnel = current_tool
+		nodes[pending_child].path = path
+		nodes[pending_child].lane = clampi(lane, 0, LANES - 1)
+		_push_undo({"t": "tunnel", "child": pending_child, "cost": COST[current_tool].duplicate()})
+		if _reaches_hub(pending_child):
+			message = "%s tunnel linked." % current_tool.to_upper()
+		else:
+			message = "%s linked — but this branch still has NO path to the Hub. Connect it onward (it shows red)." % current_tool.to_upper()
+	_pl_cache.clear()
 	pending_child = -1
 
 
@@ -1442,18 +1628,24 @@ func _remove_node(id: int) -> void:
 
 # ---------- Simulation ----------
 func _process(delta: float) -> void:
-	# camera pan
+	# B43: re-bake the static city backdrop when the colour-blind palette toggles
+	if _last_cb_pal != Settings.cb:
+		_last_cb_pal = Settings.cb
+		_invalidate_city()
+	# camera pan — B37: raw key/edge panning is suppressed while a blocking modal / pause menu is up
+	var blocked: bool = modal_open or pause_menu
 	var pan := Vector2.ZERO
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): pan.x -= 1
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): pan.y -= 1
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
+	if not blocked:
+		if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): pan.x -= 1
+		if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
+		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): pan.y -= 1
+		if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
 	if pan != Vector2.ZERO:
 		camera.position += pan.normalized() * 500.0 * delta / camera.zoom.x
 	# edge-pan: push the mouse to a screen edge to scroll the map (no clicking needed)
 	var mp := get_viewport().get_mouse_position()
 	var vs: Vector2 = get_viewport_rect().size
-	if mp.x >= 300.0:  # ignore the left control panel
+	if not blocked and mp.x >= 300.0:  # ignore the left control panel
 		var ep := Vector2.ZERO
 		if mp.x <= 326.0: ep.x -= 1.0           # just right of the panel → scroll left
 		elif mp.x >= vs.x - 22.0: ep.x += 1.0   # right edge → scroll right
@@ -1491,9 +1683,17 @@ func _process(delta: float) -> void:
 				_drops.remove_at(k)
 		_time += delta
 		_accum += delta
-		while _accum >= TICK_DT:
+		# RIM-084: per-frame catch-up budget. A frame hitch leaves a backlog of fixed-dt ticks;
+		# running them all in one frame can stall the next frame and spiral. Instead we run at most
+		# MAX_CATCHUP_TICKS per frame and carry the rest as debt, so deterministic tick order and
+		# total simulated time are preserved (no silently skipped resource/threat/contract time)
+		# while input latency stays bounded. _accum is capped only for catastrophic (>2s) stalls.
+		_accum = minf(_accum, MAX_ACCUM)
+		var _ticks := 0
+		while _accum >= TICK_DT and _ticks < MAX_CATCHUP_TICKS:
 			_accum -= TICK_DT
 			_sim_tick(TICK_DT)
+			_ticks += 1
 	# Repaint gating: only queue a redraw when something visible is actually changing.
 	# With motion on, ambient animation (motes/pulses) needs a steady repaint; with
 	# reduced motion only packets/drops/the sweep animate; when paused nothing animates,
@@ -1556,6 +1756,63 @@ func _is_producer(type: String) -> bool:
 	return type in ["nest", "package", "botfarm", "phish", "scraper", "salami"]
 
 
+# T15: ONE canonical operational state for a structure, used by the inspector, map and alerts
+# so they never describe the same node differently. Priority = most actionable cause first.
+func _op_state(id: int) -> String:
+	if id == hub_id:
+		return "C2"
+	var n = nodes[id]
+	if not n.get("on", true):
+		return "disabled"
+	if float(n.get("quarantine", 0.0)) > 0.0 and _reaches_hub(id):
+		return "quarantined"
+	if n.parent == -1:
+		return "unlinked"
+	if not _connected.has(id):
+		return "offline"              # has a tunnel but no live route to C2 (severed upstream)
+	if _edge.has(id) and _edge[id].get("over", false):
+		return "overloaded"
+	if CONV.has(n.type) and float(resources.get(CONV[n.type].in, 0.0)) < 1.0:
+		return "input-starved"
+	if n.get("relay", false):
+		return "forwarding"
+	if _is_producer(n.type):
+		return "producing"
+	return "linked"
+
+
+# B43: a structure marker's colour. Under the colour-blind palette it borrows its resource's
+# semantic colour (matching the packets), so map/minimap/chip colours stay consistent; the
+# default palette keeps the hand-tuned COLORS look. Glyphs still carry identity as a pattern.
+func _sem_color(type: String) -> Color:
+	if Settings.cb and PRODUCER_OUT.has(type):
+		return Settings.res_color(PRODUCER_OUT[type])
+	return COLORS.get(type, Color(0.6, 0.65, 0.75))
+
+
+# B43: ground district tint, likewise resource-consistent under the colour-blind palette.
+func _zone_sem_color(dtype: String) -> Color:
+	if Settings.cb and ZONE_RES.has(dtype) and RES_KEY.has(ZONE_RES[dtype]):
+		var c: Color = Settings.res_color(RES_KEY[ZONE_RES[dtype]])
+		return Color(c.r, c.g, c.b, 0.85)
+	return ZONE_COLOR.get(dtype, Color(0.5, 0.5, 0.6))
+
+
+# T42: which resource keys the player can actually produce right now (connected producers +
+# converters), so contracts never ask to stockpile something unreachable.
+func _reachable_resources() -> Array:
+	var reach := {}
+	for id in nodes:
+		var n = nodes[id]
+		if id == hub_id or n.get("relay", false) or not n.get("on", true) or not _connected.has(id):
+			continue
+		if PRODUCER_OUT.has(n.type):
+			reach[PRODUCER_OUT[n.type]] = true
+		if CONV.has(n.type):
+			reach[str(CONV[n.type].out)] = true
+	return reach.keys()
+
+
 # True if any connected, running, non-relay structure actually produces Cycles.
 func _has_cycle_income() -> bool:
 	for id in nodes:
@@ -1583,10 +1840,13 @@ func _emergency_supply(dt: float) -> void:
 
 func _sim_tick(dt: float) -> void:
 	_run_time += dt
+	_rate_rev += 1   # RIM-081: telemetry cadence — lets the sidebar refresh at sim rate, never while paused
 	_max_trace = maxf(_max_trace, trace)
 	for id in nodes:
 		if float(nodes[id].get("quarantine", 0.0)) > 0.0:
 			nodes[id].quarantine = maxf(0.0, float(nodes[id].quarantine) - dt)
+			if float(nodes[id].quarantine) <= 0.0:
+				_vis_rev += 1   # RIM-082: a host rejoining the net must repaint even under reduced motion
 	for fk in _deliver_flash.keys():
 		_deliver_flash[fk] = maxf(0.0, float(_deliver_flash[fk]) - dt)
 	_blackout_t = maxf(0.0, _blackout_t - dt)
@@ -1612,10 +1872,8 @@ func _sim_tick(dt: float) -> void:
 	for id in nodes:
 		if nodes[id].parent != -1:
 			var d := _edge_len(id, nodes[id].parent)
-			var u := d * float(UPKEEP[nodes[id].tunnel])
-			if nodes[id].get("relay", false):
-				u *= 0.4  # a Proxy forwards data cheaply — minimum upkeep
-			total_upkeep += u
+			# MAP04: shared effective-upkeep calc (Proxy ×0.4) so preview and sim never disagree
+			total_upkeep += _effective_upkeep(str(nodes[id].tunnel), d, nodes[id].get("relay", false))
 
 	# how well can we feed the tunnels this tick (based on current compute stock).
 	# Never below MIN_FEED: a hungry network crawls but can always recover.
@@ -1705,7 +1963,14 @@ func _sim_tick(dt: float) -> void:
 	for id in nodes:
 		if float(nodes[id].get("boost_t", 0.0)) > 0.0:
 			nodes[id].boost_t = maxf(0.0, float(nodes[id].boost_t) - dt)
-		if nodes[id].parent != -1 and nodes[id].get("on", true) and _connected.has(id):
+			if float(nodes[id].boost_t) <= 0.0:
+				_vis_rev += 1   # RIM-082: overclock glow ended — repaint once
+		# SIM13: a tunnel is noisy when it is actively carrying transit, not when its local
+		# producer happens to be ON. A disabled structure still forwards its children's packets
+		# (B05: disabling halts production, not forwarding), so its link keeps emitting the
+		# documented protocol noise. A truly idle link (no production, no transiting subtree)
+		# stays quiet.
+		if nodes[id].parent != -1 and _connected.has(id) and float(subtree.get(id, 0.0)) > 0.0:
 			noise += float(TUNNEL_NOISE.get(nodes[id].tunnel, 0.0))
 	trace = clampf(trace + (noise - TRACE_DECAY) * dt, 0.0, 100.0)
 
@@ -1732,10 +1997,7 @@ func _calc_subtree(id: int, children: Dictionary, subtree: Dictionary, reachable
 		subtree[id] = 0.0
 		return 0.0  # quarantined by an ICE sweep — cut from the network until it expires
 	reachable[id] = true
-	var load := 0.0
-	var prod := _production(id)
-	for k in prod:
-		load += prod[k]
+	var load := _node_traffic(id)
 	if children.has(id):
 		for cid in children[id]:
 			load += _calc_subtree(cid, children, subtree, reachable)
@@ -1743,12 +2005,35 @@ func _calc_subtree(id: int, children: Dictionary, subtree: Dictionary, reachable
 	return load
 
 
+# Packets/sec this node injects onto its trunk toward C2: producer output PLUS a converter's
+# input pull (down) and product return (up), which both ride the same edges. (B04)
+func _node_traffic(id: int) -> float:
+	var t := 0.0
+	var prod := _production(id)
+	for k in prod:
+		t += float(prod[k])
+	var ct: String = nodes[id].type
+	if CONV.has(ct) and nodes[id].get("on", true) and not nodes[id].get("relay", false):
+		var cv: Dictionary = CONV[ct]
+		# SIM10: mirror the SAME predicate the real conversion scheduler uses (line ~1870) — input
+		# stock AND fuel affordability. A processor that can't pay for fuel converts nothing, so it
+		# must offer zero load and cannot make a shared trunk look overloaded.
+		var can_fuel: bool = not cv.has("fuel") or float(resources.get(cv.fuel, 0.0)) >= float(cv.fuelcost)
+		if float(resources.get(cv.in, 0.0)) >= 1.0 and can_fuel:
+			var eff := minf(float(cv.rate), float(CAP.get(nodes[id].tunnel, 999.0)))
+			t += eff * 2.0   # one unit of input down + one unit of product up per conversion
+	return t
+
+
 # ---------- ICE Sweep antagonist ----------
 func _launch_sweep() -> void:
-	# target the deepest connected node (most hops to C2 = the most dramatic trace-back)
+	# target the deepest connected node; iterate node ids in a STABLE numeric order so the
+	# tie-break (lowest id among equally deep branches) survives a save/load round-trip (SIM07).
 	var target := -1
 	var best := 0
-	for id in nodes:
+	var ids := nodes.keys()
+	ids.sort()
+	for id in ids:
 		if id == hub_id or not _connected.has(id):
 			continue
 		var ch := _chain(id)
@@ -1796,6 +2081,7 @@ func _update_sweep(dt: float) -> void:
 		# Impact lands on the first node the moment the warning expires.
 		if float(sweep.warn) <= 0.0 and nodes.has(cur) and cur != hub_id:
 			nodes[cur].quarantine = 7.0
+			_vis_rev += 1   # RIM-082: quarantine onset repaints even under reduced motion
 		return
 	var speed := 0.4 + float(step) / float(path.size()) * 1.1   # accelerates as it nears C2
 	sweep.t = float(sweep.t) + speed * dt
@@ -1813,6 +2099,7 @@ func _update_sweep(dt: float) -> void:
 			break
 		if nodes.has(nid):
 			nodes[nid].quarantine = 7.0   # quarantined (offline), recoverable when it expires
+			_vis_rev += 1   # RIM-082
 
 
 func _sweep_blackout() -> void:
@@ -1831,7 +2118,14 @@ func _gen_contract() -> Dictionary:
 	c["kind"] = kinds[rng.randi() % kinds.size()]
 	match c.kind:
 		"stock":
-			var opts := [["data", "Intel"], ["crypto", "Crypto"], ["compute", "Cycles"]]
+			# T42: only offer to stockpile a resource the player can actually produce now
+			var reach := _reachable_resources()
+			var opts := []
+			for op in [["data", "Intel"], ["crypto", "Crypto"], ["compute", "Cycles"]]:
+				if op[0] in reach:
+					opts.append(op)
+			if opts.is_empty():
+				opts = [["compute", "Cycles"]]   # always reachable (Nest / emergency reserve)
 			var o: Array = opts[rng.randi() % opts.size()]
 			var amt := float((rng.randi() % 4 + 2) * 10)
 			c["res"] = o[0]; c["amount"] = amt
@@ -1852,9 +2146,12 @@ func _gen_contract() -> Dictionary:
 
 # Raw current value a contract measures (stockpile / cash / linked-structure count).
 func _contract_raw(c: Dictionary) -> float:
+	# SIM09: delivery/banking jobs measure CUMULATIVE units banked at C2, not the current wallet.
+	# This excludes building refunds (undo) and emergency Cycles grants — neither passes through a
+	# delivery packet — and it keeps counting units that are later consumed by a Market/Lab.
 	match c.kind:
-		"stock": return float(resources.get(c.res, 0.0))
-		"cash": return float(resources.credits)
+		"stock": return float(_delivered_total.get(c.res, 0.0))
+		"cash": return float(_delivered_total.get("credits", 0.0))
 		"nodes":
 			var n := 0
 			for id in nodes:
@@ -1899,6 +2196,19 @@ func accept_contract(id: int) -> void:
 			c["base"] = _contract_raw(c)   # progress counts only what you earn AFTER accepting
 			_contracts_ver += 1
 			message = "Contract accepted — %s: %s." % [c.client, c.desc]
+			return
+
+
+# T42: decline an unsuitable offer so an unworkable board can recover (a new one is generated
+# after the normal cooldown). Only unaccepted offers can be declined.
+func decline_contract(id: int) -> void:
+	for i in contracts.size():
+		if int(contracts[i].id) == id and not contracts[i].accepted:
+			var client: String = str(contracts[i].get("client", "the client"))
+			contracts.remove_at(i)
+			_contracts_ver += 1
+			_contract_cd = minf(_contract_cd, 6.0)   # let a fresh offer arrive soon
+			message = "Declined — %s will find someone else." % client
 			return
 
 
@@ -2043,7 +2353,7 @@ func _draw() -> void:
 		var pl := _polyline(e)
 		var along: float = float(p.dist) if p.dir == 1 else maxf(0.0, float(pl.total) - float(p.dist))
 		var col: Color = Settings.res_color(p.res)
-		var pos := _point_at_dist(pl.pts, along)
+		var pos := _point_on(pl, along)
 		Glyphs.draw_resource(self, p.res, pos, pkt_r)   # head = resource shape, always drawn
 		if dots_mode:
 			continue
@@ -2051,7 +2361,7 @@ func _draw() -> void:
 			var dd := along - float(tr) * 7.0
 			if dd < 0.0:
 				break
-			draw_string(font, _point_at_dist(pl.pts, dd) + Vector2(-3, 4), _matrix_char(p.res, dd - float(tr)), HORIZONTAL_ALIGNMENT_LEFT, -1, trail_sz, Color(col.r, col.g, col.b, 0.4 / float(tr)))
+			draw_string(font, _point_on(pl, dd) + Vector2(-3, 4), _matrix_char(p.res, dd - float(tr)), HORIZONTAL_ALIGNMENT_LEFT, -1, trail_sz, Color(col.r, col.g, col.b, 0.4 / float(tr)))
 
 	# dropped packets (packet loss) flash a red X briefly
 	for d in _drops:
@@ -2104,8 +2414,14 @@ func _draw() -> void:
 				var route := _cached_preview(cell)
 				var rpts: PackedVector2Array = route.pts
 				if rpts.size() >= 2:
-					var ok: bool = (not route.blocked) and float(route.len) <= _tool_maxlen(current_tool)
-					var pcol: Color = Color(1, 1, 1, 0.5) if ok else Settings.health_color("bad")
+					var within: bool = (not route.blocked) and float(route.len) <= _tool_maxlen(current_tool)
+					var pcol: Color
+					if not within:
+						pcol = Settings.health_color("bad")
+					elif not route.get("endpoint", true):
+						pcol = Color(0.3, 0.9, 1.0, 0.45)   # MAP03: reaches here, but no node to commit onto — exploratory
+					else:
+						pcol = Color(1, 1, 1, 0.7)           # commit-ready node target
 					draw_polyline(rpts, pcol, 2.0)
 
 
@@ -2173,7 +2489,7 @@ func _draw_building(id: int, font: Font) -> void:
 	var type: String = nodes[id].type
 	var is_relay: bool = nodes[id].get("relay", false)
 	var on: bool = nodes[id].get("on", true)
-	var col: Color = COLORS["relay"] if is_relay else COLORS[type]
+	var col: Color = COLORS["relay"] if is_relay else _sem_color(type)   # B43: palette-consistent marker
 	if not on:
 		col = Color(0.5, 0.52, 0.58)
 	var base := Rect2(o.x * TILE + 2.0, o.y * TILE + 2.0, s * TILE - 4.0, s * TILE - 4.0)
@@ -2410,17 +2726,16 @@ func _paint_city(ci: CanvasItem) -> void:
 			var ty := by * P + 1
 			if tx >= MAP_W or ty >= MAP_H:
 				continue
-			var dtype: String = _tile_type(Vector2i(tx, ty))
-			var h := _h2(bx, by)
-			var sparse: bool = dtype == "slums"
-			if h % 10 < (4 if sparse else 2):
+			var d := _block_desc(bx, by)   # B10: one authoritative geometry for render + collision
+			if not d.rendered:
 				continue
-			var pal: Color = ZONE_COLOR.get(dtype, Color(0.5, 0.5, 0.6))
+			var dtype: String = d.dtype
+			var h := _h2(bx, by)
+			var pal: Color = _zone_sem_color(dtype)   # B43: palette-consistent ground tint
 			var hr: Array = DIST_H.get(dtype, [1, 2])
 			var lvl: int = int(hr[0]) + (h / 7) % (int(hr[1]) - int(hr[0]) + 1)
-			var wide: bool = dtype == "farm"
 			var bw := (3.0 * TILE - 3.0)
-			var bh := (TILE if wide else 3.0 * TILE - 3.0)
+			var bh := (TILE if d.narrow else 3.0 * TILE - 3.0)
 			var base := Rect2(float(bx * P) * TILE + 1.5, float(by * P) * TILE + 1.5, bw, bh)
 			ci.draw_rect(base.grow(2.0 + float(lvl) * 1.2), Color(pal.r, pal.g, pal.b, 0.008 + 0.007 * float(lvl)), true)
 			_bg_building(ci, base, lvl, pal, str(DIST_STYLE.get(dtype, "flat")), h, true)
@@ -2491,6 +2806,7 @@ func _push_undo(rec: Dictionary) -> void:
 	_undo.append(rec)
 	if _undo.size() > 20:
 		_undo.pop_front()
+	_topo_rev += 1   # MAP02: a committed placement/tunnel/relay/dismantle/reroute changed topology
 
 
 func _refund(cost: Dictionary) -> void:
@@ -2545,6 +2861,14 @@ func undo_last() -> void:
 				nodes[a.child].path = a.path
 				nodes[a.child].lane = a.lane
 				_pl_cache.clear()
+		"reroute":   # T29: restore the exact edge that existed before the reroute
+			if nodes.has(a.child):
+				nodes[a.child].parent = int(a.old.parent)
+				nodes[a.child].tunnel = str(a.old.tunnel)
+				nodes[a.child].path = a.old.path
+				nodes[a.child].lane = int(a.old.lane)
+				_pl_cache.clear()
+	_topo_rev += 1   # MAP02: an undo restored/removed geometry — invalidate the route preview too
 	message = "Undid last action."
 
 
@@ -2552,6 +2876,7 @@ func toggle_selected() -> void:
 	if selected_id == -1 or selected_id == hub_id or not nodes.has(selected_id):
 		return
 	nodes[selected_id].on = not nodes[selected_id].get("on", true)
+	_vis_rev += 1   # RIM-082: a disable/enable changes the drawn node even on a paused view
 	message = "%s %s." % [_node_name(selected_id), "enabled" if nodes[selected_id].on else "disabled"]
 
 
@@ -2562,6 +2887,7 @@ func adjust_rate_selected(d: float) -> void:
 		return
 	var r: float = clampf(float(nodes[selected_id].get("cap_rate", 1.0)) + d, 0.0, 1.0)
 	nodes[selected_id].cap_rate = r
+	_vis_rev += 1   # RIM-082
 	message = "%s output limit: %d%%." % [_node_name(selected_id), int(r * 100.0)]
 
 
@@ -2575,6 +2901,7 @@ func overclock_selected() -> void:
 		return
 	resources.compute -= OVERCLOCK_COST
 	nodes[selected_id].boost_t = OVERCLOCK_T
+	_vis_rev += 1   # RIM-082
 	message = "%s overclocked — 2× output for %ds." % [_node_name(selected_id), int(OVERCLOCK_T)]
 
 
@@ -2585,11 +2912,24 @@ func scrub_trace() -> void:
 	resources.compute -= SCRUB_COST.compute
 	resources.tools -= SCRUB_COST.tools
 	trace = 0.0
-	if not sweep.is_empty():
-		sweep = {}
-		message = "DDoS Smokescreen — Trace wiped and the ICE sweep scattered."
+	# SIM16: DDoS is a RECOVERY action, so it must actually recover — scatter the sweep AND lift
+	# every quarantine it already imposed, plus any C2 blackout. Previously the timers kept running,
+	# contradicting the "sweep scattered" message and the inspector's recovery guidance.
+	var freed := 0
+	for id in nodes:
+		if float(nodes[id].get("quarantine", 0.0)) > 0.0:
+			nodes[id].quarantine = 0.0
+			freed += 1
+	_blackout_t = 0.0
+	if freed > 0:
+		_vis_rev += 1   # RIM-082: un-quarantined hosts must repaint
+	var scattered: bool = not sweep.is_empty()
+	sweep = {}
 	_sweep_charge = 0.0
-	message = "DDoS smokescreen launched — Trace scrubbed to 0."
+	if scattered or freed > 0:
+		message = "DDoS Smokescreen — Trace wiped, ICE sweep scattered, %d host(s) un-quarantined." % freed
+	else:
+		message = "DDoS smokescreen launched — Trace scrubbed to 0."
 
 
 func go_main_menu() -> void:
@@ -2614,6 +2954,7 @@ func _serialize() -> Dictionary:
 		"contracts": [], "next_contract_id": _next_contract_id, "contract_cd": _contract_cd,
 		# cumulative run statistics + captured victory result (B20)
 		"_run_time": _run_time, "_packets_delivered": _packets_delivered,
+		"_delivered_total": _delivered_total.duplicate(),   # SIM09: cumulative delivery counter
 		"_max_trace": _max_trace, "_peak_cash_rate": _peak_cash_rate,
 		"hist_cash": _hist_cash.duplicate(), "victory_card": (_scorecard() if won else ""),
 		# simulation RNG, as a string to keep full 64-bit precision (B23)
@@ -2663,16 +3004,30 @@ func save_game() -> bool:
 		DirAccess.remove_absolute(tmp)
 		message = "Save failed (verification)."
 		return false
-	# rotate: keep the previous valid save as the backup, then put the new file in place
+	# rotate: back up the previous save ONLY if the FULL validator accepts it (so saving over a
+	# parseable-but-invalid file can't destroy the last-good backup — SIM05), and check every
+	# filesystem step so a failure leaves a valid loadable file behind (SIM06).
 	if FileAccess.file_exists(Session.SAVE_PATH):
-		var prev := FileAccess.get_file_as_string(Session.SAVE_PATH)
-		if typeof(_json_or_null(prev)) == TYPE_DICTIONARY:
-			if FileAccess.file_exists(Session.BACKUP_PATH):
-				DirAccess.remove_absolute(Session.BACKUP_PATH)
-			DirAccess.copy_absolute(Session.SAVE_PATH, Session.BACKUP_PATH)
-		DirAccess.remove_absolute(Session.SAVE_PATH)
+		var prev_parsed = _json_or_null(FileAccess.get_file_as_string(Session.SAVE_PATH))
+		if typeof(prev_parsed) == TYPE_DICTIONARY and _validate_save(prev_parsed) == "":
+			if FileAccess.file_exists(Session.BACKUP_PATH) and DirAccess.remove_absolute(Session.BACKUP_PATH) != OK:
+				DirAccess.remove_absolute(tmp)
+				message = "Save failed (backup cleanup)."
+				return false
+			if DirAccess.copy_absolute(Session.SAVE_PATH, Session.BACKUP_PATH) != OK:
+				DirAccess.remove_absolute(tmp)
+				message = "Save failed (backup copy)."
+				return false
+		if DirAccess.remove_absolute(Session.SAVE_PATH) != OK:
+			DirAccess.remove_absolute(tmp)
+			message = "Save failed (replace cleanup)."
+			return false
 	if DirAccess.rename_absolute(tmp, Session.SAVE_PATH) != OK:
 		message = "Save failed (replace)."
+		return false
+	# only report success after the written file reads back cleanly (SIM06)
+	if _json_or_null(FileAccess.get_file_as_string(Session.SAVE_PATH)) == null:
+		message = "Save failed (post-write verify)."
 		return false
 	message = "Game saved."
 	return true
@@ -2720,40 +3075,96 @@ func _json_or_null(text: String):
 	if j.parse(text) != OK:
 		return null
 	return j.data
+func _finite(v) -> bool:
+	return (typeof(v) == TYPE_FLOAT or typeof(v) == TYPE_INT) and is_finite(float(v))
 
 
-# Validate a parsed save has a usable schema BEFORE any live state is touched (B21).
+# Fully validate a parsed save BEFORE any live state is touched: every field and nested
+# collection that _apply_save or the simulation consumes is checked here, so a malformed save
+# is refused and the live run is left byte-equivalent (SIM01/SIM02).
 func _validate_save(p: Dictionary) -> String:
-	if not p.has("version"):
-		return "no version"
-	if typeof(p.get("resources")) != TYPE_DICTIONARY:
+	var ver = p.get("version")
+	if typeof(ver) != TYPE_STRING or ver == "":
+		return "missing/invalid version"
+	var r = p.get("resources")
+	if typeof(r) != TYPE_DICTIONARY:
 		return "no resources"
+	for rk in ["compute", "data", "credits", "crypto", "tools", "research"]:
+		if r.has(rk) and not _finite(r[rk]):
+			return "non-finite resource %s" % rk
 	var sn = p.get("nodes")
 	if typeof(sn) != TYPE_DICTIONARY or sn.is_empty():
 		return "no nodes"
 	var hub := int(p.get("hub_id", -1))
 	var hub_ok := false
+	var byid := {}
+	var max_id := 0
 	for k in sn:
 		var n = sn[k]
 		if typeof(n) != TYPE_DICTIONARY:
 			return "bad node"
 		if not (n.has("id") and n.has("type") and n.has("cell") and n.has("size") and n.has("parent")):
 			return "node missing fields"
-		if not (SIZE.has(str(n.type)) or str(n.type) == "hub"):
-			return "unknown node type"
-		if typeof(n.get("cell")) != TYPE_ARRAY or n.cell.size() < 2:
+		var nid := int(n.id)
+		if byid.has(nid):
+			return "duplicate node id %d" % nid
+		byid[nid] = n
+		max_id = maxi(max_id, nid)
+		var t := str(n.type)
+		if not (SIZE.has(t) or t == "hub"):
+			return "unknown node type '%s'" % t
+		var cell = n.get("cell")
+		if typeof(cell) != TYPE_ARRAY or cell.size() < 2 or not _finite(cell[0]) or not _finite(cell[1]):
 			return "bad cell"
-		if int(n.id) == hub and str(n.type) == "hub":
+		if not _finite(n.size) or int(n.size) <= 0 or int(n.size) > 8:
+			return "bad size"
+		var path = n.get("path", [])
+		if typeof(path) != TYPE_ARRAY:
+			return "bad path"
+		for c in path:
+			if typeof(c) != TYPE_ARRAY or c.size() < 2 or not _finite(c[0]) or not _finite(c[1]):
+				return "bad path point"
+		if not _finite(n.parent):
+			return "bad parent"
+		if nid == hub and t == "hub":
 			hub_ok = true
 	if not hub_ok:
 		return "no hub"
+	for id in byid:
+		var par := int(byid[id].parent)
+		if par == id:
+			return "self parent"
+		if par != -1 and not byid.has(par):
+			return "dangling parent %d" % par
+	for id2 in byid:
+		var cur := int(id2)
+		var seen := {}
+		var guard := 0
+		while cur != -1 and guard < 100000:
+			if seen.has(cur):
+				return "cyclic parent chain"
+			seen[cur] = true
+			cur = int(byid[cur].parent) if byid.has(cur) else -1
+			guard += 1
+	if int(p.get("next_id", 0)) <= max_id:
+		return "next_id must be above all node ids"
+	var cam = p.get("camera", null)
+	if cam is Array and cam.size() >= 3 and (not _finite(cam[2]) or float(cam[2]) <= 0.0):
+		return "bad camera zoom"
+	for tc in p.get("researched", []):
+		if not TECH.has(str(tc)):
+			return "unknown researched id '%s'" % str(tc)
 	for pk in p.get("packets", []):
 		if typeof(pk) != TYPE_DICTIONARY:
 			return "bad packet"
-		if typeof(pk.get("route")) != TYPE_ARRAY or pk.route.is_empty():
+		var route = pk.get("route")
+		if typeof(route) != TYPE_ARRAY or route.is_empty():
 			return "bad packet route"
+		for e in route:
+			if not byid.has(int(e)):
+				return "packet route references missing node"
 		var idx := int(pk.get("idx", -1))
-		if idx < 0 or idx >= pk.route.size():
+		if idx < 0 or idx >= route.size():
 			return "bad packet idx"
 	return ""
 
@@ -2765,6 +3176,9 @@ func _apply_save(parsed: Dictionary) -> void:
 	seed = int(parsed.get("seed", 0))
 	rng.seed = seed
 	_generate_city()  # the city is deterministic from the seed
+	_invalidate_city()        # PERF01: re-bake the city layer for the restored seed
+	world_rev += 1            # PERF02: force minimap/visibility caches to refresh after load
+	_topo_rev += 1            # RIM-082: the whole graph changed — repaint once under the O(1) signature
 	nodes.clear()
 	var saved_nodes: Dictionary = parsed.get("nodes", {})
 	for k in saved_nodes:
@@ -2815,6 +3229,9 @@ func _apply_save(parsed: Dictionary) -> void:
 	# cumulative run statistics (B20)
 	_run_time = float(parsed.get("_run_time", 0.0))
 	_packets_delivered = int(parsed.get("_packets_delivered", 0))
+	_delivered_total = {}   # SIM09: restore cumulative deliveries (keys are resource names → float)
+	for k in parsed.get("_delivered_total", {}):
+		_delivered_total[str(k)] = float(parsed["_delivered_total"][k])
 	_max_trace = float(parsed.get("_max_trace", 0.0))
 	_peak_cash_rate = float(parsed.get("_peak_cash_rate", 0.0))
 	_hist_cash = []

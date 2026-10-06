@@ -28,6 +28,7 @@ var info_body: Label
 var sel_box: VBoxContainer
 var oc_btn: Button
 var remove_btn: Button
+var reroute_btn: Button
 var status_label: Label
 var pause_overlay: Control
 var win_overlay: Control
@@ -39,12 +40,20 @@ var setting_btns := {}
 var alert_box: VBoxContainer
 var alert_btns := {}
 var _alert_acc := 1.0   # throttle the all-nodes alert/stats scan to ~4 Hz
-var _last_msg := ""     # B32: timed action-result message channel
+var _alert_cursor := {}  # HUD10: per-kind index so repeated clicks step through every target
+var _last_stats_key := []  # RIM-081: last (rate_rev, topo_rev) the Stats panel was built for
+var _last_msg := ""     # B32/T17: action-result message channel
 var _msg_t := 0.0
+var _msg_queue := []    # T17: pending {text, sev} so rapid messages don't clobber each other
+var _msg_history := []  # T17: recent messages kept for recall (last 12)
+var _msg_cur := ""
+var _msg_sev := 0
 var _legend_labels := {}   # B44: res key -> legend Label, refreshed on palette change
 var _last_pal := [false, false]
 var _settings_prev_paused := false   # B35: pause state to restore when Settings closes
 var _prev_pausemenu := false         # B38: track pause-menu visibility transitions
+var _focus_stack := []               # UI-CONTROLS-06: openers to restore focus to on close
+var _font_bases := {}                # B29: Control -> base (100%) font size, rescaled on change
 
 const HACK_TOOLS := ["nest", "package", "botfarm", "phish", "scraper", "salami"]
 const PROC_TOOLS := ["fence", "forge", "mixer", "lab", "relay"]
@@ -53,6 +62,8 @@ const TUNNEL_TOOLS := ["dns", "vpn", "tcp", "http", "proxy"]
 var build_scroll: ScrollContainer
 var tech_scroll: ScrollContainer
 var jobs_scroll: ScrollContainer
+var stats_scroll: ScrollContainer
+var sel_scroll: ScrollContainer
 var tech_box: VBoxContainer
 var tool_buttons := {}   # code -> Button (for greying locked tools)
 var tech_rows := {}      # tid -> {btn, status}
@@ -172,7 +183,8 @@ func _ready() -> void:
 
 	# ---- Tech tree ----
 	tech_scroll = ScrollContainer.new()
-	tech_scroll.custom_minimum_size = Vector2(PANEL_W - 16, 560)
+	tech_scroll.custom_minimum_size = Vector2(PANEL_W - 16, 120)   # B27: fill + scroll within 720p
+	tech_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	tech_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(tech_scroll)
 	tech_box = VBoxContainer.new()
@@ -183,8 +195,14 @@ func _ready() -> void:
 	for tid in main.TECH:
 		_tech_row(tech_box, tid)
 
+	stats_scroll = ScrollContainer.new()
+	stats_scroll.custom_minimum_size = Vector2(PANEL_W - 16, 120)   # B27: fill + scroll within 720p
+	stats_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stats_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(stats_scroll)
 	stats_box = VBoxContainer.new()
-	col.add_child(stats_box)
+	stats_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stats_scroll.add_child(stats_box)
 	_section(stats_box, "BOTNET STATUS")
 	stats_label = Label.new()
 	stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -192,6 +210,8 @@ func _ready() -> void:
 	stats_box.add_child(stats_label)
 	var smoke := Button.new()
 	smoke.text = "DDoS Smokescreen  (40 Cy, 1 Tool)"
+	# T45: state exactly what the countermeasure does in the simulation
+	smoke.tooltip_text = "Wipes Trace to 0, scatters any active ICE sweep, and resets the next-sweep charge. Costs 40 Cycles + 1 Tool."
 	smoke.custom_minimum_size = Vector2(0, 40)
 	smoke.pressed.connect(main.scrub_trace)
 	stats_box.add_child(smoke)
@@ -213,7 +233,8 @@ func _ready() -> void:
 
 	# B28: the Jobs board scrolls so 3+ cards (and their accept/claim buttons) stay reachable at 720p
 	jobs_scroll = ScrollContainer.new()
-	jobs_scroll.custom_minimum_size = Vector2(PANEL_W - 16, 520)
+	jobs_scroll.custom_minimum_size = Vector2(PANEL_W - 16, 120)   # B27/B28: fill + scroll within 720p
+	jobs_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	jobs_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	col.add_child(jobs_scroll)
 	jobs_box = VBoxContainer.new()
@@ -230,7 +251,13 @@ func _ready() -> void:
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(top)
 	top_label = Label.new()
-	top_label.position = Vector2(PANEL_W + 12, 7)
+	# T13: span the full width between the panel and the right edge, and clip rather than spill
+	# past the viewport; the text itself falls back to a compact form when it would overflow.
+	top_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_label.offset_left = PANEL_W + 12
+	top_label.offset_right = -12
+	top_label.offset_top = 7
+	top_label.clip_text = true
 	top_label.add_theme_font_size_override("font_size", 18)
 	top_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(top_label)
@@ -258,7 +285,9 @@ func _ready() -> void:
 	warn_banner = Label.new()
 	warn_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	warn_banner.offset_left = PANEL_W
-	warn_banner.offset_right = -16
+	warn_banner.offset_right = -366   # HUD03: stop before the top-right alert strip (never overlap it)
+	warn_banner.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	warn_banner.clip_text = true
 	# B47: own row, below the net-rate line, so critical warnings never overlap the rate text
 	warn_banner.offset_top = TOP_H + 30
 	warn_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -268,9 +297,13 @@ func _ready() -> void:
 	warn_banner.visible = false
 	add_child(warn_banner)
 
-	# ---- net-rate HUD (second line, left) ----
+	# ---- net-rate HUD (second line, left) ----  HUD02: reserve a region that stops before the legend
 	netrate_label = Label.new()
-	netrate_label.position = Vector2(PANEL_W + 12, TOP_H + 6)
+	netrate_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	netrate_label.offset_left = PANEL_W + 12
+	netrate_label.offset_right = -690
+	netrate_label.offset_top = TOP_H + 6
+	netrate_label.clip_text = true
 	netrate_label.add_theme_font_size_override("font_size", 15)
 	netrate_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.85))
 	netrate_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -282,23 +315,30 @@ func _ready() -> void:
 	alert_box.position = Vector2(-356, TOP_H + 34)
 	alert_box.add_theme_constant_override("separation", 3)
 	add_child(alert_box)
-	for kind in ["overload", "offline", "starved", "trace"]:
+	for kind in ["overload", "offline", "quarantine", "starved", "trace"]:
 		var ab := Button.new()
 		ab.visible = false
 		ab.clip_text = true
 		ab.custom_minimum_size = Vector2(340, 30)
 		ab.add_theme_color_override("font_color", Color(1.0, 0.55, 0.3))
 		ab.add_theme_font_size_override("font_size", 15)
-		ab.tooltip_text = "Click to jump to the problem"
+		ab.tooltip_text = "Click to step through each affected structure"   # HUD10: cycles targets
 		ab.pressed.connect(_jump_alert.bind(kind))
 		alert_box.add_child(ab)
 		alert_btns[kind] = ab
 
 	# ---- selection info (LEFT panel): shown when a structure/tunnel is selected ----
+	# B27: wrap the inspector in a scroll so long descriptions (esp. at 200% text) stay reachable.
+	sel_scroll = ScrollContainer.new()
+	sel_scroll.custom_minimum_size = Vector2(PANEL_W - 16, 120)
+	sel_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sel_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sel_scroll.visible = false
+	col.add_child(sel_scroll)
 	sel_box = VBoxContainer.new()
 	sel_box.add_theme_constant_override("separation", 6)
-	sel_box.visible = false
-	col.add_child(sel_box)
+	sel_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_scroll.add_child(sel_box)
 	info_title = Label.new()
 	info_title.add_theme_font_size_override("font_size", 20)
 	info_title.add_theme_color_override("font_color", Color(0.2, 1.0, 0.9))
@@ -320,6 +360,12 @@ func _ready() -> void:
 	power_btn.pressed.connect(main.toggle_selected)
 	power_btn.visible = false
 	sel_box.add_child(power_btn)
+	reroute_btn = Button.new()          # T29: move a linked structure's tunnel to a new parent
+	reroute_btn.text = "Reroute tunnel  (R)"
+	reroute_btn.custom_minimum_size = Vector2(0, 40)
+	reroute_btn.pressed.connect(main.begin_reroute)
+	reroute_btn.visible = false
+	sel_box.add_child(reroute_btn)
 	oc_btn = Button.new()
 	oc_btn.text = "⚡ Overclock  (O)"
 	oc_btn.custom_minimum_size = Vector2(0, 40)
@@ -374,6 +420,7 @@ func _ready() -> void:
 	# the fixed-width side panel — this is what kept resizing it between tabs
 	for b in find_children("", "Button", true, false):
 		b.clip_text = true
+	_register_and_scale_fonts()   # B29: snapshot baseline font sizes and apply the current scale
 
 
 func _build_settings() -> void:
@@ -450,8 +497,17 @@ func _toggle_setting(key: String) -> void:
 				Settings.text_scale = 2.0
 			else:
 				Settings.text_scale = 1.0
-			_apply_text_scale()
+			_register_and_scale_fonts()   # B29: rescale every registered control
 	Settings.save_settings()
+
+
+# T17: classify an action message so the status channel can colour and time it by severity.
+func _msg_severity(m: String) -> int:
+	if "⚠" in m or m.begins_with("Can't") or "failed" in m or "No clear" in m or "BLACKOUT" in m or "OVERLOAD" in m or "expired" in m or "unreadable" in m:
+		return 2
+	if "saved" in m or "paid" in m or "deployed" in m or "Converted" in m or "REACHED" in m or "Recovered" in m or "+" in m:
+		return 1
+	return 0
 
 
 func _resume_from_menu() -> void:
@@ -462,6 +518,7 @@ func _resume_from_menu() -> void:
 func _open_settings() -> void:
 	_settings_prev_paused = main.paused
 	main.paused = true   # B35: freeze the sim while the blocking Settings modal is open
+	_focus_stack.append(get_viewport().gui_get_focus_owner())   # UI-CONTROLS-06: remember the opener
 	settings_overlay.visible = true
 	_grab_modal_focus()  # B38
 
@@ -469,6 +526,17 @@ func _open_settings() -> void:
 func _close_settings() -> void:
 	settings_overlay.visible = false
 	main.paused = _settings_prev_paused   # B35: restore the prior pause state
+	_restore_focus()     # UI-CONTROLS-06: return focus to the control that opened Settings
+
+
+# UI-CONTROLS-06: restore focus to a valid, visible opener when a modal closes; fall back to the
+# next modal's first control (if one is still open) or clear focus.
+func _restore_focus() -> void:
+	var tgt: Control = _focus_stack.pop_back() if not _focus_stack.is_empty() else null
+	if tgt != null and is_instance_valid(tgt) and tgt.is_visible_in_tree() and tgt.focus_mode != Control.FOCUS_NONE:
+		tgt.grab_focus()
+	elif _modal_host() != null:
+		_grab_modal_focus()
 
 
 # B36: called by main when Esc is pressed while a blocking modal is open — dismiss the front one.
@@ -477,21 +545,46 @@ func close_topmost_modal() -> void:
 		_close_settings()
 	elif win_overlay.visible:
 		win_dismissed = true
+		_restore_focus()
+
+
+func _modal_host() -> Control:
+	if settings_overlay.visible:
+		return settings_overlay
+	if win_overlay.visible:
+		return win_overlay
+	if pause_overlay.visible:
+		return pause_overlay
+	return null
 
 
 # B38: move keyboard focus to the first button inside whichever modal is on top.
 func _grab_modal_focus() -> void:
-	var host: Control = null
-	if settings_overlay.visible:
-		host = settings_overlay
-	elif win_overlay.visible:
-		host = win_overlay
-	elif pause_overlay.visible:
-		host = pause_overlay
+	var host := _modal_host()
 	if host != null:
 		var btns := host.find_children("", "Button", true, false)
 		if not btns.is_empty():
 			btns[0].grab_focus()
+
+
+# UI-CONTROLS-05: trap Tab/Shift+Tab within the topmost modal and keep focus inside it, so the
+# keyboard can never reach or activate a control behind the modal.
+func _input(event: InputEvent) -> void:
+	var host := _modal_host()
+	if host == null:
+		return
+	if event.is_action_pressed("ui_focus_next") or event.is_action_pressed("ui_focus_prev"):
+		var btns := host.find_children("", "Button", true, false)
+		if btns.is_empty():
+			return
+		var cur := get_viewport().gui_get_focus_owner()
+		var idx: int = btns.find(cur)
+		if idx == -1:
+			btns[0].grab_focus()
+		else:
+			var step: int = -1 if event.is_action_pressed("ui_focus_prev") else 1
+			btns[(idx + step + btns.size()) % btns.size()].grab_focus()
+		get_viewport().set_input_as_handled()
 
 
 func _set_build_cat(c: String) -> void:
@@ -521,7 +614,9 @@ func _section(parent: Control, text: String) -> void:
 
 func _tool_entry(parent: Control, code: String, chip: Color) -> void:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(0, 52)
+	# UI-PANELS-01: the row grows with text size so scaled name/cost labels can't overflow
+	# into the neighbouring tool button.
+	b.custom_minimum_size = Vector2(0, int(round(52 * maxf(1.0, Settings.text_scale))))
 	b.tooltip_text = main._tool_name(code) + "\n" + main._tool_homage(code) + "\nCost: " + main._cost_str(code)
 	b.pressed.connect(_on_tool.bind(code))
 	b.mouse_entered.connect(_on_hover.bind(code))
@@ -533,7 +628,7 @@ func _tool_entry(parent: Control, code: String, chip: Color) -> void:
 	h.offset_right = -4
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var is_tunnel := code in TUNNEL_TOOLS
-	h.add_child(_icon(_glyph_for(code), "", chip if is_tunnel else main.COLORS[code], 46.0))
+	h.add_child(_icon(_glyph_for(code), "", chip if is_tunnel else main._sem_color(code), 46.0))   # B43
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 1)
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -601,15 +696,21 @@ func _overlay(title: String, buttons: Array) -> Control:
 	o.add_child(dim)
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", _style())
-	# B40: bounded, centred panel that stays within 1280×720; the title wraps so a long
-	# victory result string can never stretch the panel past the viewport edge.
-	p.custom_minimum_size = Vector2(560, 0)
+	# B40 + UI-CONTROLS-07: a fixed centred box that always fits within 1280×720 at any text
+	# scale; content scrolls inside it, so the title and BOTH exit actions stay reachable.
 	p.set_anchors_preset(Control.PRESET_CENTER)
-	p.position = Vector2(-280, -180)
+	p.offset_left = -280
+	p.offset_right = 280
+	p.offset_top = -300
+	p.offset_bottom = 300
 	o.add_child(p)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	p.add_child(sc)
 	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_theme_constant_override("separation", 8)
-	p.add_child(v)
+	sc.add_child(v)
 	var t := Label.new()
 	t.text = title
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -631,10 +732,28 @@ func _overlay(title: String, buttons: Array) -> Control:
 func _apply_text_scale() -> void:
 	if theme:
 		theme.default_font_size = int(round(19 * Settings.text_scale))
+	# B29: also rescale every control that set its own fixed font-size override, so the whole
+	# interface (HUD, body, status, tabs, buttons) scales — not just defaulted text.
+	for c in _font_bases:
+		if is_instance_valid(c):
+			c.add_theme_font_size_override("font_size", maxi(8, int(round(float(_font_bases[c]) * Settings.text_scale))))
+
+
+# Snapshot the 100%-baseline font size of every overridden Label/Button once, then rescale.
+# New controls (job cards, tech rows) are picked up on later calls without clobbering bases.
+func _register_and_scale_fonts() -> void:
+	# NOTE: find_children needs a concrete type — an empty type string matches nothing.
+	var controls := find_children("", "Label", true, false)
+	controls.append_array(find_children("", "Button", true, false))
+	for c in controls:
+		if not _font_bases.has(c) and c.has_theme_font_size_override("font_size"):
+			_font_bases[c] = c.get_theme_font_size("font_size")
+	_apply_text_scale()
 
 
 func _on_tab(code: String) -> void:
 	tab = code
+	_last_stats_key = []   # RIM-081: force one Stats rebuild on (re)entry even while paused
 	# B30: navigation is an explicit state — opening a tab closes the inspector / disarms the
 	# tool so the chosen tab's content is actually shown (selection otherwise hid it).
 	main.selected_id = -1
@@ -703,13 +822,28 @@ func _rebuild_jobs() -> void:
 		if c.done:
 			btn.text = "CLAIM REWARD"
 			btn.pressed.connect(main.claim_contract.bind(int(c.id)))
+			v.add_child(btn)
 		elif c.accepted:
 			btn.text = "Accepted — in progress"
 			btn.disabled = true
+			v.add_child(btn)
 		else:
+			# T42: Accept OR Decline an unsuitable offer so the board can recover
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 4)
 			btn.text = "Accept"
+			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			btn.pressed.connect(main.accept_contract.bind(int(c.id)))
-		v.add_child(btn)
+			row.add_child(btn)
+			var dec := Button.new()
+			dec.text = "Decline"
+			dec.clip_text = true
+			dec.custom_minimum_size = Vector2(0, 34)
+			dec.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			dec.pressed.connect(main.decline_contract.bind(int(c.id)))
+			row.add_child(dec)
+			v.add_child(row)
+	_register_and_scale_fonts()   # B29: scale the freshly-built job-card text too
 
 
 func _set_alert(kind: String, active: bool, text: String) -> void:
@@ -721,26 +855,77 @@ func _set_alert(kind: String, active: bool, text: String) -> void:
 		b.text = text
 
 
-func _jump_alert(kind: String) -> void:
-	var target := -1
-	for id in main.nodes:
+# HUD10: collect every structure matching an alert kind, in stable id order, so clicks can step.
+func _alert_targets(kind: String) -> Array:
+	var out := []
+	var ids: Array = main.nodes.keys()
+	ids.sort()
+	for id in ids:
 		if id == main.hub_id:
 			continue
-		if kind == "overload" and main.nodes[id].parent != -1 and main._edge.has(id) and main._edge[id].get("over", false):
-			target = id
-		elif kind == "offline" and main.nodes[id].get("on", true) and not main._connected.has(id):
-			target = id   # includes never-linked nodes (B33)
-		if target != -1:
-			break
-	if target == -1 and (kind == "starved" or kind == "trace"):
-		target = main.hub_id
-	if target != -1 and main.nodes.has(target):
-		# B34: establish one coherent selection — clear any prior tunnel selection / armed tool
-		# so the inspector describes exactly the jumped-to object.
-		main.camera.position = main._center_world(target)
+		match kind:
+			"overload":
+				if main.nodes[id].parent != -1 and main._edge.has(id) and main._edge[id].get("over", false):
+					out.append(id)
+			"offline":
+				if main.nodes[id].get("on", true) and not main._connected.has(id) and float(main.nodes[id].get("quarantine", 0.0)) <= 0.0:
+					out.append(id)
+			"quarantine":
+				if float(main.nodes[id].get("quarantine", 0.0)) > 0.0:
+					out.append(id)
+	return out
+
+
+func _jump_alert(kind: String) -> void:
+	# HUD13: starvation and trace aren't a single structure — open a concrete cause + next action.
+	if kind == "starved" or kind == "trace":
+		_focus_object(main.hub_id, "node")
+		if kind == "starved":
+			var top_id := -1
+			var top_u := 0.0
+			for id in main.nodes:
+				if main.nodes[id].parent != -1 and main._connected.has(id):
+					var u: float = main._effective_upkeep(str(main.nodes[id].tunnel), main._edge_len(id, main.nodes[id].parent), main.nodes[id].get("relay", false))
+					if u > top_u:
+						top_u = u
+						top_id = id
+			var where := (" — e.g. %s" % main._node_name(top_id)) if top_id != -1 else ""
+			main.message = "STARVED: %d Cycles in hand vs %.1f/s upkeep (feed %d%%). Cut/disable a costly tunnel%s, or raise Cycles output." % [
+				int(main.resources.compute), main.total_upkeep, int(main.slow_factor * 100.0), where]
+			if top_id != -1:
+				_focus_object(top_id, "tunnel")
+		else:
+			main.message = "TRACE CRITICAL %d%%: noisy tunnels are raising it. DDoS Smokescreen (%d Cycles + %d Tools) wipes Trace%s; or reroute to quieter VPN links." % [
+				int(main.trace), int(main.SCRUB_COST.compute), int(main.SCRUB_COST.tools),
+				"" if main.resources.compute >= main.SCRUB_COST.compute and main.resources.tools >= main.SCRUB_COST.tools else " (not affordable yet)"]
+		return
+	# HUD10: step to the NEXT matching target each click; skip repaired/removed ones automatically.
+	var targets := _alert_targets(kind)
+	if targets.is_empty():
+		return
+	var cur: int = int(_alert_cursor.get(kind, -1))
+	var idx := (cur + 1) % targets.size()
+	_alert_cursor[kind] = idx
+	var target: int = targets[idx]
+	# HUD11: an overload is a property of the LINK — select the tunnel so the inspector opens that
+	# edge's capacity / offered / loss diagnostic, not the generic structure card.
+	_focus_object(target, "tunnel" if kind == "overload" else "node")
+	main.message = "Alert %s: %d of %d — %s." % [kind, idx + 1, targets.size(), main._node_name(target)]
+
+
+# B34: establish one coherent selection — clear any prior selection / armed tool so the inspector
+# describes exactly the jumped-to object (either the structure or its tunnel edge).
+func _focus_object(target: int, mode: String) -> void:
+	if target == -1 or not main.nodes.has(target):
+		return
+	main.camera.position = main._center_world(target)
+	main.current_tool = ""
+	main.pending_child = -1
+	if mode == "tunnel" and main.nodes[target].parent != -1:
+		main.selected_id = -1
+		main.selected_tunnel = target
+	else:
 		main.selected_tunnel = -1
-		main.current_tool = ""
-		main.pending_child = -1
 		main.selected_id = target
 
 
@@ -757,19 +942,31 @@ func _process(_delta: float) -> void:
 	var pct := int(min(100.0, r.credits / main.GOAL_CREDITS * 100.0))
 	var tr := int(main.trace)
 	var hot := "  ⚠" if main.trace > main.TRACE_HOT else ""
-	top_label.text = "Cycles %d  Intel %d  Crypto %d  Tools %d  Research %d  Cash %d   |   Trace %d%%%s   |   Up %.1f/s feed %d%%   |   Goal %d%%" % [
+	# T13: full HUD string, or a compact fallback when it would overflow the available width
+	# (large stockpiles or big text scales) — measured against the real font so it reflows.
+	var full := "Cycles %d  Intel %d  Crypto %d  Tools %d  Research %d  Cash %d   |   Trace %d%%%s   |   Up %.1f/s feed %d%%   |   Goal %d%%" % [
 		int(r.compute), int(r.data), int(r.crypto), int(r.tools), int(r.research), int(r.credits),
-		tr, hot, main.total_upkeep, int(main.slow_factor * 100.0), pct,
-	]
+		tr, hot, main.total_upkeep, int(main.slow_factor * 100.0), pct]
+	var avail := size.x - PANEL_W - 24.0
+	var fnt0 := top_label.get_theme_font("font")
+	var fs0 := top_label.get_theme_font_size("font_size")
+	if fnt0 != null and fnt0.get_string_size(full, HORIZONTAL_ALIGNMENT_LEFT, -1, fs0).x > avail:
+		top_label.text = "Cy %d  In %d  Cr %d  To %d  Re %d  Ca %d  |  Tr %d%%%s  |  Feed %d%%  Goal %d%%" % [
+			int(r.compute), int(r.data), int(r.crypto), int(r.tools), int(r.research), int(r.credits),
+			tr, hot, int(main.slow_factor * 100.0), pct]
+	else:
+		top_label.text = full
 	if not main.sweep.is_empty():
 		warn_banner.visible = true
 		warn_banner.add_theme_color_override("font_color", Color(1.0, 0.3, 0.25))
+		# T45: name only the countermeasures the sim actually implements, with the time left
+		var cm := "  ·  DDoS or cut/reroute the swept link"   # HUD03: keep the banner compact (full detail is in the status message)
 		if float(main.sweep.get("warn", 0.0)) > 0.0:
-			warn_banner.text = "⚠ ICE SWEEP INBOUND — %ds to impact" % int(ceil(float(main.sweep.warn)))
+			warn_banner.text = "⚠ ICE SWEEP INBOUND — %ds to impact%s" % [int(ceil(float(main.sweep.warn))), cm]
 		else:
 			# remaining edge transitions to C2 = path.size - step - 1 (reaches 0 at C2) — B59
 			var hops: int = maxi(0, int(main.sweep.path.size()) - int(main.sweep.step) - 1)
-			warn_banner.text = "⚠ ICE SWEEP — %d hop%s to C2" % [hops, "" if hops == 1 else "s"]
+			warn_banner.text = "⚠ ICE SWEEP — %d hop%s to C2%s" % [hops, "" if hops == 1 else "s", cm]
 	elif main.warn_overload:
 		warn_banner.visible = true
 		warn_banner.add_theme_color_override("font_color", Color(1.0, 0.6, 0.25))
@@ -782,31 +979,36 @@ func _process(_delta: float) -> void:
 		_alert_acc = 0.0
 		var n_over := 0
 		var n_off := 0
+		var n_quar := 0
 		for id in main.nodes:
 			if id == main.hub_id:
 				continue
 			if main.nodes[id].parent != -1 and main._edge.has(id) and main._edge[id].get("over", false):
 				n_over += 1
-			# B33: any structure the player intends to run but that has no live C2 route counts
-			# as offline — including never-linked nodes (parent == -1) and detached branches.
-			# Intentionally disabled nodes are a separate state and are not flagged here.
+			# HUD12: an ICE-quarantined host is a distinct, self-recovering state — not a missing
+			# link. Count it separately so the player isn't sent hunting for a cut tunnel that
+			# doesn't exist. (quarantine implies not-_connected, so check it first.)
 			if main.nodes[id].get("on", true) and not main._connected.has(id):
-				n_off += 1
+				if float(main.nodes[id].get("quarantine", 0.0)) > 0.0:
+					n_quar += 1
+				else:
+					n_off += 1   # B33: intentionally running but no live C2 route (incl. never-linked)
 		_set_alert("overload", n_over > 0, "⚠ %d tunnel(s) OVERLOADED  →" % n_over)
 		_set_alert("offline", n_off > 0, "⚠ %d structure(s) OFFLINE / unlinked  →" % n_off)
+		_set_alert("quarantine", n_quar > 0, "⚠ %d host(s) ICE-QUARANTINED  →" % n_quar)
 		_set_alert("starved", main.slow_factor < 0.98, "⚠ Network STARVED %d%%  →" % int(main.slow_factor * 100.0))
 		_set_alert("trace", main.trace > main.TRACE_HOT, "⚠ Trace CRITICAL %d%%  →" % int(main.trace))
 	var sel: bool = main.selected_id != -1 or main.selected_tunnel != -1
 	# B31: the info panel also hosts armed-tool help, so show it whenever a tool is armed, not
 	# only when a map object is selected — otherwise tool/cost/ICE help is invisible.
 	var show_info: bool = sel or main.current_tool != ""
-	sel_box.visible = show_info
+	sel_scroll.visible = show_info
 	build_scroll.visible = (not show_info) and tab == "build"
 	build_cat_row.visible = (not show_info) and tab == "build"
 	for c in cat_boxes:
 		cat_boxes[c].visible = (not show_info) and tab == "build" and build_cat == c
 	tech_scroll.visible = (not show_info) and tab == "tech"
-	stats_box.visible = (not show_info) and tab == "stats"
+	stats_scroll.visible = (not show_info) and tab == "stats"
 	jobs_scroll.visible = (not show_info) and tab == "jobs"
 	menu_box.visible = (not show_info) and tab == "menu"
 	if main._contracts_ver != _jobs_ver:
@@ -846,7 +1048,12 @@ func _process(_delta: float) -> void:
 				else:
 					b.text = "Research  (%d RP)" % int(t.cost)
 					b.disabled = main.resources.research < float(t.cost)
-	if tab == "stats":
+	# RIM-081: the Stats panel walks every node — only rebuild it when the simulation has
+	# advanced (rate rev) or the network changed (topo rev), not every frame. A paused Stats
+	# panel then performs no full-network telemetry pass.
+	var stats_key := [main._rate_rev, main._topo_rev]
+	if tab == "stats" and stats_key != _last_stats_key:
+		_last_stats_key = stats_key
 		var tunnels := 0
 		for id in main.nodes:
 			if main.nodes[id].parent != -1:
@@ -886,27 +1093,40 @@ func _process(_delta: float) -> void:
 	if main.won:
 		win_label.text = "GOAL REACHED — %d CASH\n%s" % [int(main.GOAL_CREDITS), main._scorecard()]
 	_update_info()
-	# B32: an action result (save, placement failure, reward, …) gets a dedicated timed
-	# channel so it stays visible briefly before tool hints / next-step guidance resume.
+	# T17 (extends B32): action results go through a severity-aware QUEUE so rapid messages each
+	# get their moment instead of clobbering one another, with a short history kept for recall.
 	if main.message != _last_msg:
 		_last_msg = main.message
 		if main.message != "":
-			_msg_t = 3.0
+			var sev := _msg_severity(main.message)
+			_msg_queue.append({"text": main.message, "sev": sev})
+			_msg_history.append(main.message)
+			if _msg_history.size() > 12:
+				_msg_history.pop_front()
 	_msg_t = maxf(0.0, _msg_t - _delta)
+	if _msg_t <= 0.0 and not _msg_queue.is_empty():
+		var nextm: Dictionary = _msg_queue.pop_front()
+		_msg_cur = nextm.text
+		_msg_sev = int(nextm.sev)
+		_msg_t = [2.2, 2.6, 3.6][_msg_sev]   # warnings/errors linger longer
 	if _msg_t > 0.0:
-		status_label.text = main.message
-	elif main.hint != "":
-		status_label.text = main.hint
-	elif main.selected_id == -1 and main.selected_tunnel == -1 and main.current_tool == "":
-		status_label.text = "→ " + main._next_step()
+		status_label.text = _msg_cur
+		status_label.add_theme_color_override("font_color", [Color(0.8, 0.9, 1.0), Color(0.45, 1.0, 0.6), Color(1.0, 0.6, 0.3)][_msg_sev])
 	else:
-		status_label.text = main.message
+		status_label.remove_theme_color_override("font_color")
+		if main.hint != "":
+			status_label.text = main.hint
+		elif main.selected_id == -1 and main.selected_tunnel == -1 and main.current_tool == "":
+			status_label.text = "→ " + main._next_step()
+		else:
+			status_label.text = main.message
 
 
 func _update_info() -> void:
 	remove_btn.visible = false
 	power_btn.visible = false
 	oc_btn.visible = false
+	reroute_btn.visible = false
 	var rate_row := power_btn.get_parent().get_node("RateRow")
 	rate_row.visible = false
 	var nodes = main.nodes
@@ -919,7 +1139,13 @@ func _update_info() -> void:
 		var tn = nodes[tid]
 		info_title.text = main.TUNNEL_DEFS[tn.tunnel].name
 		var tl := [str(main.TUNNEL_DEFS[tn.tunnel].homage)]
-		tl.append("Latency: %d pkt    Capacity: %d/s" % [int(main._edge_len(tid, tn.parent)), int(main.CAP[tn.tunnel])])
+		# T26: show the EFFECTIVE admission capacity (after node ceiling / incoming-link penalty /
+		# Proxy bonus), which is what the simulation actually enforces, next to the protocol rating.
+		var eff_cap: float = float(main._edge.get(tid, {}).get("cap", float(main.CAP[tn.tunnel])))
+		var cap_txt := "%d/s" % int(main.CAP[tn.tunnel])
+		if int(eff_cap) != int(main.CAP[tn.tunnel]):
+			cap_txt = "%d/s protocol → %d/s effective" % [int(main.CAP[tn.tunnel]), int(eff_cap)]
+		tl.append("Latency: %d pkt    Capacity: %s" % [int(main._edge_len(tid, tn.parent)), cap_txt])
 		tl.append("Links %s → %s" % [main._node_name(tid), main._node_name(tn.parent)])
 		if main._edge.has(tid):
 			var e = main._edge[tid]
@@ -980,22 +1206,21 @@ func _update_info() -> void:
 					main.TUNNEL_DEFS[n.tunnel].name, int(main._edge_len(id, n.parent)), main._node_name(n.parent)])
 			else:
 				lines.append("No tunnel out — not linked to C2.")
-			# B57: quarantine (temporary ICE lockout on an intact branch) is a different cause
-			# than a severed link — report each distinctly so the player knows what to do.
-			var q: float = float(n.get("quarantine", 0.0))
-			var status := ""
-			if not n.get("on", true):
-				status = "DISABLED"
-			elif q > 0.0 and main._reaches_hub(id):
-				status = "QUARANTINED by ICE — %ds left (branch intact; wait it out or DDoS)" % int(ceil(q))
-			elif main._connected.has(id):
-				status = "ONLINE"
-			else:
-				status = "OFFLINE — no path to C2"
-			lines.append("Status: " + status)
+			# T15 (supersedes B57): one canonical operational vocabulary, with an actionable detail.
+			var st: String = main._op_state(id)
+			var detail := ""
+			match st:
+				"quarantined": detail = " — %ds left (branch intact; wait it out or DDoS)" % int(ceil(float(n.get("quarantine", 0.0))))
+				"unlinked": detail = " — no tunnel to C2 yet"
+				"offline": detail = " — tunnel exists but the route upstream is cut"
+				"overloaded": detail = " — over capacity, dropping packets (fatter tunnel / Proxy / lower Output)"
+				"input-starved": detail = " — no %s stored at C2 to convert" % main.RES_NAMES.get(main.CONV.get(n.type, {}).get("in", ""), "input")
+				"forwarding": detail = " — routing data toward C2 at low upkeep"
+			lines.append("Status: " + st.to_upper() + detail)
 			remove_btn.visible = true
 			power_btn.visible = true
 			power_btn.text = ("Enable  (E)" if not n.get("on", true) else "Disable  (E)")
+			reroute_btn.visible = n.parent != -1   # T29: only a linked structure can be rerouted
 			if main._is_producer(n.type) and not n.get("relay", false):
 				rate_row.visible = true
 				oc_btn.visible = true

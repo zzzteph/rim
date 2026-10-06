@@ -1,6 +1,6 @@
 {
 	"failed": 0,
-	"passed": 46,
+	"passed": 63,
 	"results": [
 		{
 			"detail": "",
@@ -208,8 +208,13 @@
 			"pass": true
 		},
 		{
-			"detail": "immediate=false after_earning=true",
+			"detail": "immediate=false after_refund=false",
 			"id": "Contract_no_autowin",
+			"pass": true
+		},
+		{
+			"detail": "delivered=true still_done=true",
+			"id": "SIM09_delivery_counts_not_wallet",
 			"pass": true
 		},
 		{
@@ -230,6 +235,86 @@
 		{
 			"detail": "centre_slots=0 origin_slots=2",
 			"id": "B54_slots_use_centre_district",
+			"pass": true
+		},
+		{
+			"detail": "offered=6.0",
+			"id": "B04_converter_load_counted",
+			"pass": true
+		},
+		{
+			"detail": "mismatches=0",
+			"id": "B10_building_matches_render",
+			"pass": true
+		},
+		{
+			"detail": "sil=2",
+			"id": "B48_silhouette_selects_tower",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "B43_marker_follows_palette",
+			"pass": true
+		},
+		{
+			"detail": "producing/disabled/forwarding/unlinked/offline/quarantined/overloaded",
+			"id": "T15_canonical_states",
+			"pass": true
+		},
+		{
+			"detail": "declined=true accepted_kept=1",
+			"id": "T42_decline_unaccepted_only",
+			"pass": true
+		},
+		{
+			"detail": "cap=3.0",
+			"id": "T26_effective_cap_present",
+			"pass": true
+		},
+		{
+			"detail": "arm=true swap=true restored=true",
+			"id": "T29_reroute_atomic_undo",
+			"pass": true
+		},
+		{
+			"detail": "reach=[\"credits\", \"data\"]",
+			"id": "T42_reachable_resources",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "SIM01_malformed_path_refused",
+			"pass": true
+		},
+		{
+			"detail": "",
+			"id": "SIM02_validates_graph_and_numbers",
+			"pass": true
+		},
+		{
+			"detail": "backup_compute=111.0",
+			"id": "SIM05_backup_preserved_over_invalid",
+			"pass": true
+		},
+		{
+			"detail": "starved=0.0 fed=1.2",
+			"id": "SIM10_fuel_starved_offers_zero",
+			"pass": true
+		},
+		{
+			"detail": "forwarding=49.200 idle=48.800 (TCP transit noise applied despite on=false)",
+			"id": "SIM13_disabled_forwarder_still_noisy",
+			"pass": true
+		},
+		{
+			"detail": "q=0.0 trace=0.0",
+			"id": "SIM16_ddos_clears_quarantine",
+			"pass": true
+		},
+		{
+			"detail": "max deviation=0.00000 px over [0,total+] samples",
+			"id": "RIM079_point_on_matches_linear",
 			"pass": true
 		}
 	]
