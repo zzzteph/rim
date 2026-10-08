@@ -1,17 +1,20 @@
 extends Node2D
 ## RIM — city map (isometric, composed, asymmetric). A believable cyberpunk city:
-##  • an ASYMMETRIC development footprint (organic mask) surrounded by countryside + water,
+##  • an ASYMMETRIC development footprint (organic mask) surrounded by countryside (no water),
 ##  • an EXPLICIT road network (varied spacing, no perimeter frame, arterials + local streets,
-##    cul-de-sacs, limited bridges) — each road tile drawn from its real connections
+##    cul-de-sacs) — each road tile drawn from its real connections
 ##    (straight / bend / T / crossroads / endpoint),
 ##  • BLOCKS derived from the road network (varied sizes), each a complete site: downtown with a
-##    square, apartment courtyards, suburbs with gardens, shopping-centre grounds, parks, waterfront.
-## True 2:1 isometric. Deterministic from Session.seed. Selection + hover are live.
+##    square, apartment courtyards, suburbs with gardens, shopping-centre grounds, parks.
+## High-angle dimetric (64×48). Deterministic from Session.seed. Selection + hover are live.
 
 const TILE_W := 64.0
-const TILE_H := 40.0   # 64×40 dimetric (~32°, more top-down than classic 2:1) — keeps roads clear of buildings
+const TILE_H := 56.0   # 64×56 steep dimetric (~61° camera elevation) — looking down onto the city so tall
+                        # buildings cover far less of what stands behind them
+const HEIGHT_K := 0.62  # verticals foreshorten as the camera tilts down (≈ cos 61° / cos 39°)
 const HW := TILE_W * 0.5
 const HH := TILE_H * 0.5
+const SPACING := 0.035   # extra inset per side → building footprints ~15% smaller (a more spacious city)
 const MIN_BLOCK := 3    # blocks smaller than this are slivers → landscaped verge, never a build site
 const GRID_COL := Color(0.2, 0.85, 1.0, 0.11)   # faint neon "cyberspace" grid on built ground
 const LOD_ZOOM := 0.5   # below this (overview) buildings draw as flat tops and the whole map is baked
@@ -26,35 +29,44 @@ const KIND_NAME := {
 	"fh": "Family House", "ap": "Apartment", "sc": "Residential Tower",
 	"shop_s": "Corner Shop", "shop_b": "Store", "mall": "Shopping Centre",
 	"off_s": "Small Office", "off_m": "Office", "corp": "Corporate Tower", "tree": "Tree",
+	"hub": "Central HUB",
 }
-const DTYPE_NAME := {"res": "Residential", "com": "Commercial", "bus": "Downtown", "park": "Green"}
+const DTYPE_NAME := {"res": "Residential", "com": "Commercial", "bus": "Corporate", "park": "Green"}
 const AREA_NAME := {
 	"res": ["Suburb", "Apartments", "Residential Towers"],
 	"com": ["Local Shops", "Shopping Centre", "Shopping Centre"],
 	"bus": ["Office Park", "Downtown", "Downtown Core"],
 	"park": ["Pocket Park", "Park", "Central Park"],
 }
-const DTYPE_COL := {
-	"res": Color(0.95, 0.65, 0.35), "com": Color(1.0, 0.35, 0.8),
-	"bus": Color(0.35, 0.85, 1.0),  "park": Color(0.35, 0.85, 0.5),
+# District names: a seeded random prefix + a zone-flavoured suffix, unique per map — the word lists
+# live in data/city_lore.json ("district_names").
+# Gibson's matrix: every district is its own neon construct. Hue FAMILY still hints at the zone
+# (cold blues/violets = corporate, magentas/oranges = commerce, ambers = habs, greens = parks); within
+# a family, adjacent districts always get different hues so territories read apart.
+const DISTRICT_HUES := {
+	"bus": [Color(0.3, 0.9, 1.0), Color(0.4, 0.55, 1.0), Color(0.35, 1.0, 0.8), Color(0.65, 0.45, 1.0), Color(0.78, 0.92, 1.0), Color(0.2, 0.7, 0.95)],
+	"com": [Color(1.0, 0.35, 0.8), Color(1.0, 0.3, 0.5), Color(1.0, 0.55, 0.25), Color(0.85, 0.35, 1.0)],
+	"res": [Color(1.0, 0.7, 0.3), Color(1.0, 0.86, 0.4), Color(0.95, 0.5, 0.35), Color(0.85, 0.78, 0.55)],
+	"park": [Color(0.4, 0.95, 0.45), Color(0.6, 1.0, 0.35)],
 }
-const HOOD_NAMES := ["Rimside", "Lo-Tek", "Chiba", "Glasshouse", "Vantablack Row", "The Sprawl",
-	"Ono-Sendai", "Chrome Gardens", "Dog Solitude", "Neon Flats", "Kowloon", "Blackwall"]
+const DISTRICT_AREA := 28   # target cells per district: big road blocks split into several territories
 
 var seed := 0
 var rng := RandomNumberGenerator.new()
-var disable_water := false   # set before _ready to generate a city with no river/lake (structure demo)
+var name_rng := RandomNumberGenerator.new()
 var _grid := Vector2i.ZERO
-var water := {}        # Vector2i -> true
-var land := {}         # Vector2i -> true  (developed footprint, excludes water)
-var roads := {}        # Vector2i -> true  (road tiles; may be over water = bridge)
+var land := {}         # Vector2i -> true  (developed footprint)
+var roads := {}        # Vector2i -> true  (road tiles)
 var road_class := {}   # Vector2i -> "art" | "loc"
 var deco := {}         # Vector2i -> ground role
 var lots := {}         # Vector2i -> building {kind,vari,h,dtype,area,tw,td,ins,did}
 var occ := {}          # Vector2i -> anchor tile
+var hub_key := Vector2i(-999, -999)   # anchor of the CENTRAL HUB tower
+var hub_site := Vector2i(-999, -999)  # the planned 2×2 HUB footprint (chosen nearest the city centre)
 var trees := []        # {tile:Vector2, sz, wild:bool}
 var districts := []    # {id,type,tier,name,centroid_tile,count}
-var country := {}      # Vector2i -> "forest" | "field" | "meadow"  (undeveloped surroundings)
+var country := {}      # Vector2i -> int tile distance to the city (the unmapped void around it)
+var dist_of := {}      # Vector2i -> district id (every non-road developed tile)
 var _world := Rect2()
 
 var camera: Camera2D
@@ -62,13 +74,44 @@ var _panning := false
 var _lmb_down := false
 var _lmb_moved := false
 var _hover_tile := Vector2i(-999, -999)
+var _hover_b := Vector2i(-999, -999)    # building under the cursor (by its drawn SHAPE, like the click)
+var _hover_m := Vector2(INF, INF)       # mouse world position the hover was last resolved at
 var selected := Vector2i(-999, -999)
+var sel_did := -1                       # selected DISTRICT (clicking any of its buildings or ground)
+var _sel_edges := PackedVector2Array()  # selected district's perimeter, as segment pairs (overlay)
+var _sel_tiles := []                    # selected district's ground tiles (overlay)
+var _sel_lots := []                     # selected district's buildings, depth-sorted (overlay)
+var _focus := []                        # building focus: [selected] + every building linked to it, depth-sorted
+var _route := []                        # building focus: the chain of buildings from the selected one to the HUB
+var _district_lots := {}                # district id -> [building anchor keys]
+const CityLore := preload("res://scripts/city_lore.gd")
+# "Optowired" city network: every building is a node. Inside a district, buildings are fibre-linked to
+# each other (LOCAL); only GATEWAYS (each district's tallest building, two in big districts) link out to
+# other districts (BACKBONE), with the Central HUB as the core.
+var net_local := []        # [a, b] anchors — fibre inside one district
+var net_backbone := []     # [a, b] anchors — gateway↔gateway links between districts
+var net_links := {}        # anchor -> [linked anchors] (local + backbone)
+var gateways := {}         # anchor -> true
+var district_adj := {}     # district id -> [adjacent district ids]
+var net_view := false      # N: full network view (city dims, every link lit)
+var corp_info := {}        # megacorp name -> profile (see city_lore.gd)
+var _paths_of := {}        # building anchor -> [link entries touching it] (hover / selection)
+var _hid := {}             # ground cell -> hidden behind a building in front? (packet occlusion cache)
+var _hid_h := -1.0         # the _hmul() the occlusion cache was computed at
+var _flat := 1.0           # hold F: the whole city eases down to footprints so nothing stays hidden
+var sel_corp: Label
+var sel_people: Label
+var sel_bname: Label
+var sel_meta: Label
+var sel_story: Label
+var sel_hint: Label
 var _time := 0.0
 # repaint gating + precomputed draw order (perf): redraw only on view/hover/state change, with a
 # throttled tick for the neon animation; buildings+trees are depth-sorted ONCE at generation.
 var _last_cam := Vector2(INF, INF)
 var _last_zoomv := Vector2.ZERO
 var _last_hover := Vector2i(-9999, -9999)
+var _last_hover_b := Vector2i(-9999, -9999)
 var _anim_acc := 1.0
 var _dirty := true
 var _baked_region := Rect2()   # world rect covered by the last static repaint (detail-zoom margin)
@@ -79,7 +122,11 @@ const BAKE_MIN_ITEMS := 400    # only the big (large) map is dense enough to nee
 var _bake_pts := PackedVector2Array()
 var _bake_cols := PackedColorArray()
 var _bake_idx := PackedInt32Array()
+var _ground_pts := PackedVector2Array()   # static ground bake (built once per map)
+var _ground_cols := PackedColorArray()
+var _ground_idx := PackedInt32Array()
 var _bake_tier := -99          # which tier (0 flat / 1 box) the arrays hold; -99 = unbuilt
+var _bake_h := -1.0            # the _hmul() the arrays were baked at
 var _fx: Node2D         # lightweight overlay carrying ONLY the animated primitives (see _draw_fx)
 var _draw_items := []   # [{b:bool, k/i, d:int}] sorted by iso depth
 var title_lbl: Label
@@ -110,17 +157,19 @@ func _is_road(t: Vector2i) -> bool:
 # ============================================================ GENERATION
 func _grid_dims() -> Vector2i:
 	match Session.city_size:
-		"large":  return Vector2i(38, 30)
-		"medium": return Vector2i(27, 22)
-		_:        return Vector2i(18, 15)
+		"large":  return Vector2i(44, 35)   # ~15% bigger than v1.0 on every size
+		"medium": return Vector2i(31, 25)
+		_:        return Vector2i(21, 17)
 
 
 func _generate() -> void:
-	water = {}; land = {}; roads = {}; road_class = {}; deco = {}; lots = {}; occ = {}; trees = []; districts = []; country = {}
+	land = {}; roads = {}; road_class = {}; deco = {}; lots = {}; occ = {}; trees = []; districts = []; country = {}; dist_of = {}
+	_district_lots = {}; sel_did = -1; _sel_edges = PackedVector2Array()
+	net_local = []; net_backbone = []; net_links = {}; gateways = {}; district_adj = {}
+	hub_key = Vector2i(-999, -999)
 	var g := _grid_dims()
 	_grid = g
-	# 1) TERRAIN + asymmetric development footprint
-	_carve_water(g)
+	# 1) asymmetric development footprint
 	var dcx := g.x * (0.5 + rng.randf_range(-0.12, 0.12))
 	var dcy := g.y * (0.5 + rng.randf_range(-0.12, 0.12))
 	var dev_c := Vector2(dcx, dcy)
@@ -128,17 +177,486 @@ func _generate() -> void:
 	# 2) ROADS (explicit network) → repair into ONE connected network → 3) BLOCKS derived from it
 	var down_c := _build_roads(g, dev_c)
 	_repair_roads()
-	var blocks := _carve_blocks(g)
+	var blocks := _split_blocks(_carve_blocks(g))
 	if blocks.is_empty():
 		_world = Rect2(Vector2.ZERO, Vector2(100, 100)); return
 	# 4) DISTRICT PLAN — reserve sites, residential density by distance to downtown
 	_plan_and_fill(blocks, g, down_c)
-	# countryside dressing + waterfront + bounds
+	# the unmapped void around the city + bounds
 	_dress_countryside(g)
 	_world = Rect2(_iso(0, float(g.y)), Vector2.ONE)
 	for pt in [_iso(float(g.x), 0), _iso(0, 0) - Vector2(0, 150), _iso(float(g.x), float(g.y)) + Vector2(0, TILE_H)]:
 		_world = _world.merge(Rect2(pt, Vector2.ONE))
+	for k in lots:
+		var did := int(lots[k].did)
+		if not _district_lots.has(did): _district_lots[did] = []
+		_district_lots[did].append(k)
+	_stadium_heights()
+	_clear_hidden()
+	var lore := CityLore.new(seed)   # own rng stream: lore never changes the layout
+	lore.make_orgs(districts)
+	for k in lots: lore.describe(lots[k], districts[int(lots[k].did)])
+	lore.finish(lots, districts)
+	corp_info = lore.corp_info
+	for r in districts:   # district population (sum of its homes)
+		var pop := 0
+		for k in _district_lots.get(int(r.id), []): pop += int(lots[k].get("pop", 0))
+		r["pop"] = pop
+	_build_network()
+	_route_network()
 	_build_draw_order()
+
+
+func _depth(k: Vector2i) -> int:   # painter's depth (same key as the draw order)
+	return k.x + k.y + int(lots[k].tw) + int(lots[k].td)
+
+
+# Is building k's roof centre covered on screen by a building standing in FRONT of it, at height hm?
+# Occluders can only be a few rows in front on nearly the same screen column, so only those cells are
+# tested (via occ), not every building.
+func _top_hidden(k: Vector2i, hm: float) -> bool:
+	var p := _top_at(k, hm)
+	var kd := _depth(k)
+	var tested := {}
+	for st in range(1, 22):
+		for dd in range(-4, 5):
+			if (st + dd) % 2 != 0: continue
+			var t := Vector2i(k.x + (st + dd) / 2, k.y + (st - dd) / 2)
+			if not occ.has(t): continue
+			var o: Vector2i = occ[t]
+			if o == k or tested.has(o) or _depth(o) <= kd: continue
+			tested[o] = true
+			if Geometry2D.is_point_in_polygon(p, _hull_at(o, hm)): return true
+	return false
+
+
+# GUARANTEE: no building is hidden behind another. Checked at the TALLEST any building ever draws
+# (zoomed fully in, not flattened) — occlusion only shrinks as heights ease down with zoom. Front to
+# back (a building's visibility depends only on what stands in front of it), any building whose roof is
+# still covered is not built: its plot becomes open ground (a plaza, or a garden among homes).
+func _clear_hidden() -> void:
+	var order := lots.keys()
+	order.sort_custom(func(a, b): return _depth(a) > _depth(b))
+	for k in order:
+		if k == hub_key or not lots.has(k): continue
+		if _top_hidden(k, HEIGHT_K): _unbuild(k)
+
+
+func _unbuild(k: Vector2i) -> void:
+	var b = lots[k]
+	var open_kind := "garden" if str(b.dtype) == "res" else "plaza"
+	for dx in int(b.tw):
+		for dy in int(b.td):
+			var c := Vector2i(k.x + dx, k.y + dy)
+			occ.erase(c); deco[c] = open_kind
+	(_district_lots.get(int(b.did), []) as Array).erase(k)
+	lots.erase(k)
+
+
+# "Stadium" seating inside every district: among its 1×1 buildings the TALLEST stand at the back (far
+# from the viewer, small x+y) and the lowest at the front, so a district never hides its own buildings.
+# Whole building records are swapped between positions (footprints and occupancy are unchanged).
+func _stadium_heights() -> void:
+	for did in _district_lots:
+		var ks := (_district_lots[did] as Array).filter(func(k): return k != hub_key and int(lots[k].tw) == 1 and int(lots[k].td) == 1)
+		if ks.size() < 2: continue
+		var recs := ks.map(func(k): return lots[k])
+		ks.sort_custom(func(a, b): return (a.x + a.y < b.x + b.y) or (a.x + a.y == b.x + b.y and a.x < b.x))
+		recs.sort_custom(func(a, b): return float(a.h) > float(b.h))
+		for i in ks.size(): lots[ks[i]] = recs[i]
+
+
+# ============================================================ NETWORK
+func _lot_center(k: Vector2i) -> Vector2:   # footprint centre in tile coords
+	return Vector2(k) + Vector2(float(lots[k].tw), float(lots[k].td)) * 0.5
+
+
+func _link(a: Vector2i, b: Vector2i, backbone: bool) -> void:
+	if a == b or (net_links.get(a, []) as Array).has(b): return
+	if not net_links.has(a): net_links[a] = []
+	if not net_links.has(b): net_links[b] = []
+	net_links[a].append(b); net_links[b].append(a)
+	(net_backbone if backbone else net_local).append([a, b])
+
+
+func _build_network() -> void:
+	var gw_of := {}   # district id -> [gateway anchors]
+	for did in _district_lots:
+		var ks: Array = _district_lots[did]
+		if ks.is_empty(): continue
+		for k in ks:
+			if not net_links.has(k): net_links[k] = []
+		# LOCAL: a minimum spanning tree over the district's buildings (Prim) — every one wired in…
+		var best := {}
+		for k in ks:
+			if k != ks[0]: best[k] = [_lot_center(k).distance_squared_to(_lot_center(ks[0])), ks[0]]
+		while not best.is_empty():
+			var nk: Vector2i = best.keys()[0]; var nd := INF
+			for k in best:
+				if float(best[k][0]) < nd: nd = float(best[k][0]); nk = k
+			_link(nk, best[nk][1], false)
+			best.erase(nk)
+			for k in best:
+				var d2: float = _lot_center(k).distance_squared_to(_lot_center(nk))
+				if d2 < float(best[k][0]): best[k] = [d2, nk]
+		# …plus short redundant links on some leaves, so it reads as a mesh rather than a bare tree
+		for k in ks:
+			if (net_links[k] as Array).size() != 1 or _noise(k.x * 5 + 1, k.y * 5 + 7) < 0.1: continue
+			var nb: Vector2i = k; var bd := 6.5
+			for o in ks:
+				if o == k or (net_links[k] as Array).has(o): continue
+				var dd: float = _lot_center(k).distance_squared_to(_lot_center(o))
+				if dd < bd: bd = dd; nb = o
+			if nb != k: _link(k, nb, false)
+		# GATEWAYS: the tallest building (the HUB in its own district); a second, far one in big districts
+		var tall := ks.duplicate()
+		tall.sort_custom(func(a, c): return float(lots[a].h) > float(lots[c].h))
+		var gws := [hub_key] if ks.has(hub_key) else [tall[0]]
+		if ks.size() >= 14:
+			var far: Vector2i = tall[0]; var fd := -1.0
+			for o in tall.slice(0, maxi(1, tall.size() / 2)):
+				var dd: float = _lot_center(o).distance_squared_to(_lot_center(gws[0]))
+				if dd > fd: fd = dd; far = o
+			if far != gws[0]: gws.append(far)
+		gw_of[did] = gws
+		for g in gws: gateways[g] = true
+	# BACKBONE: a spanning tree over districts (closest gateway pair per link) so every district reaches
+	# every other; the HUB wired straight to its nearest districts as the core; a few extra links between
+	# adjacent districts for redundancy.
+	var dids: Array = gw_of.keys()
+	if dids.size() < 2: return
+	var pair_of := func(x: int, y: int) -> Array:
+		var bp := [gw_of[x][0], gw_of[y][0]]; var bd := INF
+		for ga in gw_of[x]:
+			for gb in gw_of[y]:
+				var dd: float = _lot_center(ga).distance_squared_to(_lot_center(gb))
+				if dd < bd: bd = dd; bp = [ga, gb]
+		return [bp, bd]
+	var joined := {dids[0]: true}
+	while joined.size() < dids.size():
+		var best_p := []; var best_d := INF; var best_y := -1
+		for x in joined:
+			for y in dids:
+				if joined.has(y): continue
+				var pr: Array = pair_of.call(x, y)
+				if float(pr[1]) < best_d: best_d = float(pr[1]); best_p = pr[0]; best_y = y
+		_link(best_p[0], best_p[1], true)
+		joined[best_y] = true
+	if lots.has(hub_key):
+		var hd := int(lots[hub_key].did)
+		var near := dids.filter(func(x): return x != hd)
+		near.sort_custom(func(x, y): return _lot_center(gw_of[x][0]).distance_squared_to(_lot_center(hub_key)) < _lot_center(gw_of[y][0]).distance_squared_to(_lot_center(hub_key)))
+		for x in near.slice(0, 4): _link(hub_key, gw_of[x][0], true)
+	for x in dids:
+		for y in district_adj.get(x, []):
+			if y <= x or not gw_of.has(y) or _noise(x * 13 + 3, y * 17 + 5) < 0.35: continue
+			var pr: Array = pair_of.call(x, y)
+			_link(pr[0][0], pr[0][1], true)
+	# a gateway is a building that ACTUALLY uplinks to another district (a candidate the backbone never
+	# used is just a local node)
+	gateways = {}
+	for e in net_backbone:
+		gateways[e[0]] = true; gateways[e[1]] = true
+
+
+# ---- circuit-trace routing: every link becomes a GROUND-LEVEL path, like traces on a circuit board.
+# Local links are right-angled traces with a 45° chamfer at the corner, nudged sideways a little per link
+# so parallel traces don't merge. Backbone links run along the STREETS as fibre trunks (shortest road
+# path between the two gateways). Each entry becomes [a, b, tile_path, iso_path, length].
+func _route_network() -> void:
+	_paths_of = {}
+	for e in net_local:
+		var o := float(((e[0].x * 7 + e[1].y * 3) % 5) - 2) * 0.09
+		_finish_path(e, _trace_path(_lot_center(e[0]), _lot_center(e[1]), o))
+	for e in net_backbone:
+		_finish_path(e, _street_path(e[0], e[1]))
+
+
+func _finish_path(e: Array, path: PackedVector2Array) -> void:
+	var iso := PackedVector2Array(); var length := 0.0
+	for i in path.size():
+		iso.append(_iso(path[i].x, path[i].y))
+		if i > 0: length += path[i].distance_to(path[i - 1])
+	e.append(path); e.append(iso); e.append(length)
+	for k in [e[0], e[1]]:
+		if not _paths_of.has(k): _paths_of[k] = []
+		_paths_of[k].append(e)
+
+
+func _trace_path(a: Vector2, b: Vector2, o: float) -> PackedVector2Array:
+	var p0 := a + Vector2(0, o); var p1 := b + Vector2(o, 0)
+	var corner := Vector2(p1.x, p0.y)
+	var dx := corner.x - p0.x; var dy := p1.y - corner.y
+	if absf(dx) < 0.05 or absf(dy) < 0.05: return PackedVector2Array([p0, p1])
+	var ch := minf(0.3, minf(absf(dx), absf(dy)) * 0.5)   # 45° chamfer, circuit-board style
+	return PackedVector2Array([p0, corner - Vector2(signf(dx) * ch, 0), corner + Vector2(0, signf(dy) * ch), p1])
+
+
+func _road_next_to(k: Vector2i) -> Vector2i:   # nearest street cell to a building's footprint
+	var c := _lot_center(k); var best := Vector2i(-999, -999); var bd := INF
+	for dx in range(-5, 7):
+		for dy in range(-5, 7):
+			var t := k + Vector2i(dx, dy)
+			if not roads.has(t): continue
+			var d: float = (Vector2(t) + Vector2(0.5, 0.5)).distance_squared_to(c)
+			if d < bd: bd = d; best = t
+	return best
+
+
+func _street_path(a: Vector2i, b: Vector2i) -> PackedVector2Array:
+	var sa := _road_next_to(a); var sb := _road_next_to(b)
+	if sa.x < -900 or sb.x < -900: return _trace_path(_lot_center(a), _lot_center(b), 0.0)
+	var prev := {sa: sa}; var q := [sa]; var head := 0
+	while head < q.size():
+		var cur: Vector2i = q[head]; head += 1
+		if cur == sb: break
+		for d in DIRS:
+			var nb: Vector2i = cur + d
+			if roads.has(nb) and not prev.has(nb):
+				prev[nb] = cur; q.append(nb)
+	if not prev.has(sb): return _trace_path(_lot_center(a), _lot_center(b), 0.0)
+	var cells := [sb]
+	while cells[cells.size() - 1] != sa: cells.append(prev[cells[cells.size() - 1]])
+	cells.reverse()
+	var path := PackedVector2Array([_lot_center(a)])
+	for cc in cells: path.append(Vector2(cc) + Vector2(0.5, 0.5))
+	path.append(_lot_center(b))
+	var out := PackedVector2Array([path[0]])   # drop collinear points
+	for i in range(1, path.size() - 1):
+		if not is_zero_approx((path[i] - path[i - 1]).cross(path[i + 1] - path[i])): out.append(path[i])
+	out.append(path[path.size() - 1])
+	return out
+
+
+func _path_point(e: Array, t: float) -> Vector2:   # tile-coord point at fraction t along a link's path
+	var path: PackedVector2Array = e[2]
+	var target := t * float(e[4])
+	for i in range(1, path.size()):
+		var sl := path[i].distance_to(path[i - 1])
+		if target <= sl: return path[i - 1].lerp(path[i], target / maxf(sl, 0.0001))
+		target -= sl
+	return path[path.size() - 1]
+
+
+# is ground cell c's centre covered on screen by a building standing in FRONT of it? (cached per height)
+func _cell_hidden(c: Vector2i) -> bool:
+	if _hid.has(c): return bool(_hid[c])
+	var p := _iso(c.x + 0.5, c.y + 0.5)
+	var hidden := false
+	for st in range(1, 18):          # depth steps in front of the cell
+		for dd in range(-2, 3):       # lateral offset (screen x)
+			if (st + dd) % 2 != 0: continue
+			var t := Vector2i(c.x + (st + dd) / 2, c.y + (st - dd) / 2)
+			if occ.has(t) and Geometry2D.is_point_in_polygon(p, _box_hull(occ[t])):
+				hidden = true; break
+		if hidden: break
+	_hid[c] = hidden
+	return hidden
+
+
+# Static traces in the ground layer (under the buildings, so they're properly hidden by them): faint
+# district-hued local traces peeking out between buildings, and bright fibre trunks along the streets.
+const TRUNK_COL := Color(0.5, 0.95, 1.0, 0.8)
+# Static traces in the ground layer get a neon GLOW: a wide faint halo, a mid band, a bright core.
+func _draw_traces_static() -> void:
+	for e in net_local:
+		var dc := _dcol(int(lots[e[0]].did))
+		draw_polyline(e[3], Color(dc.r, dc.g, dc.b, 0.1), 3.5)
+		draw_polyline(e[3], Color(dc.r, dc.g, dc.b, 0.42), 1.1)
+	for e in net_backbone:
+		draw_polyline(e[3], Color(0.4, 0.9, 1.0, 0.06), 7.0)
+		draw_polyline(e[3], Color(0.6, 0.95, 1.0, 0.4), 1.4)
+
+
+func _bake_traces() -> void:
+	for e in net_local:
+		var dc := _dcol(int(lots[e[0]].did))
+		var pts: PackedVector2Array = e[3]
+		for i in range(1, pts.size()):
+			_bline(pts[i - 1], pts[i], 3.5, Color(dc.r, dc.g, dc.b, 0.1))
+			_bline(pts[i - 1], pts[i], 1.1, Color(dc.r, dc.g, dc.b, 0.42))
+	for e in net_backbone:
+		var pts: PackedVector2Array = e[3]
+		for i in range(1, pts.size()):
+			_bline(pts[i - 1], pts[i], 7.0, Color(0.4, 0.9, 1.0, 0.06))
+			_bline(pts[i - 1], pts[i], 1.4, Color(0.6, 0.95, 1.0, 0.4))
+
+
+# a link as a neon tube in the overlay: soft halo + band + white-hot core (constant on-screen width)
+func _glow_path(c: CanvasItem, pts: PackedVector2Array, col: Color, px: float, strong := 1.0) -> void:
+	c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.12 * strong), 10.0 * px, true)
+	c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.32 * strong), 4.5 * px, true)
+	var core := col.lerp(Color.WHITE, 0.55); core.a = 0.95 * strong
+	c.draw_polyline(pts, core, 1.7 * px, true)
+
+
+# light FLOWING along a link: short bright dashes marching from one end to the other
+func _flow(c: CanvasItem, e: Array, from_a: bool, col: Color, px: float) -> void:
+	var L := float(e[4])
+	if L < 0.05 or Settings.reduced_motion: return
+	var spacing := 0.7
+	var sd := fmod(_time * 2.4, spacing)
+	var hot := col.lerp(Color.WHITE, 0.7)
+	while sd < L:
+		var t0 := sd / L; var t1 := minf((sd + 0.26) / L, 1.0)
+		if not from_a: t0 = 1.0 - t0; t1 = 1.0 - t1
+		var p0 := _path_point(e, t0); var p1 := _path_point(e, t1)
+		c.draw_line(_iso(p0.x, p0.y), _iso(p1.x, p1.y), hot, 2.6 * px, true)
+		sd += spacing
+
+
+# a packet with a comet tail (head + three fading trail dots)
+func _comet(c: CanvasItem, e: Array, t: float, col: Color, px: float, size: float) -> void:
+	var L := maxf(float(e[4]), 0.5)
+	for i in 4:
+		var tt := t - float(i) * 0.22 / L
+		if tt < 0.0: break
+		var pp := _path_point(e, tt)
+		c.draw_circle(_iso(pp.x, pp.y), size * px * (1.0 - 0.18 * float(i)), Color(col.r, col.g, col.b, 0.95 - 0.26 * float(i)))
+
+
+# ---- ARCS: a link drawn as an arc of light from rooftop to rooftop (reads instantly as "A ↔ B") ----
+func _arc_lift(a: Vector2, b: Vector2, backbone: bool) -> float:
+	return (24.0 + a.distance_to(b) * 0.18) if backbone else (8.0 + a.distance_to(b) * 0.12)
+
+
+func _arc_pts(a: Vector2, b: Vector2, lift: float) -> PackedVector2Array:
+	var m := (a + b) * 0.5 + Vector2(0, -lift)
+	var pts := PackedVector2Array()
+	for i in 13:
+		var t := float(i) / 12.0
+		pts.append(a.lerp(m, t).lerp(m.lerp(b, t), t))
+	return pts
+
+
+func _arc_at(a: Vector2, b: Vector2, lift: float, t: float) -> Vector2:
+	var m := (a + b) * 0.5 + Vector2(0, -lift)
+	return a.lerp(m, t).lerp(m.lerp(b, t), t)
+
+
+# the arc of a link between two buildings: [points, roof a, roof b, lift]
+func _link_arc(a: Vector2i, b: Vector2i) -> Array:
+	var pa := _building_top_center(a); var pb := _building_top_center(b)
+	var lift := _arc_lift(pa, pb, int(lots[a].did) != int(lots[b].did))
+	return [_arc_pts(pa, pb, lift), pa, pb, lift]
+
+
+# light flowing along an arc from a to b: short bright dashes marching at a steady on-screen speed
+func _flow_arc(c: CanvasItem, arc: Array, col: Color, px: float) -> void:
+	if Settings.reduced_motion: return
+	var pa: Vector2 = arc[1]; var pb: Vector2 = arc[2]; var lift: float = arc[3]
+	var L := pa.distance_to(pb) + lift * 1.2
+	if L < 2.0: return
+	var spacing := 26.0; var dash := 9.0
+	var hot := col.lerp(Color.WHITE, 0.7)
+	var sd := fmod(_time * 70.0, spacing)
+	while sd < L:
+		c.draw_line(_arc_at(pa, pb, lift, sd / L), _arc_at(pa, pb, lift, minf((sd + dash) / L, 1.0)), hot, 2.6 * px, true)
+		sd += spacing
+
+
+func _comet_arc(c: CanvasItem, arc: Array, t: float, col: Color, px: float, size: float) -> void:
+	var pa: Vector2 = arc[1]; var pb: Vector2 = arc[2]; var lift: float = arc[3]
+	var L := maxf(pa.distance_to(pb) + lift * 1.2, 1.0)
+	for i in 4:
+		var tt := t - float(i) * 7.0 / L
+		if tt < 0.0: break
+		c.draw_circle(_arc_at(pa, pb, lift, tt), size * px * (1.0 - 0.18 * float(i)), Color(col.r, col.g, col.b, 0.95 - 0.26 * float(i)))
+
+
+# a pulsing ring on the ground around a building's footprint (iso ellipse)
+func _ground_ring(c: CanvasItem, k: Vector2i, col: Color, px: float) -> void:
+	var ctr := _lot_center(k)
+	var r := 0.55 * maxf(float(lots[k].tw), float(lots[k].td)) + 0.12 * (0.5 + 0.5 * sin(_time * 4.0))
+	var pts := PackedVector2Array()
+	for i in 25:
+		var a := float(i) / 24.0 * TAU
+		pts.append(_iso(ctr.x + r * cos(a), ctr.y + r * sin(a)))
+	c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.9), 2.0 * px, true)
+
+
+# The animated network overlay. Links are ARCS of light between rooftops. Default: the backbone (district
+# ↔ district) as faint arcs with comet packets. N: every link — local arcs in each district's hue, backbone
+# arcs glowing. District focus: the district's own wiring as ground traces (no pile-up of arcs inside one
+# district) + its uplinks as glowing arcs.
+func _draw_net(c: CanvasItem) -> void:
+	var px := 1.0 / camera.zoom.x   # one screen pixel in world units
+	var anim := not Settings.reduced_motion
+	var full := net_view and sel_did < 0
+	if sel_did >= 0 and not full:   # district focus: its local wiring on the ground
+		for e in net_local:
+			var did := int(lots[e[0]].did)
+			if did != sel_did: continue
+			var dc := _dcol(did)
+			c.draw_polyline(e[3], Color(dc.r, dc.g, dc.b, 0.14), 6.0 * px, true)
+			c.draw_polyline(e[3], dc.lerp(Color.WHITE, 0.35), 1.5 * px, true)
+			if anim:
+				var t := fmod(_time * 1.6 / maxf(float(e[4]), 0.5) + float((e[0].x * 7 + e[1].y * 13) % 17) / 17.0, 1.0)
+				_comet(c, e, t, dc.lerp(Color.WHITE, 0.6), px, 2.2)
+	if full:   # network view: every local link as a low arc in its district's hue
+		for e in net_local:
+			var dc := _dcol(int(lots[e[0]].did))
+			var arc := _link_arc(e[0], e[1])
+			c.draw_polyline(arc[0], Color(dc.r, dc.g, dc.b, 0.16), 4.0 * px, true)
+			c.draw_polyline(arc[0], Color(dc.r, dc.g, dc.b, 0.6), 1.2 * px, true)
+			if anim:
+				_comet_arc(c, arc, fmod(_time * 0.5 + float((e[0].x * 7 + e[1].y * 13) % 17) / 17.0, 1.0), dc.lerp(Color.WHITE, 0.6), px, 2.0)
+	for e in net_backbone:
+		var hot := sel_did >= 0 and (int(lots[e[0]].did) == sel_did or int(lots[e[1]].did) == sel_did)
+		if sel_did >= 0 and not hot and not full: continue
+		var arc := _link_arc(e[0], e[1])
+		if full or hot:
+			_glow_path(c, arc[0], Color(0.45, 0.92, 1.0), px, 1.0 if hot else 0.75)
+		else:   # default view: a faint arc
+			c.draw_polyline(arc[0], Color(0.75, 1.0, 1.0, 0.3), 1.8 * px, true)
+		if anim:
+			for j in 2:
+				var t := fmod(_time * 0.3 + 0.5 * float(j) + float((e[0].x * 11 + e[0].y * 3) % 23) / 23.0, 1.0)
+				_comet_arc(c, arc, t, Color(0.85, 1.0, 1.0), px, 2.6)
+
+
+# BUILDING FOCUS (a building was clicked): the city sinks into shadow; every link of the building is a
+# glowing ARC with light flowing OUT to its neighbours; the route onward to the Central HUB is a chain of
+# fainter white arcs; each linked building is lit in its district's hue, ringed and named; the clicked
+# building itself is brightest.
+func _draw_focus(c: CanvasItem) -> void:
+	var px := 1.0 / camera.zoom.x
+	c.draw_rect(_world.grow(4000.0), Color(0.0, 0.0, 0.02, 0.66))
+	_focus.sort_custom(func(a, b): return _depth(a) < _depth(b))
+	var direct: Array = net_links.get(selected, [])
+	for k in _focus:   # depth-sorted: neighbours lit + ringed, route-to-HUB lit, the selected one brightest
+		if direct.has(k): _ground_ring(c, k, _dcol(int(lots[k].did)).lerp(Color.WHITE, 0.3), px)
+		_fx_box(c, k, 2 if k == selected else 1)
+	for i in range(1, _route.size()):   # the route onward to the Central HUB, hop by hop
+		if _route[i - 1] == selected: continue
+		var arc := _link_arc(_route[i - 1], _route[i])
+		_glow_path(c, arc[0], Color(0.9, 1.0, 1.0), px, 0.55)
+		_flow_arc(c, arc, Color(0.9, 1.0, 1.0), px)
+	for o in direct:   # the building's own links: bright arcs, light flowing out to each neighbour
+		var bb: bool = int(lots[o].did) != int(lots[selected].did)
+		var col := Color(0.45, 0.92, 1.0) if bb else _dcol(int(lots[selected].did))
+		var arc := _link_arc(selected, o)
+		_glow_path(c, arc[0], col, px)
+		_flow_arc(c, arc, col, px)
+	var font := ThemeDB.fallback_font
+	var li := 0
+	for k in _focus:   # names of the linked buildings (and the HUB), staggered so labels don't stack
+		if k == selected or not (direct.has(k) or k == hub_key): continue
+		var top := _building_top_center(k)
+		var dc := _dcol(int(lots[k].did)).lerp(Color.WHITE, 0.45)
+		c.draw_string(font, top + Vector2(-46, -12.0 - 15.0 * float(li % 3)), str(lots[k].get("bname", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, dc)
+		li += 1
+
+
+# gateways send a short beam of light up from the roof (network view / selected district)
+func _draw_gateway_beams(c: CanvasItem) -> void:
+	if not net_view and sel_did < 0: return
+	var px := 1.0 / camera.zoom.x
+	for g in gateways:
+		if sel_did >= 0 and int(lots[g].did) != sel_did: continue
+		var top := _building_top_center(g)
+		c.draw_line(top, top + Vector2(0, -30), Color(0.8, 1.0, 1.0, 0.9), 2.0 * px)
+		c.draw_circle(top + Vector2(0, -30), 3.0 * px, Color(0.9, 1.0, 1.0, 0.95))
 
 
 # buildings + trees depth-sorted ONCE (they never move), so _draw does no per-frame allocation/sort
@@ -152,28 +670,6 @@ func _build_draw_order() -> void:
 	_draw_items.sort_custom(func(a, c): return a.d < c.d)
 
 
-func _carve_water(g: Vector2i) -> void:
-	# RESTRAINED water (added after the land structure): a slim 1-tile meandering river, and only
-	# occasionally a small lake — so it threads through the city without fragmenting it.
-	if disable_water:
-		return
-	var base := float(g.x) * rng.randf_range(0.36, 0.62)
-	var amp := float(g.x) * rng.randf_range(0.05, 0.1)
-	var freq := rng.randf_range(0.16, 0.3)
-	var phase := rng.randf() * TAU
-	for ly in g.y:
-		var cx := base + amp * sin(float(ly) * freq + phase)
-		var lx := int(round(cx))
-		if lx >= 0 and lx < g.x: water[Vector2i(lx, ly)] = true
-	if rng.randf() < 0.4:
-		var lc := Vector2i(rng.randi_range(3, g.x - 4), rng.randi_range(3, g.y - 4))
-		var rad := rng.randf_range(1.6, 2.6)
-		for ly in g.y:
-			for lx in g.x:
-				if Vector2(lx, ly).distance_to(Vector2(lc)) <= rad + rng.randf_range(-0.3, 0.3):
-					water[Vector2i(lx, ly)] = true
-
-
 # asymmetric organic footprint: a lobed radial mask around the centre + value noise; leaves the map
 # edges as countryside (no development reaching the border → no perimeter road).
 func _build_land(g: Vector2i, c: Vector2) -> void:
@@ -184,7 +680,6 @@ func _build_land(g: Vector2i, c: Vector2) -> void:
 	for ly in g.y:
 		for lx in g.x:
 			var t := Vector2i(lx, ly)
-			if water.has(t): continue
 			var v := Vector2(lx, ly) - c
 			var ang := atan2(v.y, v.x)
 			var rr := rbase * (1.0 + 0.16 * sin(3.0 * ang + a1) + 0.1 * sin(5.0 * ang + a2) + 0.06 * sin(7.0 * ang + a3))
@@ -197,7 +692,7 @@ func _build_land(g: Vector2i, c: Vector2) -> void:
 
 
 # explicit road network: arterial + local lines at spacing that tightens toward downtown, clipped to
-# the developed footprint (plus a couple of highways leaving to the edge, and limited bridges).
+# the developed footprint (plus a couple of highways leaving to the edge).
 func _build_roads(g: Vector2i, dev_c: Vector2) -> Vector2:
 	if land.is_empty(): return dev_c
 	var minx := g.x; var maxx := 0; var miny := g.y; var maxy := 0
@@ -207,20 +702,20 @@ func _build_roads(g: Vector2i, dev_c: Vector2) -> Vector2:
 	# irregular line positions, spacing 2 near centre → up to 5 at the edge
 	var xs := _road_lines(minx + 1, maxx - 1, cx, float(maxx - minx) * 0.5)
 	var ys := _road_lines(miny + 1, maxy - 1, cy, float(maxy - miny) * 0.5)
-	# the central-most line on each axis is an arterial (avenue) + a bridge corridor
+	# the central-most line on each axis is an arterial (avenue)
 	var art_x: int = xs[0] if not xs.is_empty() else cx
 	for x in xs:
 		if abs(x - cx) < abs(art_x - cx): art_x = x
 	var art_y: int = ys[0] if not ys.is_empty() else cy
 	for y in ys:
 		if abs(y - cy) < abs(art_y - cy): art_y = y
-	# roads only on developed LAND; an arterial may cross WATER as a bridge (limited crossings).
+	# roads only on developed LAND.
 	# Local streets MEANDER (a per-line sine wiggle, rasterised with a horizontal/vertical connector
 	# at each step so the line stays 4-connected) → curvy blocks & districts. Arterials stay straight.
 	for x in xs:
 		var xc: int = int(x)
 		var is_art: bool = xc == art_x
-		var amp: float = 0.0 if is_art else rng.randf_range(1.0, 2.2)
+		var amp: float = 0.0 if is_art else rng.randf_range(0.6, 1.4)
 		var fr := rng.randf_range(0.22, 0.42); var ph := rng.randf() * TAU
 		var prevp: int = xc
 		for ly in range(miny, maxy + 1):
@@ -232,7 +727,7 @@ func _build_roads(g: Vector2i, dev_c: Vector2) -> Vector2:
 	for y in ys:
 		var yc: int = int(y)
 		var is_art2: bool = yc == art_y
-		var amp2: float = 0.0 if is_art2 else rng.randf_range(1.0, 2.2)
+		var amp2: float = 0.0 if is_art2 else rng.randf_range(0.6, 1.4)
 		var fr2 := rng.randf_range(0.22, 0.42); var ph2 := rng.randf() * TAU
 		var prevq: int = yc
 		for lx in range(minx, maxx + 1):
@@ -249,18 +744,12 @@ func _build_roads(g: Vector2i, dev_c: Vector2) -> Vector2:
 	# organic suburban lanes: branching local streets that TURN (bends), BRANCH (T-junctions) and
 	# dead-end (cul-de-sacs) — these break the pure grid and subdivide the big outer blocks.
 	_add_organic_lanes()
-	# prune: drop road tiles that aren't on land and aren't a needed bridge/leaving-tile with 2+ road
-	# neighbours (keeps continuity, avoids stray water roads)
-	for t in roads.keys():
-		if water.has(t) and _road_dirs(t).size() < 2:
-			roads.erase(t); road_class.erase(t)
 	# downtown centre = densest land near dev centre
 	return dev_c
 
 
 func _lay_road_cell(t: Vector2i, is_art: bool) -> void:
 	if land.has(t): _add_road(t, is_art)
-	elif is_art and water.has(t): _add_road(t, true)   # arterial bridge over water
 
 
 # 4-connected components of the road set
@@ -307,7 +796,7 @@ func _carve_connector(a: Vector2i, b: Vector2i) -> void:
 		guard += 1
 		if cur.x != b.x: cur.x += signi(b.x - cur.x)
 		elif cur.y != b.y: cur.y += signi(b.y - cur.y)
-		if _in_grid(cur): _add_road(cur, false)   # may bridge water / cross a gap to stay connected
+		if _in_grid(cur): _add_road(cur, false)   # may cross a gap to stay connected
 
 
 func _turn(d: Vector2i, left: bool) -> Vector2i:
@@ -315,7 +804,7 @@ func _turn(d: Vector2i, left: bool) -> Vector2i:
 
 
 func _add_organic_lanes() -> void:
-	var n: int = {"small": 3, "medium": 6, "large": 10}.get(Session.city_size, 4)
+	var n: int = {"small": 2, "medium": 3, "large": 5}.get(Session.city_size, 2)
 	for i in n:
 		var rk := roads.keys()
 		if rk.is_empty(): return
@@ -345,7 +834,7 @@ func _leave_spur(start: Vector2i, dir: Vector2i) -> void:
 	var cur := start
 	var steps := 0
 	while _in_grid(cur) and steps < 5:
-		if water.has(cur) or land.has(cur):
+		if land.has(cur):
 			cur += dir; steps += 1; continue
 		if roads.has(cur - dir):   # only extend if the previous tile is already road (stay connected)
 			_add_road(cur, true)
@@ -361,16 +850,12 @@ func _road_lines(lo: int, hi: int, centre: int, half: float) -> Array:
 	while x <= hi:
 		out.append(x)
 		var tdist: float = clampf(abs(x - centre) / maxf(half, 1.0), 0.0, 1.0)
-		x += 4 + int(round(5.0 * tdist))      # 4 (tight downtown) … 9 (large suburban blocks)
+		x += 6 + int(round(6.0 * tdist))      # 6 (downtown) … 12 (large outer blocks)
 	return out
 
 
 func _add_road(t: Vector2i, arterial: bool) -> void:
 	if not _in_grid(t): return
-	# a road may sit on land, or cross water as a BRIDGE (arterials/leaving routes only)
-	if not land.has(t) and not water.has(t):
-		# countryside: only keep if it's a leaving highway (contiguous with the network edge)
-		pass
 	roads[t] = true
 	if arterial or not road_class.has(t):
 		road_class[t] = "art" if arterial else "loc"
@@ -407,23 +892,39 @@ func _carve_blocks(g: Vector2i) -> Array:
 func _plan_and_fill(blocks: Array, g: Vector2i, dev_c: Vector2) -> void:
 	blocks.sort_custom(func(a, b): return (a.centroid as Vector2).distance_to(dev_c) < (b.centroid as Vector2).distance_to(dev_c))
 	var role := {}
-	var n_down: int = {"small": 1, "medium": 3, "large": 4}.get(Session.city_size, 1)
-	var n_biz: int = {"small": 0, "medium": 2, "large": 4}.get(Session.city_size, 0)   # satellite CBDs
-	var n_shop: int = {"small": 1, "medium": 2, "large": 3}.get(Session.city_size, 1)
+	var n_down: int = {"small": 2, "medium": 3, "large": 5}.get(Session.city_size, 2)
+	var n_biz: int = {"small": 1, "medium": 2, "large": 4}.get(Session.city_size, 1)   # satellite CBDs
+	var n_shop: int = {"small": 1, "medium": 2, "large": 4}.get(Session.city_size, 1)
 	var n_park: int = {"small": 1, "medium": 3, "large": 5}.get(Session.city_size, 1)
-	var down_tier: int = {"small": 1, "medium": 2, "large": 2}.get(Session.city_size, 1)
-	var res_cap: int = {"small": 1, "medium": 2, "large": 2}.get(Session.city_size, 1)
-	var dens_scale: float = {"small": 0.5, "medium": 0.9, "large": 1.05}.get(Session.city_size, 0.5)
+	var down_tier := 2   # every downtown is a corporate core (towers), whatever the map size
+	var res_cap := 2
+	# dense megacity housing: hab-stacks and towers dominate; detached houses only on the outer fringe
+	var dens_scale: float = {"small": 0.95, "medium": 1.15, "large": 1.25}.get(Session.city_size, 0.95)
 	var maxr := 0.0
 	for b in blocks: maxr = maxf(maxr, (b.centroid as Vector2).distance_to(dev_c))
-	# downtown = central blocks (prefer reasonably sized ones)
-	var down_c := dev_c
-	var dn := 0
+	# the CENTRAL HUB site: of every 2×2 footprint in every block, the one whose centre is nearest the
+	# city's true centre (land centroid). Its block becomes the heart of the downtown core.
+	var city_c := Vector2.ZERO
+	for t in land: city_c += Vector2(t)
+	city_c /= float(maxi(1, land.size()))
+	var hub_i := 0; var bestd := INF
+	hub_site = Vector2i(-999, -999)
+	for i in blocks.size():
+		var tset := {}
+		for t in blocks[i].tiles: tset[t] = true
+		for t in blocks[i].tiles:
+			if tset.has(t + Vector2i(1, 0)) and tset.has(t + Vector2i(0, 1)) and tset.has(t + Vector2i(1, 1)):
+				var dd: float = (Vector2(t) + Vector2(1, 1)).distance_to(city_c + Vector2(0.5, 0.5))
+				if dd < bestd: bestd = dd; hub_i = i; hub_site = t
+	role[hub_i] = {"type": "bus", "tier": down_tier}
+	var down_c: Vector2 = blocks[hub_i].centroid
+	# rest of downtown = the next central blocks (prefer reasonably sized ones)
+	var dn := 1
 	for i in blocks.size():
 		if dn >= n_down: break
+		if role.has(i): continue
 		if int((blocks[i].tiles as Array).size()) >= 2:
 			role[i] = {"type": "bus", "tier": down_tier}; dn += 1
-			down_c = blocks[i].centroid
 	# satellite business districts — corporate clusters out in the inner-mid ring, spaced from the
 	# core and each other so the city reads as several business quarters, not one tiny downtown
 	var bizc := []
@@ -431,10 +932,10 @@ func _plan_and_fill(blocks: Array, g: Vector2i, dev_c: Vector2) -> void:
 		if bizc.size() >= n_biz: break
 		if role.has(i): continue
 		var br: float = (blocks[i].centroid as Vector2).distance_to(dev_c) / maxf(maxr, 1.0)
-		if br > 0.2 and br < 0.62 and int((blocks[i].tiles as Array).size()) >= 3:
-			var ok := (blocks[i].centroid as Vector2).distance_to(down_c) >= 6.0
+		if br > 0.2 and br < 0.7 and int((blocks[i].tiles as Array).size()) >= 3:
+			var ok := (blocks[i].centroid as Vector2).distance_to(down_c) >= 5.0
 			for s in bizc:
-				if (blocks[i].centroid as Vector2).distance_to(blocks[s].centroid) < 6.0: ok = false
+				if (blocks[i].centroid as Vector2).distance_to(blocks[s].centroid) < 5.0: ok = false
 			if ok: role[i] = {"type": "bus", "tier": maxi(down_tier, 2)}; bizc.append(i)
 	# shopping centres — mid-ring, spaced; a block only qualifies if a 2×2 mall actually FITS in it
 	# (atomic reservation), so the retail destination is real. Always guarantee at least one site.
@@ -451,14 +952,12 @@ func _plan_and_fill(blocks: Array, g: Vector2i, dev_c: Vector2) -> void:
 	if shops.is_empty():   # fallback: largest free block becomes a compact retail destination
 		var bi := _largest_free_block(blocks, role)
 		if bi >= 0: role[bi] = {"type": "com", "tier": 1}; shops.append(bi)
-	# parks — prefer waterfront/large, then scattered; guarantee at least one usable green site
+	# parks — scattered green; guarantee at least one usable green site
 	var parks := 0
-	var order := range(blocks.size())
-	order.sort_custom(func(a, b): return _block_waterfront(blocks[a].tiles) and not _block_waterfront(blocks[b].tiles))
-	for i in order:
+	for i in blocks.size():
 		if parks >= n_park: break
 		if role.has(i): continue
-		if _block_waterfront(blocks[i].tiles) or rng.randf() < 0.3:
+		if rng.randf() < 0.3:
 			role[i] = {"type": "park", "tier": clampi(int((blocks[i].tiles as Array).size() / 5), 0, 2)}; parks += 1
 	if parks == 0:
 		var pbi := _largest_free_block(blocks, role)
@@ -473,13 +972,18 @@ func _plan_and_fill(blocks: Array, g: Vector2i, dev_c: Vector2) -> void:
 	# last-resort park guarantee for block-poor maps: convert the largest residential block so EVERY
 	# map has usable green ground, not just a label (the measured "no park" maps)
 	if parks == 0:
-		var rbi := -1; var rbs := 0
-		for i in blocks.size():
-			if str(role[i].type) == "res" and int((blocks[i].tiles as Array).size()) > rbs:
-				rbs = int((blocks[i].tiles as Array).size()); rbi = i
+		var rbi := -1
+		for want in ["res", "bus"]:   # prefer a residential block; else any non-HUB business block
+			var rbs := 0
+			for i in blocks.size():
+				if i == hub_i or str(role[i].type) != want: continue
+				if int((blocks[i].tiles as Array).size()) > rbs:
+					rbs = int((blocks[i].tiles as Array).size()); rbi = i
+			if rbi >= 0: break
 		if rbi >= 0: role[rbi] = {"type": "park", "tier": 1}; parks += 1
 	# one-tier smoothing between adjacent residential blocks (via shared road borders)
 	var adj := _block_adjacency(blocks)
+	district_adj = adj
 	for pass_i in 3:
 		for i in blocks.size():
 			if str(role[i].type) != "res": continue
@@ -488,22 +992,8 @@ func _plan_and_fill(blocks: Array, g: Vector2i, dev_c: Vector2) -> void:
 					role[i].tier = int(role[j].tier) + 1
 	# districts (merge connected same-type, within-one-tier res) + ids
 	_assign_districts(blocks, role, adj)
-	# Reserve the waterfront promenade BEFORE filling (fixes the measured "0 promenade tiles"): mark
-	# bank land as prom, except on downtown/shopping sites that need their whole footprint, then drop
-	# those tiles from the blocks so later placement cannot overwrite the bank.
-	var owner := {}
-	for i in blocks.size():
-		for t in blocks[i].tiles: owner[t] = i
-	for t in land:
-		if roads.has(t) or not _beside_water(t): continue
-		if deco.has(t) and str(deco[t]) != "verge": continue   # keep real deco; a bank verge upgrades to prom
-		var oi: int = owner.get(t, -1)
-		if oi >= 0 and (str(role[oi].type) == "bus" or str(role[oi].type) == "com" or str(role[oi].type) == "park"):
-			continue   # protect sites that need their whole footprint (incl. a waterfront park)
-		deco[t] = "prom"
-	for i in blocks.size():
-		blocks[i].tiles = (blocks[i].tiles as Array).filter(func(t): return not deco.has(t))
-	# fill each block
+	# fill each block — the HUB first, so the downtown fill builds around it
+	_place_hub(blocks[hub_i].tiles, city_c, int(role[hub_i].get("did", 0)))
 	for i in blocks.size():
 		var tiles: Array = blocks[i].tiles
 		if tiles.is_empty(): continue
@@ -512,12 +1002,6 @@ func _plan_and_fill(blocks: Array, g: Vector2i, dev_c: Vector2) -> void:
 			"com":  _fill_shopping(tiles, int(role[i].get("did", 0)))
 			"park": _fill_park(tiles)
 			_:      _fill_residential(tiles, int(role[i].tier), int(role[i].get("did", 0)), bool(role[i].get("terr", false)))
-
-
-func _block_waterfront(tiles: Array) -> bool:
-	for t in tiles:
-		if _beside_water(t): return true
-	return false
 
 
 # can a 2×2 mall footprint sit inside this block's cells? (atomic shopping-site capacity test)
@@ -539,14 +1023,8 @@ func _largest_free_block(blocks: Array, role: Dictionary) -> int:
 		if sz > bs: bs = sz; bi = i
 	return bi
 
-func _beside_water(t: Vector2i) -> bool:
-	for d in DIRS:
-		if water.has(t + d): return true
-	return false
-
-
 func _block_adjacency(blocks: Array) -> Dictionary:
-	# two blocks are adjacent if a single road tile separates them (reachable across a street)
+	# two blocks are adjacent if they touch (split territories) or a single road tile separates them
 	var owner := {}
 	for i in blocks.size():
 		for t in blocks[i].tiles: owner[t] = i
@@ -558,65 +1036,145 @@ func _block_adjacency(blocks: Array) -> Dictionary:
 				var across: Vector2i = t + d + d   # skip one road tile
 				if roads.has(t + d) and owner.has(across) and owner[across] != i:
 					adj[i][owner[across]] = true
+				if owner.has(t + d) and owner[t + d] != i:
+					adj[i][owner[t + d]] = true
 	var out := {}
 	for i in adj: out[i] = adj[i].keys()
 	return out
 
 
+# One district per (split) block — each its own named neon territory. Colour: a hue from the zone's
+# family that no already-coloured adjacent district of the same family uses.
 func _assign_districts(blocks: Array, role: Dictionary, adj: Dictionary) -> void:
-	var seen := {}
-	var did := 0
+	var used_names := {}
+	name_rng.seed = seed * 7919 + 17   # own stream: naming/colouring never perturbs the layout
 	for i in blocks.size():
-		if seen.has(i): continue
 		var typ: String = str(role[i].type)
-		var tier: int = int(role[i].tier)
-		var stack := [i]; var members := []
-		while not stack.is_empty():
-			var cur: int = stack.pop_back()
-			if seen.has(cur) or str(role[cur].type) != typ: continue
-			if typ == "res" and absi(int(role[cur].tier) - tier) > 1: continue
-			seen[cur] = did; members.append(cur)
-			for j in adj.get(cur, []):
-				if not seen.has(j): stack.append(j)
-		var cs := Vector2.ZERO; var cnt := 0
-		for m in members:
-			role[m]["did"] = did
-			cs += blocks[m].centroid; cnt += 1
-		var nm: String = AREA_NAME[typ][tier]
-		if typ == "res" and tier >= 1: nm = HOOD_NAMES[did % HOOD_NAMES.size()]
-		if cnt > 0:
-			districts.append({"id": did, "type": typ, "tier": tier, "name": nm, "centroid_tile": cs / float(cnt), "count": cnt})
-		did += 1
+		role[i]["did"] = i
+		for t in blocks[i].tiles: dist_of[t] = i
+		var fam: Array = DISTRICT_HUES.get(typ, DISTRICT_HUES.res)
+		var taken := {}
+		for j in adj.get(i, []):
+			if j < i and str(districts[j].type) == typ: taken[int(districts[j].hue)] = true
+		var start := name_rng.randi() % fam.size()
+		var hi := start
+		for o in fam.size():
+			if not taken.has((start + o) % fam.size()): hi = (start + o) % fam.size(); break
+		districts.append({"id": i, "type": typ, "tier": int(role[i].tier), "name": _district_name(typ, used_names),
+			"centroid_tile": blocks[i].centroid, "count": 1, "size": (blocks[i].tiles as Array).size(),
+			"hue": hi, "col": fam[hi]})
+
+
+# Cyberspace territories: a big road block is split into several districts (~DISTRICT_AREA cells) by a
+# multi-source BFS from spread-out (farthest-point) seeds — contiguous parts whose shared edges render
+# as glowing borders. Roads stay sparse; districts no longer need a street between them.
+func _split_blocks(blocks: Array) -> Array:
+	var out := []
+	for b in blocks:
+		var tiles: Array = b.tiles
+		var k := int(round(float(tiles.size()) / float(DISTRICT_AREA)))
+		if k <= 1:
+			out.append(b); continue
+		var seeds := [tiles[0]]
+		while seeds.size() < k:
+			var best: Vector2i = tiles[0]; var bd := -1.0
+			for t in tiles:
+				var md := INF
+				for sd in seeds: md = minf(md, Vector2(t).distance_squared_to(Vector2(sd)))
+				if md > bd: bd = md; best = t
+			seeds.append(best)
+		var tset := {}
+		for t in tiles: tset[t] = true
+		var own := {}; var q := []
+		for si in seeds.size():
+			own[seeds[si]] = si; q.append(seeds[si])
+		var head := 0
+		while head < q.size():
+			var cur: Vector2i = q[head]; head += 1
+			for d in DIRS:
+				var nb: Vector2i = cur + d
+				if tset.has(nb) and not own.has(nb):
+					own[nb] = own[cur]; q.append(nb)
+		var parts := []
+		for si in seeds.size(): parts.append([])
+		for t in tiles: parts[int(own[t])].append(t)
+		for part in parts:
+			if part.is_empty(): continue
+			var cs := Vector2.ZERO
+			for cc in part: cs += Vector2(cc)
+			out.append({"tiles": part, "centroid": cs / float(part.size())})
+	return out
+
+
+func _district_name(typ: String, used: Dictionary) -> String:
+	var dn: Dictionary = CityLore.data().district_names   # content: data/city_lore.json
+	var pre: Array = dn.prefixes; var solo: Array = dn.get("standalone", [])
+	var sufs: Array = dn.suffixes.get(typ, dn.suffixes.res)
+	for attempt in 40:
+		var nm: String
+		if typ == "res" and not solo.is_empty() and name_rng.randf() < 0.15:
+			nm = solo[name_rng.randi() % solo.size()]
+		else:
+			nm = "%s %s" % [pre[name_rng.randi() % pre.size()], sufs[name_rng.randi() % sufs.size()]]
+		if not used.has(nm):
+			used[nm] = true; return nm
+	var fb := "Sector %d" % (used.size() + 1)
+	used[fb] = true
+	return fb
+
+
+func _area_name(did: int, dtype: String, tier: int) -> String:
+	if did >= 0 and did < districts.size() and int(districts[did].id) == did:
+		return str(districts[did].name)
+	return AREA_NAME[dtype][tier]
 
 
 func _place(k: Vector2i, kind: String, dtype: String, tier: int, ins: float, tw := 1, td := 1, did := 0) -> bool:
 	for dx in tw:
 		for dy in td:
 			var c := Vector2i(k.x + dx, k.y + dy)
-			if not land.has(c) or roads.has(c) or water.has(c) or occ.has(c) or lots.has(c) or deco.has(c):
+			if not land.has(c) or roads.has(c) or occ.has(c) or lots.has(c) or deco.has(c):
 				return false
 	var vari := rng.randi() % 3
 	lots[k] = {"kind": kind, "vari": vari, "h": _height_for(kind, vari), "dtype": dtype,
-		"area": AREA_NAME[dtype][tier], "tw": tw, "td": td, "ins": ins, "did": did}
+		"area": _area_name(did, dtype, tier), "tw": tw, "td": td, "ins": ins + SPACING, "did": did}
 	for dx in tw:
 		for dy in td:
 			occ[Vector2i(k.x + dx, k.y + dy)] = k
 	return true
 
 
+# The CENTRAL HUB: the city's tallest tower, a 2×2 megastructure on the tile nearest the city centre
+# (falls back to 1×1 only if no 2×2 fits the core block).
+func _place_hub(tiles: Array, centre: Vector2, did: int) -> void:
+	if _place(hub_site, "hub", "bus", 2, 0.16, 2, 2, did): hub_key = hub_site; return
+	var order := tiles.duplicate()
+	order.sort_custom(func(a, b): return Vector2(a).distance_to(centre) < Vector2(b).distance_to(centre))
+	for t in order:
+		for off in [Vector2i(0, 0), Vector2i(-1, 0), Vector2i(0, -1), Vector2i(-1, -1)]:
+			if _place(t + off, "hub", "bus", 2, 0.16, 2, 2, did): hub_key = t + off; return
+	for t in order:
+		if _place(t, "hub", "bus", 2, 0.06, 1, 1, did): hub_key = t; return
+
+
 func _fill_downtown(tiles: Array, tier: int, did: int) -> void:
 	tiles.sort_custom(func(a, b): return (a.x + a.y) < (b.x + b.y))
-	var plaza: Vector2i = tiles[tiles.size() / 2]
-	deco[plaza] = "plaza"
+	var free := tiles.filter(func(t): return not occ.has(t))
+	if free.size() >= 4:   # a small public square, never under the HUB
+		deco[free[free.size() / 2]] = "plaza"
 	var landmark := true
 	for t in tiles:
-		if t == plaza or occ.has(t): continue
+		if occ.has(t) or deco.has(t): continue
 		var kind: String
 		if tier >= 2:
-			kind = "corp" if (landmark or rng.randf() < 0.55) else ("off_m" if rng.randf() < 0.6 else "off_s")
+			kind = "corp" if (landmark or rng.randf() < 0.72) else ("off_m" if rng.randf() < 0.7 else "off_s")
 		else:
-			kind = "off_m" if (landmark or rng.randf() < 0.45) else "off_s"
-		_place(t, kind, "bus", tier, 0.08, 1, 1, did)
+			kind = "off_m" if (landmark or rng.randf() < 0.6) else "off_s"
+		# megacorp blocks: a 2×2 corporate tower where it fits
+		if kind == "corp" and rng.randf() < 0.3 and _place(t, "corp", "bus", tier, 0.07, 2, 2, did):
+			lots[t].h = float(lots[t].h) * 1.25
+		else:
+			_place(t, kind, "bus", tier, 0.08, 1, 1, did)
 		landmark = false
 
 
@@ -637,12 +1195,18 @@ func _fill_shopping(tiles: Array, did: int) -> void:
 		if occ.has(t) or deco.has(t): continue
 		_place(t, "shop_s" if rng.randf() < 0.55 else "shop_b", "com", 0, 0.12, 1, 1, did); shops += 1
 	var placed_mall := false
-	for t in interior:                       # a mall anchor behind the frontage, if a 2×2 fits
+	var malls := 0; var max_malls := maxi(1, interior.size() / 10)
+	for t in interior:                       # mall anchors behind the frontage — big sites get several
+		if malls >= max_malls: break
 		if _place(t, "mall", "com", 1, 0.06, 2, 2, did):
-			placed_mall = true; deco[Vector2i(t.x, t.y + 2)] = "plaza"; break
-	for t in interior:                       # the rest of the grounds: public square + some parking
+			placed_mall = true; malls += 1
+			var fore := Vector2i(t.x, t.y + 2)
+			if not occ.has(fore) and interior.has(fore): deco[fore] = "plaza"
+	for t in interior:                       # the rest: dense stores, with a square + parking between
 		if occ.has(t) or deco.has(t): continue
-		deco[t] = "plaza" if rng.randf() < 0.62 else "parking"
+		var r := rng.randf()
+		if r < 0.5: _place(t, "shop_b", "com", 0, 0.12, 1, 1, did)
+		else: deco[t] = "plaza" if r < 0.8 else "parking"
 	if shops == 0 and not placed_mall:       # guarantee a retail destination on an awkward site
 		for t in tiles:
 			if _place(t, "shop_b", "com", 0, 0.14, 1, 1, did): break
@@ -680,9 +1244,9 @@ func _fill_residential(tiles: Array, tier: int, did: int, terraced := false) -> 
 		var tset := {}
 		for t in tiles: tset[t] = true
 		var q := []
-		for t in tiles:
+		for t in tiles:   # edge-facing: a street OR the border with a neighbouring territory
 			for d in DIRS:
-				if roads.has(t + d): rdist[t] = 0; q.append(t); break
+				if not tset.has(t + d): rdist[t] = 0; q.append(t); break
 		var head := 0
 		while head < q.size():
 			var cur: Vector2i = q[head]; head += 1
@@ -730,28 +1294,23 @@ func _fill_residential(tiles: Array, tier: int, did: int, terraced := false) -> 
 				else: _place(t, "sc", "res", 2, 0.14, 1, 1, did)
 
 
+# The unmapped VOID around the city (no forests/fields — this is cyberspace): each off-grid tile stores
+# its BFS distance to the city so the grid can fade out into darkness.
 func _dress_countryside(g: Vector2i) -> void:
-	# classify undeveloped land into coherent patches (coarse noise) of FOREST / FIELD / MEADOW and
-	# populate them — dense trees in forests, furrowed crop fields, open meadows.
-	for ly in g.y:
-		for lx in g.x:
-			var t := Vector2i(lx, ly)
-			if water.has(t) or land.has(t) or roads.has(t): continue
-			var cl := _noise(int(lx / 3) * 7 + 3, int(ly / 3) * 7 + 9)    # ~3-tile patches
-			var fine := _noise(lx * 2 + 5, ly * 2 + 11)
-			var ct := "forest" if cl > 0.18 else ("field" if cl < -0.18 else "meadow")
-			country[t] = ct
-			match ct:
-				"forest":
-					var n := 2 + (1 if fine > 0.0 else 0)
-					for i in n:
-						trees.append({"tile": Vector2(t) + Vector2(rng.randf_range(0.15, 0.85), rng.randf_range(0.15, 0.85)), "sz": rng.randf_range(6.0, 11.0), "wild": true})
-				"meadow":
-					if fine > 0.05:
-						trees.append({"tile": Vector2(t) + Vector2(0.5, 0.5), "sz": rng.randf_range(6.0, 9.0), "wild": true})
-				_:
-					if rng.randf() < 0.1:
-						trees.append({"tile": Vector2(t) + Vector2(0.8, 0.2), "sz": rng.randf_range(6.0, 8.0), "wild": true})
+	var q := []
+	for t in land:
+		country[t] = 0; q.append(t)
+	for t in roads:
+		if not country.has(t): country[t] = 0; q.append(t)
+	var head := 0
+	while head < q.size():
+		var cur: Vector2i = q[head]; head += 1
+		for d in DIRS:
+			var nb: Vector2i = cur + d
+			if _in_grid(nb) and not country.has(nb):
+				country[nb] = int(country[cur]) + 1; q.append(nb)
+	for t in land: country.erase(t)
+	for t in roads: country.erase(t)
 
 
 func _height_for(kind: String, vari: float) -> float:
@@ -766,6 +1325,7 @@ func _height_for(kind: String, vari: float) -> float:
 		"off_s":  return 27.0 + v * 7.0
 		"off_m":  return 48.0 + v * 11.0
 		"corp":   return 86.0 + v * 16.0
+		"hub":    return 380.0   # always the tallest structure in the city, by a wide margin
 	return 24.0
 
 
@@ -792,6 +1352,11 @@ func _process(dt: float) -> void:
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
 	if pan != Vector2.ZERO:
 		camera.position += pan.normalized() * 520.0 * dt / camera.zoom.x
+	# hold F: the city eases down to its footprints (everything visible + clickable), release to restore
+	var ft := 0.12 if Input.is_key_pressed(KEY_F) else 1.0
+	if not is_equal_approx(_flat, ft):
+		_flat = move_toward(_flat, ft, dt * 4.5)
+		_dirty = true
 	_update_hover()
 	# Repaint gating. Canvas items are RETAINED: the Camera2D transform pans/zooms already-drawn
 	# commands on the GPU for free, so _draw only needs to re-run when the drawn CONTENT changes.
@@ -806,7 +1371,7 @@ func _process(dt: float) -> void:
 	var baked: bool = _is_baked()
 	var zoomed: bool = camera.zoom != _last_zoomv
 	var moved: bool = camera.position != _last_cam
-	var hov: bool = _hover_tile != _last_hover
+	var hov: bool = _hover_tile != _last_hover or _hover_b != _last_hover_b
 	# At detail zoom the last repaint covered a margin around the view; only repaint once the camera
 	# has panned far enough that the view leaves that baked region. (Heavy maps are always baked.)
 	var escaped: bool = not baked and moved and not _baked_region.encloses(_cam_view())
@@ -814,11 +1379,11 @@ func _process(dt: float) -> void:
 	var tick: bool = (not Settings.reduced_motion) and _anim_acc >= 0.05
 	if repaint:
 		_dirty = false
-		_last_cam = camera.position; _last_zoomv = camera.zoom; _last_hover = _hover_tile
+		_last_cam = camera.position; _last_zoomv = camera.zoom; _last_hover = _hover_tile; _last_hover_b = _hover_b
 		queue_redraw()
 		if _fx != null: _fx.queue_redraw()   # keep the overlay in step with content changes
 	elif hov or tick:
-		_last_hover = _hover_tile
+		_last_hover = _hover_tile; _last_hover_b = _hover_b
 		if tick: _anim_acc = 0.0
 		if _fx != null: _fx.queue_redraw()   # hover highlight + animation, without rebuilding the scene
 
@@ -865,13 +1430,15 @@ func _is_baked() -> bool:
 
 
 # Zoom-driven building HEIGHT: zoomed out, buildings are low grouped blocks so the road grid stays
-# visible (nothing overlaps the streets); zooming in raises them to full height + detail. Heavy maps
-# (baked) cap at the box height, matching their bake tier, so hit-tests line up.
+# visible (nothing overlaps the streets); zooming in raises them to full height. CONTINUOUS in zoom
+# (no thresholds) so buildings grow smoothly instead of jumping when a zoom band is crossed.
 func _hmul() -> float:
-	var z := camera.zoom.x
-	if z < LOD_ZOOM: return 0.35
-	if z < WIN_ZOOM or _draw_items.size() > BAKE_MIN_ITEMS: return 0.7
-	return 1.0
+	return _hmul_at(camera.zoom.x)
+func _hmul_at(z: float) -> float:
+	return HEIGHT_K * (0.35 + 0.65 * smoothstep(0.35, 1.6, z)) * _flat
+# 0..1 fade for detail that appears with zoom (windows, outlines) — never a hard pop
+func _fade(z0: float, z1: float) -> float:
+	return smoothstep(z0, z1, camera.zoom.x)
 
 
 # tile-index bounds covering the view rect (invert the iso of its corners) → cull ground iteration
@@ -889,50 +1456,127 @@ func _visible_tiles(view: Rect2) -> Rect2i:
 
 
 func _box_hull(k: Vector2i) -> PackedVector2Array:
+	return _hull_at(k, _hmul())
+
+
+func _hull_at(k: Vector2i, hm: float) -> PackedVector2Array:
 	var b = lots[k]
-	var tw: float = float(b.tw); var td: float = float(b.td); var ins: float = float(b.ins); var h: float = float(b.h) * _hmul()
+	var tw: float = float(b.tw); var td: float = float(b.td); var ins: float = float(b.ins); var h: float = float(b.h) * hm
 	var up := Vector2(0, -h)
 	var A := _iso(k.x + ins, k.y + ins); var B := _iso(k.x + tw - ins, k.y + ins)
 	var C := _iso(k.x + tw - ins, k.y + td - ins); var D := _iso(k.x + ins, k.y + td - ins)
 	return PackedVector2Array([A + up, B + up, B, C, D, D + up])
 
 
+# The front-most building whose drawn SHAPE (walls + roof) contains wpos. A building can only contain a
+# point if its base stands at or below it on screen, so only cells from the cursor's ground tile toward
+# the viewer (within the tallest building's reach) are tested — cheap enough to run on every mouse move.
 func _building_at(wpos: Vector2) -> Vector2i:
+	var t0 := _screen_to_tile(wpos)
 	var best := Vector2i(-999, -999); var best_d := -100000
-	for k in lots:
-		if Geometry2D.is_point_in_polygon(wpos, _box_hull(k)):
-			var d: int = k.x + k.y + int(lots[k].tw) + int(lots[k].td)
-			if d > best_d: best_d = d; best = k
+	var tested := {}
+	for st in range(-2, 18):
+		for dd in range(-4, 5):
+			if posmod(st + dd, 2) != 0: continue
+			var t := t0 + Vector2i((st + dd) / 2, (st - dd) / 2)
+			if not occ.has(t): continue
+			var k: Vector2i = occ[t]
+			if tested.has(k): continue
+			tested[k] = true
+			if Geometry2D.is_point_in_polygon(wpos, _box_hull(k)):
+				var d := _depth(k)
+				if d > best_d: best_d = d; best = k
 	return best
 
 
+# shortest chain of buildings from a to b through the network (BFS over links) — [a, …, b]
+func _route_to(a: Vector2i, b: Vector2i) -> Array:
+	if not lots.has(a) or not lots.has(b): return []
+	var prev := {a: a}; var q := [a]; var head := 0
+	while head < q.size():
+		var cur: Vector2i = q[head]; head += 1
+		if cur == b: break
+		for o in net_links.get(cur, []):
+			if not prev.has(o): prev[o] = cur; q.append(o)
+	if not prev.has(b): return []
+	var path := [b]
+	while path[path.size() - 1] != a: path.append(prev[path[path.size() - 1]])
+	path.reverse()
+	return path
+
+
+func _link_entry(a: Vector2i, b: Vector2i) -> Array:   # the routed link between two adjacent buildings
+	for e in _paths_of.get(a, []):
+		if (e[0] == a and e[1] == b) or (e[0] == b and e[1] == a): return e
+	return []
+
+
 func _select_at(wpos: Vector2) -> void:
-	selected = _building_at(wpos); _dirty = true; _update_sel_panel()
+	selected = _building_at(wpos)
+	_focus = []; _route = []
+	if lots.has(selected):
+		_select_district(int(lots[selected].did))
+		_focus = [selected] + (net_links.get(selected, []) as Array)
+		_route = _route_to(selected, hub_key)
+		for k in _route:
+			if not _focus.has(k): _focus.append(k)
+		_focus.sort_custom(func(a, c): return a.x + a.y + int(lots[a].tw) + int(lots[a].td) < c.x + c.y + int(lots[c].tw) + int(lots[c].td))
+	else:
+		var t := _screen_to_tile(wpos)   # open district ground (plaza, garden, pad…) selects the district too
+		_select_district(int(dist_of[t]) if dist_of.has(t) and not roads.has(t) else -1)
+	_dirty = true; _update_sel_panel()
+
+
+# select a whole district: cache its territory perimeter (edges to any other district/road/void)
+func _select_district(did: int) -> void:
+	sel_did = did
+	_sel_edges = PackedVector2Array(); _sel_tiles = []; _sel_lots = []
+	if did < 0: return
+	_sel_lots = (_district_lots.get(did, []) as Array).duplicate()
+	_sel_lots.sort_custom(func(a, c): return a.x + a.y + int(lots[a].tw) + int(lots[a].td) < c.x + c.y + int(lots[c].tw) + int(lots[c].td))
+	for t in dist_of:
+		if int(dist_of[t]) != did: continue
+		_sel_tiles.append(t)
+		var P00 := _iso(t.x, t.y); var P10 := _iso(t.x + 1, t.y); var P11 := _iso(t.x + 1, t.y + 1); var P01 := _iso(t.x, t.y + 1)
+		for e in [[Vector2i(0, -1), P00, P10], [Vector2i(1, 0), P10, P11], [Vector2i(0, 1), P01, P11], [Vector2i(-1, 0), P00, P01]]:
+			var nb: Vector2i = t + e[0]
+			if int(dist_of.get(nb, -1)) != did:
+				_sel_edges.append(e[1]); _sel_edges.append(e[2])
+
+
+func _clear_selection() -> void:
+	selected = Vector2i(-999, -999); sel_did = -1; _focus = []; _route = []
+	_sel_edges = PackedVector2Array(); _sel_tiles = []; _sel_lots = []
+	_dirty = true; _update_sel_panel()
 
 
 func _update_hover() -> void:
-	var t := _screen_to_tile(get_global_mouse_position())
+	var m := get_global_mouse_position()
+	var t := _screen_to_tile(m)
 	if t != _hover_tile: _hover_tile = t
+	if m != _hover_m or _dirty:   # resolve the building by its drawn shape — roof and walls count, not just the base
+		_hover_m = m; _hover_b = _building_at(m)
 	if hover_lbl == null: return
 	var k := _hover_tile
-	var bk: Vector2i = occ[k] if occ.has(k) else k
+	var bk: Vector2i = _hover_b
 	if lots.has(bk):
-		hover_lbl.text = "%s  ·  %s" % [KIND_NAME[str(lots[bk].kind)], str(lots[bk].area)]
-	elif water.has(k):
-		hover_lbl.text = "Water"
+		hover_lbl.text = "%s  ·  %s  ·  %s" % [str(lots[bk].get("bname", KIND_NAME[str(lots[bk].kind)])), KIND_NAME[str(lots[bk].kind)], str(lots[bk].area)]
 	elif roads.has(k):
-		hover_lbl.text = ("Avenue" if str(road_class.get(k, "loc")) == "art" else "Street") + (" (bridge)" if water.has(k) else "")
+		hover_lbl.text = ("Avenue" if str(road_class.get(k, "loc")) == "art" else "Street")
+	elif deco.has(k) and dist_of.has(k):
+		hover_lbl.text = {"park": "Park", "garden": "Garden", "court": "Courtyard", "plaza": "Public square", "parking": "Parking", "path": "Park path", "verge": "Green verge"}.get(str(deco[k]), "Open space") + "  ·  " + str(districts[int(dist_of[k])].name)
 	elif deco.has(k):
-		hover_lbl.text = {"park": "Park", "garden": "Garden", "court": "Courtyard", "plaza": "Public square", "parking": "Parking", "prom": "Waterfront promenade", "path": "Park path", "verge": "Green verge"}.get(str(deco[k]), "Open space")
+		hover_lbl.text = {"park": "Park", "garden": "Garden", "court": "Courtyard", "plaza": "Public square", "parking": "Parking", "path": "Park path", "verge": "Green verge"}.get(str(deco[k]), "Open space")
 	elif land.has(k):
-		hover_lbl.text = "Open parcel"
+		hover_lbl.text = "Open parcel" + ("  ·  " + str(districts[int(dist_of[k])].name) if dist_of.has(k) else "")
 	else:
-		hover_lbl.text = "Countryside"
+		hover_lbl.text = "Unmapped void"
 
 
 # ============================================================ RENDERING
 func _draw() -> void:
 	var font := ThemeDB.fallback_font
+	_feat_a = _fade(LOD_ZOOM, LOD_ZOOM + 0.3)
 	var vp: Vector2 = get_viewport_rect().size / camera.zoom.x
 	var view := Rect2(camera.position - vp * 0.5, vp).grow(TILE_W * 2.0)
 	# When baked the canvas is retained and panned by the camera without repainting, so the WHOLE
@@ -945,8 +1589,11 @@ func _draw() -> void:
 	var baked := camera.zoom.x < WIN_ZOOM
 	if heavy:
 		var tier := 0 if camera.zoom.x < LOD_ZOOM else 1
-		if _bake_tier != tier:
-			_build_bake(tier); _bake_tier = tier
+		var hm := _hmul()
+		if _bake_tier != tier or absf(hm - _bake_h) > 0.02:   # rebake as height eases with zoom
+			_build_bake(tier); _bake_tier = tier; _bake_h = hm
+		if not _ground_idx.is_empty():
+			RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), _ground_idx, _ground_pts, _ground_cols)
 		if not _bake_idx.is_empty():
 			RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), _bake_idx, _bake_pts, _bake_cols)
 		_baked_region = Rect2(-1e12, -1e12, 2e12, 2e12)
@@ -961,7 +1608,7 @@ func _draw() -> void:
 		for ly in range(tb.position.y, tb.end.y):
 			for lx in range(tb.position.x, tb.end.x):
 				_draw_ground_tile(lx, ly)
-		_draw_water_smooth(cull)   # smooth merged water on top of the ground, under the buildings
+		_draw_traces_static()   # circuit traces on the floor, under the buildings
 		# buildings + trees in the precomputed depth order (no per-frame sort), culled
 		for it in _draw_items:
 			if it.b:
@@ -971,33 +1618,21 @@ func _draw() -> void:
 	if camera.zoom.x < 1.9:
 		for r in districts:
 			if int(r.count) < 1: continue
-			var dc: Color = DTYPE_COL[str(r.type)]
+			if int(r.get("size", 99)) < 8: continue   # tiny territories stay unlabelled (less clutter)
+			var dc: Color = r.col
 			var pcen := _iso(float(r.centroid_tile.x) + 0.5, float(r.centroid_tile.y) + 0.5)
 			draw_string(font, pcen - Vector2(34, 2), str(r.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(dc.r, dc.g, dc.b, 0.6))
+	if lots.has(hub_key):   # the HUB is always named, at every zoom
+		var hb = lots[hub_key]
+		var hp := _iso(hub_key.x + float(hb.tw) * 0.5, hub_key.y + float(hb.td) * 0.5) + Vector2(0, -float(hb.h) * _hmul() * 1.3 - 14.0)
+		hp.y = maxf(hp.y, camera.position.y - vp.y * 0.5 + 90.0 / camera.zoom.x)   # stay below the title bar
+		draw_string(font, hp - Vector2(48, 0), "CENTRAL HUB", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.6, 1.0, 1.0, 0.95))
 
 
 func _tile_quad(lx: float, ly: float, w := 1.0, d := 1.0) -> PackedVector2Array:
 	return PackedVector2Array([_iso(lx, ly), _iso(lx + w, ly), _iso(lx + w, ly + d), _iso(lx, ly + d)])
 func _closed(q: PackedVector2Array) -> PackedVector2Array:
 	var r := PackedVector2Array(q); r.append(q[0]); return r
-
-
-# a ground "circle" (iso ellipse) of radius r tiles at tile-centre (cx,cy) — 14-gon
-func _iso_blob(cx: float, cy: float, r: float) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i in 14:
-		var a := float(i) / 14.0 * TAU
-		pts.append(_iso(cx + r * cos(a), cy + r * sin(a)))
-	return pts
-
-
-# smooth, CONTINUOUS water: each water tile is a rounded blob; adjacent blobs merge, so the river
-# and lakes read as organic shapes instead of a chain of hard tile diamonds ("Minecraft" look).
-func _draw_water_smooth(cull: Rect2) -> void:
-	for t in water:
-		if roads.has(t): continue
-		if not cull.has_point(_iso(t.x + 0.5, t.y + 0.5)): continue
-		draw_colored_polygon(_iso_blob(t.x + 0.5, t.y + 0.5, 0.75), Color(0.06, 0.15, 0.3))
 
 
 # ---- batched static bake: accumulate the whole scene into one triangle array (see _draw) ----
@@ -1023,57 +1658,91 @@ func _bdot(c: Vector2, r: float, col: Color) -> void:
 func _bgrid(lx: int, ly: int) -> void:   # faint neon tile outline (cyberspace grid) into the bake
 	var a := _iso(lx, ly); var b := _iso(lx + 1, ly); var c := _iso(lx + 1, ly + 1); var d := _iso(lx, ly + 1)
 	_bline(a, b, 1.0, GRID_COL); _bline(b, c, 1.0, GRID_COL); _bline(c, d, 1.0, GRID_COL); _bline(d, a, 1.0, GRID_COL)
-func _bake_blob(cx: float, cy: float, r: float, col: Color) -> void:   # smooth water blob into the bake
-	var c := _iso(cx, cy); var prev := _iso(cx + r, cy)
-	for i in range(1, 15):
-		var p := _iso(cx + r * cos(float(i) / 14.0 * TAU), cy + r * sin(float(i) / 14.0 * TAU))
-		_btri(c, prev, p, col); prev = p
-
-
+# The ground never changes with zoom, so it is baked ONCE into its own arrays; only the buildings +
+# trees (whose height eases with zoom) are rebaked — keeps a zoom-step rebake cheap.
 func _build_bake(tier: int) -> void:
+	if _ground_idx.is_empty():
+		_bake_pts = PackedVector2Array(); _bake_cols = PackedColorArray(); _bake_idx = PackedInt32Array()
+		for ly in _grid.y:
+			for lx in _grid.x:
+				_bake_ground(lx, ly)
+		_bake_traces()
+		_ground_pts = _bake_pts; _ground_cols = _bake_cols; _ground_idx = _bake_idx
 	_bake_pts = PackedVector2Array(); _bake_cols = PackedColorArray(); _bake_idx = PackedInt32Array()
-	for ly in _grid.y:
-		for lx in _grid.x:
-			_bake_ground(lx, ly)
-	for t in water:   # smooth merged water on top of the ground, before the buildings
-		if not roads.has(t): _bake_blob(t.x + 0.5, t.y + 0.5, 0.75, Color(0.06, 0.15, 0.3))
 	for it in _draw_items:   # already depth-sorted → painter order preserved within the array
 		if it.b: _bake_building(it.k, tier)
 		else: _bake_tree_blob(trees[it.i])
 
 
-func _bake_ground(lx: int, ly: int) -> void:
+const VOID_COL := Color(0.022, 0.026, 0.04)   # the unmapped void around the city
+const PAD_BASE := Color(0.045, 0.055, 0.085)  # dark territory floor, tinted by the district's hue
+
+func _dcol(did: int) -> Color:
+	if did >= 0 and did < districts.size(): return districts[did].col
+	return Color(0.3, 0.9, 1.0)
+
+
+# Hologram palette for a building: dark faces tinted by its district's neon hue, a brighter top and a
+# glowing edge. Returns [left face, right face, top, edge]. The HUB is ice-white.
+func _holo(b) -> Array:
+	var dark := Color(0.025, 0.035, 0.06)
+	if str(b.kind) == "hub":   # the landmark glows: lit cyan-white faces, white-hot edges
+		var hb := Color(0.55, 1.0, 1.0)
+		return [dark.lerp(hb, 0.32), dark.lerp(hb, 0.48), dark.lerp(hb, 0.72), Color(0.9, 1.0, 1.0)]
+	var base: Color = _dcol(int(b.did))
+	var v := 0.03 * float(b.vari)
+	return [dark.lerp(base, 0.12 + v), dark.lerp(base, 0.2 + v), dark.lerp(base, 0.36 + v), base.lerp(Color.WHITE, 0.35)]
+
+
+# Ground look of one non-road tile, SHARED by the live and baked paths so they always match:
+# [fill, [[a, b, width, colour], ...]] — district-tinted floor + district-coloured grid, a bright
+# double seam where two territories meet, and the void's grid fading out with distance from the city.
+func _ground_look(lx: int, ly: int) -> Array:
 	var k := Vector2i(lx, ly)
-	var q := _tile_quad(lx, ly)
-	if water.has(k) and not roads.has(k):
-		return   # open water → smooth blobs added after the ground pass (see _build_bake)
-	if roads.has(k):
-		_bake_road(lx, ly); return
+	var P00 := _iso(lx, ly); var P10 := _iso(lx + 1, ly); var P11 := _iso(lx + 1, ly + 1); var P01 := _iso(lx, ly + 1)
+	var lines := []
 	if not land.has(k):
-		var ct := str(country.get(k, "meadow"))
-		_bqp(q, Color(0.05, 0.13, 0.06) if ct == "forest" else (Color(0.13, 0.14, 0.08) if ct == "field" else Color(0.08, 0.14, 0.08)))
-		return
-	if deco.has(k):
-		match str(deco[k]):
-			"park": _bqp(q, Color(0.12, 0.26, 0.15))
-			"garden", "court": _bqp(q, Color(0.11, 0.22, 0.13))
-			"verge": _bqp(q, Color(0.1, 0.19, 0.11))
-			"path": _bqp(q, Color(0.22, 0.2, 0.16))
-			"plaza": _bqp(q, Color(0.2, 0.2, 0.24))
-			"parking": _bqp(q, Color(0.13, 0.13, 0.15))
-			"prom": _bqp(q, Color(0.2, 0.22, 0.24))
-			_: _bqp(q, Color(0.1, 0.11, 0.15)); _bgrid(lx, ly)
-		return
-	_bqp(q, Color(0.1, 0.11, 0.15)); _bgrid(lx, ly)   # dark pad + neon grid
+		var fade := clampf(1.0 - float(country.get(k, 9)) / 6.0, 0.0, 1.0)
+		if fade > 0.0:
+			var vc := Color(0.2, 0.85, 1.0, 0.12 * fade)
+			lines.append([P00, P10, 1.0, vc]); lines.append([P00, P01, 1.0, vc])
+		return [VOID_COL, lines]
+	var did: int = int(dist_of.get(k, -1))
+	var dc: Color = _dcol(did)
+	var fill: Color
+	match str(deco.get(k, "")):
+		"park": fill = Color(0.05, 0.17, 0.09)
+		"garden", "court": fill = Color(0.05, 0.13, 0.08)
+		"verge": fill = Color(0.04, 0.11, 0.07)
+		"path": fill = Color(0.1, 0.12, 0.11)
+		"plaza": fill = PAD_BASE.lerp(dc, 0.17)
+		"parking": fill = PAD_BASE.lerp(dc, 0.06)
+		_: fill = PAD_BASE.lerp(dc, 0.1)
+	var gc := Color(dc.r, dc.g, dc.b, 0.17)
+	lines.append([P00, P10, 1.0, gc]); lines.append([P00, P01, 1.0, gc])   # N + W edges: each grid line once
+	var cen := _iso(lx + 0.5, ly + 0.5)
+	var bc := Color(dc.r, dc.g, dc.b, 0.8)
+	for e in [[Vector2i(0, -1), P00, P10], [Vector2i(1, 0), P10, P11], [Vector2i(0, 1), P01, P11], [Vector2i(-1, 0), P00, P01]]:
+		var nb: Vector2i = k + e[0]
+		if dist_of.has(nb) and int(dist_of[nb]) != did:
+			var a: Vector2 = e[1]; var b2: Vector2 = e[2]
+			var sh := (cen - (a + b2) * 0.5) * 0.1   # inset toward this tile -> two-colour seam
+			lines.append([a + sh, b2 + sh, 2.0, bc])
+	return [fill, lines]
+
+
+func _bake_ground(lx: int, ly: int) -> void:
+	if roads.has(Vector2i(lx, ly)):
+		_bake_road(lx, ly); return
+	var look := _ground_look(lx, ly)
+	_bqp(_tile_quad(lx, ly), look[0])
+	for ln in look[1]: _bline(ln[0], ln[1], ln[2], ln[3])
 
 
 func _bake_road(lx: int, ly: int) -> void:
 	var k := Vector2i(lx, ly)
 	var art: bool = str(road_class.get(k, "loc")) == "art"
-	if water.has(k):
-		_bqp(_tile_quad(lx, ly), Color(0.16, 0.17, 0.2))   # full continuous deck — no blue seams
-	else:
-		_bqp(_tile_quad(lx, ly), Color(0.12, 0.13, 0.17) if art else Color(0.09, 0.1, 0.13))
+	_bqp(_tile_quad(lx, ly), Color(0.12, 0.13, 0.17) if art else Color(0.09, 0.1, 0.13))
 	_bgrid(lx, ly)   # neon grid floor
 	var rN := roads.has(Vector2i(lx, ly - 1)); var rE := roads.has(Vector2i(lx + 1, ly))
 	var rS := roads.has(Vector2i(lx, ly + 1)); var rW := roads.has(Vector2i(lx - 1, ly))
@@ -1095,35 +1764,38 @@ func _bake_road(lx: int, ly: int) -> void:
 func _bake_building(k: Vector2i, tier: int) -> void:
 	var b = lots[k]
 	var tw: float = float(b.tw); var td: float = float(b.td); var ins: float = float(b.ins)
-	var h: float = float(b.h) * (0.35 if tier == 0 else 0.7)   # low grouped blocks when flat; taller when boxed
+	var h: float = float(b.h) * _hmul()   # same continuous zoom height as the live path
 	var up := Vector2(0, -h)
 	var A := _iso(k.x + ins, k.y + ins); var B := _iso(k.x + tw - ins, k.y + ins)
 	var C := _iso(k.x + tw - ins, k.y + td - ins); var D := _iso(k.x + ins, k.y + td - ins)
 	var At := A + up; var Bt := B + up; var Ct := C + up; var Dt := D + up
 	var kind := str(b.kind)
-	var base: Color = DTYPE_COL[str(b.dtype)]
-	var hue: Color
-	if kind == "fh": hue = Color(0.62, 0.52, 0.42).lerp(Color(0.7, 0.6, 0.48), 0.3 * float(b.vari))
-	elif kind == "ap": hue = Color(0.43, 0.45, 0.52).lerp(Color(0.5, 0.5, 0.57), 0.3 * float(b.vari))
-	else: hue = base.lerp(Color(0.6, 0.62, 0.72), 0.32 + 0.14 * float(b.vari))
-	var top := Color(hue.r * 0.6, hue.g * 0.62, hue.b * 0.7)
-	_bq(D, C, Ct, Dt, Color(hue.r * 0.34, hue.g * 0.36, hue.b * 0.44))
-	_bq(B, C, Ct, Bt, Color(hue.r * 0.46, hue.g * 0.48, hue.b * 0.56))
-	if tier == 0:
-		_bq(At, Bt, Ct, Dt, Color(0.5, 0.26, 0.2) if kind == "fh" else top)
+	var pal := _holo(b)
+	var top: Color = pal[2]
+	_bq(D, C, Ct, Dt, pal[0])
+	_bq(B, C, Ct, Bt, pal[1])
+	var edge: Color = pal[3]
+	if tier == 0:   # overview: flat top + a faint glowing rim (the hologram still reads from afar)
+		_bq(At, Bt, Ct, Dt, top)
+		edge.a = 0.45
+		_bline(At, Bt, 1.0, edge); _bline(Bt, Ct, 1.0, edge); _bline(Ct, Dt, 1.0, edge); _bline(Dt, At, 1.0, edge)
 		return
-	var edge := base.lerp(Color(1, 1, 1), 0.35); edge.a = 0.92   # glowing neon zone outline
+	edge.a = 0.45 + 0.5 * _fade(LOD_ZOOM, LOD_ZOOM + 0.25)   # neon outline strengthens as you zoom in
 	if kind == "fh":
 		var rh := minf(h * 0.9, 10.0)
 		var r1 := (At + Bt) * 0.5 + Vector2(0, -rh)
 		var r2 := (Dt + Ct) * 0.5 + Vector2(0, -rh)
-		_bq(At, Dt, r2, r1, Color(0.42, 0.21, 0.17))
-		_bq(Bt, Ct, r2, r1, Color(0.58, 0.3, 0.23))
-		_btri(Dt, Ct, r2, Color(0.5, 0.26, 0.2))
+		_bq(At, Dt, r2, r1, pal[1])
+		_bq(Bt, Ct, r2, r1, top)
+		_btri(Dt, Ct, r2, pal[1])
 		_bline(At, r1, 1.0, edge); _bline(r1, Bt, 1.0, edge); _bline(Dt, r2, 1.0, edge); _bline(r2, Ct, 1.0, edge)
 	else:
 		_bq(At, Bt, Ct, Dt, top)
 		_bline(Dt, At, 1.0, edge); _bline(At, Bt, 1.0, edge); _bline(Bt, Ct, 1.0, edge)
+		if kind == "hub":   # glowing crown + spire (the static part of the HUB marker)
+			_bq(At, Bt, Ct, Dt, Color(0.4, 1.0, 0.95, 0.35))
+			var tc := (At + Ct) * 0.5
+			_bline(tc, tc + up * 0.3, 3.0, Color(0.6, 1.0, 1.0, 0.95))
 	_bline(D, C, 1.0, edge); _bline(C, B, 1.0, edge)
 	_bline(Dt, D, 1.0, edge); _bline(Ct, C, 1.0, edge); _bline(Bt, B, 1.0, edge)
 
@@ -1142,55 +1814,19 @@ func _bake_tree_blob(tr: Dictionary) -> void:
 func _draw_ground_tile(lx: int, ly: int) -> void:
 	var k := Vector2i(lx, ly)
 	var quad := _tile_quad(lx, ly)
-	var is_water: bool = water.has(k)
-	var is_road: bool = roads.has(k)
-	if is_water and not is_road:
-		return   # open water is drawn as smooth merged blobs in a later pass (_draw_water_smooth)
-	if is_road:
+	if roads.has(k):
 		_draw_road_tile(lx, ly)
 		return
-	if not land.has(k):
-		_draw_country_tile(lx, ly, quad)
-		return
-	if deco.has(k):
-		match str(deco[k]):
-			"park", "garden", "court":
-				draw_colored_polygon(quad, Color(0.12, 0.26, 0.15) if str(deco[k]) == "park" else Color(0.11, 0.22, 0.13))
-			"verge":
-				draw_colored_polygon(quad, Color(0.1, 0.19, 0.11))   # landscaped sliver (grass verge)
-			"path":
-				draw_colored_polygon(quad, Color(0.22, 0.2, 0.16))
-			"plaza":
-				draw_colored_polygon(quad, Color(0.2, 0.2, 0.24))
-				draw_polyline(_closed(_tile_quad(lx + 0.2, ly + 0.2, 0.6, 0.6)), Color(0.4, 0.45, 0.55, 0.4), 1.0)
-			"parking":
-				draw_colored_polygon(quad, Color(0.13, 0.13, 0.15))
-				draw_line(_iso(lx + 0.33, ly + 0.2), _iso(lx + 0.33, ly + 0.8), Color(0.5, 0.5, 0.3, 0.3), 1.0)
-				draw_line(_iso(lx + 0.66, ly + 0.2), _iso(lx + 0.66, ly + 0.8), Color(0.5, 0.5, 0.3, 0.3), 1.0)
-			"prom":
-				draw_colored_polygon(quad, Color(0.2, 0.22, 0.24))
-		if _hover_tile == k: draw_polyline(_closed(quad), Color(1, 1, 1, 0.7), 1.2)
-		return
-	# a grounded building-lot / sidewalk pad — dark plate under a faint neon grid (cyberspace floor)
-	draw_colored_polygon(quad, Color(0.1, 0.11, 0.15))
-	draw_polyline(_closed(quad), GRID_COL, 1.0)
+	var look := _ground_look(lx, ly)
+	draw_colored_polygon(quad, look[0])
+	for ln in look[1]: draw_line(ln[0], ln[1], ln[3], ln[2])
+	match str(deco.get(k, "")):   # close-up ground detail (live path only)
+		"plaza":
+			draw_polyline(_closed(_tile_quad(lx + 0.2, ly + 0.2, 0.6, 0.6)), Color(0.4, 0.45, 0.55, 0.4), 1.0)
+		"parking":
+			draw_line(_iso(lx + 0.33, ly + 0.2), _iso(lx + 0.33, ly + 0.8), Color(0.5, 0.5, 0.3, 0.3), 1.0)
+			draw_line(_iso(lx + 0.66, ly + 0.2), _iso(lx + 0.66, ly + 0.8), Color(0.5, 0.5, 0.3, 0.3), 1.0)
 	if _hover_tile == k: draw_polyline(_closed(quad), Color(1, 1, 1, 0.7), 1.2)
-
-
-func _draw_country_tile(lx: int, ly: int, quad: PackedVector2Array) -> void:
-	var ct := str(country.get(Vector2i(lx, ly), "meadow"))
-	if ct == "forest":
-		draw_colored_polygon(quad, Color(0.05, 0.13, 0.06))
-	elif ct == "field":
-		draw_colored_polygon(quad, Color(0.13, 0.14, 0.08))
-		if camera.zoom.x >= WIN_ZOOM:   # LOD: skip furrow lines at overview zoom
-			var fc := Color(0.17, 0.18, 0.1, 0.7)
-			var rows := (int(lx / 3) + int(ly / 3)) % 2 == 0   # alternate furrow direction per patch
-			for f in [0.25, 0.5, 0.75]:
-				if rows: draw_line(_iso(lx, ly + f), _iso(lx + 1, ly + f), fc, 1.0)
-				else: draw_line(_iso(lx + f, ly), _iso(lx + f, ly + 1), fc, 1.0)
-	else:
-		draw_colored_polygon(quad, Color(0.08, 0.14, 0.08))
 
 
 # draw a road tile from its CONNECTIONS (straight / bend / T / cross / endpoint); centre lines only
@@ -1199,11 +1835,7 @@ func _draw_road_tile(lx: int, ly: int) -> void:
 	var k := Vector2i(lx, ly)
 	var quad := _tile_quad(lx, ly)
 	var art: bool = str(road_class.get(k, "loc")) == "art"
-	var bridge: bool = water.has(k)
-	if bridge:
-		draw_colored_polygon(quad, Color(0.16, 0.17, 0.2))   # full continuous deck — no blue seams
-	else:
-		draw_colored_polygon(quad, Color(0.12, 0.13, 0.17) if art else Color(0.09, 0.1, 0.13))
+	draw_colored_polygon(quad, Color(0.12, 0.13, 0.17) if art else Color(0.09, 0.1, 0.13))
 	draw_polyline(_closed(quad), GRID_COL, 1.0)   # neon grid floor
 	var rN := roads.has(Vector2i(lx, ly - 1)); var rE := roads.has(Vector2i(lx + 1, ly))
 	var rS := roads.has(Vector2i(lx, ly + 1)); var rW := roads.has(Vector2i(lx - 1, ly))
@@ -1212,10 +1844,10 @@ func _draw_road_tile(lx: int, ly: int) -> void:
 	# LOD: curbs are hairline until close in — skip them (4 lines × every road tile).
 	if camera.zoom.x >= WIN_ZOOM:
 		var curb := Color(0.42, 0.45, 0.52, 0.7)
-		if not rN and not water.has(Vector2i(lx, ly - 1)): draw_line(P00, P10, curb, 1.0)
-		if not rE and not water.has(Vector2i(lx + 1, ly)): draw_line(P10, P11, curb, 1.0)
-		if not rS and not water.has(Vector2i(lx, ly + 1)): draw_line(P01, P11, curb, 1.0)
-		if not rW and not water.has(Vector2i(lx - 1, ly)): draw_line(P00, P01, curb, 1.0)
+		if not rN: draw_line(P00, P10, curb, 1.0)
+		if not rE: draw_line(P10, P11, curb, 1.0)
+		if not rS: draw_line(P01, P11, curb, 1.0)
+		if not rW: draw_line(P00, P01, curb, 1.0)
 	var mc := Color(0.3, 0.95, 1.0, 0.65) if art else Color(0.72, 0.74, 0.55, 0.5)
 	var mw := 2.0 if art else 1.0
 	var cnt := (1 if rN else 0) + (1 if rE else 0) + (1 if rS else 0) + (1 if rW else 0)
@@ -1238,24 +1870,18 @@ func _draw_isobox(k: Vector2i, font: Font, view: Rect2) -> void:
 		return
 	var At := A + up; var Bt := B + up; var Ct := C + up; var Dt := D + up
 	var kind := str(b.kind)
-	var base: Color = DTYPE_COL[str(b.dtype)]
-	var hue: Color
-	if kind == "fh":
-		hue = Color(0.62, 0.52, 0.42).lerp(Color(0.7, 0.6, 0.48), 0.3 * float(b.vari))
-	elif kind == "ap":
-		hue = Color(0.43, 0.45, 0.52).lerp(Color(0.5, 0.5, 0.57), 0.3 * float(b.vari))
-	else:
-		hue = base.lerp(Color(0.6, 0.62, 0.72), 0.32 + 0.14 * float(b.vari))
-	var top := Color(hue.r * 0.6, hue.g * 0.62, hue.b * 0.7)
-	var lface := Color(hue.r * 0.34, hue.g * 0.36, hue.b * 0.44)
-	var rface := Color(hue.r * 0.46, hue.g * 0.48, hue.b * 0.56)
-	var edge := base.lerp(Color(1, 1, 1), 0.35); edge.a = 0.92   # glowing neon zone outline (hover → _fx)
+	var pal := _holo(b)
+	var lface: Color = pal[0]; var rface: Color = pal[1]; var top: Color = pal[2]
+	var edge: Color = pal[3]
+	edge.a = 0.45 + 0.5 * _fade(LOD_ZOOM, LOD_ZOOM + 0.25)   # glowing hologram outline (hover → _fx)
 	draw_colored_polygon(PackedVector2Array([D, C, Ct, Dt]), lface)
 	draw_colored_polygon(PackedVector2Array([B, C, Ct, Bt]), rface)
 	# LOD: at overview zoom a building is a few px tall — draw only the flat top face (3 polygons
 	# total, no outlines/roof/windows/features). Cuts per-building draw calls ~3x on dense maps.
 	if camera.zoom.x < LOD_ZOOM:
-		draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), (Color(0.5, 0.26, 0.2) if kind == "fh" else top))
+		draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), top)
+		draw_polyline(_closed(PackedVector2Array([At, Bt, Ct, Dt])), edge, 1.0)   # faint rim
+		if kind == "hub": _draw_feature(b, At, Bt, Ct, Dt, D, C, B)   # the landmark keeps its spire at overview
 		if k == selected:
 			draw_polyline(_closed(PackedVector2Array([At, Bt, B, C, D, Dt])), Color(1, 1, 1, 0.95), 2.5)
 		return
@@ -1263,10 +1889,10 @@ func _draw_isobox(k: Vector2i, font: Font, view: Rect2) -> void:
 		var rh := minf(h * 0.9, 10.0)
 		var r1 := (At + Bt) * 0.5 + Vector2(0, -rh)
 		var r2 := (Dt + Ct) * 0.5 + Vector2(0, -rh)
-		draw_colored_polygon(PackedVector2Array([At, Dt, r2, r1]), Color(0.42, 0.21, 0.17))
-		draw_colored_polygon(PackedVector2Array([Bt, Ct, r2, r1]), Color(0.58, 0.3, 0.23))
-		draw_colored_polygon(PackedVector2Array([Dt, Ct, r2]), Color(0.5, 0.26, 0.2))
-		draw_line(r1, r2, Color(0.2, 0.1, 0.08), 1.0)
+		draw_colored_polygon(PackedVector2Array([At, Dt, r2, r1]), rface)
+		draw_colored_polygon(PackedVector2Array([Bt, Ct, r2, r1]), top)
+		draw_colored_polygon(PackedVector2Array([Dt, Ct, r2]), rface)
+		draw_line(r1, r2, edge, 1.0)
 		draw_polyline(PackedVector2Array([At, r1, Bt]), edge, 1.0)
 		draw_polyline(PackedVector2Array([Dt, r2, Ct]), edge, 1.0)
 	else:
@@ -1278,12 +1904,14 @@ func _draw_isobox(k: Vector2i, font: Font, view: Rect2) -> void:
 	if k == selected:
 		draw_polyline(_closed(PackedVector2Array([At, Bt, B, C, D, Dt])), Color(1, 1, 1, 0.95), 2.5)
 	_draw_feature(b, At, Bt, Ct, Dt, D, C, B)
-	if camera.zoom.x >= WIN_ZOOM:   # windows are tiny speckles until zoomed in close
-		_draw_windows(b, D, C, B, h)
+	var wf := _fade(WIN_ZOOM - 0.4, WIN_ZOOM + 0.1)   # windows fade in over a zoom range, not a pop
+	if wf > 0.02:
+		_draw_windows(b, D, C, B, h, wf)
 
 
-func _draw_windows(b: Dictionary, D: Vector2, C: Vector2, B: Vector2, h: float) -> void:
-	var wc: Color = _window_col(str(b.dtype))
+func _draw_windows(b: Dictionary, D: Vector2, C: Vector2, B: Vector2, h: float, alpha := 1.0) -> void:
+	var wc: Color = _dcol(int(b.did)).lerp(Color.WHITE, 0.35)
+	wc.a *= alpha
 	var rows := int(clampf(h / 20.0, 1.0, 6.0))   # capped: keeps the retained rect count in check
 	var up := Vector2(0, -h)
 	for wall in 2:
@@ -1296,40 +1924,45 @@ func _draw_windows(b: Dictionary, D: Vector2, C: Vector2, B: Vector2, h: float) 
 				draw_rect(Rect2(p0.lerp(C, fx) + up * fy - Vector2(1.5, 1.5), Vector2(3, 3)), wc, true)
 
 
+var _feat_a := 1.0   # zoom fade for rooftop features (set per repaint)
+func _fa(c: Color) -> Color:
+	c.a *= _feat_a; return c
+
+
 func _draw_feature(b: Dictionary, At: Vector2, Bt: Vector2, Ct: Vector2, Dt: Vector2, D: Vector2, C: Vector2, B: Vector2) -> void:
 	var topc := (At + Ct) * 0.5
+	var dc := _dcol(int(b.did))   # rooftop glow / antennas take the district's neon hue
 	match str(b.kind):
 		"fh":
-			draw_rect(Rect2(B.lerp(C, 0.5) + Vector2(-2, -7), Vector2(3, 7)), Color(0.35, 0.22, 0.14), true)
-			draw_rect(Rect2(D.lerp(C, 0.5) + Vector2(-1, -6), Vector2(3, 3)), Color(1.0, 0.75, 0.4, 0.85), true)
+			draw_rect(Rect2(B.lerp(C, 0.5) + Vector2(-2, -7), Vector2(3, 7)), _fa(Color(0.35, 0.22, 0.14)), true)
+			draw_rect(Rect2(D.lerp(C, 0.5) + Vector2(-1, -6), Vector2(3, 3)), _fa(Color(1.0, 0.75, 0.4, 0.85)), true)
 		"ap":
 			for band in [0.32, 0.6, 0.85]:
-				var yb := Vector2(0, -float(b.h) * band)
-				draw_line(D + yb, C + yb, Color(0.28, 0.31, 0.38, 0.6), 1.0)
-				draw_line(B + yb, C + yb, Color(0.34, 0.37, 0.44, 0.6), 1.0)
+				var yb: Vector2 = (Dt - D) * float(band)   # bands follow the zoom-scaled height
+				draw_line(D + yb, C + yb, _fa(Color(0.28, 0.31, 0.38, 0.6)), 1.0)
+				draw_line(B + yb, C + yb, _fa(Color(0.34, 0.37, 0.44, 0.6)), 1.0)
 			if bool(b.get("mixed", false)):   # ground-floor retail below the flats (mixed use)
 				var mid := D.lerp(C, 0.5)
-				draw_rect(Rect2(mid + Vector2(-7, -7), Vector2(14, 3)), Color(1.0, 0.35, 0.8, 0.85), true)   # awning
-				draw_rect(Rect2(mid + Vector2(-6, -4), Vector2(12, 3)), Color(1.0, 0.62, 0.9, 0.55), true)   # lit storefront
+				draw_rect(Rect2(mid + Vector2(-7, -7), Vector2(14, 3)), _fa(Color(1.0, 0.35, 0.8, 0.85)), true)   # awning
+				draw_rect(Rect2(mid + Vector2(-6, -4), Vector2(12, 3)), _fa(Color(1.0, 0.62, 0.9, 0.55)), true)   # lit storefront
 		"sc":
-			draw_line(topc, topc + Vector2(0, -16), Color(0.6, 0.7, 0.8), 1.5)
-			draw_circle(topc + Vector2(0, -16), 2.0, Color(1.0, 0.3, 0.3, 0.6 + 0.4 * sin(_time * 4.0)))
+			draw_line(topc, topc + Vector2(0, -16), _fa(Color(0.6, 0.7, 0.8)), 1.5)
+			draw_circle(topc + Vector2(0, -16), 2.0, _fa(Color(1.0, 0.3, 0.3, 0.6 + 0.4 * sin(_time * 4.0))))
+		"hub":   # crown glow + spire + pulsing beacon — the city's landmark
+			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), Color(0.4, 1.0, 0.95, 0.35))   # never faded
+			var sp := (Dt - D) * 0.3
+			draw_line(topc, topc + sp, Color(0.6, 1.0, 1.0, 0.95), 3.0)
+			draw_circle(topc + sp, 4.0, Color(0.7, 1.0, 1.0, 0.6 + 0.4 * sin(_time * 2.5)))
 		"corp":
-			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), Color(0.35, 0.85, 1.0, 0.2))
-			draw_line(topc, topc + Vector2(0, -26), Color(0.4, 0.8, 1.0, 0.8), 2.0)
-			draw_circle(topc + Vector2(0, -26), 2.5, Color(0.5, 0.9, 1.0, 0.7 + 0.3 * sin(_time * 3.0)))
+			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), _fa(Color(dc.r, dc.g, dc.b, 0.2)))
+			draw_line(topc, topc + Vector2(0, -26), _fa(Color(dc.r, dc.g, dc.b, 0.8)), 2.0)
+			var lit := dc.lerp(Color.WHITE, 0.3)
+			draw_circle(topc + Vector2(0, -26), 2.5, _fa(Color(lit.r, lit.g, lit.b, 0.7 + 0.3 * sin(_time * 3.0))))
 		"mall":
-			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), Color(0.2, 0.95, 1.0, 0.18))
-			draw_rect(Rect2(C + Vector2(-9, -12), Vector2(18, 10)), Color(1.0, 0.3, 0.8, 0.5), true)
+			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), _fa(Color(dc.r, dc.g, dc.b, 0.18)))
+			draw_rect(Rect2(C + Vector2(-9, -12), Vector2(18, 10)), _fa(Color(dc.r, dc.g, dc.b, 0.5)), true)
 		"shop_s", "shop_b":
-			draw_rect(Rect2(C + Vector2(-7, -6), Vector2(14, 3)), Color(1.0, 0.35, 0.8, 0.8), true)
-
-
-func _window_col(dtype: String) -> Color:
-	match dtype:
-		"res": return Color(1.0, 0.72, 0.35, 0.85)
-		"com": return Color(1.0, 0.4, 0.85, 0.8)
-		_:     return Color(0.45, 0.9, 1.0, 0.8)
+			draw_rect(Rect2(C + Vector2(-7, -6), Vector2(14, 3)), _fa(Color(dc.r, dc.g, dc.b, 0.8)), true)
 
 
 func _draw_tree(tr: Dictionary, view: Rect2) -> void:
@@ -1350,25 +1983,87 @@ func _draw_tree(tr: Dictionary, view: Rect2) -> void:
 
 
 func _building_top_center(k: Vector2i) -> Vector2:
+	return _top_at(k, _hmul())
+
+
+func _top_at(k: Vector2i, hm: float) -> Vector2:
 	var b = lots[k]
 	var tw: float = float(b.tw); var td: float = float(b.td); var ins: float = float(b.ins)
-	var up := Vector2(0, -float(b.h) * _hmul())
+	var up := Vector2(0, -float(b.h) * hm)
 	return (_iso(k.x + ins, k.y + ins) + _iso(k.x + tw - ins, k.y + td - ins)) * 0.5 + up
 
 
 # The animated overlay. Runs on the _fx canvas item (above the static scene, same camera transform)
 # and draws ONLY things that change every tick, so the expensive static scene can stay retained.
 func _draw_fx(c: CanvasItem) -> void:
-	# NOTE: this overlay draws ABOVE the whole static scene, so it must only ever touch things that
-	# genuinely sit on top (hover/selection on a building). Water is left flat in the static scene —
-	# a shimmer overlay here would paint over any building that overlaps a water tile behind it.
-	var hk: Vector2i = occ[_hover_tile] if occ.has(_hover_tile) else _hover_tile
-	if lots.has(hk) and hk != selected:   # hover highlight (interactive, so it lives on the overlay)
-		c.draw_polyline(_closed(_box_hull(hk)), Color(1, 1, 1, 0.85), 1.5)
-	if lots.has(selected):             # pulsing selection marker above the building
+	# NOTE: this overlay draws ABOVE the whole static scene; network-view and focus modes dim the city
+	# first, so traces drawn here read as an x-ray "network vision" over the ghosted buildings.
+	if lots.has(selected):   # a building was clicked → BUILDING FOCUS (it + everything linked to it)
+		_draw_focus(c)
 		var pulse: float = 0.6 + 0.4 * sin(_time * 6.0)
 		var mk := _building_top_center(selected) + Vector2(0, -14.0 - 4.0 * pulse)
 		c.draw_colored_polygon(PackedVector2Array([mk, mk + Vector2(-5, -8), mk + Vector2(5, -8)]), Color(0.3, 1.0, 0.9, pulse))
+		var fh: Vector2i = _hover_b
+		if lots.has(fh) and fh != selected: c.draw_polyline(_closed(_box_hull(fh)), Color(1, 1, 1, 0.6), 1.2)
+		return
+	if net_view and sel_did < 0:
+		c.draw_rect(_world.grow(4000.0), Color(0.0, 0.0, 0.02, 0.55))
+	var dc := _dcol(sel_did)
+	var pz: float = 0.65 + 0.35 * sin(_time * 4.0)
+	if sel_did >= 0:   # selected DISTRICT in FOCUS: dim the city, light its ground, pulse its border
+		c.draw_rect(_world.grow(4000.0), Color(0.0, 0.0, 0.02, 0.55))
+		var gc := Color(dc.r, dc.g, dc.b, 0.22)
+		for t in _sel_tiles: c.draw_colored_polygon(_tile_quad(t.x, t.y), gc)
+		if not _sel_edges.is_empty():
+			c.draw_multiline(_sel_edges, Color(dc.r, dc.g, dc.b, pz), 3.5)
+			c.draw_multiline(_sel_edges, Color(1, 1, 1, 0.55 * pz), 1.2)
+	_draw_net(c)   # ground traces + packets — under the focused district's buildings
+	if sel_did >= 0:   # its buildings redrawn bright (translucent holograms: the traces show through)
+		for k in _sel_lots: _fx_box(c, k)
+		var r = districts[sel_did]
+		var lp := _iso(float(r.centroid_tile.x) + 0.5, float(r.centroid_tile.y) + 0.5)
+		c.draw_string(ThemeDB.fallback_font, lp - Vector2(50, 0), str(r.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, dc.lerp(Color.WHITE, 0.4))
+	_draw_gateway_beams(c)
+	var hk: Vector2i = _hover_b
+	if lots.has(hk):   # the hovered building: outline + a faint glow of its links
+		for o in net_links.get(hk, []): _glow_path(c, _link_arc(hk, o)[0], Color(0.85, 1.0, 1.0), 1.0 / camera.zoom.x, 0.5)
+		c.draw_polyline(_closed(_box_hull(hk)), Color(1, 1, 1, 0.85), 1.5)
+
+
+# one building of the focused district, drawn into the overlay: same hologram palette, a touch brighter
+# level 0 = a district-focus building (translucent so its traces show through); 1 = a building linked
+# to the clicked one (lit); 2 = the clicked building itself (brightest, white-hot outline + halo)
+func _fx_box(c: CanvasItem, k: Vector2i, level := 0) -> void:
+	var b = lots[k]
+	var tw: float = float(b.tw); var td: float = float(b.td); var ins: float = float(b.ins)
+	var up := Vector2(0, -float(b.h) * _hmul())
+	var A := _iso(k.x + ins, k.y + ins); var B := _iso(k.x + tw - ins, k.y + ins)
+	var C := _iso(k.x + tw - ins, k.y + td - ins); var D := _iso(k.x + ins, k.y + td - ins)
+	var At := A + up; var Bt := B + up; var Ct := C + up; var Dt := D + up
+	var pal := _holo(b)
+	var lift: float = [0.12, 0.22, 0.34][level]
+	var alpha: float = [0.82, 0.92, 0.97][level]
+	for i in 3: pal[i] = Color((pal[i] as Color).r, (pal[i] as Color).g, (pal[i] as Color).b, alpha)
+	var edge: Color = pal[3]
+	if level == 2:
+		edge = edge.lerp(Color.WHITE, 0.6)
+		c.draw_polyline(_closed(PackedVector2Array([At, Bt, B, C, D, Dt])), Color(edge.r, edge.g, edge.b, 0.25), 8.0 / camera.zoom.x, true)
+	var ew := (2.0 if level == 2 else 1.3)
+	c.draw_colored_polygon(PackedVector2Array([D, C, Ct, Dt]), (pal[0] as Color).lerp(edge, lift))
+	c.draw_colored_polygon(PackedVector2Array([B, C, Ct, Bt]), (pal[1] as Color).lerp(edge, lift))
+	if str(b.kind) == "fh":
+		var rh := minf(up.length() * 0.9, 10.0)
+		var r1 := (At + Bt) * 0.5 + Vector2(0, -rh); var r2 := (Dt + Ct) * 0.5 + Vector2(0, -rh)
+		c.draw_colored_polygon(PackedVector2Array([At, Dt, r2, r1]), (pal[1] as Color).lerp(edge, lift))
+		c.draw_colored_polygon(PackedVector2Array([Bt, Ct, r2, r1]), (pal[2] as Color).lerp(edge, lift))
+		c.draw_colored_polygon(PackedVector2Array([Dt, Ct, r2]), (pal[1] as Color).lerp(edge, lift))
+		c.draw_polyline(PackedVector2Array([At, r1, Bt]), edge, ew); c.draw_polyline(PackedVector2Array([Dt, r2, Ct]), edge, ew)
+		c.draw_line(r1, r2, edge, ew)
+	else:
+		c.draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), (pal[2] as Color).lerp(edge, lift + 0.05))
+		c.draw_polyline(PackedVector2Array([Dt, At, Bt, Ct, Dt]), edge, ew)
+	c.draw_polyline(PackedVector2Array([D, C, B]), edge, ew)
+	c.draw_line(Dt, D, edge, ew); c.draw_line(Ct, C, edge, ew); c.draw_line(Bt, B, edge, ew)
 
 
 class _FxLayer extends Node2D:
@@ -1378,13 +2073,22 @@ class _FxLayer extends Node2D:
 
 
 # ============================================================ UI
+const PANEL_W := 440.0
+
+# height of a wrapped label's text at the panel's inner width (panel sizes itself to its content)
+func _lbl_h(l: Label) -> float:
+	if not l.visible or l.text == "": return 0.0
+	var f := l.get_theme_font("font")
+	return f.get_multiline_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, PANEL_W - 20.0, l.get_theme_font_size("font_size")).y
+
+
 func _build_ui() -> void:
 	var layer := CanvasLayer.new(); add_child(layer)
 	title_lbl = Label.new()
 	title_lbl.position = Vector2(14, 10)
 	title_lbl.add_theme_font_size_override("font_size", int(round(22 * Settings.text_scale)))
 	title_lbl.add_theme_color_override("font_color", Color(0.2, 1.0, 0.9))
-	title_lbl.text = "RIM — CITY  (%s)   ·  WASD/drag pan · wheel zoom · click a building · Esc" % _size_label()
+	title_lbl.text = "RIM — CITY  (%s)   ·  WASD/drag pan · wheel zoom · click a building · N network · hold F flatten · Esc" % _size_label()
 	layer.add_child(title_lbl)
 	hover_lbl = Label.new()
 	hover_lbl.position = Vector2(14, 40)
@@ -1393,7 +2097,7 @@ func _build_ui() -> void:
 	layer.add_child(hover_lbl)
 	sel_panel = Panel.new()
 	sel_panel.position = Vector2(14, 72)
-	sel_panel.custom_minimum_size = Vector2(320, 100); sel_panel.size = Vector2(320, 100)
+	sel_panel.custom_minimum_size = Vector2(PANEL_W, 124); sel_panel.size = Vector2(PANEL_W, 124)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.04, 0.05, 0.08, 0.92)
 	sb.border_color = Color(0.2, 1.0, 0.9, 0.7); sb.set_border_width_all(1); sb.set_corner_radius_all(4)
@@ -1414,18 +2118,111 @@ func _build_ui() -> void:
 	sel_body.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
 	sel_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(sel_body)
+	sel_corp = Label.new()
+	sel_corp.add_theme_font_size_override("font_size", int(round(14 * Settings.text_scale)))
+	sel_corp.add_theme_color_override("font_color", Color(0.75, 0.95, 1.0))
+	sel_corp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(sel_corp)
+	sel_bname = Label.new()
+	sel_bname.add_theme_font_size_override("font_size", int(round(17 * Settings.text_scale)))
+	sel_bname.add_theme_color_override("font_color", Color(0.95, 1.0, 1.0))
+	sel_bname.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(sel_bname)
+	sel_meta = Label.new()
+	sel_meta.add_theme_font_size_override("font_size", int(round(14 * Settings.text_scale)))
+	sel_meta.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	sel_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(sel_meta)
+	sel_story = Label.new()
+	sel_story.add_theme_font_size_override("font_size", int(round(14 * Settings.text_scale)))
+	sel_story.add_theme_color_override("font_color", Color(0.68, 0.78, 0.9))
+	sel_story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(sel_story)
+	sel_people = Label.new()
+	sel_people.add_theme_font_size_override("font_size", int(round(13 * Settings.text_scale)))
+	sel_people.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	sel_people.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(sel_people)
+	sel_hint = Label.new()
+	sel_hint.add_theme_font_size_override("font_size", int(round(13 * Settings.text_scale)))
+	sel_hint.add_theme_color_override("font_color", Color(0.5, 0.6, 0.7))
+	sel_hint.text = "Esc / click a road or the void to deselect"
+	vb.add_child(sel_hint)
 
 
 func _update_sel_panel() -> void:
 	if sel_panel == null: return
-	if not lots.has(selected):
+	if sel_did < 0 or sel_did >= districts.size():
 		sel_panel.visible = false; return
-	var b = lots[selected]
-	var floors: int = max(1, int(round(float(b.h) / 11.0)))
+	var r = districts[sel_did]
 	sel_panel.visible = true
-	sel_title.text = str(KIND_NAME[str(b.kind)]) + ("  · shops below" if bool(b.get("mixed", false)) else "")
-	sel_body.text = "District: %s  (%s)\n~%d floors   ·   %d×%d lots\nEsc / click ground to deselect" % [
-		str(b.area), DTYPE_NAME[str(b.dtype)], floors, int(b.tw), int(b.td)]
+	sel_title.text = str(r.name)
+	sel_title.add_theme_color_override("font_color", (r.col as Color).lerp(Color.WHITE, 0.2))
+	var nb: int = (_district_lots.get(sel_did, []) as Array).size()
+	var info := "%s district  ·  %d buildings  ·  %d cells" % [DTYPE_NAME[str(r.type)], nb, int(r.get("size", 0))]
+	match str(r.type):
+		"bus": info += "\nOwned by %s" % str(r.org)
+		"com": info += ("\nRun by %s (retail arm)" % str(r.org)) if str(r.org) != "" else "\nIndependent traders"
+		"res": info += "\n≈%s residents  ·  landlord: %s" % [_money(int(r.get("pop", 0))), str(r.get("landlord", ""))]
+		_: info += "\nPublic green space"
+	sel_body.text = info
+	var has_b := lots.has(selected)
+	# corp profile: the selected building's corp occupant, else the district's owner
+	var corp := ""
+	if has_b and corp_info.has(str(lots[selected].get("occupant", ""))): corp = str(lots[selected].occupant)
+	elif corp_info.has(str(r.get("org", ""))): corp = str(r.org)
+	sel_corp.visible = corp != ""
+	if corp != "":
+		var ci: Dictionary = corp_info[corp]
+		sel_corp.text = "◆ %s — %s megacorp, est. %d\nDeals in %s.\nCEO %s  ·  HQ: %s\n%d districts  ·  %d buildings  ·  “%s”" % [
+			corp.to_upper(), str(ci.label), int(ci.founded), str(ci.blurb), str(ci.ceo), str(ci.hq),
+			int(ci.districts), int(ci.buildings), str(ci.slogan)]
+	sel_bname.visible = has_b; sel_meta.visible = has_b; sel_story.visible = has_b
+	sel_people.visible = has_b and not (lots[selected].get("people", []) as Array).is_empty() if has_b else false
+	if has_b:
+		var b = lots[selected]
+		var floors: int = max(1, int(round(float(b.h) / 11.0)))
+		sel_bname.text = "▸ " + str(b.get("bname", KIND_NAME[str(b.kind)]))
+		var meta := "%s%s  ·  ~%d floors\nOccupant: %s%s\nSecurity: %s\nNetwork: %s" % [
+			KIND_NAME[str(b.kind)], ("  · shops below" if bool(b.get("mixed", false)) else ""), floors,
+			str(b.get("occupant", "?")), ("  — " + str(b.occ_kind)) if str(b.get("occ_kind", "")) != "" else "",
+			str(b.get("sec", "?")), _net_desc(selected)]
+		if str(b.get("life", "")) != "": meta += "\n" + str(b.life)
+		sel_meta.text = meta
+		sel_story.text = str(b.get("story", ""))
+		if sel_people.visible:
+			var lines := PackedStringArray(["Owner:" if str(b.kind).begins_with("shop") else "Residents:"])
+			for pp in b.people:
+				var inc := ("  ·  ¥%s/yr" % _money(int(pp.income))) if int(pp.income) > 0 else ""
+				lines.append("• %s, %d — %s%s" % [pp.name, int(pp.age), pp.job, inc])
+				lines.append("    %s" % pp.detail)
+			sel_people.text = "\n".join(lines)
+	var h := 30.0 + 4.0 * 7.0   # padding + separations + slack (wrapped labels can run a line long)
+	for l in [sel_title, sel_body, sel_corp, sel_bname, sel_meta, sel_story, sel_people, sel_hint]: h += _lbl_h(l) + 3.0
+	sel_panel.custom_minimum_size = Vector2(PANEL_W, h); sel_panel.size = Vector2(PANEL_W, h)
+
+
+func _money(v: int) -> String:   # 48200 -> "48,200"
+	var sv := str(absi(v)); var out := ""
+	while sv.length() > 3:
+		out = "," + sv.substr(sv.length() - 3) + out; sv = sv.substr(0, sv.length() - 3)
+	return ("-" if v < 0 else "") + sv + out
+
+
+# one-line network role of a building for the panel
+func _net_desc(k: Vector2i) -> String:
+	var links: Array = net_links.get(k, [])
+	var ups := []; var locs := []
+	for o in links:
+		if int(lots[o].did) != int(lots[k].did): ups.append("%s (%s)" % [str(lots[o].get("bname", "?")), str(districts[int(lots[o].did)].name)])
+		else: locs.append(str(lots[o].get("bname", "?")))
+	var role := "CORE" if k == hub_key else ("GATEWAY" if gateways.has(k) else "local node")
+	var hops := _route_to(k, hub_key).size() - 1
+	var txt := "%s · %d link%s" % [role, links.size(), "" if links.size() == 1 else "s"]
+	if not ups.is_empty(): txt += "\n   uplinks → " + ", ".join(ups.slice(0, 4)) + (" +%d" % (ups.size() - 4) if ups.size() > 4 else "")
+	if not locs.is_empty(): txt += "\n   local → " + ", ".join(locs.slice(0, 4)) + (" +%d" % (locs.size() - 4) if locs.size() > 4 else "")
+	if k != hub_key and hops > 0: txt += "\n   route to the Central HUB: %d hop%s" % [hops, "" if hops == 1 else "s"]
+	return txt
 
 
 func _size_label() -> String:
@@ -1434,8 +2231,12 @@ func _size_label() -> String:
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_N:
+		net_view = not net_view
+		if _fx != null: _fx.queue_redraw()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
-		if lots.has(selected):
-			selected = Vector2i(-999, -999); _update_sel_panel()
+		if lots.has(selected) or sel_did >= 0:
+			_clear_selection()
 		else:
 			get_tree().change_scene_to_file("res://scenes/menu.tscn")

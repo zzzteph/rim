@@ -1,0 +1,728 @@
+{
+  "_about": "Content pools for RIM's procedural city lore. Read data/LORE_GUIDE.md before editing. Words in curly braces are placeholders filled at runtime; only the ones listed in the guide exist.",
+  "district_names": {
+    "prefixes": [
+      "Neon",
+      "Chrome",
+      "Static",
+      "Ghost",
+      "Null",
+      "Hex",
+      "Vector",
+      "Cobalt",
+      "Ozone",
+      "Glitch",
+      "Carbon",
+      "Mirror",
+      "Pixel",
+      "Quartz",
+      "Sodium",
+      "Volt",
+      "Shard",
+      "Zero",
+      "Echo",
+      "Oni",
+      "Ion",
+      "Fiber",
+      "Proxy",
+      "Cipher",
+      "Lumen",
+      "Strobe",
+      "Plasma",
+      "Synth",
+      "Violet",
+      "Smog",
+      "Silicon",
+      "Kilo",
+      "Rust",
+      "Tesla",
+      "Black ICE",
+      "Daemon",
+      "Kernel",
+      "Haze",
+      "Mono",
+      "Sigil"
+    ],
+    "suffixes": {
+      "bus": [
+        "Core",
+        "Spire",
+        "Exchange",
+        "Towers",
+        "Sector",
+        "Nexus",
+        "Citadel",
+        "Array"
+      ],
+      "com": [
+        "Arcade",
+        "Bazaar",
+        "Market",
+        "Strip",
+        "Mall",
+        "Souk",
+        "Galleria",
+        "Night Market"
+      ],
+      "res": [
+        "Flats",
+        "Stacks",
+        "Row",
+        "Hive",
+        "Blocks",
+        "Terrace",
+        "Warrens",
+        "Heights",
+        "Sprawl",
+        "Lofts"
+      ],
+      "park": [
+        "Gardens",
+        "Green",
+        "Commons",
+        "Grove",
+        "Park",
+        "Biodome"
+      ]
+    },
+    "standalone": [
+      "Lowmarket",
+      "Kowloon",
+      "Blackwall",
+      "Rimside",
+      "Glasshouse",
+      "Vantablack",
+      "The Sprawl",
+      "Saltyard"
+    ]
+  },
+  "corp_name_prefixes": [
+    "Halcyon",
+    "Kuroda",
+    "Obsidian",
+    "Meridian",
+    "Zenith",
+    "Aegis",
+    "Helix",
+    "Sable",
+    "Morrow",
+    "Vantor",
+    "Orbis",
+    "Seraph",
+    "Nakagawa",
+    "Ironveil",
+    "Cerulean",
+    "Mirai",
+    "Hoshino",
+    "Valkyr",
+    "Calder",
+    "Novak",
+    "Okonkwo",
+    "Ashgrove",
+    "Kestrel",
+    "Tanabe",
+    "Volkov",
+    "Quill",
+    "Brightwater",
+    "Saito-Lind"
+  ],
+  "industries": {
+    "biotech": {
+      "label": "biotech",
+      "blurb": "gene therapy, clone tissue and pharmaceuticals",
+      "name_suffixes": [
+        "Biotech",
+        "Genomics",
+        "Life Sciences"
+      ],
+      "divisions": [
+        "gene-editing",
+        "clone-tissue",
+        "pharma R&D",
+        "neural-implant trial"
+      ],
+      "building_names": [
+        "Gene Vault",
+        "Clinic Spire",
+        "Bioreactor Tower",
+        "Helix Labs"
+      ],
+      "jobs": [
+        "lab technician",
+        "clinical-trial nurse",
+        "gene sequencer"
+      ],
+      "slogans": [
+        "Better living, by design.",
+        "Life, upgraded.",
+        "We grow tomorrow."
+      ]
+    },
+    "data": {
+      "label": "data",
+      "blurb": "data brokerage, cloud vaults and machine intelligence",
+      "name_suffixes": [
+        "Data",
+        "Systems",
+        "Neural"
+      ],
+      "divisions": [
+        "data-brokerage",
+        "AI-training",
+        "cloud-vault",
+        "surveillance-analytics"
+      ],
+      "building_names": [
+        "Data Spire",
+        "Server Citadel",
+        "Archive Tower",
+        "Neural Exchange"
+      ],
+      "jobs": [
+        "data clerk",
+        "AI trainer",
+        "server-farm technician"
+      ],
+      "slogans": [
+        "We remember everything.",
+        "Knowledge is leverage.",
+        "Your data, our future."
+      ]
+    },
+    "arms": {
+      "label": "arms & security",
+      "blurb": "drone fleets, private security and smart weapons",
+      "name_suffixes": [
+        "Dynamics",
+        "Defense",
+        "Heavy Industries"
+      ],
+      "divisions": [
+        "drone-fleet",
+        "private-security",
+        "smart-weapons",
+        "cyber-warfare"
+      ],
+      "building_names": [
+        "Armory Tower",
+        "Command Spire",
+        "Drone Yard",
+        "Security Bastion"
+      ],
+      "jobs": [
+        "security guard",
+        "drone pilot",
+        "weapons tester"
+      ],
+      "slogans": [
+        "Peace through superiority.",
+        "Safety you can afford.",
+        "Precision is mercy."
+      ]
+    },
+    "finance": {
+      "label": "finance",
+      "blurb": "crypto clearing, debt futures and insurance",
+      "name_suffixes": [
+        "Financial",
+        "Holdings",
+        "Capital"
+      ],
+      "divisions": [
+        "crypto-clearing",
+        "debt-futures",
+        "insurance",
+        "high-frequency trading"
+      ],
+      "building_names": [
+        "Exchange Tower",
+        "Vault Spire",
+        "Clearing House",
+        "Ledger Tower"
+      ],
+      "jobs": [
+        "junior analyst",
+        "debt collector",
+        "insurance adjuster"
+      ],
+      "slogans": [
+        "Your future, collateralised.",
+        "Wealth never sleeps.",
+        "Trust, quantified."
+      ]
+    },
+    "media": {
+      "label": "media",
+      "blurb": "braindance, news feeds and targeted advertising",
+      "name_suffixes": [
+        "Media",
+        "Broadcast",
+        "Entertainment"
+      ],
+      "divisions": [
+        "braindance-studio",
+        "news-feed",
+        "ad-targeting",
+        "idol-management"
+      ],
+      "building_names": [
+        "Broadcast Spire",
+        "Studio Tower",
+        "Signal Mast",
+        "Feed Center"
+      ],
+      "jobs": [
+        "braindance editor",
+        "ad-targeting analyst",
+        "camera-drone operator"
+      ],
+      "slogans": [
+        "Feel everything.",
+        "The world, as you want it.",
+        "Always on."
+      ]
+    },
+    "cyber": {
+      "label": "cybernetics",
+      "blurb": "implants, prosthetics and android labour",
+      "name_suffixes": [
+        "Cybernetics",
+        "Robotics",
+        "Prosthetics"
+      ],
+      "divisions": [
+        "chrome-fabrication",
+        "android-assembly",
+        "neural-interface",
+        "limb-prosthetics"
+      ],
+      "building_names": [
+        "Chrome Works",
+        "Fabrication Spire",
+        "Assembly Tower",
+        "Interface Lab"
+      ],
+      "jobs": [
+        "implant fitter",
+        "assembly-line worker",
+        "android technician"
+      ],
+      "slogans": [
+        "Be more than human.",
+        "Chrome is freedom.",
+        "Upgrade or fade."
+      ]
+    }
+  },
+  "people": {
+    "first_names": [
+      "Mira",
+      "Kenji",
+      "Amara",
+      "Luca",
+      "Noor",
+      "Tomas",
+      "Yuki",
+      "Kofi",
+      "Ines",
+      "Dmitri",
+      "Ama",
+      "Ravi",
+      "Zara",
+      "Haruki",
+      "Elena",
+      "Jonah",
+      "Priya",
+      "Mateo",
+      "Sana",
+      "Felix",
+      "Lin",
+      "Omar",
+      "Hana",
+      "Viktor",
+      "Chidi",
+      "Rosa",
+      "Arjun",
+      "Mei",
+      "Tariq",
+      "Nadia",
+      "Bo",
+      "Ifeoma",
+      "Sven",
+      "Leila",
+      "Paulo",
+      "Aiko",
+      "Marcus",
+      "Esi",
+      "Iris",
+      "Teo"
+    ],
+    "surnames": [
+      "Okafor",
+      "Tanaka",
+      "Moreau",
+      "Kowalski",
+      "Haddad",
+      "Lindqvist",
+      "Ferreira",
+      "Nakamura",
+      "Adeyemi",
+      "Volkova",
+      "Castillo",
+      "Park",
+      "Mensah",
+      "Iyer",
+      "Reyes",
+      "Petrov",
+      "Chen",
+      "Boateng",
+      "Mori",
+      "Kahn",
+      "Varga",
+      "Oyelaran",
+      "Silva",
+      "Novak",
+      "Achebe",
+      "Sato",
+      "Dubois",
+      "Kim",
+      "Okonjo",
+      "Rossi"
+    ],
+    "jobs": [
+      {
+        "text": "{corp_job} at {corp}",
+        "min": 38000,
+        "max": 92000
+      },
+      {
+        "text": "{corp_job} at {corp}",
+        "min": 38000,
+        "max": 92000
+      },
+      {
+        "text": "nurse at a {district} clinic",
+        "min": 34000,
+        "max": 52000
+      },
+      {
+        "text": "noodle-bar cook",
+        "min": 18000,
+        "max": 26000
+      },
+      {
+        "text": "rideshare driver",
+        "min": 16000,
+        "max": 30000
+      },
+      {
+        "text": "freelance netrunner (unlicensed)",
+        "min": 0,
+        "max": 140000
+      },
+      {
+        "text": "street artist",
+        "min": 6000,
+        "max": 20000
+      },
+      {
+        "text": "sanitation worker",
+        "min": 22000,
+        "max": 31000
+      },
+      {
+        "text": "courier",
+        "min": 17000,
+        "max": 28000
+      },
+      {
+        "text": "implant surgeon",
+        "min": 120000,
+        "max": 260000
+      },
+      {
+        "text": "bartender",
+        "min": 19000,
+        "max": 33000
+      },
+      {
+        "text": "influencer (2.1k followers)",
+        "min": 3000,
+        "max": 15000
+      },
+      {
+        "text": "maintenance tech at the Central HUB",
+        "min": 41000,
+        "max": 58000
+      },
+      {
+        "text": "night-shift nurse",
+        "min": 36000,
+        "max": 54000
+      },
+      {
+        "text": "lawyer at {corp}",
+        "min": 150000,
+        "max": 410000
+      },
+      {
+        "text": "recycler",
+        "min": 9000,
+        "max": 17000
+      },
+      {
+        "text": "session musician",
+        "min": 8000,
+        "max": 35000
+      },
+      {
+        "text": "teacher",
+        "min": 30000,
+        "max": 44000
+      },
+      {
+        "text": "unemployed (replaced by an AI)",
+        "min": 0,
+        "max": 0
+      },
+      {
+        "text": "pharmacist",
+        "min": 52000,
+        "max": 76000
+      }
+    ],
+    "details": [
+      "Secretly applying for an off-world work visa.",
+      "Owes fourteen months of rent.",
+      "Volunteers at a free implant clinic.",
+      "Has searched 'how to disappear' 41 times.",
+      "Recently bought a black-market optic implant.",
+      "Plays bass in a synthwave band.",
+      "Lost their last job to an AI.",
+      "Married for 32 years.",
+      "Has three unpaid drone-parking fines.",
+      "Allergic to synthetic soy.",
+      "Runs a pirate radio station from the roof.",
+      "Collects pre-collapse paper books.",
+      "Recently won a minor lottery.",
+      "Sleeps three hours a night.",
+      "Keeps a real cat — banned in this building.",
+      "Under investigation for insurance fraud.",
+      "Has never left {district}.",
+      "Writes anonymous exposés about {corp}.",
+      "Donates blood every week — for the money.",
+      "Has a crush on the neighbour upstairs.",
+      "Wanted for unpaid transit fares.",
+      "Cares for an ailing parent.",
+      "Runs a mesh-net node in the closet.",
+      "Laid off by {corp} after nineteen years.",
+      "Training for the city marathon.",
+      "Was a child star in a braindance series.",
+      "Talks to their home AI more than to people.",
+      "Paid off every debt last week.",
+      "Grows tomatoes under UV lamps.",
+      "Learning Japanese from a pirated app.",
+      "Adopted a retired police drone.",
+      "Calls their mother every Sunday.",
+      "Three days sober.",
+      "Born in this building.",
+      "Saving up for a cybernetic arm.",
+      "Has a second family across town."
+    ],
+    "kid_details": [
+      "Top of the class in coding.",
+      "Wants to be a netrunner.",
+      "Skips school for the arcade.",
+      "Has a pet rat called Byte.",
+      "Already owns a data-jack — fake ID."
+    ],
+    "elder_details": [
+      "Remembers when the sky was blue.",
+      "Refuses to own a phone.",
+      "Feeds the pigeons on the roof every morning.",
+      "Fought in the water wars.",
+      "Still writes letters by hand."
+    ]
+  },
+  "places": {
+    "old_buildings": [
+      "public library",
+      "metro depot",
+      "cathedral",
+      "hospital",
+      "school",
+      "power station",
+      "police precinct",
+      "stadium",
+      "fish market",
+      "cinema",
+      "water-treatment plant"
+    ],
+    "small_old_buildings": [
+      "shipping container",
+      "parking garage",
+      "laundromat",
+      "bank branch",
+      "subway kiosk",
+      "phone exchange"
+    ],
+    "events": [
+      "'{year} market crash",
+      "blackout riots",
+      "Sector 9 fire",
+      "data-plague of {year}",
+      "takeover war",
+      "flood year"
+    ],
+    "shop_types": [
+      "Noodle Bar",
+      "Implant Clinic",
+      "Pawn & Chrome",
+      "Capsule Hotel",
+      "Pachinko Hall",
+      "Synth-Sushi",
+      "Data Brokerage",
+      "Implant Boutique",
+      "Karaoke Box",
+      "Repair Shop",
+      "Pharmacy",
+      "Arcade",
+      "Tattoo & Ink",
+      "Tape & Vinyl",
+      "Bodega",
+      "Soy Bakery"
+    ],
+    "tower_words": [
+      "Skyreach",
+      "Cloudline",
+      "Monolith",
+      "Beacon",
+      "Hive",
+      "Arcology",
+      "Pillar",
+      "Overlook"
+    ],
+    "mall_words": [
+      "Galleria",
+      "Night Mall",
+      "Plaza Arcology",
+      "Hypermarket"
+    ]
+  },
+  "stories": {
+    "corporate": {
+      "history": [
+        "Raised in {year} on the footprint of a demolished {old}.",
+        "{org} bought it outright after the {event}, then gutted it floor by floor.",
+        "Originally a {old}; the façade is all that is left of it.",
+        "Completed in {year} — three years late, two contractors dead.",
+        "Its foundations go deeper than the city's oldest metro line."
+      ],
+      "now": [
+        "Today it houses {org}'s {div} division — {floors} floors running around the clock.",
+        "{floors} floors of {div} work, staffed in shifts that never see daylight.",
+        "The lobby is a shrine to {org}; everything above the third floor is badge-only.",
+        "It anchors {org}'s {div} operations in {district}."
+      ],
+      "rumour": [
+        "Floor {f} appears on no public schematic.",
+        "Couriers say the loading dock never closes, yet nothing is ever delivered.",
+        "An unlicensed AI is said to run loose in the sub-basements.",
+        "Three netrunners flatlined probing its ICE last winter.",
+        "Employees who quit tend to stop answering their messages.",
+        "The night cleaners all have the same face.",
+        "Its backup generators hum even when the grid is up.",
+        "Somebody keeps leasing the roof to a drone-racing ring."
+      ]
+    },
+    "shop": {
+      "history": [
+        "Family-run since {year}.",
+        "Opened in a converted {old_small} the year the grid went private.",
+        "Third owner in five years — the first two left in a hurry.",
+        "Started as a street cart; the owner saved for a decade to get a roof over it."
+      ],
+      "now": [
+        "Open twenty-two hours a day; the other two are for 'deliveries'.",
+        "The rent goes to {landlord}, and it goes up every spring.",
+        "Regulars come for the {biz_l}, and stay for the gossip.",
+        "The back room takes cash, crypto, or favours."
+      ],
+      "rumour": [
+        "Ask for the off-menu special and you get a data chip with your change.",
+        "The owner knows every netrunner in {district} by handle.",
+        "The cat behind the counter has an optic implant.",
+        "There is a door downstairs the health inspector never found."
+      ]
+    },
+    "housing": {
+      "history": [
+        "Built as worker housing for {corp} in {year}.",
+        "Once a {old}, now cut into micro-flats.",
+        "Rebuilt twice after fires nobody investigated.",
+        "Thrown up in eleven weeks during the {year} housing panic."
+      ],
+      "now": [
+        "{landlord} collects the rent by drone.",
+        "Laundry lines and antennae crowd every balcony.",
+        "The lifts work on alternate Tuesdays.",
+        "Half the flats run pirated power off the {district} grid."
+      ],
+      "rumour": [
+        "A kid on the top floor out-hacks most corporate red teams.",
+        "The basement hosts an unlicensed braindance den.",
+        "The census drones never seem to reach the upper floors.",
+        "The tenants' mesh net is the only one in {district} the corps can't read."
+      ]
+    },
+    "home": {
+      "history": [
+        "One of the last free-standing houses in the sprawl.",
+        "The family has refused {corp}'s buyout offer twice.",
+        "Built by the grandparents before the towers came."
+      ],
+      "now": [
+        "A vegetable patch, a satellite dish, and a very old dog.",
+        "Three generations under one roof, and one shared deck.",
+        "The garden hides a solar array the city doesn't bill for."
+      ],
+      "rumour": []
+    },
+    "mall": {
+      "history": [
+        "Under one roof: food courts, implant kiosks and a black market two levels down."
+      ],
+      "now": [
+        "Its security drones answer to the management, not the city.",
+        "The basement car park is where {district}'s deals really happen.",
+        "Half the storefronts change hands every season."
+      ],
+      "rumour": []
+    },
+    "hub": {
+      "history": [
+        "The spine of the city's net: every packet in the sprawl routes through its core."
+      ],
+      "now": [
+        "Chartered jointly by {corp} and {corp2}, run by the NetGrid Authority."
+      ],
+      "rumour": [
+        "Nobody has ever mapped its lowest levels.",
+        "Its ICE has flatlined more runners than any war.",
+        "Whoever owns the HUB owns the city — and everybody knows it."
+      ]
+    }
+  },
+  "security": {
+    "hub": "Lethal — black ICE",
+    "corp": "Black ICE",
+    "off_m": "Heavy ICE",
+    "off_s": "Corporate ICE",
+    "mall": "Corporate ICE",
+    "shop_b": "Consumer-grade",
+    "shop_s": "Consumer-grade",
+    "sc": "Patchwork",
+    "ap": "Patchwork",
+    "fh": "None to speak of"
+  }
+}

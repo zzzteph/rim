@@ -9,8 +9,6 @@ func _ready() -> void:
 	var sz := OS.get_environment("CAP_SIZE"); Session.city_size = sz if sz != "" else "large"
 	var sd := OS.get_environment("CAP_SEED"); Session.seed = int(sd) if sd != "" else 303
 	var city = load("res://scenes/city.tscn").instantiate()
-	if OS.get_environment("CAP_DRY") != "":
-		city.disable_water = true   # set before _ready (tree entry) so generation skips water
 	add_child(city)
 	await get_tree().process_frame
 	var z := OS.get_environment("CAP_ZOOM")

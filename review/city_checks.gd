@@ -1,7 +1,7 @@
 extends Node
 ## City generation checks (headless, full project so autoloads load):
 ##   godot --headless res://review/city_checks.tscn
-## Covers repeatability, road reciprocity + classification, no perimeter frame, bridge continuity,
+## Covers repeatability, road reciprocity + classification, no perimeter frame, no water,
 ## valid footprints, reserved sites, one-tier adjacency, and reports land shares + road coverage.
 
 var pass_count := 0
@@ -34,13 +34,13 @@ func run() -> void:
 	check("CK1_repeatable", same, "lots=%d roads=%d" % [a.lots.size(), a.roads.size()])
 
 	var c = mk("medium", 7)
-	# CK2 valid footprints: on land, not road/water, consistent occupancy
+	# CK2 valid footprints: on land, not road, consistent occupancy
 	var valid := true; var fc := 0
 	for k in c.lots:
 		for dx in int(c.lots[k].tw):
 			for dy in int(c.lots[k].td):
 				var t = Vector2i(k.x + dx, k.y + dy)
-				if not c.land.has(t) or c.roads.has(t) or c.water.has(t): valid = false
+				if not c.land.has(t) or c.roads.has(t): valid = false
 				if not c.occ.has(t) or c.occ[t] != k: valid = false
 				fc += 1
 	check("CK2_valid_footprints", valid and fc == c.occ.size(), "cells=%d occ=%d" % [fc, c.occ.size()])
@@ -78,13 +78,8 @@ func run() -> void:
 			if c.roads.has(Vector2i(lx, ly)): broad += 1
 	check("CK5_no_perimeter_frame", float(broad) / float(max(1, border)) < 0.1, "border road %d/%d" % [broad, border])
 
-	# CK6 bridge continuity: every road-over-water has >= 2 road neighbours
-	var bridges := 0; var bad := 0
-	for t in c.roads:
-		if c.water.has(t):
-			bridges += 1
-			if c._road_dirs(t).size() < 2: bad += 1
-	check("CK6_bridge_continuity", bad == 0, "bridges=%d discontinuous=%d" % [bridges, bad])
+	# CK6 no water: the cyberpunk city has no river/lake (removed v0.9.9) — nothing water-shaped remains
+	check("CK6_no_water", c.get("water") == null and not _has_deco(c, "prom"), "water=%s prom=%s" % [c.get("water") != null, _has_deco(c, "prom")])
 
 	# CK7 reserved sites, CK8 one-tier adjacency
 	var has_down := false; var has_mall := false; var has_park := false
@@ -105,7 +100,8 @@ func run() -> void:
 
 	# CK9–CK13: swept across all sizes × seeds 1–15 (45 maps) — the measured failures from the audit.
 	var bad_conn := 0; var sliver := 0; var no_park := 0; var no_retail := 0; var nmaps := 0
-	var watered := 0; var with_prom := 0
+	var dup_names := 0; var road_pct := 0.0; var bad_hub := 0
+	var bad_lore := 0; var stories := 0; var uniq_stories := {}; var bad_net := 0; var bad_stadium := 0; var hidden := 0
 	for sz in ["small", "medium", "large"]:
 		for sd in range(1, 16):
 			var m = mk(sz, sd); nmaps += 1
@@ -113,32 +109,62 @@ func run() -> void:
 			if _has_sliver_build(m): sliver += 1
 			if not _has_deco(m, "park"): no_park += 1
 			if not _has_retail(m): no_retail += 1
-			if _water_bank_count(m) >= 5:   # maps with a meaningful waterfront
-				watered += 1
-				if _has_deco(m, "prom"): with_prom += 1
+			var names := {}
+			for r in m.districts:
+				if names.has(str(r.name)): dup_names += 1
+				names[str(r.name)] = true
+			road_pct += 100.0 * float(m.roads.size()) / float(max(1, m.land.size()))
+			if not _hub_ok(m): bad_hub += 1
+			for k in m.lots:
+				var lb = m.lots[k]
+				if str(lb.get("bname", "")) == "" or str(lb.get("occupant", "")) == "" or str(lb.get("story", "")) == "": bad_lore += 1
+				if str(lb.kind) in ["ap", "sc", "fh"] and (lb.get("people", []) as Array).is_empty(): bad_lore += 1   # homes list residents
+				var txt := str(lb.get("bname", "")) + str(lb.story) + str(lb.get("life", ""))
+				for pp in lb.get("people", []): txt += str(pp.name) + str(pp.job) + str(pp.detail)
+				if "{" in txt or "}" in txt: bad_lore += 1   # an unfilled / misspelt {placeholder} in content
+				stories += 1; uniq_stories[sz + str(sd) + str(lb.get("story", ""))] = true
+			for r in m.districts:   # corps own corporate districts; homes have a landlord; no gangs anywhere
+				if str(r.type) == "bus" and not m.corp_info.has(str(r.get("org", ""))): bad_lore += 1
+				if str(r.type) == "res" and str(r.get("landlord", "")) == "": bad_lore += 1
+			if not _stadium_ok(m): bad_stadium += 1
+			for k in m.lots:   # no building's roof is covered by one in front, even at full height
+				if m._top_hidden(k, m.HEIGHT_K): hidden += 1
+			if not _net_ok(m): bad_net += 1
 	check("CK9_roads_one_component", bad_conn == 0, "%d/%d maps with split road network" % [bad_conn, nmaps])
 	check("CK10_no_sliver_build_sites", sliver == 0, "%d/%d maps built on a <%d-cell remnant" % [sliver, nmaps, 3])
 	check("CK11_every_map_has_park", no_park == 0, "%d/%d maps with no park ground" % [no_park, nmaps])
 	check("CK12_every_map_has_retail", no_retail == 0, "%d/%d maps with no retail site" % [no_retail, nmaps])
-	# promenades now appear on the great majority of real waterfronts (was 0/600 in the audit); the
-	# rest have a legitimate downtown/park bank, so this verifies the systemic fix, not every map.
-	check("CK13_waterfronts_get_promenade", with_prom >= int(0.75 * float(watered)), "%d/%d waterfront maps have a promenade" % [with_prom, watered])
+	# every district on a map has its own name (no "DOWNTOWN CORE" ×5)
+	check("CK13_unique_district_names", dup_names == 0, "%d duplicate district names across %d maps" % [dup_names, nmaps])
+	check("CK14_central_hub_tallest", bad_hub == 0, "%d/%d maps without a central, tallest HUB" % [bad_hub, nmaps])
+	# every building named, occupied and storied; stories varied (≥70% unique within a map); every district has an org
+	check("CK15_building_lore", bad_lore == 0 and uniq_stories.size() >= int(0.7 * float(stories)), "%d missing · %d/%d unique stories" % [bad_lore, uniq_stories.size(), stories])
+	# every building is wired, and the whole network is ONE connected graph that reaches the HUB
+	check("CK16_network_connected", bad_net == 0, "%d/%d maps with an unwired building or split network" % [bad_net, nmaps])
+	# inside every district the tall buildings stand at the back, so a district never hides its own
+	# the lore CONTENT FILE (data/city_lore.json) loads, and every {placeholder} in it is one the
+	# generator fills — catches typos in hand- or AI-written content before they reach the screen
+	var bad_ph := _lore_placeholder_errors()
+	check("CK18_lore_content_valid", load("res://scripts/city_lore.gd").data() != null and load("res://scripts/city_lore.gd").loaded_ok and bad_ph.is_empty(),
+		"file loaded=%s · bad placeholders: %s" % [load("res://scripts/city_lore.gd").loaded_ok, ", ".join(bad_ph) if not bad_ph.is_empty() else "none"])
+	check("CK19_no_hidden_buildings", hidden == 0, "%d buildings hidden behind another across %d maps" % [hidden, nmaps])
+	check("CK17_district_stadium", bad_stadium == 0, "%d/%d maps with a district hiding its own buildings" % [bad_stadium, nmaps])
+	print("ROAD SHARE of developed land, mean over %d maps: %.1f%%" % [nmaps, road_pct / float(nmaps)])
 
 	# report land shares + road coverage
 	var g = mk("large", 303)
 	var tot: int = g._grid.x * g._grid.y
-	var sh := {"res": 0, "com": 0, "bus": 0, "green": 0, "water": 0, "road": 0, "country": 0, "open": 0}
+	var sh := {"res": 0, "com": 0, "bus": 0, "green": 0, "road": 0, "country": 0, "open": 0}
 	for ly in g._grid.y:
 		for lx in g._grid.x:
 			var t = Vector2i(lx, ly)
 			if g.roads.has(t): sh.road += 1
-			elif g.water.has(t): sh.water += 1
 			elif g.occ.has(t): sh[str(g.lots[g.occ[t]].dtype)] = int(sh[str(g.lots[g.occ[t]].dtype)]) + 1
 			elif g.deco.has(t): sh.green += 1
 			elif g.land.has(t): sh.open += 1
 			else: sh.country += 1
-	print("LAND SHARES (large 303, %d tiles): res=%d com=%d bus=%d green=%d open=%d water=%d road=%d(%d%%) countryside=%d" % [
-		tot, sh.res, sh.com, sh.bus, sh.green, sh.open, sh.water, sh.road, int(100.0 * sh.road / tot), sh.country])
+	print("LAND SHARES (large 303, %d tiles): res=%d com=%d bus=%d green=%d open=%d road=%d(%d%%) countryside=%d  districts=%d" % [
+		tot, sh.res, sh.com, sh.bus, sh.green, sh.open, sh.road, int(100.0 * sh.road / tot), sh.country, g.districts.size()])
 
 	print("\nCITY CHECKS: %d passed, %d failed" % [pass_count, fail_count])
 	get_tree().quit(1 if fail_count > 0 else 0)
@@ -189,11 +215,53 @@ func _has_retail(m) -> bool:
 	return false
 
 
-# land tiles (not road) adjacent to water — the places a promenade can exist
-func _water_bank_count(m) -> int:
-	var n := 0
-	for t in m.land:
-		if m.roads.has(t): continue
-		for d in DIRS:
-			if m.water.has(t + d): n += 1; break
-	return n
+# the CENTRAL HUB exists, is strictly the tallest building, and sits near the land centroid
+func _hub_ok(m) -> bool:
+	if not m.lots.has(m.hub_key): return false
+	var hh: float = float(m.lots[m.hub_key].h)
+	for k in m.lots:
+		if k != m.hub_key and float(m.lots[k].h) >= hh: return false
+	var c := Vector2.ZERO
+	for t in m.land: c += Vector2(t)
+	c /= float(max(1, m.land.size()))
+	var hb = m.lots[m.hub_key]
+	return (Vector2(m.hub_key) + Vector2(float(hb.tw), float(hb.td)) * 0.5).distance_to(c + Vector2(0.5, 0.5)) <= 3.0
+
+
+func _net_ok(m) -> bool:
+	if m.lots.size() <= 1: return true
+	for k in m.lots:
+		if (m.net_links.get(k, []) as Array).is_empty(): return false
+	var seen := {m.hub_key: true}; var stack := [m.hub_key]
+	while not stack.is_empty():
+		var cur = stack.pop_back()
+		for o in m.net_links.get(cur, []):
+			if not seen.has(o): seen[o] = true; stack.append(o)
+	return seen.size() == m.lots.size()
+
+
+func _stadium_ok(m) -> bool:
+	for did in m._district_lots:
+		var ks := (m._district_lots[did] as Array).filter(func(k): return k != m.hub_key and int(m.lots[k].tw) == 1 and int(m.lots[k].td) == 1)
+		for a in ks:
+			for b in ks:
+				if a.x + a.y < b.x + b.y and float(m.lots[a].h) < float(m.lots[b].h): return false
+	return true
+
+
+func _lore_placeholder_errors() -> PackedStringArray:
+	var L = load("res://scripts/city_lore.gd")
+	var allowed := {"corp_job": true}
+	for ph in L.PLACEHOLDERS: allowed[ph] = true
+	var re := RegEx.new(); re.compile("[{]([^{}]*)[}]")
+	var bad := PackedStringArray()
+	var stack := [L.data()]
+	while not stack.is_empty():
+		var v = stack.pop_back()
+		if v is Dictionary: stack.append_array(v.values())
+		elif v is Array: stack.append_array(v)
+		elif v is String:
+			for m in re.search_all(v):
+				if not allowed.has(m.get_string(1)): bad.append("{%s}" % m.get_string(1))
+			if v.count("{") != v.count("}"): bad.append("unbalanced braces in: " + v.left(40))
+	return bad
