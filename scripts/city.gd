@@ -9,17 +9,19 @@ extends Node2D
 ## High-angle dimetric (64×48). Deterministic from Session.seed. Selection + hover are live.
 
 const TILE_W := 64.0
-const TILE_H := 56.0   # 64×56 steep dimetric (~61° camera elevation) — looking down onto the city so tall
+const TILE_H := 58.0   # 64×58 steep dimetric (~65° camera elevation) — looking down onto the city so tall
                         # buildings cover far less of what stands behind them
-const HEIGHT_K := 0.62  # verticals foreshorten as the camera tilts down (≈ cos 61° / cos 39°)
+const HEIGHT_K := 0.36  # FULL (raised) building height scale: ~65° foreshortening (0.54) × 2/3
+const FLAT_DEFAULT := 0.12   # the DEFAULT look: buildings low and small (the user's favourite view);
+                             # hold F to raise them to full height (×1.0)
 const HW := TILE_W * 0.5
 const HH := TILE_H * 0.5
 const SPACING := 0.035   # extra inset per side → building footprints ~15% smaller (a more spacious city)
 const MIN_BLOCK := 3    # blocks smaller than this are slivers → landscaped verge, never a build site
 const GRID_COL := Color(0.2, 0.85, 1.0, 0.11)   # faint neon "cyberspace" grid on built ground
-const LOD_ZOOM := 0.5   # below this (overview) buildings draw as flat tops and the whole map is baked
-const WIN_ZOOM := 1.3   # below this the whole map is baked & retained (pan is free); at/above it the
-                        # view is culled and fine detail (windows, curbs, furrows, full trees) appears
+const DETAIL_Z0 := 0.75   # architectural detail (floor bands, panel lines, roof gear) fades in from here…
+const DETAIL_Z1 := 1.25   # …to fully drawn here
+const LOD_ZOOM := 0.5   # below this (overview) the baked buildings are flat tops + a faint rim
 const DIRS := [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]   # N E S W
 
 const KINDS := {
@@ -96,29 +98,25 @@ var district_adj := {}     # district id -> [adjacent district ids]
 var net_view := false      # N: full network view (city dims, every link lit)
 var corp_info := {}        # megacorp name -> profile (see city_lore.gd)
 var _paths_of := {}        # building anchor -> [link entries touching it] (hover / selection)
-var _hid := {}             # ground cell -> hidden behind a building in front? (packet occlusion cache)
-var _hid_h := -1.0         # the _hmul() the occlusion cache was computed at
-var _flat := 1.0           # hold F: the whole city eases down to footprints so nothing stays hidden
+var _flat := FLAT_DEFAULT  # height factor: FLAT_DEFAULT normally, eases to 1.0 while F is held
 var sel_corp: Label
 var sel_people: Label
+var sel_explore: Button
+var _seps := []   # section rules in the side panel (shown with the section that follows)
 var sel_bname: Label
 var sel_meta: Label
 var sel_story: Label
-var sel_hint: Label
 var _time := 0.0
 # repaint gating + precomputed draw order (perf): redraw only on view/hover/state change, with a
 # throttled tick for the neon animation; buildings+trees are depth-sorted ONCE at generation.
-var _last_cam := Vector2(INF, INF)
 var _last_zoomv := Vector2.ZERO
 var _last_hover := Vector2i(-9999, -9999)
 var _last_hover_b := Vector2i(-9999, -9999)
 var _anim_acc := 1.0
 var _dirty := true
-var _baked_region := Rect2()   # world rect covered by the last static repaint (detail-zoom margin)
-# Batched static bake: on heavy maps the whole static scene is accumulated into ONE triangle array
-# (canvas_item_add_triangle_array) so a frame is 1 draw call instead of ~3400 (GL-compat won't batch
-# thousands of per-colour draw_colored_polygon calls — that submission cost, not fill, was the wall).
-const BAKE_MIN_ITEMS := 400    # only the big (large) map is dense enough to need it; medium/small stay live
+# Batched static bake: on EVERY map the whole static scene is accumulated into ONE triangle array
+# (canvas_item_add_triangle_array) so a frame is a handful of draw calls instead of thousands (GL-compat
+# won't batch per-colour draw_colored_polygon calls — that submission cost, not fill, was the wall).
 var _bake_pts := PackedVector2Array()
 var _bake_cols := PackedColorArray()
 var _bake_idx := PackedInt32Array()
@@ -127,11 +125,18 @@ var _ground_cols := PackedColorArray()
 var _ground_idx := PackedInt32Array()
 var _bake_tier := -99          # which tier (0 flat / 1 box) the arrays hold; -99 = unbuilt
 var _bake_h := -1.0            # the _hmul() the arrays were baked at
+var _bake_da := -1.0           # the detail alpha the arrays were baked at (quantised, so a fade = a few rebakes)
+var _bake_fa := -1.0           # the rooftop-feature alpha the arrays were baked at (quantised the same way)
+var _net_pts := PackedVector2Array()   # N view: the WHOLE network as one cached batch (built on demand)
+var _net_cols := PackedColorArray()
+var _net_idx := PackedInt32Array()
+var _net_h := -1.0                     # the building height the network batch was built at
+var _hover_txt := ""                   # last hover text (the label is only touched when it changes)
 var _fx: Node2D         # lightweight overlay carrying ONLY the animated primitives (see _draw_fx)
 var _draw_items := []   # [{b:bool, k/i, d:int}] sorted by iso depth
 var title_lbl: Label
 var hover_lbl: Label
-var sel_panel: Panel
+var sel_panel: PanelContainer
 var sel_title: Label
 var sel_body: Label
 
@@ -144,6 +149,12 @@ func _ready() -> void:
 	_frame()
 	_fx = _FxLayer.new(); _fx.host = self; add_child(_fx)   # animated overlay, above the static scene
 	_build_ui()
+	if not Session.city_return.is_empty():   # came back from a building's local map → restore the view
+		var cr: Dictionary = Session.city_return
+		camera.position = Vector2(cr.cam[0], cr.cam[1]); camera.zoom = Vector2(cr.zoom, cr.zoom)
+		var st := Vector2i(int(cr.sel[0]), int(cr.sel[1]))
+		if lots.has(st): _select_building(st)
+		Session.city_return = {}
 
 
 func _iso(fx: float, fy: float) -> Vector2:
@@ -279,6 +290,32 @@ func _link(a: Vector2i, b: Vector2i, backbone: bool) -> void:
 	(net_backbone if backbone else net_local).append([a, b])
 
 
+# would a link a→b pass over a building already linked to a or b (i.e. one standing roughly between
+# them)? Then a→b is a redundant "chord" (1→3 over 2) that only tangles the picture — never add it.
+func _jumps_over(a: Vector2i, b: Vector2i) -> bool:
+	var pa := _lot_center(a); var pb := _lot_center(b)
+	var d := pa.distance_to(pb)
+	for end in [a, b]:
+		for m in net_links.get(end, []):
+			if m == a or m == b: continue
+			var pm := _lot_center(m)
+			if pa.distance_to(pm) + pm.distance_to(pb) < 1.3 * d: return true
+	return false
+
+
+# the district-to-district version: would a→b run over an UPLINK neighbour of a or b (a gateway in another
+# district linked to either end, standing roughly between them)? Local next-door neighbours don't count.
+func _bb_jumps_over(a: Vector2i, b: Vector2i) -> bool:
+	var pa := _lot_center(a); var pb := _lot_center(b)
+	var d := pa.distance_to(pb)
+	for end in [a, b]:
+		for m in net_links.get(end, []):
+			if m == a or m == b or int(lots[m].did) == int(lots[end].did): continue
+			var pm := _lot_center(m)
+			if pa.distance_to(pm) + pm.distance_to(pb) < 1.3 * d: return true
+	return false
+
+
 func _build_network() -> void:
 	var gw_of := {}   # district id -> [gateway anchors]
 	for did in _district_lots:
@@ -299,25 +336,33 @@ func _build_network() -> void:
 			for k in best:
 				var d2: float = _lot_center(k).distance_squared_to(_lot_center(nk))
 				if d2 < float(best[k][0]): best[k] = [d2, nk]
-		# …plus short redundant links on some leaves, so it reads as a mesh rather than a bare tree
+		# …plus short redundant links (every leaf, and some 2-link nodes) so it's a routed mesh, not a chain
 		for k in ks:
-			if (net_links[k] as Array).size() != 1 or _noise(k.x * 5 + 1, k.y * 5 + 7) < 0.1: continue
+			var deg := (net_links[k] as Array).size()
+			if deg > 2 or (deg == 2 and _noise(k.x * 5 + 1, k.y * 5 + 7) < 0.25): continue
 			var nb: Vector2i = k; var bd := 6.5
 			for o in ks:
-				if o == k or (net_links[k] as Array).has(o): continue
+				if o == k or (net_links[k] as Array).has(o) or _jumps_over(k, o): continue
 				var dd: float = _lot_center(k).distance_squared_to(_lot_center(o))
 				if dd < bd: bd = dd; nb = o
 			if nb != k: _link(k, nb, false)
-		# GATEWAYS: the tallest building (the HUB in its own district); a second, far one in big districts
+		# GATEWAY candidates: the tallest building (the HUB in its own district), then more spread across the
+		# district — one per ~8 buildings, up to 4 — so links to different neighbours leave from different
+		# buildings (more of the city routes traffic) instead of all funnelling through one tower
 		var tall := ks.duplicate()
 		tall.sort_custom(func(a, c): return float(lots[a].h) > float(lots[c].h))
 		var gws := [hub_key] if ks.has(hub_key) else [tall[0]]
-		if ks.size() >= 14:
-			var far: Vector2i = tall[0]; var fd := -1.0
-			for o in tall.slice(0, maxi(1, tall.size() / 2)):
-				var dd: float = _lot_center(o).distance_squared_to(_lot_center(gws[0]))
-				if dd > fd: fd = dd; far = o
-			if far != gws[0]: gws.append(far)
+		var n_gw := clampi(1 + ks.size() / 8, 1, 4)
+		var pool := tall.slice(0, maxi(1, (tall.size() * 2) / 3))   # the taller two-thirds
+		while gws.size() < n_gw:
+			var far: Vector2i = gws[0]; var fd := -1.0
+			for o in pool:   # farthest from every gateway chosen so far
+				if gws.has(o): continue
+				var md := INF
+				for g in gws: md = minf(md, _lot_center(o).distance_squared_to(_lot_center(g)))
+				if md > fd: fd = md; far = o
+			if fd < 0.0: break
+			gws.append(far)
 		gw_of[did] = gws
 		for g in gws: gateways[g] = true
 	# BACKBONE: a spanning tree over districts (closest gateway pair per link) so every district reaches
@@ -344,14 +389,54 @@ func _build_network() -> void:
 		joined[best_y] = true
 	if lots.has(hub_key):
 		var hd := int(lots[hub_key].did)
-		var near := dids.filter(func(x): return x != hd)
-		near.sort_custom(func(x, y): return _lot_center(gw_of[x][0]).distance_squared_to(_lot_center(hub_key)) < _lot_center(gw_of[y][0]).distance_squared_to(_lot_center(hub_key)))
-		for x in near.slice(0, 4): _link(hub_key, gw_of[x][0], true)
+		var hc := _lot_center(hub_key)
+		var gw_near := {}   # each district's gateway nearest the HUB
+		for x in dids:
+			if x == hd: continue
+			var bg: Vector2i = gw_of[x][0]
+			for g in gw_of[x]:
+				if _lot_center(g).distance_squared_to(hc) < _lot_center(bg).distance_squared_to(hc): bg = g
+			gw_near[x] = bg
+		var near: Array = gw_near.keys()
+		near.sort_custom(func(x, y): return _lot_center(gw_near[x]).distance_squared_to(hc) < _lot_center(gw_near[y]).distance_squared_to(hc))
+		var hub_n := 0
+		for x in near:   # direct HUB spokes: up to 4, only to NEARBY districts (≤7 tiles), never over another uplink
+			if hub_n >= 4 or _lot_center(gw_near[x]).distance_to(hc) > 7.0: break
+			if _bb_jumps_over(hub_key, gw_near[x]): continue
+			_link(hub_key, gw_near[x], true); hub_n += 1
 	for x in dids:
 		for y in district_adj.get(x, []):
-			if y <= x or not gw_of.has(y) or _noise(x * 13 + 3, y * 17 + 5) < 0.35: continue
+			if y <= x or not gw_of.has(y) or _noise(x * 13 + 3, y * 17 + 5) < 0.15: continue
 			var pr: Array = pair_of.call(x, y)
-			_link(pr[0][0], pr[0][1], true)
+			if not _bb_jumps_over(pr[0][0], pr[0][1]): _link(pr[0][0], pr[0][1], true)
+	# every district links to at least TWO other districts (nearest neighbours first) — no dead-end district
+	# hanging off the network by a single link, and the city is a mesh, not just spokes into the HUB
+	var peers := {}
+	for x in dids: peers[x] = {}
+	for e in net_backbone:
+		var da := int(lots[e[0]].did); var db := int(lots[e[1]].did)
+		if da != db: peers[da][db] = true; peers[db][da] = true
+	for x in dids:
+		if peers[x].size() >= 2: continue
+		var cands := dids.filter(func(y): return y != x and not peers[x].has(y))
+		var adj_x: Array = district_adj.get(x, [])
+		cands.sort_custom(func(y1, y2):   # adjacent districts first, then by gateway distance
+			var a1 := adj_x.has(y1); var a2 := adj_x.has(y2)
+			if a1 != a2: return a1
+			return float(pair_of.call(x, y1)[1]) < float(pair_of.call(x, y2)[1]))
+		if cands.is_empty(): continue
+		# only NEARBY candidates: within 1.5× the nearest one's distance (or 6 tiles). First a clean link among
+		# them; if every nearby one would be a chord, the nearest one anyway — never a far-away district.
+		var d0 := sqrt(float(pair_of.call(x, cands[0])[1]))
+		var reach := maxf(d0 * 1.5, 6.0)
+		for pass_i in 2:
+			for y in cands:
+				if peers[x].size() >= 2 or peers[x].has(y): continue
+				var pr: Array = pair_of.call(x, y)
+				if sqrt(float(pr[1])) > reach: continue
+				if pass_i == 0 and _bb_jumps_over(pr[0][0], pr[0][1]): continue
+				_link(pr[0][0], pr[0][1], true)
+				peers[x][y] = true; peers[y][x] = true
 	# a gateway is a building that ACTUALLY uplinks to another district (a candidate the backbone never
 	# used is just a local node)
 	gateways = {}
@@ -438,71 +523,12 @@ func _path_point(e: Array, t: float) -> Vector2:   # tile-coord point at fractio
 	return path[path.size() - 1]
 
 
-# is ground cell c's centre covered on screen by a building standing in FRONT of it? (cached per height)
-func _cell_hidden(c: Vector2i) -> bool:
-	if _hid.has(c): return bool(_hid[c])
-	var p := _iso(c.x + 0.5, c.y + 0.5)
-	var hidden := false
-	for st in range(1, 18):          # depth steps in front of the cell
-		for dd in range(-2, 3):       # lateral offset (screen x)
-			if (st + dd) % 2 != 0: continue
-			var t := Vector2i(c.x + (st + dd) / 2, c.y + (st - dd) / 2)
-			if occ.has(t) and Geometry2D.is_point_in_polygon(p, _box_hull(occ[t])):
-				hidden = true; break
-		if hidden: break
-	_hid[c] = hidden
-	return hidden
-
-
-# Static traces in the ground layer (under the buildings, so they're properly hidden by them): faint
-# district-hued local traces peeking out between buildings, and bright fibre trunks along the streets.
-const TRUNK_COL := Color(0.5, 0.95, 1.0, 0.8)
-# Static traces in the ground layer get a neon GLOW: a wide faint halo, a mid band, a bright core.
-func _draw_traces_static() -> void:
-	for e in net_local:
-		var dc := _dcol(int(lots[e[0]].did))
-		draw_polyline(e[3], Color(dc.r, dc.g, dc.b, 0.1), 3.5)
-		draw_polyline(e[3], Color(dc.r, dc.g, dc.b, 0.42), 1.1)
-	for e in net_backbone:
-		draw_polyline(e[3], Color(0.4, 0.9, 1.0, 0.06), 7.0)
-		draw_polyline(e[3], Color(0.6, 0.95, 1.0, 0.4), 1.4)
-
-
-func _bake_traces() -> void:
-	for e in net_local:
-		var dc := _dcol(int(lots[e[0]].did))
-		var pts: PackedVector2Array = e[3]
-		for i in range(1, pts.size()):
-			_bline(pts[i - 1], pts[i], 3.5, Color(dc.r, dc.g, dc.b, 0.1))
-			_bline(pts[i - 1], pts[i], 1.1, Color(dc.r, dc.g, dc.b, 0.42))
-	for e in net_backbone:
-		var pts: PackedVector2Array = e[3]
-		for i in range(1, pts.size()):
-			_bline(pts[i - 1], pts[i], 7.0, Color(0.4, 0.9, 1.0, 0.06))
-			_bline(pts[i - 1], pts[i], 1.4, Color(0.6, 0.95, 1.0, 0.4))
-
-
 # a link as a neon tube in the overlay: soft halo + band + white-hot core (constant on-screen width)
 func _glow_path(c: CanvasItem, pts: PackedVector2Array, col: Color, px: float, strong := 1.0) -> void:
 	c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.12 * strong), 10.0 * px, true)
 	c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.32 * strong), 4.5 * px, true)
 	var core := col.lerp(Color.WHITE, 0.55); core.a = 0.95 * strong
 	c.draw_polyline(pts, core, 1.7 * px, true)
-
-
-# light FLOWING along a link: short bright dashes marching from one end to the other
-func _flow(c: CanvasItem, e: Array, from_a: bool, col: Color, px: float) -> void:
-	var L := float(e[4])
-	if L < 0.05 or Settings.reduced_motion: return
-	var spacing := 0.7
-	var sd := fmod(_time * 2.4, spacing)
-	var hot := col.lerp(Color.WHITE, 0.7)
-	while sd < L:
-		var t0 := sd / L; var t1 := minf((sd + 0.26) / L, 1.0)
-		if not from_a: t0 = 1.0 - t0; t1 = 1.0 - t1
-		var p0 := _path_point(e, t0); var p1 := _path_point(e, t1)
-		c.draw_line(_iso(p0.x, p0.y), _iso(p1.x, p1.y), hot, 2.6 * px, true)
-		sd += spacing
 
 
 # a packet with a comet tail (head + three fading trail dots)
@@ -512,7 +538,7 @@ func _comet(c: CanvasItem, e: Array, t: float, col: Color, px: float, size: floa
 		var tt := t - float(i) * 0.22 / L
 		if tt < 0.0: break
 		var pp := _path_point(e, tt)
-		c.draw_circle(_iso(pp.x, pp.y), size * px * (1.0 - 0.18 * float(i)), Color(col.r, col.g, col.b, 0.95 - 0.26 * float(i)))
+		c.draw_circle(_iso(pp.x, pp.y), size * px * (1.0 - 0.18 * float(i)), Color(col.r, col.g, col.b, 0.95 - 0.26 * float(i)), true, -1.0, true)
 
 
 # ---- ARCS: a link drawn as an arc of light from rooftop to rooftop (reads instantly as "A ↔ B") ----
@@ -520,11 +546,11 @@ func _arc_lift(a: Vector2, b: Vector2, backbone: bool) -> float:
 	return (24.0 + a.distance_to(b) * 0.18) if backbone else (8.0 + a.distance_to(b) * 0.12)
 
 
-func _arc_pts(a: Vector2, b: Vector2, lift: float) -> PackedVector2Array:
+func _arc_pts(a: Vector2, b: Vector2, lift: float, segs := 12) -> PackedVector2Array:
 	var m := (a + b) * 0.5 + Vector2(0, -lift)
 	var pts := PackedVector2Array()
-	for i in 13:
-		var t := float(i) / 12.0
+	for i in segs + 1:
+		var t := float(i) / float(segs)
 		pts.append(a.lerp(m, t).lerp(m.lerp(b, t), t))
 	return pts
 
@@ -561,7 +587,7 @@ func _comet_arc(c: CanvasItem, arc: Array, t: float, col: Color, px: float, size
 	for i in 4:
 		var tt := t - float(i) * 7.0 / L
 		if tt < 0.0: break
-		c.draw_circle(_arc_at(pa, pb, lift, tt), size * px * (1.0 - 0.18 * float(i)), Color(col.r, col.g, col.b, 0.95 - 0.26 * float(i)))
+		c.draw_circle(_arc_at(pa, pb, lift, tt), size * px * (1.0 - 0.18 * float(i)), Color(col.r, col.g, col.b, 0.95 - 0.26 * float(i)), true, -1.0, true)
 
 
 # a pulsing ring on the ground around a building's footprint (iso ellipse)
@@ -575,40 +601,26 @@ func _ground_ring(c: CanvasItem, k: Vector2i, col: Color, px: float) -> void:
 	c.draw_polyline(pts, Color(col.r, col.g, col.b, 0.9), 2.0 * px, true)
 
 
-# The animated network overlay. Links are ARCS of light between rooftops. Default: the backbone (district
-# ↔ district) as faint arcs with comet packets. N: every link — local arcs in each district's hue, backbone
-# arcs glowing. District focus: the district's own wiring as ground traces (no pile-up of arcs inside one
-# district) + its uplinks as glowing arcs.
+# DISTRICT FOCUS network (the only always-animated network drawing left; N is a static batch and the
+# default view shows no data flow at all): the district's own wiring as ground traces with packets, its
+# uplinks as glowing arcs with packets.
 func _draw_net(c: CanvasItem) -> void:
+	if sel_did < 0: return
 	var px := 1.0 / camera.zoom.x   # one screen pixel in world units
 	var anim := not Settings.reduced_motion
-	var full := net_view and sel_did < 0
-	if sel_did >= 0 and not full:   # district focus: its local wiring on the ground
-		for e in net_local:
-			var did := int(lots[e[0]].did)
-			if did != sel_did: continue
-			var dc := _dcol(did)
-			c.draw_polyline(e[3], Color(dc.r, dc.g, dc.b, 0.14), 6.0 * px, true)
-			c.draw_polyline(e[3], dc.lerp(Color.WHITE, 0.35), 1.5 * px, true)
-			if anim:
-				var t := fmod(_time * 1.6 / maxf(float(e[4]), 0.5) + float((e[0].x * 7 + e[1].y * 13) % 17) / 17.0, 1.0)
-				_comet(c, e, t, dc.lerp(Color.WHITE, 0.6), px, 2.2)
-	if full:   # network view: every local link as a low arc in its district's hue
-		for e in net_local:
-			var dc := _dcol(int(lots[e[0]].did))
-			var arc := _link_arc(e[0], e[1])
-			c.draw_polyline(arc[0], Color(dc.r, dc.g, dc.b, 0.16), 4.0 * px, true)
-			c.draw_polyline(arc[0], Color(dc.r, dc.g, dc.b, 0.6), 1.2 * px, true)
-			if anim:
-				_comet_arc(c, arc, fmod(_time * 0.5 + float((e[0].x * 7 + e[1].y * 13) % 17) / 17.0, 1.0), dc.lerp(Color.WHITE, 0.6), px, 2.0)
+	for e in net_local:
+		var did := int(lots[e[0]].did)
+		if did != sel_did: continue
+		var dc := _dcol(did)
+		c.draw_polyline(e[3], Color(dc.r, dc.g, dc.b, 0.14), 6.0 * px, true)
+		c.draw_polyline(e[3], dc.lerp(Color.WHITE, 0.35), 1.5 * px, true)
+		if anim:
+			var t := fmod(_time * 1.6 / maxf(float(e[4]), 0.5) + float((e[0].x * 7 + e[1].y * 13) % 17) / 17.0, 1.0)
+			_comet(c, e, t, dc.lerp(Color.WHITE, 0.6), px, 2.2)
 	for e in net_backbone:
-		var hot := sel_did >= 0 and (int(lots[e[0]].did) == sel_did or int(lots[e[1]].did) == sel_did)
-		if sel_did >= 0 and not hot and not full: continue
+		if int(lots[e[0]].did) != sel_did and int(lots[e[1]].did) != sel_did: continue
 		var arc := _link_arc(e[0], e[1])
-		if full or hot:
-			_glow_path(c, arc[0], Color(0.45, 0.92, 1.0), px, 1.0 if hot else 0.75)
-		else:   # default view: a faint arc
-			c.draw_polyline(arc[0], Color(0.75, 1.0, 1.0, 0.3), 1.8 * px, true)
+		_glow_path(c, arc[0], Color(0.45, 0.92, 1.0), px, 1.0)
 		if anim:
 			for j in 2:
 				var t := fmod(_time * 0.3 + 0.5 * float(j) + float((e[0].x * 11 + e[0].y * 3) % 23) / 23.0, 1.0)
@@ -638,25 +650,17 @@ func _draw_focus(c: CanvasItem) -> void:
 		var arc := _link_arc(selected, o)
 		_glow_path(c, arc[0], col, px)
 		_flow_arc(c, arc, col, px)
-	var font := ThemeDB.fallback_font
-	var li := 0
-	for k in _focus:   # names of the linked buildings (and the HUB), staggered so labels don't stack
-		if k == selected or not (direct.has(k) or k == hub_key): continue
-		var top := _building_top_center(k)
-		var dc := _dcol(int(lots[k].did)).lerp(Color.WHITE, 0.45)
-		c.draw_string(font, top + Vector2(-46, -12.0 - 15.0 * float(li % 3)), str(lots[k].get("bname", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, dc)
-		li += 1
 
 
 # gateways send a short beam of light up from the roof (network view / selected district)
-func _draw_gateway_beams(c: CanvasItem) -> void:
-	if not net_view and sel_did < 0: return
+func _draw_gateway_beams(c: CanvasItem) -> void:   # district focus only (N view beams are in its batch)
+	if sel_did < 0: return
 	var px := 1.0 / camera.zoom.x
 	for g in gateways:
 		if sel_did >= 0 and int(lots[g].did) != sel_did: continue
 		var top := _building_top_center(g)
-		c.draw_line(top, top + Vector2(0, -30), Color(0.8, 1.0, 1.0, 0.9), 2.0 * px)
-		c.draw_circle(top + Vector2(0, -30), 3.0 * px, Color(0.9, 1.0, 1.0, 0.95))
+		c.draw_line(top, top + Vector2(0, -30), Color(0.8, 1.0, 1.0, 0.9), 2.0 * px, true)
+		c.draw_circle(top + Vector2(0, -30), 3.0 * px, Color(0.9, 1.0, 1.0, 0.95), true, -1.0, true)
 
 
 # buildings + trees depth-sorted ONCE (they never move), so _draw does no per-frame allocation/sort
@@ -1352,8 +1356,8 @@ func _process(dt: float) -> void:
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
 	if pan != Vector2.ZERO:
 		camera.position += pan.normalized() * 520.0 * dt / camera.zoom.x
-	# hold F: the city eases down to its footprints (everything visible + clickable), release to restore
-	var ft := 0.12 if Input.is_key_pressed(KEY_F) else 1.0
+	# default = the flat, small-building view; hold F: the city eases up to full height, release to settle back
+	var ft := 1.0 if Input.is_key_pressed(KEY_F) else FLAT_DEFAULT
 	if not is_equal_approx(_flat, ft):
 		_flat = move_toward(_flat, ft, dt * 4.5)
 		_dirty = true
@@ -1364,28 +1368,23 @@ func _process(dt: float) -> void:
 	# animation never force a (costly, ~everything-visible) repaint — only selection or a zoom change
 	# does. When zoomed in, culling makes repaints cheap, so pan/hover/anim repaint normally there.
 	_anim_acc += dt
-	# While the whole map is baked (zoom < WIN_ZOOM) the Camera2D pans/zooms the retained canvas for
-	# free, so the static scene repaints only on a zoom change or a content change. Panning, hover and
-	# the neon animation ride the cheap _fx overlay instead. Zoomed in past WIN_ZOOM the view is culled
-	# to a neighbourhood, so repainting on pan there is cheap and done normally.
-	var baked: bool = _is_baked()
+	# Repaint gating. Canvas items are RETAINED: the Camera2D pans/zooms already-drawn commands on the GPU
+	# for free, so the static scene repaints only on a zoom or content change. The overlay repaints on
+	# hover, and animates (20 Hz) ONLY while a building/district is selected — the default and N views
+	# show no moving data at all, so an idle city costs nothing.
 	var zoomed: bool = camera.zoom != _last_zoomv
-	var moved: bool = camera.position != _last_cam
 	var hov: bool = _hover_tile != _last_hover or _hover_b != _last_hover_b
-	# At detail zoom the last repaint covered a margin around the view; only repaint once the camera
-	# has panned far enough that the view leaves that baked region. (Heavy maps are always baked.)
-	var escaped: bool = not baked and moved and not _baked_region.encloses(_cam_view())
-	var repaint: bool = _dirty or zoomed or escaped
-	var tick: bool = (not Settings.reduced_motion) and _anim_acc >= 0.05
-	if repaint:
+	var animating: bool = (lots.has(selected) or sel_did >= 0) and not Settings.reduced_motion
+	var tick: bool = animating and _anim_acc >= 0.05
+	if _dirty or zoomed:
 		_dirty = false
-		_last_cam = camera.position; _last_zoomv = camera.zoom; _last_hover = _hover_tile; _last_hover_b = _hover_b
+		_last_zoomv = camera.zoom; _last_hover = _hover_tile; _last_hover_b = _hover_b
 		queue_redraw()
 		if _fx != null: _fx.queue_redraw()   # keep the overlay in step with content changes
 	elif hov or tick:
 		_last_hover = _hover_tile; _last_hover_b = _hover_b
 		if tick: _anim_acc = 0.0
-		if _fx != null: _fx.queue_redraw()   # hover highlight + animation, without rebuilding the scene
+		if _fx != null: _fx.queue_redraw()   # hover highlight + selection animation, never the scene
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1398,6 +1397,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_panning = event.pressed
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				if event.double_click:   # double-click a building → dive into its local map
+					if lots.has(_building_at(get_global_mouse_position())):
+						_select_at(get_global_mouse_position()); _enter_building(); return
 				_lmb_down = true; _lmb_moved = false
 			else:
 				if _lmb_down and not _lmb_moved: _select_at(get_global_mouse_position())
@@ -1414,45 +1416,14 @@ func _screen_to_tile(wpos: Vector2) -> Vector2i:
 	return Vector2i(int(floor(fx)), int(floor(fy)))
 
 
-func _grid_rect() -> Rect2i:
-	return Rect2i(0, 0, _grid.x, _grid.y)
-
-
-func _cam_view() -> Rect2:   # the world rect currently visible through the camera
-	var vp: Vector2 = get_viewport_rect().size / camera.zoom.x
-	return Rect2(camera.position - vp * 0.5, vp)
-
-
-# "Baked" = the whole static scene is drawn & retained, so panning needs no repaint. True while zoomed
-# out (zoom < WIN_ZOOM) and ALWAYS for a heavy map, whose scene is a single batched draw at any zoom.
-func _is_baked() -> bool:
-	return _draw_items.size() > BAKE_MIN_ITEMS or camera.zoom.x < WIN_ZOOM
-
-
-# Zoom-driven building HEIGHT: zoomed out, buildings are low grouped blocks so the road grid stays
-# visible (nothing overlaps the streets); zooming in raises them to full height. CONTINUOUS in zoom
-# (no thresholds) so buildings grow smoothly instead of jumping when a zoom band is crossed.
+# Building HEIGHT factor: constant across zoom; FLAT_DEFAULT normally, full height while F is held.
 func _hmul() -> float:
 	return _hmul_at(camera.zoom.x)
-func _hmul_at(z: float) -> float:
-	return HEIGHT_K * (0.35 + 0.65 * smoothstep(0.35, 1.6, z)) * _flat
+func _hmul_at(_z: float) -> float:   # heights are CONSTANT across zoom (the user didn't want them growing);
+	return HEIGHT_K * _flat               # only holding F (raise) changes them
 # 0..1 fade for detail that appears with zoom (windows, outlines) — never a hard pop
 func _fade(z0: float, z1: float) -> float:
 	return smoothstep(z0, z1, camera.zoom.x)
-
-
-# tile-index bounds covering the view rect (invert the iso of its corners) → cull ground iteration
-func _visible_tiles(view: Rect2) -> Rect2i:
-	var minfx := INF; var maxfx := -INF; var minfy := INF; var maxfy := -INF
-	for cp in [view.position, Vector2(view.end.x, view.position.y), Vector2(view.position.x, view.end.y), view.end]:
-		var fx: float = cp.x / (2.0 * HW) + cp.y / (2.0 * HH)
-		var fy: float = cp.y / (2.0 * HH) - cp.x / (2.0 * HW)
-		minfx = minf(minfx, fx); maxfx = maxf(maxfx, fx); minfy = minf(minfy, fy); maxfy = maxf(maxfy, fy)
-	var x0 := clampi(int(floor(minfx)) - 1, 0, _grid.x)
-	var y0 := clampi(int(floor(minfy)) - 1, 0, _grid.y)
-	var x1 := clampi(int(ceil(maxfx)) + 2, 0, _grid.x)
-	var y1 := clampi(int(ceil(maxfy)) + 2, 0, _grid.y)
-	return Rect2i(x0, y0, maxi(0, x1 - x0), maxi(0, y1 - y0))
 
 
 func _box_hull(k: Vector2i) -> PackedVector2Array:
@@ -1505,26 +1476,43 @@ func _route_to(a: Vector2i, b: Vector2i) -> Array:
 	return path
 
 
-func _link_entry(a: Vector2i, b: Vector2i) -> Array:   # the routed link between two adjacent buildings
-	for e in _paths_of.get(a, []):
-		if (e[0] == a and e[1] == b) or (e[0] == b and e[1] == a): return e
-	return []
-
-
 func _select_at(wpos: Vector2) -> void:
-	selected = _building_at(wpos)
-	_focus = []; _route = []
-	if lots.has(selected):
-		_select_district(int(lots[selected].did))
-		_focus = [selected] + (net_links.get(selected, []) as Array)
-		_route = _route_to(selected, hub_key)
-		for k in _route:
-			if not _focus.has(k): _focus.append(k)
-		_focus.sort_custom(func(a, c): return a.x + a.y + int(lots[a].tw) + int(lots[a].td) < c.x + c.y + int(lots[c].tw) + int(lots[c].td))
+	var hit := _building_at(wpos)
+	if lots.has(hit):
+		_select_building(hit)
 	else:
+		selected = Vector2i(-999, -999); _focus = []; _route = []
 		var t := _screen_to_tile(wpos)   # open district ground (plaza, garden, pad…) selects the district too
 		_select_district(int(dist_of[t]) if dist_of.has(t) and not roads.has(t) else -1)
+		_dirty = true; _update_sel_panel()
+
+
+# select a BUILDING: focus it + its links + its route to the HUB (shared by click and return-from-interior)
+func _select_building(k: Vector2i) -> void:
+	selected = k
+	_select_district(int(lots[k].did))
+	_focus = [k] + (net_links.get(k, []) as Array)
+	_route = _route_to(k, hub_key)
+	for r in _route:
+		if not _focus.has(r): _focus.append(r)
+	_focus.sort_custom(func(a, c): return a.x + a.y + int(lots[a].tw) + int(lots[a].td) < c.x + c.y + int(lots[c].tw) + int(lots[c].td))
 	_dirty = true; _update_sel_panel()
+
+
+# dive into the selected building's local network map (building.gd); stash the city view for the return
+func _enter_building() -> void:
+	if not lots.has(selected): return
+	var b = lots[selected]
+	var names := []
+	for pp in b.get("people", []): names.append(str(pp.name))
+	var col: Color = _dcol(int(b.did))
+	var r = districts[int(b.did)]
+	Session.enter = {"key": [selected.x, selected.y], "name": str(b.get("bname", "Building")), "kind": str(b.kind),
+		"sec": str(b.get("sec", "Unknown")), "did": int(b.did), "col": [col.r, col.g, col.b],
+		"owner": str(b.get("occupant", "")), "industry": str(corp_info.get(str(b.get("occupant", "")), {}).get("industry", "")),
+		"district": str(r.name), "people": names}
+	Session.city_return = {"cam": [camera.position.x, camera.position.y], "zoom": camera.zoom.x, "sel": [selected.x, selected.y]}
+	get_tree().change_scene_to_file("res://scenes/building.tscn")
 
 
 # select a whole district: cache its territory perimeter (edges to any other district/road/void)
@@ -1559,62 +1547,46 @@ func _update_hover() -> void:
 	if hover_lbl == null: return
 	var k := _hover_tile
 	var bk: Vector2i = _hover_b
+	var txt := ""
 	if lots.has(bk):
-		hover_lbl.text = "%s  ·  %s  ·  %s" % [str(lots[bk].get("bname", KIND_NAME[str(lots[bk].kind)])), KIND_NAME[str(lots[bk].kind)], str(lots[bk].area)]
+		txt = "%s  ·  %s  ·  %s" % [str(lots[bk].get("bname", KIND_NAME[str(lots[bk].kind)])), KIND_NAME[str(lots[bk].kind)], str(lots[bk].area)]
 	elif roads.has(k):
-		hover_lbl.text = ("Avenue" if str(road_class.get(k, "loc")) == "art" else "Street")
+		txt = ("Avenue" if str(road_class.get(k, "loc")) == "art" else "Street")
 	elif deco.has(k) and dist_of.has(k):
-		hover_lbl.text = {"park": "Park", "garden": "Garden", "court": "Courtyard", "plaza": "Public square", "parking": "Parking", "path": "Park path", "verge": "Green verge"}.get(str(deco[k]), "Open space") + "  ·  " + str(districts[int(dist_of[k])].name)
+		txt = {"park": "Park", "garden": "Garden", "court": "Courtyard", "plaza": "Public square", "parking": "Parking", "path": "Park path", "verge": "Green verge"}.get(str(deco[k]), "Open space") + "  ·  " + str(districts[int(dist_of[k])].name)
 	elif deco.has(k):
-		hover_lbl.text = {"park": "Park", "garden": "Garden", "court": "Courtyard", "plaza": "Public square", "parking": "Parking", "path": "Park path", "verge": "Green verge"}.get(str(deco[k]), "Open space")
+		txt = {"park": "Park", "garden": "Garden", "court": "Courtyard", "plaza": "Public square", "parking": "Parking", "path": "Park path", "verge": "Green verge"}.get(str(deco[k]), "Open space")
 	elif land.has(k):
-		hover_lbl.text = "Open parcel" + ("  ·  " + str(districts[int(dist_of[k])].name) if dist_of.has(k) else "")
+		txt = "Open parcel" + ("  ·  " + str(districts[int(dist_of[k])].name) if dist_of.has(k) else "")
 	else:
-		hover_lbl.text = "Unmapped void"
-
+		txt = "Unmapped void"
+	if txt != _hover_txt:   # a Label relayout every frame was a measurable cost while moving the mouse
+		_hover_txt = txt; hover_lbl.text = txt
 
 # ============================================================ RENDERING
 func _draw() -> void:
-	var font := ThemeDB.fallback_font
-	_feat_a = _fade(LOD_ZOOM, LOD_ZOOM + 0.3)
+	var font := Settings.font
 	var vp: Vector2 = get_viewport_rect().size / camera.zoom.x
-	var view := Rect2(camera.position - vp * 0.5, vp).grow(TILE_W * 2.0)
-	# When baked the canvas is retained and panned by the camera without repainting, so the WHOLE
-	# map is drawn. Zoomed in past WIN_ZOOM, draw the view plus a half-screen margin (so panning
-	# within the margin needs no repaint — see _process) and cull everything else.
-	# Heavy map (the large city): ALWAYS emit the whole static scene as one batched triangle array,
-	# at EVERY zoom — otherwise zooming in drops into the live per-building path and reloads the whole
-	# visible city each frame (the "very loaded / low FPS when zoomed in" case). Panning is retained.
-	var heavy := _draw_items.size() > BAKE_MIN_ITEMS
-	var baked := camera.zoom.x < WIN_ZOOM
-	if heavy:
-		var tier := 0 if camera.zoom.x < LOD_ZOOM else 1
-		var hm := _hmul()
-		if _bake_tier != tier or absf(hm - _bake_h) > 0.02:   # rebake as height eases with zoom
-			_build_bake(tier); _bake_tier = tier; _bake_h = hm
-		if not _ground_idx.is_empty():
-			RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), _ground_idx, _ground_pts, _ground_cols)
-		if not _bake_idx.is_empty():
-			RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), _bake_idx, _bake_pts, _bake_cols)
-		_baked_region = Rect2(-1e12, -1e12, 2e12, 2e12)
-	else:
-		var cull: Rect2; var tb: Rect2i
-		if baked:
-			cull = Rect2(-1e9, -1e9, 2e9, 2e9); tb = _grid_rect()
-			_baked_region = Rect2(-1e12, -1e12, 2e12, 2e12)
-		else:
-			cull = view.grow(maxf(vp.x, vp.y) * 0.35); tb = _visible_tiles(cull)
-			_baked_region = cull
-		for ly in range(tb.position.y, tb.end.y):
-			for lx in range(tb.position.x, tb.end.x):
-				_draw_ground_tile(lx, ly)
-		_draw_traces_static()   # circuit traces on the floor, under the buildings
-		# buildings + trees in the precomputed depth order (no per-frame sort), culled
-		for it in _draw_items:
-			if it.b:
-				_draw_isobox(it.k, font, cull)
-			else:
-				_draw_tree(trees[it.i], cull)
+	# The WHOLE static scene (ground, roads, buildings, roof detail, rooftop features, trees) is drawn as a
+	# couple of pre-built triangle arrays on EVERY map size and at EVERY zoom — GL-compat doesn't batch
+	# thousands of separate draw calls, and that per-call cost was the wall. It is rebuilt only when the
+	# LOD tier, the building height (hold F) or a zoom fade step changes; panning/zooming moves it for free.
+	var tier := 0 if camera.zoom.x < LOD_ZOOM else 1
+	var hm := _hmul(); var da := _detail_a(); var fa := _feature_a()
+	if _bake_tier != tier or absf(hm - _bake_h) > 0.02 or not is_equal_approx(da, _bake_da) or not is_equal_approx(fa, _bake_fa):
+		_bake_da = da; _bake_fa = fa; _build_bake(tier); _bake_tier = tier; _bake_h = hm
+	var ci := get_canvas_item()
+	if not _ground_idx.is_empty():
+		RenderingServer.canvas_item_add_triangle_array(ci, _ground_idx, _ground_pts, _ground_cols)
+	if not _bake_idx.is_empty():
+		RenderingServer.canvas_item_add_triangle_array(ci, _bake_idx, _bake_pts, _bake_cols)
+	# N: the whole network — every link as an arc, gateways beaming — over a dimmed city, as ONE cached
+	# batch (static: no per-frame cost; data FLOW only animates for what you click)
+	if net_view and sel_did < 0 and not lots.has(selected):
+		draw_rect(_world.grow(4000.0), Color(0.0, 0.0, 0.02, 0.55))
+		if absf(_net_h - hm) > 0.001: _build_net_bake(); _net_h = hm
+		if not _net_idx.is_empty():
+			RenderingServer.canvas_item_add_triangle_array(ci, _net_idx, _net_pts, _net_cols)
 	if camera.zoom.x < 1.9:
 		for r in districts:
 			if int(r.count) < 1: continue
@@ -1649,10 +1621,22 @@ func _btri(a: Vector2, b: Vector2, c: Vector2, col: Color) -> void:
 	_bake_pts.push_back(a); _bake_pts.push_back(b); _bake_pts.push_back(c)
 	_bake_cols.push_back(col); _bake_cols.push_back(col); _bake_cols.push_back(col)
 	_bake_idx.push_back(i); _bake_idx.push_back(i + 1); _bake_idx.push_back(i + 2)
+const FEATHER := 1.2   # world units of soft edge on every baked line (2D MSAA is unavailable on GL)
+func _bq4(a: Vector2, b: Vector2, c: Vector2, d: Vector2, ca: Color, cb: Color, cc: Color, cd: Color) -> void:
+	var i := _bake_pts.size()
+	_bake_pts.push_back(a); _bake_pts.push_back(b); _bake_pts.push_back(c); _bake_pts.push_back(d)
+	_bake_cols.push_back(ca); _bake_cols.push_back(cb); _bake_cols.push_back(cc); _bake_cols.push_back(cd)
+	_bake_idx.push_back(i); _bake_idx.push_back(i + 1); _bake_idx.push_back(i + 2)
+	_bake_idx.push_back(i); _bake_idx.push_back(i + 2); _bake_idx.push_back(i + 3)
 func _bline(a: Vector2, b: Vector2, w: float, col: Color) -> void:
-	var o := (b - a).orthogonal().normalized() * (w * 0.5)
-	if o == Vector2.ZERO: return
+	var nrm := (b - a).orthogonal().normalized()
+	if nrm == Vector2.ZERO: return
+	var o := nrm * (w * 0.5)
 	_bq(a + o, b + o, b - o, a - o, col)
+	var f := nrm * FEATHER
+	var t := Color(col.r, col.g, col.b, 0.0)
+	_bq4(a + o, b + o, b + o + f, a + o + f, col, col, t, t)
+	_bq4(a - o - f, b - o - f, b - o, a - o, t, t, col, col)
 func _bdot(c: Vector2, r: float, col: Color) -> void:
 	_bq(c + Vector2(-r, -r), c + Vector2(r, -r), c + Vector2(r, r), c + Vector2(-r, r), col)
 func _bgrid(lx: int, ly: int) -> void:   # faint neon tile outline (cyberspace grid) into the bake
@@ -1666,7 +1650,6 @@ func _build_bake(tier: int) -> void:
 		for ly in _grid.y:
 			for lx in _grid.x:
 				_bake_ground(lx, ly)
-		_bake_traces()
 		_ground_pts = _bake_pts; _ground_cols = _bake_cols; _ground_idx = _bake_idx
 	_bake_pts = PackedVector2Array(); _bake_cols = PackedColorArray(); _bake_idx = PackedInt32Array()
 	for it in _draw_items:   # already depth-sorted → painter order preserved within the array
@@ -1684,8 +1667,14 @@ func _dcol(did: int) -> Color:
 
 # Hologram palette for a building: dark faces tinted by its district's neon hue, a brighter top and a
 # glowing edge. Returns [left face, right face, top, edge]. The HUB is ice-white.
-func _holo(b) -> Array:
+func _holo(b, k := Vector2i(-999, -999)) -> Array:
 	var dark := Color(0.025, 0.035, 0.06)
+	var hk := "%d,%d" % [k.x, k.y]
+	if Session.hacked.has(hk):   # a building you've started to compromise: RED, hotter once fully owned
+		var st: Dictionary = Session.hacked[hk]
+		var full: bool = int(st.ctl) >= int(st.n)
+		var red := Color(1.0, 0.2, 0.26)
+		return [dark.lerp(red, 0.42 if full else 0.3), dark.lerp(red, 0.58 if full else 0.42), dark.lerp(red, 0.85 if full else 0.62), (Color(1.0, 0.8, 0.8) if full else Color(1.0, 0.45, 0.5))]
 	if str(b.kind) == "hub":   # the landmark glows: lit cyan-white faces, white-hot edges
 		var hb := Color(0.55, 1.0, 1.0)
 		return [dark.lerp(hb, 0.32), dark.lerp(hb, 0.48), dark.lerp(hb, 0.72), Color(0.9, 1.0, 1.0)]
@@ -1770,7 +1759,7 @@ func _bake_building(k: Vector2i, tier: int) -> void:
 	var C := _iso(k.x + tw - ins, k.y + td - ins); var D := _iso(k.x + ins, k.y + td - ins)
 	var At := A + up; var Bt := B + up; var Ct := C + up; var Dt := D + up
 	var kind := str(b.kind)
-	var pal := _holo(b)
+	var pal := _holo(b, k)
 	var top: Color = pal[2]
 	_bq(D, C, Ct, Dt, pal[0])
 	_bq(B, C, Ct, Bt, pal[1])
@@ -1798,6 +1787,128 @@ func _bake_building(k: Vector2i, tier: int) -> void:
 			_bline(tc, tc + up * 0.3, 3.0, Color(0.6, 1.0, 1.0, 0.95))
 	_bline(D, C, 1.0, edge); _bline(C, B, 1.0, edge)
 	_bline(Dt, D, 1.0, edge); _bline(Ct, C, 1.0, edge); _bline(Bt, B, 1.0, edge)
+	if _bake_da > 0.01:
+		for ln in _detail_lines(b, D, C, B, At, Bt, Ct, Dt, pal[3], _bake_da): _bline(ln[0], ln[1], ln[2], ln[3])
+	if _bake_fa > 0.01: _bake_features(b, At, Bt, Ct, Dt, D, C, B, _bake_fa)
+
+
+# 0..1 strength of the rooftop features (antennas, awnings, roof glow) — fades in just past overview zoom
+func _feature_a() -> float:
+	return snappedf(_fade(LOD_ZOOM, LOD_ZOOM + 0.3), 0.1)
+
+
+func _bpoly(pts: PackedVector2Array, w: float, col: Color) -> void:   # a polyline into the batch
+	for i in range(1, pts.size()): _bline(pts[i - 1], pts[i], w, col)
+
+
+func _brect(pos: Vector2, size: Vector2, col: Color) -> void:   # an axis-aligned rect into the batch
+	_bq(pos, pos + Vector2(size.x, 0), pos + size, pos + Vector2(0, size.y), col)
+
+
+# The N-view network as one batch: local links as low arcs in their district's hue, district-to-district
+# links as glowing arcs, a light beam on every gateway. Built once per building height, then re-used.
+func _build_net_bake() -> void:
+	var sp := _bake_pts; var sc := _bake_cols; var si := _bake_idx   # borrow the batch helpers
+	_bake_pts = PackedVector2Array(); _bake_cols = PackedColorArray(); _bake_idx = PackedInt32Array()
+	for e in net_local:
+		var dc := _dcol(int(lots[e[0]].did))
+		var pa := _building_top_center(e[0]); var pb := _building_top_center(e[1])
+		var pts := _arc_pts(pa, pb, _arc_lift(pa, pb, false), 6)
+		_bpoly(pts, 3.5, Color(dc.r, dc.g, dc.b, 0.14)); _bpoly(pts, 1.2, Color(dc.r, dc.g, dc.b, 0.7))
+	for e in net_backbone:
+		var pts: PackedVector2Array = _link_arc(e[0], e[1])[0]
+		_bpoly(pts, 8.0, Color(0.45, 0.92, 1.0, 0.1)); _bpoly(pts, 3.5, Color(0.45, 0.92, 1.0, 0.3))
+		_bpoly(pts, 1.4, Color(0.8, 1.0, 1.0, 0.95))
+	for g in gateways:
+		var top := _building_top_center(g)
+		_bline(top, top + Vector2(0, -30), 1.6, Color(0.8, 1.0, 1.0, 0.9)); _bdot(top + Vector2(0, -30), 2.5, Color(0.9, 1.0, 1.0, 0.95))
+	_net_pts = _bake_pts; _net_cols = _bake_cols; _net_idx = _bake_idx
+	_bake_pts = sp; _bake_cols = sc; _bake_idx = si
+
+
+# rooftop features baked with the building (they used to exist only on the slow live path)
+func _bake_features(b: Dictionary, At: Vector2, Bt: Vector2, Ct: Vector2, Dt: Vector2, D: Vector2, C: Vector2, B: Vector2, a: float) -> void:
+	var topc := (At + Ct) * 0.5
+	var dc := _dcol(int(b.did))
+	var wall := (Dt - D).length()   # base-level details only where the wall is tall enough to carry them
+	match str(b.kind):
+		"fh":
+			if wall >= 8.0: _brect(B.lerp(C, 0.5) + Vector2(-2, -7), Vector2(3, 7), Color(0.35, 0.22, 0.14, a))
+		"ap":
+			if bool(b.get("mixed", false)) and wall >= 8.0:   # ground-floor retail below the flats
+				var mid := D.lerp(C, 0.5)
+				_brect(mid + Vector2(-7, -7), Vector2(14, 3), Color(1.0, 0.35, 0.8, 0.85 * a))
+				_brect(mid + Vector2(-6, -4), Vector2(12, 3), Color(1.0, 0.62, 0.9, 0.55 * a))
+		"sc":
+			_bline(topc, topc + Vector2(0, -16), 1.5, Color(0.6, 0.7, 0.8, a)); _bdot(topc + Vector2(0, -16), 2.0, Color(1.0, 0.3, 0.3, 0.85 * a))
+		"corp":
+			_bq(At, Bt, Ct, Dt, Color(dc.r, dc.g, dc.b, 0.2 * a))
+			_bline(topc, topc + Vector2(0, -26), 2.0, Color(dc.r, dc.g, dc.b, 0.8 * a))
+			var lit := dc.lerp(Color.WHITE, 0.3)
+			_bdot(topc + Vector2(0, -26), 2.5, Color(lit.r, lit.g, lit.b, 0.9 * a))
+		"mall":
+			_bq(At, Bt, Ct, Dt, Color(dc.r, dc.g, dc.b, 0.18 * a))
+			if wall >= 8.0: _brect(C + Vector2(-9, -12), Vector2(18, 10), Color(dc.r, dc.g, dc.b, 0.5 * a))
+		"shop_s", "shop_b":
+			if wall >= 6.0: _brect(C + Vector2(-7, -6), Vector2(14, 3), Color(dc.r, dc.g, dc.b, 0.8 * a))
+
+
+# 0..1 strength of the zoomed-in architectural detail, quantised to tenths so the baked large map
+# re-bakes only a handful of times across the fade (the live path just uses it as-is)
+func _detail_a() -> float:
+	return snappedf(_fade(DETAIL_Z0, DETAIL_Z1), 0.1)
+
+
+# PRECISE VIEW (zoomed in): crisp blueprint lines on each building — floor bands and panel mullions on
+# both visible walls, a bright lobby line at street level, a parapet outline on the roof, a rooftop
+# plant box on offices/towers and a helipad ring on tall corporate towers. Returned as segments
+# [a, b, width, colour] so the live and the baked path draw exactly the same thing, in depth order.
+func _detail_lines(b: Dictionary, D: Vector2, C: Vector2, B: Vector2, At: Vector2, Bt: Vector2, Ct: Vector2, Dt: Vector2, edge: Color, a: float) -> Array:
+	var out := []
+	var kind := str(b.kind)
+	var up := Dt - D
+	var h := up.length()
+	if h < 3.0: return out
+	var fc := Color(edge.r, edge.g, edge.b, 0.32 * a)
+	var mc := Color(edge.r, edge.g, edge.b, 0.2 * a)
+	# floor bands: one line every ~2 floors on screen, never closer than 6px
+	var n := clampi(int(h / 7.0), 0, 14)
+	for i in range(1, n + 1):
+		var f := float(i) / float(n + 1)
+		out.append([D + up * f, C + up * f, 1.0, fc]); out.append([C + up * f, B + up * f, 1.0, fc])
+	# panel mullions on each wall (vertical lines, base to roof)
+	for wall in [[D, C], [C, B]]:
+		var w: float = (wall[0] as Vector2).distance_to(wall[1])
+		var m := clampi(int(round(w / 13.0)), 1, 5)
+		for j in range(1, m + 1):
+			var p: Vector2 = (wall[0] as Vector2).lerp(wall[1], float(j) / float(m + 1))
+			out.append([p, p + up, 1.0, mc])
+	# lobby: a brighter band just above street level
+	var lf := minf(5.0 / h, 0.3)
+	var lc := Color(edge.r, edge.g, edge.b, 0.65 * a)
+	out.append([D + up * lf, C + up * lf, 1.4, lc]); out.append([C + up * lf, B + up * lf, 1.4, lc])
+	if kind == "fh": return out
+	# roof: parapet inset
+	var rc := (At + Ct) * 0.5
+	var pc := Color(edge.r, edge.g, edge.b, 0.5 * a)
+	var q := [At.lerp(rc, 0.16), Bt.lerp(rc, 0.16), Ct.lerp(rc, 0.16), Dt.lerp(rc, 0.16)]
+	for i in 4: out.append([q[i], q[(i + 1) % 4], 1.0, pc])
+	# rooftop plant box (offices, towers, malls): a small raised box in outline
+	if kind in ["corp", "off_m", "off_s", "sc", "mall", "ap"]:
+		var bx := [At.lerp(rc, 0.62), Bt.lerp(rc, 0.62), Ct.lerp(rc, 0.62), Dt.lerp(rc, 0.62)]
+		var ru := Vector2(0, -minf(5.0, h * 0.08))
+		for i in 4:
+			out.append([bx[i] + ru, bx[(i + 1) % 4] + ru, 1.0, pc])
+		out.append([bx[2], bx[2] + ru, 1.0, pc]); out.append([bx[1], bx[1] + ru, 1.0, pc]); out.append([bx[3], bx[3] + ru, 1.0, pc])
+	# helipad: a ring on the roof of tall corporate towers
+	if kind == "corp" and (int(b.tw) == 2 or float(b.h) >= 112.0):   # only the tallest towers + megacorp blocks
+		var rw := (Bt - Dt) * 0.18; var rh2 := (Ct - At) * 0.18
+		var prev := rc + rw
+		for i in range(1, 17):
+			var t := float(i) / 16.0 * TAU
+			var pt := rc + rw * cos(t) + rh2 * sin(t)
+			out.append([prev, pt, 1.2, Color(edge.r, edge.g, edge.b, 0.7 * a)]); prev = pt
+	return out
 
 
 func _bake_tree_blob(tr: Dictionary) -> void:
@@ -1809,177 +1920,6 @@ func _bake_tree_blob(tr: Dictionary) -> void:
 		var p := c + Vector2(cos(float(s) / 6.0 * TAU), sin(float(s) / 6.0 * TAU)) * r
 		_btri(c, prev, p, Color(0.12, 0.4, 0.19))
 		prev = p
-
-
-func _draw_ground_tile(lx: int, ly: int) -> void:
-	var k := Vector2i(lx, ly)
-	var quad := _tile_quad(lx, ly)
-	if roads.has(k):
-		_draw_road_tile(lx, ly)
-		return
-	var look := _ground_look(lx, ly)
-	draw_colored_polygon(quad, look[0])
-	for ln in look[1]: draw_line(ln[0], ln[1], ln[3], ln[2])
-	match str(deco.get(k, "")):   # close-up ground detail (live path only)
-		"plaza":
-			draw_polyline(_closed(_tile_quad(lx + 0.2, ly + 0.2, 0.6, 0.6)), Color(0.4, 0.45, 0.55, 0.4), 1.0)
-		"parking":
-			draw_line(_iso(lx + 0.33, ly + 0.2), _iso(lx + 0.33, ly + 0.8), Color(0.5, 0.5, 0.3, 0.3), 1.0)
-			draw_line(_iso(lx + 0.66, ly + 0.2), _iso(lx + 0.66, ly + 0.8), Color(0.5, 0.5, 0.3, 0.3), 1.0)
-	if _hover_tile == k: draw_polyline(_closed(quad), Color(1, 1, 1, 0.7), 1.2)
-
-
-# draw a road tile from its CONNECTIONS (straight / bend / T / cross / endpoint); centre lines only
-# follow directions that actually connect, so straight stretches never show a crossing.
-func _draw_road_tile(lx: int, ly: int) -> void:
-	var k := Vector2i(lx, ly)
-	var quad := _tile_quad(lx, ly)
-	var art: bool = str(road_class.get(k, "loc")) == "art"
-	draw_colored_polygon(quad, Color(0.12, 0.13, 0.17) if art else Color(0.09, 0.1, 0.13))
-	draw_polyline(_closed(quad), GRID_COL, 1.0)   # neon grid floor
-	var rN := roads.has(Vector2i(lx, ly - 1)); var rE := roads.has(Vector2i(lx + 1, ly))
-	var rS := roads.has(Vector2i(lx, ly + 1)); var rW := roads.has(Vector2i(lx - 1, ly))
-	var P00 := _iso(lx, ly); var P10 := _iso(lx + 1, ly); var P11 := _iso(lx + 1, ly + 1); var P01 := _iso(lx, ly + 1)
-	var cen := _iso(lx + 0.5, ly + 0.5)
-	# LOD: curbs are hairline until close in — skip them (4 lines × every road tile).
-	if camera.zoom.x >= WIN_ZOOM:
-		var curb := Color(0.42, 0.45, 0.52, 0.7)
-		if not rN: draw_line(P00, P10, curb, 1.0)
-		if not rE: draw_line(P10, P11, curb, 1.0)
-		if not rS: draw_line(P01, P11, curb, 1.0)
-		if not rW: draw_line(P00, P01, curb, 1.0)
-	var mc := Color(0.3, 0.95, 1.0, 0.65) if art else Color(0.72, 0.74, 0.55, 0.5)
-	var mw := 2.0 if art else 1.0
-	var cnt := (1 if rN else 0) + (1 if rE else 0) + (1 if rS else 0) + (1 if rW else 0)
-	if cnt == 0:
-		draw_circle(cen, 3.0, mc)
-	else:
-		if rN: draw_line(cen, (P00 + P10) * 0.5, mc, mw)
-		if rE: draw_line(cen, (P10 + P11) * 0.5, mc, mw)
-		if rS: draw_line(cen, (P01 + P11) * 0.5, mc, mw)
-		if rW: draw_line(cen, (P00 + P01) * 0.5, mc, mw)
-		if cnt == 1: draw_circle(cen, 2.5, mc)   # cul-de-sac / endpoint cap
-
-func _draw_isobox(k: Vector2i, font: Font, view: Rect2) -> void:
-	var b = lots[k]
-	var tw: float = float(b.tw); var td: float = float(b.td); var ins: float = float(b.ins); var h: float = float(b.h) * _hmul()
-	var up := Vector2(0, -h)
-	var A := _iso(k.x + ins, k.y + ins); var B := _iso(k.x + tw - ins, k.y + ins)
-	var C := _iso(k.x + tw - ins, k.y + td - ins); var D := _iso(k.x + ins, k.y + td - ins)
-	if not view.has_point(C) and not view.has_point(A + up):
-		return
-	var At := A + up; var Bt := B + up; var Ct := C + up; var Dt := D + up
-	var kind := str(b.kind)
-	var pal := _holo(b)
-	var lface: Color = pal[0]; var rface: Color = pal[1]; var top: Color = pal[2]
-	var edge: Color = pal[3]
-	edge.a = 0.45 + 0.5 * _fade(LOD_ZOOM, LOD_ZOOM + 0.25)   # glowing hologram outline (hover → _fx)
-	draw_colored_polygon(PackedVector2Array([D, C, Ct, Dt]), lface)
-	draw_colored_polygon(PackedVector2Array([B, C, Ct, Bt]), rface)
-	# LOD: at overview zoom a building is a few px tall — draw only the flat top face (3 polygons
-	# total, no outlines/roof/windows/features). Cuts per-building draw calls ~3x on dense maps.
-	if camera.zoom.x < LOD_ZOOM:
-		draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), top)
-		draw_polyline(_closed(PackedVector2Array([At, Bt, Ct, Dt])), edge, 1.0)   # faint rim
-		if kind == "hub": _draw_feature(b, At, Bt, Ct, Dt, D, C, B)   # the landmark keeps its spire at overview
-		if k == selected:
-			draw_polyline(_closed(PackedVector2Array([At, Bt, B, C, D, Dt])), Color(1, 1, 1, 0.95), 2.5)
-		return
-	if kind == "fh":
-		var rh := minf(h * 0.9, 10.0)
-		var r1 := (At + Bt) * 0.5 + Vector2(0, -rh)
-		var r2 := (Dt + Ct) * 0.5 + Vector2(0, -rh)
-		draw_colored_polygon(PackedVector2Array([At, Dt, r2, r1]), rface)
-		draw_colored_polygon(PackedVector2Array([Bt, Ct, r2, r1]), top)
-		draw_colored_polygon(PackedVector2Array([Dt, Ct, r2]), rface)
-		draw_line(r1, r2, edge, 1.0)
-		draw_polyline(PackedVector2Array([At, r1, Bt]), edge, 1.0)
-		draw_polyline(PackedVector2Array([Dt, r2, Ct]), edge, 1.0)
-	else:
-		draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), top)
-		draw_polyline(PackedVector2Array([Dt, At, Bt]), edge, 1.0)
-		draw_polyline(PackedVector2Array([Ct, Bt]), edge, 1.0)
-	draw_polyline(PackedVector2Array([D, C, B]), edge, 1.0)
-	draw_line(Dt, D, edge, 1.0); draw_line(Ct, C, edge, 1.0); draw_line(Bt, B, edge, 1.0)
-	if k == selected:
-		draw_polyline(_closed(PackedVector2Array([At, Bt, B, C, D, Dt])), Color(1, 1, 1, 0.95), 2.5)
-	_draw_feature(b, At, Bt, Ct, Dt, D, C, B)
-	var wf := _fade(WIN_ZOOM - 0.4, WIN_ZOOM + 0.1)   # windows fade in over a zoom range, not a pop
-	if wf > 0.02:
-		_draw_windows(b, D, C, B, h, wf)
-
-
-func _draw_windows(b: Dictionary, D: Vector2, C: Vector2, B: Vector2, h: float, alpha := 1.0) -> void:
-	var wc: Color = _dcol(int(b.did)).lerp(Color.WHITE, 0.35)
-	wc.a *= alpha
-	var rows := int(clampf(h / 20.0, 1.0, 6.0))   # capped: keeps the retained rect count in check
-	var up := Vector2(0, -h)
-	for wall in 2:
-		var p0: Vector2 = D if wall == 0 else B
-		for r in rows:
-			var fy := (float(r) + 0.5) / float(rows)
-			for cwx in 2:
-				var fx := 0.3 + float(cwx) * 0.4
-				if ((r * 5 + cwx * 7 + int(b.vari) * 3 + int(p0.x)) % 5) == 0: continue
-				draw_rect(Rect2(p0.lerp(C, fx) + up * fy - Vector2(1.5, 1.5), Vector2(3, 3)), wc, true)
-
-
-var _feat_a := 1.0   # zoom fade for rooftop features (set per repaint)
-func _fa(c: Color) -> Color:
-	c.a *= _feat_a; return c
-
-
-func _draw_feature(b: Dictionary, At: Vector2, Bt: Vector2, Ct: Vector2, Dt: Vector2, D: Vector2, C: Vector2, B: Vector2) -> void:
-	var topc := (At + Ct) * 0.5
-	var dc := _dcol(int(b.did))   # rooftop glow / antennas take the district's neon hue
-	match str(b.kind):
-		"fh":
-			draw_rect(Rect2(B.lerp(C, 0.5) + Vector2(-2, -7), Vector2(3, 7)), _fa(Color(0.35, 0.22, 0.14)), true)
-			draw_rect(Rect2(D.lerp(C, 0.5) + Vector2(-1, -6), Vector2(3, 3)), _fa(Color(1.0, 0.75, 0.4, 0.85)), true)
-		"ap":
-			for band in [0.32, 0.6, 0.85]:
-				var yb: Vector2 = (Dt - D) * float(band)   # bands follow the zoom-scaled height
-				draw_line(D + yb, C + yb, _fa(Color(0.28, 0.31, 0.38, 0.6)), 1.0)
-				draw_line(B + yb, C + yb, _fa(Color(0.34, 0.37, 0.44, 0.6)), 1.0)
-			if bool(b.get("mixed", false)):   # ground-floor retail below the flats (mixed use)
-				var mid := D.lerp(C, 0.5)
-				draw_rect(Rect2(mid + Vector2(-7, -7), Vector2(14, 3)), _fa(Color(1.0, 0.35, 0.8, 0.85)), true)   # awning
-				draw_rect(Rect2(mid + Vector2(-6, -4), Vector2(12, 3)), _fa(Color(1.0, 0.62, 0.9, 0.55)), true)   # lit storefront
-		"sc":
-			draw_line(topc, topc + Vector2(0, -16), _fa(Color(0.6, 0.7, 0.8)), 1.5)
-			draw_circle(topc + Vector2(0, -16), 2.0, _fa(Color(1.0, 0.3, 0.3, 0.6 + 0.4 * sin(_time * 4.0))))
-		"hub":   # crown glow + spire + pulsing beacon — the city's landmark
-			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), Color(0.4, 1.0, 0.95, 0.35))   # never faded
-			var sp := (Dt - D) * 0.3
-			draw_line(topc, topc + sp, Color(0.6, 1.0, 1.0, 0.95), 3.0)
-			draw_circle(topc + sp, 4.0, Color(0.7, 1.0, 1.0, 0.6 + 0.4 * sin(_time * 2.5)))
-		"corp":
-			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), _fa(Color(dc.r, dc.g, dc.b, 0.2)))
-			draw_line(topc, topc + Vector2(0, -26), _fa(Color(dc.r, dc.g, dc.b, 0.8)), 2.0)
-			var lit := dc.lerp(Color.WHITE, 0.3)
-			draw_circle(topc + Vector2(0, -26), 2.5, _fa(Color(lit.r, lit.g, lit.b, 0.7 + 0.3 * sin(_time * 3.0))))
-		"mall":
-			draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), _fa(Color(dc.r, dc.g, dc.b, 0.18)))
-			draw_rect(Rect2(C + Vector2(-9, -12), Vector2(18, 10)), _fa(Color(dc.r, dc.g, dc.b, 0.5)), true)
-		"shop_s", "shop_b":
-			draw_rect(Rect2(C + Vector2(-7, -6), Vector2(14, 3)), _fa(Color(dc.r, dc.g, dc.b, 0.8)), true)
-
-
-func _draw_tree(tr: Dictionary, view: Rect2) -> void:
-	var base: Vector2 = _iso(tr.tile.x, tr.tile.y)
-	if not view.has_point(base): return
-	var cz: float = tr.sz
-	if camera.zoom.x < WIN_ZOOM:
-		# LOD: one canopy blob instead of trunk + 3 circles until zoomed in close (256 trees on large).
-		draw_circle(base + Vector2(0, -cz * 1.3), cz * 1.05, Color(0.12, 0.4, 0.19))
-		return
-	var tip := base + Vector2(0, -cz * 1.5)
-	var trunk := Color(0.2, 0.15, 0.1) if bool(tr.get("wild", false)) else Color(0.22, 0.16, 0.12)
-	draw_line(base, tip, trunk, maxf(1.5, cz * 0.22))
-	var g1 := Color(0.1, 0.34, 0.16) if bool(tr.get("wild", false)) else Color(0.14, 0.42, 0.2)
-	draw_circle(tip + Vector2(0, -cz * 0.3), cz * 0.95, g1)
-	draw_circle(tip + Vector2(-cz * 0.5, 0.0), cz * 0.7, Color(g1.r + 0.04, g1.g + 0.1, g1.b + 0.06))
-	draw_circle(tip + Vector2(cz * 0.5, cz * 0.1), cz * 0.65, Color(g1.r + 0.06, g1.g + 0.14, g1.b + 0.08))
 
 
 func _building_top_center(k: Vector2i) -> Vector2:
@@ -2004,10 +1944,8 @@ func _draw_fx(c: CanvasItem) -> void:
 		var mk := _building_top_center(selected) + Vector2(0, -14.0 - 4.0 * pulse)
 		c.draw_colored_polygon(PackedVector2Array([mk, mk + Vector2(-5, -8), mk + Vector2(5, -8)]), Color(0.3, 1.0, 0.9, pulse))
 		var fh: Vector2i = _hover_b
-		if lots.has(fh) and fh != selected: c.draw_polyline(_closed(_box_hull(fh)), Color(1, 1, 1, 0.6), 1.2)
+		if lots.has(fh) and fh != selected: c.draw_polyline(_closed(_box_hull(fh)), Color(1, 1, 1, 0.6), 1.2, true)
 		return
-	if net_view and sel_did < 0:
-		c.draw_rect(_world.grow(4000.0), Color(0.0, 0.0, 0.02, 0.55))
 	var dc := _dcol(sel_did)
 	var pz: float = 0.65 + 0.35 * sin(_time * 4.0)
 	if sel_did >= 0:   # selected DISTRICT in FOCUS: dim the city, light its ground, pulse its border
@@ -2015,19 +1953,18 @@ func _draw_fx(c: CanvasItem) -> void:
 		var gc := Color(dc.r, dc.g, dc.b, 0.22)
 		for t in _sel_tiles: c.draw_colored_polygon(_tile_quad(t.x, t.y), gc)
 		if not _sel_edges.is_empty():
-			c.draw_multiline(_sel_edges, Color(dc.r, dc.g, dc.b, pz), 3.5)
-			c.draw_multiline(_sel_edges, Color(1, 1, 1, 0.55 * pz), 1.2)
+			c.draw_multiline(_sel_edges, Color(dc.r, dc.g, dc.b, pz), 3.5, true)
+			c.draw_multiline(_sel_edges, Color(1, 1, 1, 0.55 * pz), 1.2, true)
 	_draw_net(c)   # ground traces + packets — under the focused district's buildings
 	if sel_did >= 0:   # its buildings redrawn bright (translucent holograms: the traces show through)
 		for k in _sel_lots: _fx_box(c, k)
-		var r = districts[sel_did]
-		var lp := _iso(float(r.centroid_tile.x) + 0.5, float(r.centroid_tile.y) + 0.5)
-		c.draw_string(ThemeDB.fallback_font, lp - Vector2(50, 0), str(r.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, dc.lerp(Color.WHITE, 0.4))
 	_draw_gateway_beams(c)
 	var hk: Vector2i = _hover_b
 	if lots.has(hk):   # the hovered building: outline + a faint glow of its links
 		for o in net_links.get(hk, []): _glow_path(c, _link_arc(hk, o)[0], Color(0.85, 1.0, 1.0), 1.0 / camera.zoom.x, 0.5)
-		c.draw_polyline(_closed(_box_hull(hk)), Color(1, 1, 1, 0.85), 1.5)
+		c.draw_polyline(_closed(_box_hull(hk)), Color(1, 1, 1, 0.85), 1.5, true)
+	elif _in_grid(_hover_tile) and (land.has(_hover_tile) or roads.has(_hover_tile)):   # the hovered ground tile
+		c.draw_polyline(_closed(_tile_quad(_hover_tile.x, _hover_tile.y)), Color(1, 1, 1, 0.5), 1.2 / camera.zoom.x, true)
 
 
 # one building of the focused district, drawn into the overlay: same hologram palette, a touch brighter
@@ -2040,7 +1977,7 @@ func _fx_box(c: CanvasItem, k: Vector2i, level := 0) -> void:
 	var A := _iso(k.x + ins, k.y + ins); var B := _iso(k.x + tw - ins, k.y + ins)
 	var C := _iso(k.x + tw - ins, k.y + td - ins); var D := _iso(k.x + ins, k.y + td - ins)
 	var At := A + up; var Bt := B + up; var Ct := C + up; var Dt := D + up
-	var pal := _holo(b)
+	var pal := _holo(b, k)
 	var lift: float = [0.12, 0.22, 0.34][level]
 	var alpha: float = [0.82, 0.92, 0.97][level]
 	for i in 3: pal[i] = Color((pal[i] as Color).r, (pal[i] as Color).g, (pal[i] as Color).b, alpha)
@@ -2057,13 +1994,13 @@ func _fx_box(c: CanvasItem, k: Vector2i, level := 0) -> void:
 		c.draw_colored_polygon(PackedVector2Array([At, Dt, r2, r1]), (pal[1] as Color).lerp(edge, lift))
 		c.draw_colored_polygon(PackedVector2Array([Bt, Ct, r2, r1]), (pal[2] as Color).lerp(edge, lift))
 		c.draw_colored_polygon(PackedVector2Array([Dt, Ct, r2]), (pal[1] as Color).lerp(edge, lift))
-		c.draw_polyline(PackedVector2Array([At, r1, Bt]), edge, ew); c.draw_polyline(PackedVector2Array([Dt, r2, Ct]), edge, ew)
-		c.draw_line(r1, r2, edge, ew)
+		c.draw_polyline(PackedVector2Array([At, r1, Bt]), edge, ew, true); c.draw_polyline(PackedVector2Array([Dt, r2, Ct]), edge, ew, true)
+		c.draw_line(r1, r2, edge, ew, true)
 	else:
 		c.draw_colored_polygon(PackedVector2Array([At, Bt, Ct, Dt]), (pal[2] as Color).lerp(edge, lift + 0.05))
-		c.draw_polyline(PackedVector2Array([Dt, At, Bt, Ct, Dt]), edge, ew)
-	c.draw_polyline(PackedVector2Array([D, C, B]), edge, ew)
-	c.draw_line(Dt, D, edge, ew); c.draw_line(Ct, C, edge, ew); c.draw_line(Bt, B, edge, ew)
+		c.draw_polyline(PackedVector2Array([Dt, At, Bt, Ct, Dt]), edge, ew, true)
+	c.draw_polyline(PackedVector2Array([D, C, B]), edge, ew, true)
+	c.draw_line(Dt, D, edge, ew, true); c.draw_line(Ct, C, edge, ew, true); c.draw_line(Bt, B, edge, ew, true)
 
 
 class _FxLayer extends Node2D:
@@ -2075,85 +2012,73 @@ class _FxLayer extends Node2D:
 # ============================================================ UI
 const PANEL_W := 440.0
 
-# height of a wrapped label's text at the panel's inner width (panel sizes itself to its content)
-func _lbl_h(l: Label) -> float:
-	if not l.visible or l.text == "": return 0.0
-	var f := l.get_theme_font("font")
-	return f.get_multiline_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, PANEL_W - 20.0, l.get_theme_font_size("font_size")).y
-
-
 func _build_ui() -> void:
 	var layer := CanvasLayer.new(); add_child(layer)
-	title_lbl = Label.new()
-	title_lbl.position = Vector2(14, 10)
-	title_lbl.add_theme_font_size_override("font_size", int(round(22 * Settings.text_scale)))
-	title_lbl.add_theme_color_override("font_color", Color(0.2, 1.0, 0.9))
-	title_lbl.text = "RIM — CITY  (%s)   ·  WASD/drag pan · wheel zoom · click a building · N network · hold F flatten · Esc" % _size_label()
-	layer.add_child(title_lbl)
 	hover_lbl = Label.new()
-	hover_lbl.position = Vector2(14, 40)
-	hover_lbl.add_theme_font_size_override("font_size", int(round(16 * Settings.text_scale)))
-	hover_lbl.add_theme_color_override("font_color", Color(0.8, 0.9, 1.0))
+	hover_lbl.position = Vector2(14, Econ.BAR_H + 8.0)
+	hover_lbl.add_theme_font_size_override("font_size", int(round(15 * Settings.text_scale)))
+	hover_lbl.add_theme_color_override("font_color", Color(0.72, 0.82, 0.92))
 	layer.add_child(hover_lbl)
-	sel_panel = Panel.new()
-	sel_panel.position = Vector2(14, 72)
-	sel_panel.custom_minimum_size = Vector2(PANEL_W, 124); sel_panel.size = Vector2(PANEL_W, 124)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.05, 0.08, 0.92)
-	sb.border_color = Color(0.2, 1.0, 0.9, 0.7); sb.set_border_width_all(1); sb.set_corner_radius_all(4)
-	sel_panel.add_theme_stylebox_override("panel", sb)
+	# the side panel: solid, fixed width, grows to its content — no manual height maths, nothing overflows
+	sel_panel = PanelContainer.new()
+	sel_panel.anchor_top = 0.0; sel_panel.anchor_bottom = 1.0   # a fixed full-height column: it never runs off-screen
+	sel_panel.offset_left = 14; sel_panel.offset_right = 14 + PANEL_W
+	sel_panel.offset_top = Econ.BAR_H + 36.0; sel_panel.offset_bottom = -24
 	sel_panel.visible = false
 	layer.add_child(sel_panel)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sel_panel.add_child(scroll)
 	var vb := VBoxContainer.new()
-	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
-	vb.offset_left = 10; vb.offset_top = 8; vb.offset_right = -10; vb.offset_bottom = -8
-	vb.add_theme_constant_override("separation", 4)
-	sel_panel.add_child(vb)
-	sel_title = Label.new()
-	sel_title.add_theme_font_size_override("font_size", int(round(18 * Settings.text_scale)))
-	sel_title.add_theme_color_override("font_color", Color(0.2, 1.0, 0.9))
-	vb.add_child(sel_title)
-	sel_body = Label.new()
-	sel_body.add_theme_font_size_override("font_size", int(round(14 * Settings.text_scale)))
-	sel_body.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
-	sel_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(sel_body)
-	sel_corp = Label.new()
-	sel_corp.add_theme_font_size_override("font_size", int(round(14 * Settings.text_scale)))
-	sel_corp.add_theme_color_override("font_color", Color(0.75, 0.95, 1.0))
-	sel_corp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(sel_corp)
-	sel_bname = Label.new()
-	sel_bname.add_theme_font_size_override("font_size", int(round(17 * Settings.text_scale)))
-	sel_bname.add_theme_color_override("font_color", Color(0.95, 1.0, 1.0))
-	sel_bname.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(sel_bname)
-	sel_meta = Label.new()
-	sel_meta.add_theme_font_size_override("font_size", int(round(14 * Settings.text_scale)))
-	sel_meta.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
-	sel_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(sel_meta)
-	sel_story = Label.new()
-	sel_story.add_theme_font_size_override("font_size", int(round(14 * Settings.text_scale)))
-	sel_story.add_theme_color_override("font_color", Color(0.68, 0.78, 0.9))
-	sel_story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(sel_story)
-	sel_people = Label.new()
-	sel_people.add_theme_font_size_override("font_size", int(round(13 * Settings.text_scale)))
-	sel_people.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
-	sel_people.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(sel_people)
-	sel_hint = Label.new()
-	sel_hint.add_theme_font_size_override("font_size", int(round(13 * Settings.text_scale)))
-	sel_hint.add_theme_color_override("font_color", Color(0.5, 0.6, 0.7))
-	sel_hint.text = "Esc / click a road or the void to deselect"
-	vb.add_child(sel_hint)
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_theme_constant_override("separation", 6)
+	scroll.add_child(vb)
+	sel_title = _mk_label(vb, 22, Color(0.2, 1.0, 0.9), true)
+	sel_body = _mk_label(vb, 15, Color(0.82, 0.9, 1.0))
+	_seps.append(_sep(vb))
+	sel_corp = _mk_label(vb, 14, Color(0.75, 0.95, 1.0))
+	_seps.append(_sep(vb))
+	sel_bname = _mk_label(vb, 18, Color(0.95, 1.0, 1.0), true)
+	sel_meta = _mk_label(vb, 15, Color(0.82, 0.9, 1.0))
+	_seps.append(_sep(vb))
+	sel_story = _mk_label(vb, 14, Color(0.68, 0.78, 0.9))
+	sel_people = _mk_label(vb, 14, Color(0.85, 0.88, 0.95))
+	# GO INSIDE: a big solid button pinned to the bottom-right corner, shown while a building is selected
+	sel_explore = Button.new()
+	sel_explore.text = "GO INSIDE   ▸"
+	sel_explore.add_theme_font_size_override("font_size", int(round(22 * Settings.text_scale)))
+	sel_explore.add_theme_font_override("font", Settings.font_bold)
+	sel_explore.focus_mode = Control.FOCUS_NONE
+	sel_explore.anchor_left = 1.0; sel_explore.anchor_right = 1.0; sel_explore.anchor_top = 1.0; sel_explore.anchor_bottom = 1.0
+	sel_explore.offset_left = -344; sel_explore.offset_right = -24; sel_explore.offset_top = -92; sel_explore.offset_bottom = -24
+	sel_explore.visible = false
+	sel_explore.pressed.connect(_enter_building)
+	layer.add_child(sel_explore)
+
+
+func _sep(parent: Node) -> Control:   # a thin rule between panel sections
+	var c := ColorRect.new(); c.color = Color(0.2, 1.0, 0.9, 0.22); c.custom_minimum_size = Vector2(0, 1)
+	parent.add_child(c)
+	return c
+
+
+func _mk_label(parent: Node, size: int, col: Color, bold := false) -> Label:
+	var l := Label.new()
+	l.add_theme_font_size_override("font_size", int(round(size * Settings.text_scale)))
+	l.add_theme_color_override("font_color", col)
+	if bold: l.add_theme_font_override("font", Settings.font_bold)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(l)
+	return l
 
 
 func _update_sel_panel() -> void:
 	if sel_panel == null: return
 	if sel_did < 0 or sel_did >= districts.size():
-		sel_panel.visible = false; return
+		sel_panel.visible = false
+		if sel_explore: sel_explore.visible = false   # no building selected → hide GO INSIDE
+		return
 	var r = districts[sel_did]
 	sel_panel.visible = true
 	sel_title.text = str(r.name)
@@ -2178,6 +2103,8 @@ func _update_sel_panel() -> void:
 			corp.to_upper(), str(ci.label), int(ci.founded), str(ci.blurb), str(ci.ceo), str(ci.hq),
 			int(ci.districts), int(ci.buildings), str(ci.slogan)]
 	sel_bname.visible = has_b; sel_meta.visible = has_b; sel_story.visible = has_b
+	_seps[0].visible = sel_corp.visible; _seps[1].visible = has_b; _seps[2].visible = has_b
+	sel_explore.visible = has_b
 	sel_people.visible = has_b and not (lots[selected].get("people", []) as Array).is_empty() if has_b else false
 	if has_b:
 		var b = lots[selected]
@@ -2188,6 +2115,10 @@ func _update_sel_panel() -> void:
 			str(b.get("occupant", "?")), ("  — " + str(b.occ_kind)) if str(b.get("occ_kind", "")) != "" else "",
 			str(b.get("sec", "?")), _net_desc(selected)]
 		if str(b.get("life", "")) != "": meta += "\n" + str(b.life)
+		var hks := "%d,%d" % [selected.x, selected.y]
+		if Session.hacked.has(hks):
+			var st: Dictionary = Session.hacked[hks]
+			meta += "\n◉ UNDER HACK — %d / %d nodes controlled" % [int(st.ctl), int(st.n)]
 		sel_meta.text = meta
 		sel_story.text = str(b.get("story", ""))
 		if sel_people.visible:
@@ -2197,9 +2128,6 @@ func _update_sel_panel() -> void:
 				lines.append("• %s, %d — %s%s" % [pp.name, int(pp.age), pp.job, inc])
 				lines.append("    %s" % pp.detail)
 			sel_people.text = "\n".join(lines)
-	var h := 30.0 + 4.0 * 7.0   # padding + separations + slack (wrapped labels can run a line long)
-	for l in [sel_title, sel_body, sel_corp, sel_bname, sel_meta, sel_story, sel_people, sel_hint]: h += _lbl_h(l) + 3.0
-	sel_panel.custom_minimum_size = Vector2(PANEL_W, h); sel_panel.size = Vector2(PANEL_W, h)
 
 
 func _money(v: int) -> String:   # 48200 -> "48,200"
@@ -2233,7 +2161,10 @@ func _size_label() -> String:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_N:
 		net_view = not net_view
-		if _fx != null: _fx.queue_redraw()
+		_dirty = true
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E and lots.has(selected):
+		_enter_building()
 		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		if lots.has(selected) or sel_did >= 0:

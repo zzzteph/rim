@@ -1,0 +1,50 @@
+{
+  "_about": "All of RIM's economy numbers in one place — edit these, not the code. See data/ECONOMY_GUIDE.md for what every field means. Loaded by scripts/econ.gd (a broken/missing file falls back to built-in defaults).",
+
+  "start": {"intel": 20, "cash": 0, "creds": 0, "exploits": 0, "crypto": 0},
+  "cap_base": 100,
+  "passive_intel": 1.0,
+  "action_cost": {"net_scan": 4, "profile": 3, "take": 8},
+  "capture_boost": 0.3,
+  "capture_scale_per_node": 0.5,
+
+  "action_time": {
+    "net_scan": 10.0,
+    "profile": 8.0,
+    "take": 10.0,
+    "install_per_hop": 0.6,
+    "install_min": 1.2,
+    "install_finalise": 1.4,
+    "install_fail_chance": 0.05
+  },
+
+  "heat": {
+    "max": 100,
+    "alarm_at": 100,
+    "warn_at": 50,
+    "alarm_minute_chance": 0.05,
+    "rehack_cost_per_alarm": 0.10,
+    "rehack_chance_per_alarm": 0.05,
+    "rehack_alarm_cap": 5
+  },
+
+  "programs": {
+    "scraper": {"name": "Scraper Botnet",    "cat": "intel",  "tier": 1, "glyph": "scraper", "out": "intel",  "rate": 0.6,  "heat": 1.0, "noise": 0.20, "cost": {"intel": 10}},
+    "harvest": {"name": "Deep Harvester",    "cat": "intel",  "tier": 2, "glyph": "sniffer", "out": "intel",  "rate": 1.6,  "heat": 1.0, "noise": 0.55, "cost": {"intel": 45}},
+    "vault_i": {"name": "Data Vault",        "cat": "intel",  "tier": 1, "glyph": "vault",   "store": "intel",  "amount": 150, "heat": 1.0, "noise": 0.08, "cost": {"intel": 30}},
+
+    "keylog":  {"name": "Keylogger",         "cat": "creds",  "tier": 1, "glyph": "keylog",  "out": "creds",  "rate": 0.08, "heat": 1.0, "noise": 0.15, "cost": {"intel": 15}},
+    "dumper":  {"name": "Credential Dumper", "cat": "creds",  "tier": 2, "glyph": "dumper",  "out": "creds",  "rate": 0.2,  "heat": 1.0, "noise": 0.45, "cost": {"intel": 35, "cash": 10}},
+    "vault_r": {"name": "Credential Safe",   "cat": "creds",  "tier": 1, "glyph": "vault",   "store": "creds",  "amount": 60,  "heat": 1.0, "noise": 0.08, "cost": {"intel": 25}},
+
+    "jacker":  {"name": "Cryptojacker",      "cat": "crypto", "tier": 1, "glyph": "jacker",  "out": "crypto", "rate": 0.5,  "heat": 1.0, "noise": 0.40, "cost": {"intel": 12}},
+    "rig":     {"name": "Mining Rig",        "cat": "crypto", "tier": 2, "glyph": "skimmer", "out": "crypto", "rate": 1.4,  "heat": 1.0, "noise": 0.85, "cost": {"intel": 40}},
+    "vault_c": {"name": "Cold Wallet",       "cat": "crypto", "tier": 1, "glyph": "vault",   "store": "crypto", "amount": 150, "heat": 1.0, "noise": 0.08, "cost": {"intel": 25}},
+
+    "cloak":   {"name": "Traffic Cloak",     "cat": "evade",  "tier": 1, "glyph": "cloak",   "evade": 2.0, "cost": {"intel": 20}},
+
+    "forge":   {"name": "Exploit Forge",     "cat": "ops",    "tier": 1, "glyph": "forge",   "in": "intel",  "in_rate": 1.0, "out": "exploits", "rate": 0.1, "heat": 1.0, "noise": 0.50, "cost": {"intel": 25}},
+    "mixer":   {"name": "Crypto Mixer",      "cat": "ops",    "tier": 1, "glyph": "mixer",   "in": "crypto", "in_rate": 1.0, "out": "cash",     "rate": 0.8, "heat": 1.0, "noise": 0.55, "cost": {"intel": 15}},
+    "market":  {"name": "Darknet Market",    "cat": "ops",    "tier": 1, "glyph": "market",  "in": "intel",  "in_rate": 1.0, "out": "cash",     "rate": 0.5, "heat": 1.0, "noise": 0.50, "cost": {"intel": 15}}
+  }
+}

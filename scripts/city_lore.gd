@@ -10,6 +10,7 @@ extends RefCounted
 ## assembles it. Deterministic from the map seed on its OWN rng, so lore never perturbs the layout.
 
 const DATA_PATH := "res://data/city_lore.json"
+const CorporateLore := preload("res://scripts/corporate_lore.gd")
 # every {placeholder} a template may use — ALL are filled for EVERY template (see _ctx)
 const PLACEHOLDERS := ["district", "org", "corp", "corp2", "landlord", "year", "event", "old", "old_small",
 	"floors", "f", "n", "div", "biz_l"]
@@ -18,12 +19,17 @@ static var _data := {}
 static var loaded_ok := false   # false = the content file was missing/broken and the fallback is in use
 
 var D: Dictionary        # the loaded content
+var _map_seed: int
 var rng := RandomNumberGenerator.new()
 var corp_info := {}      # corp name -> {industry, label, founded, ceo, slogan, blurb, districts, buildings, hq}
 var _used := {}          # every corp / building name handed out (unique per map)
+var _used_stories := {}  # fully rendered stories already assigned on this map
+var _text_bags := {}     # shuffled candidate pools; draw without replacement until refilled
+var _last_text := {}     # avoid an immediate repeat when a sentence pool is reshuffled
 
 
 func _init(map_seed: int) -> void:
+	_map_seed = map_seed
 	rng.seed = map_seed * 104729 + 3
 	D = data()
 
@@ -115,6 +121,7 @@ func finish(lots: Dictionary, districts: Array) -> void:
 		corp_info[o].buildings += 1
 		if float(b.h) > float(hq_h.get(o, -1.0)):
 			hq_h[o] = float(b.h); corp_info[o].hq = str(b.bname)
+	CorporateLore.new(_map_seed, D).attach(lots, districts, corp_info)
 
 
 # ------------------------------------------------------------------ people (Watch Dogs-style profiles)
@@ -125,15 +132,15 @@ func _person(ctx: Dictionary, age_lo: int, age_hi: int, surname := "") -> Dictio
 	var age := rng.randi_range(age_lo, age_hi)
 	var job: String; var income := 0; var detail: String
 	if age < 18:
-		job = "student"; detail = str(_pick(P.kid_details)).format(ctx)
+		job = "student"; detail = _draw_text("people.kid_details", P.kid_details).format(ctx)
 	elif age >= 68:
-		job = "retired"; income = rng.randi_range(9, 24) * 1000; detail = str(_pick(P.elder_details)).format(ctx)
+		job = "retired"; income = rng.randi_range(9, 24) * 1000; detail = _draw_text("people.elder_details", P.elder_details).format(ctx)
 	else:
 		var j: Dictionary = _pick(P.jobs)
 		var ind := _industry(str(ctx.corp))
 		job = str(j.text).format(ctx.merged({"corp_job": _pick(ind.jobs)}))
 		income = (rng.randi_range(int(j.min), int(j.max)) / 100) * 100
-		detail = str(_pick(P.details)).format(ctx)
+		detail = _draw_text("people.details", P.details).format(ctx)
 	return {"name": "%s %s" % [first, last], "age": age, "job": job, "income": income, "detail": detail}
 
 
@@ -244,15 +251,68 @@ static func _thousands(v: int) -> String:   # 3500 -> "3,500"
 	return sv + out
 
 
-# history + now (+ a rumour with probability p_rumour, if the category has any) from the content file
+# History + now (+ an optional rumour). Never reuse a rendered story while an unused combination
+# exists in this category. All selection uses this map's seeded RNG, including bag shuffles.
 func _story(cat: String, ctx: Dictionary, p_rumour: float) -> String:
 	var st: Dictionary = D.stories.get(cat, D.stories.values()[0])
+	var histories: Array = st.get("history", [])
+	var present: Array = st.get("now", [])
+	var rumours: Array = st.get("rumour", [])
+	var include_rumour := not rumours.is_empty() and rng.randf() < p_rumour
+	var result := ""
+	for attempt in 32:
+		var history := _draw_text("stories." + cat + ".history", histories)
+		var current := _draw_text("stories." + cat + ".now", present)
+		var rumour := _draw_text("stories." + cat + ".rumour", rumours) if include_rumour else ""
+		result = _format_story(history, current, rumour, ctx)
+		if _remember_story(result): return result
+	# Colliding candidates are discarded; full-story uniqueness takes priority over sentence rotation.
+	# A finite search makes collision recovery reliable even with small custom pools, or distinct
+	# templates that become identical after substitution. Normal maps use the quick path above.
+	var rumour_modes := [rumours if include_rumour else [""]]
+	if not rumours.is_empty() and p_rumour > 0.0 and p_rumour < 1.0:
+		rumour_modes.append([""] if include_rumour else rumours)
+	for mode in rumour_modes:
+		for history in histories if not histories.is_empty() else [""]:
+			for current in present if not present.is_empty() else [""]:
+				for rumour in mode:
+					result = _format_story(str(history), str(current), str(rumour), ctx)
+					if _remember_story(result): return result
+	# Missing/broken content still uses the tiny fallback; exhausted custom pools must not hang.
+	push_warning("city_lore: story pool '%s' exhausted; add more content for unique stories" % cat)
+	return result
+
+
+func _format_story(history: String, current: String, rumour: String, ctx: Dictionary) -> String:
 	var parts := PackedStringArray()
-	if not (st.get("history", []) as Array).is_empty(): parts.append(str(_pick(st.history)))
-	if not (st.get("now", []) as Array).is_empty(): parts.append(str(_pick(st.now)))
-	if not (st.get("rumour", []) as Array).is_empty() and rng.randf() < p_rumour:
-		parts.append("Rumour: " + str(_pick(st.rumour)))
+	if history != "": parts.append(history)
+	if current != "": parts.append(current)
+	if rumour != "": parts.append("Rumour: " + rumour)
 	return " ".join(parts).format(ctx)
+
+
+func _remember_story(story: String) -> bool:
+	if story == "" or _used_stories.has(story): return false
+	_used_stories[story] = true
+	return true
+
+
+func _draw_text(key: String, pool: Array) -> String:
+	if pool.is_empty(): return ""
+	var bag: Array = _text_bags.get(key, [])
+	if bag.is_empty():
+		bag = pool.duplicate()
+		for i in range(bag.size() - 1, 0, -1):
+			var j := rng.randi_range(0, i)
+			var swap: String = bag[i]
+			bag[i] = bag[j]; bag[j] = swap
+		if bag.size() > 1 and str(bag.back()) == str(_last_text.get(key, "")):
+			var swap: String = bag[0]
+			bag[0] = bag.back(); bag[bag.size() - 1] = swap
+		_text_bags[key] = bag
+	var text := str(bag.pop_back())
+	_last_text[key] = text
+	return text
 
 
 func _unique(nm: String) -> String:   # a taken name becomes "<name> No. <n>" (an address, not a bare counter)

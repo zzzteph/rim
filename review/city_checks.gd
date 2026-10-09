@@ -32,6 +32,12 @@ func run() -> void:
 	for k in a.lots:
 		if not b.lots.has(k) or str(a.lots[k].kind) != str(b.lots[k].kind): same = false; break
 	check("CK1_repeatable", same, "lots=%d roads=%d" % [a.lots.size(), a.roads.size()])
+	var lore_same: bool = a.corp_info == b.corp_info
+	for k in a.lots:
+		if not b.lots.has(k): lore_same = false; break
+		for field in ["bname", "occupant", "story", "people", "life"]:
+			if a.lots[k].get(field) != b.lots[k].get(field): lore_same = false
+	check("CK21_lore_repeatable", lore_same, "same seed reproduces stories, people and corporations")
 
 	var c = mk("medium", 7)
 	# CK2 valid footprints: on land, not road, consistent occupancy
@@ -101,7 +107,8 @@ func run() -> void:
 	# CK9–CK13: swept across all sizes × seeds 1–15 (45 maps) — the measured failures from the audit.
 	var bad_conn := 0; var sliver := 0; var no_park := 0; var no_retail := 0; var nmaps := 0
 	var dup_names := 0; var road_pct := 0.0; var bad_hub := 0
-	var bad_lore := 0; var stories := 0; var uniq_stories := {}; var bad_net := 0; var bad_stadium := 0; var hidden := 0
+	var bad_lore := 0; var stories := 0; var uniq_stories := {}; var bad_net := 0; var bad_stadium := 0; var hidden := 0; var dead_ends := 0; var chords := 0; var long_links := 0
+	var lore_kinds := {}
 	for sz in ["small", "medium", "large"]:
 		for sd in range(1, 16):
 			var m = mk(sz, sd); nmaps += 1
@@ -117,6 +124,7 @@ func run() -> void:
 			if not _hub_ok(m): bad_hub += 1
 			for k in m.lots:
 				var lb = m.lots[k]
+				lore_kinds[str(lb.kind)] = true
 				if str(lb.get("bname", "")) == "" or str(lb.get("occupant", "")) == "" or str(lb.get("story", "")) == "": bad_lore += 1
 				if str(lb.kind) in ["ap", "sc", "fh"] and (lb.get("people", []) as Array).is_empty(): bad_lore += 1   # homes list residents
 				var txt := str(lb.get("bname", "")) + str(lb.story) + str(lb.get("life", ""))
@@ -127,6 +135,11 @@ func run() -> void:
 				if str(r.type) == "bus" and not m.corp_info.has(str(r.get("org", ""))): bad_lore += 1
 				if str(r.type) == "res" and str(r.get("landlord", "")) == "": bad_lore += 1
 			if not _stadium_ok(m): bad_stadium += 1
+			dead_ends += _dead_end_districts(m)
+			for e in m.net_backbone:   # no district-to-district link spans half the city
+				if m._lot_center(e[0]).distance_to(m._lot_center(e[1])) > 12.0: long_links += 1
+			for e in m.net_local:   # a local link never jumps over a building already linked to either end
+				if m._jumps_over(e[0], e[1]): chords += 1
 			for k in m.lots:   # no building's roof is covered by one in front, even at full height
 				if m._top_hidden(k, m.HEIGHT_K): hidden += 1
 			if not _net_ok(m): bad_net += 1
@@ -137,8 +150,13 @@ func run() -> void:
 	# every district on a map has its own name (no "DOWNTOWN CORE" ×5)
 	check("CK13_unique_district_names", dup_names == 0, "%d duplicate district names across %d maps" % [dup_names, nmaps])
 	check("CK14_central_hub_tallest", bad_hub == 0, "%d/%d maps without a central, tallest HUB" % [bad_hub, nmaps])
-	# every building named, occupied and storied; stories varied (≥70% unique within a map); every district has an org
-	check("CK15_building_lore", bad_lore == 0 and uniq_stories.size() >= int(0.7 * float(stories)), "%d missing · %d/%d unique stories" % [bad_lore, uniq_stories.size(), stories])
+	# Every building named, occupied and storied, with zero duplicate full stories within each map.
+	check("CK15_building_lore", bad_lore == 0 and uniq_stories.size() == stories, "%d missing · %d/%d unique stories" % [bad_lore, uniq_stories.size(), stories])
+	var all_kinds := true
+	for kind in ["hub", "corp", "off_m", "off_s", "mall", "shop_b", "shop_s", "sc", "ap", "fh"]:
+		if not lore_kinds.has(kind): all_kinds = false
+	check("CK22_all_building_kinds_lore", all_kinds, "%d building kinds covered" % lore_kinds.size())
+	check("CK23_lore_selection", _lore_selection_ok(), "shuffled draws, collision recovery, rendered uniqueness and finite exhaustion")
 	# every building is wired, and the whole network is ONE connected graph that reaches the HUB
 	check("CK16_network_connected", bad_net == 0, "%d/%d maps with an unwired building or split network" % [bad_net, nmaps])
 	# inside every district the tall buildings stand at the back, so a district never hides its own
@@ -147,6 +165,9 @@ func run() -> void:
 	var bad_ph := _lore_placeholder_errors()
 	check("CK18_lore_content_valid", load("res://scripts/city_lore.gd").data() != null and load("res://scripts/city_lore.gd").loaded_ok and bad_ph.is_empty(),
 		"file loaded=%s · bad placeholders: %s" % [load("res://scripts/city_lore.gd").loaded_ok, ", ".join(bad_ph) if not bad_ph.is_empty() else "none"])
+	check("CK25_no_far_links", long_links == 0, "%d district links longer than 12 tiles across %d maps" % [long_links, nmaps])
+	check("CK24_no_chord_links", chords == 0, "%d local links jumping over a linked building across %d maps" % [chords, nmaps])
+	check("CK20_districts_meshed", dead_ends == 0, "%d districts linked to fewer than 2 other districts across %d maps" % [dead_ends, nmaps])
 	check("CK19_no_hidden_buildings", hidden == 0, "%d buildings hidden behind another across %d maps" % [hidden, nmaps])
 	check("CK17_district_stadium", bad_stadium == 0, "%d/%d maps with a district hiding its own buildings" % [bad_stadium, nmaps])
 	print("ROAD SHARE of developed land, mean over %d maps: %.1f%%" % [nmaps, road_pct / float(nmaps)])
@@ -265,3 +286,56 @@ func _lore_placeholder_errors() -> PackedStringArray:
 				if not allowed.has(m.get_string(1)): bad.append("{%s}" % m.get_string(1))
 			if v.count("{") != v.count("}"): bad.append("unbalanced braces in: " + v.left(40))
 	return bad
+
+
+func _lore_selection_ok() -> bool:
+	var L = load("res://scripts/city_lore.gd")
+	var lore = L.new(73)
+	var pool := ["One detail.", "Another detail.", "A final detail."]
+	var previous := ""
+	for cycle in 3:
+		var seen := {}
+		for i in pool.size():
+			var detail: String = lore._draw_text("probe", pool)
+			if seen.has(detail) or detail == previous or not pool.has(detail): return false
+			seen[detail] = true; previous = detail
+	# Exhaust all 18 combinations in a small pool, including the optional rumour. A mere retry
+	# limit can miss the final unused combinations; finite collision recovery must find them.
+	lore.D = {"stories": {"probe": {"history": ["The site was a depot.", "The permit was delayed."],
+		"now": ["The lights stay on.", "The door is open.", "The clock runs slow."],
+		"rumour": ["A key is missing.", "A receipt was hidden."]}}}
+	var seen_stories := {}
+	for i in 18:
+		var story: String = lore._story("probe", {}, 0.5)
+		if story == "" or seen_stories.has(story): return false
+		seen_stories[story] = true
+	# These exhausted tiny fixtures intentionally emit warnings rather than looping forever.
+	var exhausted: String = lore._story("probe", {}, 0.5)
+	if not seen_stories.has(exhausted): return false
+	# Different source strings can render identically, so uniqueness must follow substitution.
+	var rendered = L.new(74)
+	rendered.D = {"stories": {"probe": {"history": ["{org} opened the site.", "{corp} opened the site.", "A permit was issued."],
+		"now": ["The lights stay on."], "rumour": []}}}
+	var context := {"org": "Test Corp", "corp": "Test Corp"}
+	var first: String = rendered._story("probe", context, 0.0)
+	var second: String = rendered._story("probe", context, 0.0)
+	var third: String = rendered._story("probe", context, 0.0)
+	return first != second and "{" not in first and "{" not in second and third in [first, second]
+
+
+func _dead_end_districts(m) -> int:   # districts (with buildings) linked to < 2 other districts
+	var peers := {}
+	for e in m.net_backbone:
+		var a := int(m.lots[e[0]].did); var b := int(m.lots[e[1]].did)
+		if a == b: continue
+		if not peers.has(a): peers[a] = {}
+		if not peers.has(b): peers[b] = {}
+		peers[a][b] = true; peers[b][a] = true
+	var n := 0; var nd := 0
+	for did in m._district_lots:
+		if not (m._district_lots[did] as Array).is_empty(): nd += 1
+	if nd < 3: return 0
+	for did in m._district_lots:
+		if (m._district_lots[did] as Array).is_empty(): continue
+		if (peers.get(did, {}) as Dictionary).size() < 2: n += 1
+	return n

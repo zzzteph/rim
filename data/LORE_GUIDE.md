@@ -3,7 +3,8 @@
 Everything the city map *says* comes from **`data/city_lore.json`**: district names, megacorps, building
 names, stories, residents and their quirks. The code (`scripts/city_lore.gd`) only picks entries at
 random (seeded per map) and slots them together. **You can grow the content without touching code:** add
-entries to the JSON lists, and every new map will use them.
+entries to the JSON lists, and every new map will use them. Restart a running game after editing the
+file: the content is loaded once per process.
 
 This guide covers how generation works, the file's structure, the placeholder rules, how to check your
 work, and a ready-to-paste prompt for producing more content with another AI.
@@ -14,7 +15,8 @@ work, and a ready-to-paste prompt for producing more content with another AI.
 
 Every map picks a few **megacorps**. Each one is a name prefix plus an industry suffix (e.g. *Orbis* +
 *Neural*), and each gets a profile: industry, founding year, CEO, slogan and blurb. Megacorps are the
-**only** organisations: no gangs or syndicates.
+city's corporate powers; public authorities and independent owners also appear. No gangs or
+syndicates control districts.
 
 | District type | What it gets |
 |---|---|
@@ -30,6 +32,20 @@ story = one "history" sentence  +  one "now" sentence  +  (sometimes) "Rumour: "
 ```
 
 The game adds the `Rumour: ` prefix itself, so never write it into rumour entries.
+
+History, present-day, rumour and resident-detail pools are shuffled using the map's own seeded random
+generator. Ordinary draws work through a pool before reshuffling, avoiding immediate repeats at the
+shuffle boundary. The generator checks the final text after filling placeholders and discards a
+candidate if that story already belongs to a building on the map. Finding an unused complete story
+takes priority over sentence rotation, so collision recovery can skip sentences in a cycle. The
+expanded pools provide over two million template combinations per building category, before names,
+dates and other placeholder variations.
+
+Uniqueness applies to **complete building stories within a map**. Individual sentences can recur in
+different combinations, and the same seed with the same content reproduces the same city. Across an
+unlimited number of maps, finite content cannot guarantee eternal uniqueness. If a custom pool is
+reduced until every possible story is used, the game logs an exhaustion warning and allows repeats
+instead of hanging.
 
 | Building | Story pool | Rumour chance | Extra |
 |---|---|---|---|
@@ -60,7 +76,7 @@ The game adds the `Rumour: ` prefix itself, so never write it into rumour entrie
 | `people.first_names`, `people.surnames` | lists | resident names |
 | `people.jobs` | list of `{"text", "min", "max"}` | job line + yearly income range in ¥ (`0, 0` = no income) |
 | `people.details` | list of sentences | one personal quirk per adult |
-| `people.kid_details`, `people.elder_details` | lists | quirks for under-18s and over-68s |
+| `people.kid_details`, `people.elder_details` | lists | quirks for under-18s and people aged 68+ |
 | `places.old_buildings` | list | what a building used to be (`{old}`) |
 | `places.small_old_buildings` | list | what a shop used to be (`{old_small}`) |
 | `places.events` | list | past city events (`{event}`); may use `{year}` |
@@ -89,8 +105,10 @@ An **industry** object (to add one, copy an existing block and give it a new key
 
 ## 3. Placeholders
 
-Write a word in curly braces and the game swaps in a value. **Every placeholder below is filled for
-every template**, so you can use any of them anywhere (except `{corp_job}`; see the table).
+Write a word in curly braces and the game swaps in a value in **story sentences, resident details and
+job text**. These templates receive every general placeholder below; `{corp_job}` is only available
+in job text. `places.events` may use `{year}`. Names, industry blurbs and slogans, security strings,
+and the other place lists are used literally, so keep placeholders out of those fields.
 
 | Placeholder | Becomes | Example |
 |---|---|---|
@@ -104,7 +122,7 @@ every template**, so you can use any of them anywhere (except `{corp_job}`; see 
 | `{old}` | a former building (from `places.old_buildings`) | public library |
 | `{old_small}` | a former small building | laundromat |
 | `{floors}` | **this** building's real floor count | 11 |
-| `{f}` | a random floor number, 13–88 | 47 |
+| `{f}` | a random number, 13–88; **not checked against this building's height** | 47 |
 | `{n}` | a small number, 2–9 | 7 |
 | `{div}` | the corp division (corporate buildings; otherwise "operations") | data-brokerage |
 | `{biz_l}` | the shop type in lower case (shops; otherwise "food") | noodle bar |
@@ -116,7 +134,8 @@ A misspelt placeholder such as `{distirct}` is caught by the check in section 5.
 
 ## 4. Writing rules
 
-1. **One complete sentence per entry**, ending with a full stop. Fragments are combined at random, so
+1. **One complete sentence per story or personal-detail entry**, ending with a full stop. Names, job
+   titles and other vocabulary lists use short phrases. Story sentences are combined at random, so
    each must make sense next to *any* other: no "also", "however" or "as mentioned", and no references
    to a previous sentence.
 2. **Length:** story sentences up to about 120 characters; `people.details` up to about 70; names 1–3
@@ -125,19 +144,30 @@ A misspelt placeholder such as `{distirct}` is caught by the check in section 5.
    detail beats melodrama ("Calls their mother every Sunday." is better than "Has a dark past.").
 4. **Original names only:** no real companies or brands, and no names from existing franchises
    (Arasaka, Militech, Tessier-Ashpool, Weyland, Tyrell, Blume…). No real people.
-5. **No gangs, syndicates or crime organisations as controllers.** Only megacorps own things. Petty
-   crime in a *person's* detail is fine ("Wanted for unpaid transit fares.").
+5. **No gangs, syndicates or crime organisations as controllers.** Follow the district ownership
+   table above; shops and homes may have individual owners. Petty crime in a *person's* detail is
+   fine ("Wanted for unpaid transit fares.").
 6. **Use "they"** for any person who isn't named in the same sentence.
 7. **Use `{floors}`** for a building's own height, never a hard-coded floor count, so the story always
    matches the building.
 8. **Don't write the `Rumour:` prefix**; the game adds it.
 9. Keep it PG-13: no slurs, sexual content or graphic violence.
 10. Avoid near-duplicates of existing entries. Variety is the whole point.
+11. **Respect random combinations:** a shop can be any type, a family can have no children or
+    grandparents, and an adult profile can be as young as 18 with any job or no income. Avoid details
+    that require a particular family member, career, age, shop service or building layout. Do not use
+    `{f}` to describe a real floor in the current building; it can exceed `{floors}`.
 
-**Targets** (current → good). Story pools: 3–8 → **25+ each**. `people.details`: 36 → **100+**.
-`kid_details` and `elder_details`: 5 → **25+**. `people.jobs`: 20 → **50+**. First names: 40 → **120+**,
-surnames: 30 → **100+**. `stories.home.rumour` and `stories.mall.rumour` are empty, so add some.
-Industry lists: 3–4 → **8+ each**.
+**Content inventory after the large expansion:** 4,083 list entries in total, including 2,306 building
+story sentences across the 18 history/now/rumour pools. Each story pool has 125–133 entries; home and
+mall rumours now have 125 each. Residents have 236 adult details, 80 child details, 80 elder details,
+120 job entries, 176 first names and 176 surnames. There are 10 industries, with 8 entries in each
+industry's suffix, division, building-name, job and slogan lists. Energy, water and sanitation,
+logistics, and food and agriculture join the original six industries.
+
+Further additions should broaden situations and voices, not multiply the same sentence with swapped
+nouns. Write distinct entries, check them against the existing pool, and keep all game content in the
+JSON file.
 
 ---
 
@@ -151,7 +181,10 @@ Industry lists: 3–4 → **8+ each**.
    ```
    **CK18_lore_content_valid** fails if the file doesn't load or any `{placeholder}` is unknown, and
    names the bad ones. **CK15_building_lore** fails if any building ends up without a name, occupant or
-   story, or if a placeholder leaks onto the screen unfilled.
+   story, if a full story repeats on the same map, or if a placeholder leaks onto the screen unfilled.
+   **CK21_lore_repeatable** checks that the same seed reproduces the same lore,
+   **CK22_all_building_kinds_lore** checks coverage of all ten building kinds, and
+   **CK23_lore_selection** checks sentence-pool coverage and recovery from duplicate combinations.
 3. If the file is missing or broken, the game still runs on a tiny built-in fallback and logs
    `city_lore: could not load …`. If every building suddenly reads "Built in …", that's the cause.
 
@@ -172,7 +205,8 @@ REQUEST: <e.g. "40 new entries for stories.housing.rumour" or "60 new people.det
 Rules:
 - Output ONLY a JSON array of strings (or of {"text","min","max"} objects for people.jobs), with no
   commentary.
-- One complete, standalone sentence per entry, ending with a full stop. It will be combined at random
+- For stories and personal details, write one complete, standalone sentence per entry, ending with a
+  full stop. Names and job titles use short phrases. Stories will be combined at random
   with other sentences, so never refer to "it/this" from a previous sentence or use connectors such as
   "also" or "however".
 - Story sentences ≤ 120 characters; personal details ≤ 70 characters.
@@ -183,17 +217,21 @@ Rules:
 - Do not start rumours with "Rumour:".
 - Original names only: no real companies, brands or people, and no names from existing games, films
   or books.
-- Megacorps are the only organisations: no gangs, syndicates or cartels in charge of anything.
+- Follow the game's megacorp, public-authority and independent-ownership roles; no gangs, syndicates
+  or cartels in charge of anything.
 - Use "they" for unnamed people. PG-13.
 - Tone: grounded, specific, slightly wry cyberpunk. Prefer small human details to melodrama.
 - Avoid repeating these existing examples: <paste the current list here>
+- Every shop type and family composition must work: do not require children, grandparents, a certain
+  job or age, a food-serving shop, or a particular building layout. Never use {f} for a real floor in
+  the current building; it is not bounded by the building's height.
 
 Pools and what they mean:
 - stories.<corporate|shop|housing|home|mall|hub>.history: what the building was or how it came to be.
 - ….now: what happens there today.
 - ….rumour: a whispered secret or urban legend about it.
 - people.details: one quirk about an adult resident (debts, hobbies, secrets, routines, ambitions).
-- people.kid_details / people.elder_details: the same for under-18s and over-68s.
+- people.kid_details / people.elder_details: the same for under-18s and people aged 68+.
 - people.jobs: {"text": "job description", "min": yearly ¥ low, "max": yearly ¥ high}; text may use
   {corp}, {district} or {corp_job}.
 ```
