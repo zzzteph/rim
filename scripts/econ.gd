@@ -1,7 +1,7 @@
 extends Node
 ## Autoload "Econ": the run's economy, ticking globally so installed programs keep producing whether
 ## you're on the city map or inside a building. ALL tunable numbers live in data/economy.json (see
-## data/ECONOMY_GUIDE.md) — this script only loads and applies them.
+## design/ECONOMY_GUIDE.md) — this script only loads and applies them.
 ##
 ## Five stockpiles, Intel the universal currency: Intel (pays for every scan/profile/capture; +1/s
 ## passive baseline), Cash, Credentials & Exploits (burned on a capture for a better chance), Crypto

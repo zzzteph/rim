@@ -1,0 +1,523 @@
+{
+  "date": "2026-10-10",
+  "model_version": "conditional fuel bounds 1.0",
+  "document_sha256": "58cbc6581c1273a57e51ea970b3dfaf61025cfa5fe56c1045781c90d7e704ab7",
+  "prototype_sha256": "0982dbfb6d884c89aa9847045ee177edc34b1fa32bff7484d9388dd7e5fec085",
+  "confirmed_prototype": {
+    "outer": {
+      "damage_budget": 92,
+      "opening_10_bots_15_intel": {
+        "success": false,
+        "seconds": 5.0,
+        "nodes_taken": 1,
+        "bots_used": 10.0,
+        "intel_used": 15.0
+      },
+      "one_bot_ample_intel": {
+        "success": true,
+        "seconds": 12.1333,
+        "nodes_taken": 2,
+        "bots_used": 1.0,
+        "intel_used": 36.4,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.4
+      }
+    },
+    "inner": {
+      "damage_budget": 120,
+      "opening_10_bots_15_intel": {
+        "success": false,
+        "seconds": 5.0,
+        "nodes_taken": 1,
+        "bots_used": 10.0,
+        "intel_used": 15.0
+      },
+      "one_bot_ample_intel": {
+        "success": true,
+        "seconds": 15.8667,
+        "nodes_taken": 3,
+        "bots_used": 1.0,
+        "intel_used": 47.6,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.4
+      }
+    },
+    "hub": {
+      "damage_budget": 194,
+      "opening_10_bots_15_intel": {
+        "success": false,
+        "seconds": 5.0,
+        "nodes_taken": 1,
+        "bots_used": 10.0,
+        "intel_used": 15.0
+      },
+      "one_bot_ample_intel": {
+        "success": true,
+        "seconds": 25.7333,
+        "nodes_taken": 5,
+        "bots_used": 1.0,
+        "intel_used": 77.2,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.4
+      }
+    }
+  },
+  "conditional_fuel": [
+    {
+      "target": "outer",
+      "defense": 92,
+      "engaged_cap": 1,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 92.0,
+      "no_income_total_fuel": 184,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 281.6667,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 270.9583,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 92.0,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 0.0083,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "outer",
+      "defense": 92,
+      "engaged_cap": 5,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 18.4,
+      "no_income_total_fuel": 184,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 281.6667,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 280.075,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 18.4,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 0.0,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "outer",
+      "defense": 92,
+      "engaged_cap": 10,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 9.2,
+      "no_income_total_fuel": 184,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 281.6667,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 280.9,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 9.2,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 0.0,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "outer",
+      "defense": 92,
+      "engaged_cap": 20,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 4.6,
+      "no_income_total_fuel": 184,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 281.6667,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 281.2917,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 4.6,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 0.0,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "outer",
+      "defense": 92,
+      "engaged_cap": 40,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 2.3,
+      "no_income_total_fuel": 184,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 281.6667,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 281.4833,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 2.3,
+        "fuel_spent": 184.0,
+        "low_throughput_seconds": 0.0,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "inner",
+      "defense": 120,
+      "engaged_cap": 1,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 120.0,
+      "no_income_total_fuel": 240,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 375.0,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 364.2917,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 120.0,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 0.0083,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "inner",
+      "defense": 120,
+      "engaged_cap": 5,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 24.0,
+      "no_income_total_fuel": 240,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 375.0,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 373.4083,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 66.6667,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 45.3917,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "inner",
+      "defense": 120,
+      "engaged_cap": 10,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 12.0,
+      "no_income_total_fuel": 240,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 375.0,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 374.2333,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 66.6667,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 56.3583,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "inner",
+      "defense": 120,
+      "engaged_cap": 20,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 6.0,
+      "no_income_total_fuel": 240,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 375.0,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 374.625,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 66.6667,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 61.5917,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "inner",
+      "defense": 120,
+      "engaged_cap": 40,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 3.0,
+      "no_income_total_fuel": 240,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 375.0,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 374.8167,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 66.6667,
+        "fuel_spent": 240.0,
+        "low_throughput_seconds": 64.15,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "hub",
+      "defense": 194,
+      "engaged_cap": 1,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 194.0,
+      "no_income_total_fuel": 388,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 621.6667,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 610.9583,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 313.3333,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 170.4833,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "hub",
+      "defense": 194,
+      "engaged_cap": 5,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 38.8,
+      "no_income_total_fuel": 388,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 621.6667,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 620.075,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 313.3333,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 292.0583,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "hub",
+      "defense": 194,
+      "engaged_cap": 10,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 19.4,
+      "no_income_total_fuel": 388,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 621.6667,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 620.9,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 313.3333,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 303.025,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "hub",
+      "defense": 194,
+      "engaged_cap": 20,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 9.7,
+      "no_income_total_fuel": 388,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 621.6667,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 621.2917,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 313.3333,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 308.2583,
+        "health_remaining": 0.0
+      }
+    },
+    {
+      "target": "hub",
+      "defense": 194,
+      "engaged_cap": 40,
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "no_income_ideal_seconds": 4.85,
+      "no_income_total_fuel": 388,
+      "fuel15_income0_6": {
+        "success": true,
+        "seconds": 621.6667,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 621.4833,
+        "health_remaining": 0.0
+      },
+      "fuel200_income0_6": {
+        "success": true,
+        "seconds": 313.3333,
+        "fuel_spent": 388.0,
+        "low_throughput_seconds": 310.8167,
+        "health_remaining": 0.0
+      }
+    }
+  ],
+  "damage_sensitivity": [
+    {
+      "target": "outer",
+      "damage_per_bot_second": 0.5,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 368.0,
+      "minimum_firing_lifetime_if_only_10_committed": 18.4
+    },
+    {
+      "target": "outer",
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 184.0,
+      "minimum_firing_lifetime_if_only_10_committed": 9.2
+    },
+    {
+      "target": "outer",
+      "damage_per_bot_second": 2,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 92.0,
+      "minimum_firing_lifetime_if_only_10_committed": 4.6
+    },
+    {
+      "target": "outer",
+      "damage_per_bot_second": 4,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 46.0,
+      "minimum_firing_lifetime_if_only_10_committed": 2.3
+    },
+    {
+      "target": "inner",
+      "damage_per_bot_second": 0.5,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 480.0,
+      "minimum_firing_lifetime_if_only_10_committed": 24.0
+    },
+    {
+      "target": "inner",
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 240.0,
+      "minimum_firing_lifetime_if_only_10_committed": 12.0
+    },
+    {
+      "target": "inner",
+      "damage_per_bot_second": 2,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 120.0,
+      "minimum_firing_lifetime_if_only_10_committed": 6.0
+    },
+    {
+      "target": "inner",
+      "damage_per_bot_second": 4,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 60.0,
+      "minimum_firing_lifetime_if_only_10_committed": 3.0
+    },
+    {
+      "target": "hub",
+      "damage_per_bot_second": 0.5,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 776.0,
+      "minimum_firing_lifetime_if_only_10_committed": 38.8
+    },
+    {
+      "target": "hub",
+      "damage_per_bot_second": 1,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 388.0,
+      "minimum_firing_lifetime_if_only_10_committed": 19.4
+    },
+    {
+      "target": "hub",
+      "damage_per_bot_second": 2,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 194.0,
+      "minimum_firing_lifetime_if_only_10_committed": 9.7
+    },
+    {
+      "target": "hub",
+      "damage_per_bot_second": 4,
+      "fuel_per_bot_second": 2,
+      "total_fuel": 97.0,
+      "minimum_firing_lifetime_if_only_10_committed": 4.85
+    }
+  ],
+  "checks": "passed: hand-known TTK/fuel, zero-bot, zero-fuel/no-income, income recovery, stock conservation",
+  "assumptions": [
+    "Fuel proposal only fixes burn approximately 2 per bot-second; damage per bot-second is not specified.",
+    "Worked examples assume damage=1 per bot-second; this is NOT current BOT_DMG=1 per consumed bot.",
+    "Fuel simulation omits unresolved bot attrition/lifetime, deployment cap, overkill, node delays, Net Watch and transit.",
+    "Idle and partial-fire simulation permits fractional duty cycling; real discrete bots/restart rules may be slower.",
+    "Old prototype tests reproduce additive pool drains at 60Hz without global combat income feeding committed Intel."
+  ],
+  "opening_fuel_conservation_bound_seconds": 281.6666666666667,
+  "twenty_bot_initial_stock_depletion_seconds": 0.3807106598984772,
+  "illustrative_10_second_bot_life_outer_capacity": 100,
+  "illustrative_1_second_bot_life_outer_capacity": 10,
+  "opening_test_candidate": {
+    "damage_per_bot_second": 1,
+    "fuel_per_bot_second": 0.2,
+    "concurrently_engaged_bots": 10,
+    "firing_lifetime_per_bot_seconds": 10,
+    "starting_fuel": 15,
+    "fuel_income_per_second": 0.6,
+    "target_defense": 92,
+    "ideal_seconds": 9.2,
+    "fuel_spent": 18.4,
+    "fuel_remaining": 2.12,
+    "status": "passes the ideal opening calculation, not final balance or a playtest"
+  }
+}

@@ -1,0 +1,735 @@
+{
+  "model_version": "1.0",
+  "date": "2026-10-10",
+  "project_version": "1.3.5",
+  "source_hashes": {
+    "scripts\\botnet_proto.gd": "0982dbfb6d884c89aa9847045ee177edc34b1fa32bff7484d9388dd7e5fec085",
+    "scripts\\netrun.gd": "2bc61d6dbfe9b5d2c04cf38f83fe9c6671502a3f43745d2f6049a3eff0b2f906",
+    "data\\economy.json": "8218d4a042f18a152530f83b8732bca5d7df6e2ce76a58dbb64c895f8559c74b",
+    "scripts\\building.gd": "4d704f21c4b3a12374c21fa97aae194bced1ad2ffe50b450b7c72a3de51ae364",
+    "scripts\\econ.gd": "3737b24231560d6d42dad98f34da1abd20a364a515580d7150031383a720b7f1",
+    "scripts\\menu.gd": "afd7c8a3bc6ef3e24e74b78a68396d4ad6f1d9f4439a7006c8fcec55ac84fb15"
+  },
+  "model_checks": "passed: hand-known tick, frame waste, insufficient opening, nonnegative pools, finite termination",
+  "limitations": [
+    "Static source plus isolated deterministic model; no rendered playtest or engine execution",
+    "Instant between-node input; no defense, transit, global income during assault, or map seed prevalence",
+    "Defense combinations enumerate valid offsets, not measured probabilities",
+    "Source fragments guard key assumptions; this is not a complete GDScript interpreter"
+  ],
+  "parameters": {
+    "GRID_COLS": 5.0,
+    "GRID_ROWS": 3.0,
+    "BOT_START": 10.0,
+    "BOT_RATE": 0.2,
+    "BOT_CAP": 80.0,
+    "INTEL_PER_HOST": 0.6,
+    "WAR_COST": 25.0,
+    "R": 20.0,
+    "IR": 22.0,
+    "ASSAULT_BOTS": 6.0,
+    "ASSAULT_INTEL": 3.0,
+    "BOT_DMG": 1.0,
+    "AMMO_DMG": 2.5
+  },
+  "botnet_target_cases": {
+    "outer": {
+      "defense_total": 92.0,
+      "assault_nodes": 2,
+      "displayed_global_defense": 20,
+      "ideal_both_pools_seconds": 6.814814814814815,
+      "intel_only_requirement": 36.8,
+      "balanced": {
+        "success": true,
+        "seconds": 6.8333,
+        "nodes_taken": 2,
+        "bots_used": 41.0,
+        "intel_used": 20.5,
+        "bots_stranded": 0.8889,
+        "intel_stranded": 0.9444
+      },
+      "tiny_bot_ammo_rich": {
+        "success": true,
+        "seconds": 12.2667,
+        "nodes_taken": 2,
+        "bots_used": 0.01,
+        "intel_used": 36.8,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.0
+      },
+      "one_bot_ammo_rich": {
+        "success": true,
+        "seconds": 12.1333,
+        "nodes_taken": 2,
+        "bots_used": 1.0,
+        "intel_used": 36.4,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.4
+      },
+      "one_full_war_host_no_ammo": {
+        "success": false,
+        "seconds": 13.3333,
+        "nodes_taken": 1,
+        "bots_used": 80.0,
+        "intel_used": 0
+      }
+    },
+    "inner": {
+      "defense_total": 120.0,
+      "assault_nodes": 3,
+      "displayed_global_defense": 40,
+      "ideal_both_pools_seconds": 8.88888888888889,
+      "intel_only_requirement": 48.0,
+      "balanced": {
+        "success": true,
+        "seconds": 8.9167,
+        "nodes_taken": 3,
+        "bots_used": 53.5,
+        "intel_used": 26.75,
+        "bots_stranded": 0.8333,
+        "intel_stranded": 0.9167
+      },
+      "tiny_bot_ammo_rich": {
+        "success": true,
+        "seconds": 16.0,
+        "nodes_taken": 3,
+        "bots_used": 0.01,
+        "intel_used": 48.0,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.0
+      },
+      "one_bot_ammo_rich": {
+        "success": true,
+        "seconds": 15.8667,
+        "nodes_taken": 3,
+        "bots_used": 1.0,
+        "intel_used": 47.6,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.4
+      },
+      "one_full_war_host_no_ammo": {
+        "success": false,
+        "seconds": 13.3333,
+        "nodes_taken": 2,
+        "bots_used": 80.0,
+        "intel_used": 0
+      }
+    },
+    "hub": {
+      "defense_total": 194.0,
+      "assault_nodes": 5,
+      "displayed_global_defense": 240,
+      "ideal_both_pools_seconds": 14.37037037037037,
+      "intel_only_requirement": 77.6,
+      "balanced": {
+        "success": true,
+        "seconds": 14.4167,
+        "nodes_taken": 5,
+        "bots_used": 86.5,
+        "intel_used": 43.25,
+        "bots_stranded": 0.7222,
+        "intel_stranded": 0.8611
+      },
+      "tiny_bot_ammo_rich": {
+        "success": true,
+        "seconds": 25.8667,
+        "nodes_taken": 5,
+        "bots_used": 0.01,
+        "intel_used": 77.6,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.0
+      },
+      "one_bot_ammo_rich": {
+        "success": true,
+        "seconds": 25.7333,
+        "nodes_taken": 5,
+        "bots_used": 1.0,
+        "intel_used": 77.2,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.4
+      },
+      "one_full_war_host_no_ammo": {
+        "success": false,
+        "seconds": 13.3333,
+        "nodes_taken": 2,
+        "bots_used": 80.0,
+        "intel_used": 0
+      }
+    }
+  },
+  "new_game_economy": {
+    "source": "data/economy.json",
+    "capture_scale_cases": [
+      {
+        "controlled_nodes": 1,
+        "unburned_capture_cost": 8.0,
+        "affordable_at_base_cap": true
+      },
+      {
+        "controlled_nodes": 5,
+        "unburned_capture_cost": 24.0,
+        "affordable_at_base_cap": true
+      },
+      {
+        "controlled_nodes": 11,
+        "unburned_capture_cost": 48.0,
+        "affordable_at_base_cap": true
+      },
+      {
+        "controlled_nodes": 24,
+        "unburned_capture_cost": 100.0,
+        "affordable_at_base_cap": true
+      },
+      {
+        "controlled_nodes": 25,
+        "unburned_capture_cost": 104.0,
+        "affordable_at_base_cap": false
+      },
+      {
+        "controlled_nodes": 50,
+        "unburned_capture_cost": 204.0,
+        "affordable_at_base_cap": false
+      }
+    ],
+    "capture_retry_expectations": [
+      {
+        "security": "Corporate ICE",
+        "type": "core",
+        "boosted": false,
+        "success_probability": 0.41600000000000004,
+        "expected_attempts": 2.4038461538461537,
+        "expected_take_seconds_excluding_affordability": 18.07211538461538,
+        "expected_take_intel_at_one_controlled_node": 19.23076923076923,
+        "expected_boost_resources": 0,
+        "five_consecutive_failures_probability": 0.06793040995942398
+      },
+      {
+        "security": "Corporate ICE",
+        "type": "core",
+        "boosted": true,
+        "success_probability": 0.716,
+        "expected_attempts": 1.3966480446927374,
+        "expected_take_seconds_excluding_affordability": 12.280726256983241,
+        "expected_take_intel_at_one_controlled_node": 11.1731843575419,
+        "expected_boost_resources": 1.3966480446927374,
+        "five_consecutive_failures_probability": 0.001847530855424001
+      },
+      {
+        "security": "Lethal — black ICE",
+        "type": "core",
+        "boosted": false,
+        "success_probability": 0.156,
+        "expected_attempts": 6.410256410256411,
+        "expected_take_seconds_excluding_affordability": 41.10897435897435,
+        "expected_take_intel_at_one_controlled_node": 51.282051282051285,
+        "expected_boost_resources": 0,
+        "five_consecutive_failures_probability": 0.4282646549002239
+      },
+      {
+        "security": "Lethal — black ICE",
+        "type": "core",
+        "boosted": true,
+        "success_probability": 0.45599999999999996,
+        "expected_attempts": 2.192982456140351,
+        "expected_take_seconds_excluding_affordability": 16.85964912280702,
+        "expected_take_intel_at_one_controlled_node": 17.54385964912281,
+        "expected_boost_resources": 2.192982456140351,
+        "five_consecutive_failures_probability": 0.04764249515622402
+      }
+    ],
+    "retry_assumptions": "Independent stationary attempts; sufficient stock; no alarms/cancellations; failed task duration mean0.575 of full duration; not engine or playtest timings",
+    "cash_spenders": [
+      "dumper"
+    ]
+  },
+  "opening": {
+    "bots": 10.0,
+    "intel": 15.0,
+    "maximum_damage": 47.5,
+    "outer_target_damage": 92.0,
+    "no_waste_minimum_wait_seconds": 26.176470588235293,
+    "actual_isolated_model": {
+      "success": false,
+      "seconds": 5.0,
+      "nodes_taken": 1,
+      "bots_used": 10.0,
+      "intel_used": 15.0
+    },
+    "test_candidate_10_bots_34_intel": {
+      "success": true,
+      "seconds": 10.95,
+      "nodes_taken": 2,
+      "bots_used": 10.0,
+      "intel_used": 32.85,
+      "bots_stranded": 0.0,
+      "intel_stranded": 1.15
+    },
+    "test_candidate_42_bots_21_intel": {
+      "success": true,
+      "seconds": 6.8333,
+      "nodes_taken": 2,
+      "bots_used": 41.0,
+      "intel_used": 20.5,
+      "bots_stranded": 1.0,
+      "intel_stranded": 0.5
+    }
+  },
+  "ammo_damage_sweep": [
+    {
+      "ammo_damage": 1.25,
+      "hub_one_bot_with_sufficient_intel": {
+        "success": true,
+        "seconds": 51.4667,
+        "nodes_taken": 5,
+        "bots_used": 1.0,
+        "intel_used": 154.4,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.8
+      }
+    },
+    {
+      "ammo_damage": 2.5,
+      "hub_one_bot_with_sufficient_intel": {
+        "success": true,
+        "seconds": 25.7333,
+        "nodes_taken": 5,
+        "bots_used": 1.0,
+        "intel_used": 77.2,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.4
+      }
+    },
+    {
+      "ammo_damage": 5.0,
+      "hub_one_bot_with_sufficient_intel": {
+        "success": true,
+        "seconds": 12.8667,
+        "nodes_taken": 5,
+        "bots_used": 1.0,
+        "intel_used": 38.6,
+        "bots_stranded": 0.0,
+        "intel_stranded": 1.2
+      }
+    }
+  ],
+  "damage_supply_per_second_per_host": {
+    "bots": 0.2,
+    "intel": 1.5
+  },
+  "war_building_damage_only_break_even_seconds": 262.5,
+  "card_reachability": [
+    {
+      "organization": 0,
+      "component": "iot",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [
+        "cred1"
+      ],
+      "minimum_defenses": {
+        "pass": 2,
+        "vuln": 3,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 0,
+      "component": "web",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 5,
+        "vuln": 4,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 0,
+      "component": "file",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 4,
+        "vuln": 5,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 0,
+      "component": "db",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 6,
+        "vuln": 5,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 0,
+      "component": "pc",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 4,
+        "vuln": 4,
+        "aware": 4
+      }
+    },
+    {
+      "organization": 1,
+      "component": "iot",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [
+        "cred1"
+      ],
+      "minimum_defenses": {
+        "pass": 3,
+        "vuln": 4,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 1,
+      "component": "web",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 6,
+        "vuln": 5,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 1,
+      "component": "file",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 5,
+        "vuln": 6,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 1,
+      "component": "db",
+      "capturable_defense_combinations": 4,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 7,
+        "vuln": 6,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 1,
+      "component": "pc",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 5,
+        "vuln": 5,
+        "aware": 5
+      }
+    },
+    {
+      "organization": 2,
+      "component": "iot",
+      "capturable_defense_combinations": 8,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 4,
+        "vuln": 5,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 2,
+      "component": "web",
+      "capturable_defense_combinations": 4,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 7,
+        "vuln": 6,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 2,
+      "component": "file",
+      "capturable_defense_combinations": 4,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 6,
+        "vuln": 7,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 2,
+      "component": "db",
+      "capturable_defense_combinations": 0,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 8,
+        "vuln": 7,
+        "aware": 0
+      }
+    },
+    {
+      "organization": 2,
+      "component": "pc",
+      "capturable_defense_combinations": 7,
+      "enumerated_combinations": 8,
+      "basic_cards_ever_applicable_and_strong_enough": [],
+      "minimum_defenses": {
+        "pass": 6,
+        "vuln": 6,
+        "aware": 6
+      }
+    }
+  ],
+  "cash_spenders_in_programs_and_cards": [],
+  "integrity_seconds_to_loss": {
+    "1": 14.285714285714286,
+    "2": 7.142857142857143,
+    "3": 4.761904761904762
+  },
+  "document_inventory": [
+    {
+      "file": "BOTNET_ATTACK_DESIGN.md",
+      "lines": 142,
+      "sha256": "0197a8d2e96f25d085bcfa98ea5c73793dcc57da301a73a1e281944f49c6c241"
+    },
+    {
+      "file": "CITY.md",
+      "lines": 230,
+      "sha256": "7053e6420ff072bc42c57b8162996b9675e6daf9d0d6e12e0cb9b68c37e09632"
+    },
+    {
+      "file": "CITY_ARCHITECTURE.md",
+      "lines": 149,
+      "sha256": "8204822aa62008b6c3cf306c8ac23d3fef3ef019bd0869ac8a05fb1d449e2063"
+    },
+    {
+      "file": "CLAUDE_BRIEF.md",
+      "lines": 227,
+      "sha256": "3b31d562392444bec4cdd10a192b8c099ebe25196c4901b518a2c6899d8a0dd5"
+    },
+    {
+      "file": "CLAUDE_CITY.md",
+      "lines": 221,
+      "sha256": "b4deadbdf2341ba052c1ebdaadb7f4b1fb8fa553433448ba51064d3bee951408"
+    },
+    {
+      "file": "DESIGN.md",
+      "lines": 575,
+      "sha256": "10db54b4feaef6f9daad3ebf768bf1c60713f2e008327403d418d890de060180"
+    },
+    {
+      "file": "DUTCH_CITY_ANALYSIS.md",
+      "lines": 183,
+      "sha256": "5533e70657dbf652a5cfd99fb68c8059ad980fc922f4774ad718a79ac7606fc1"
+    },
+    {
+      "file": "ECONOMY_GUIDE.md",
+      "lines": 211,
+      "sha256": "f6d847d0d2d084938341a3210d7765f8c9c96302af4b8072a21c3b18413552a0"
+    },
+    {
+      "file": "EUROPEAN_CITY_GENERATION.md",
+      "lines": 139,
+      "sha256": "3a7991beec94f758723ee1ddc3a709ee0161e56a7c5558cb5dba20aaa1aead89"
+    },
+    {
+      "file": "FRANCE_CITY_ANALYSIS.md",
+      "lines": 124,
+      "sha256": "233f0949361c2f322f73ba2073eb63c531de8ff747fb7add334c33a64c0325a5"
+    },
+    {
+      "file": "GAME_DESIGN.md",
+      "lines": 292,
+      "sha256": "bc50b280a8ed349157c4ca1214a7c6b8a9ac261d0c284a3a387d9162a2927820"
+    },
+    {
+      "file": "GAP_ANALYSIS.md",
+      "lines": 209,
+      "sha256": "cc3eeab37f7ca4a3752394f02cf37e505eb118552e7a37663df0b2c4465811c3"
+    },
+    {
+      "file": "LORE_GUIDE.md",
+      "lines": 240,
+      "sha256": "394c4b740fa715a1fece69398c5ce5966f06e564b0fa4fa1a2a544c4a96689c0"
+    },
+    {
+      "file": "SMALL_TOWN_ANALYSIS.md",
+      "lines": 169,
+      "sha256": "96824f693c6993e09c4a2a72c49e85d392d1862483a971ca544bbf4277078066"
+    },
+    {
+      "file": "UK_CITY_ANALYSIS.md",
+      "lines": 138,
+      "sha256": "8c476fe95f856210de46b44c8e1d4856cba4f70bfa4d87ab7a57dd4b720e4cc6"
+    }
+  ],
+  "broken_relative_markdown_links": [
+    {
+      "file": "CITY_ARCHITECTURE.md",
+      "line": 7,
+      "target": "review/city_architecture_2026-10-04/architecture_reference.png",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CITY_ARCHITECTURE.md",
+      "line": 7,
+      "target": "review/city_architecture_2026-10-04/architecture_reference.svg",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CLAUDE_BRIEF.md",
+      "line": 215,
+      "target": "review/CITY_REDESIGN_DECISIONS.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CLAUDE_CITY.md",
+      "line": 5,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CLAUDE_CITY.md",
+      "line": 5,
+      "target": "review/city_planning_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CLAUDE_CITY.md",
+      "line": 9,
+      "target": "review/dutch_city_research_2026-10-04/CITY_PROFILES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CLAUDE_CITY.md",
+      "line": 13,
+      "target": "review/small_town_research_2026-10-04/TOWN_PROFILES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CLAUDE_CITY.md",
+      "line": 13,
+      "target": "review/small_town_research_2026-10-04/POPULATION_SOURCES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "CLAUDE_CITY.md",
+      "line": 169,
+      "target": "review/city_architecture_2026-10-04/architecture_reference.png",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "DUTCH_CITY_ANALYSIS.md",
+      "line": 3,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "DUTCH_CITY_ANALYSIS.md",
+      "line": 3,
+      "target": "review/dutch_city_research_2026-10-04/CITY_PROFILES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "DUTCH_CITY_ANALYSIS.md",
+      "line": 11,
+      "target": "review/dutch_city_research_2026-10-04/municipalities_over_100k_2026.json",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "DUTCH_CITY_ANALYSIS.md",
+      "line": 132,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "DUTCH_CITY_ANALYSIS.md",
+      "line": 161,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "EUROPEAN_CITY_GENERATION.md",
+      "line": 3,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "EUROPEAN_CITY_GENERATION.md",
+      "line": 9,
+      "target": "review/small_town_research_2026-10-04/POPULATION_SOURCES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "EUROPEAN_CITY_GENERATION.md",
+      "line": 9,
+      "target": "review/small_town_research_2026-10-04/TOWN_PROFILES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "EUROPEAN_CITY_GENERATION.md",
+      "line": 17,
+      "target": "review/city_architecture_2026-10-04/architecture_reference.png",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "FRANCE_CITY_ANALYSIS.md",
+      "line": 3,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "SMALL_TOWN_ANALYSIS.md",
+      "line": 9,
+      "target": "review/small_town_research_2026-10-04/TOWN_PROFILES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "SMALL_TOWN_ANALYSIS.md",
+      "line": 9,
+      "target": "review/small_town_research_2026-10-04/POPULATION_SOURCES.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "SMALL_TOWN_ANALYSIS.md",
+      "line": 17,
+      "target": "review/city_architecture_2026-10-04/architecture_reference.png",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "SMALL_TOWN_ANALYSIS.md",
+      "line": 169,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    },
+    {
+      "file": "UK_CITY_ANALYSIS.md",
+      "line": 3,
+      "target": "review/city_gaps_2026-10-04/REVIEW.md",
+      "exists_relative_to_repo": true
+    }
+  ]
+}

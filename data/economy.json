@@ -1,5 +1,5 @@
 {
-  "_about": "All of RIM's economy numbers in one place — edit these, not the code. See data/ECONOMY_GUIDE.md for what every field means. Loaded by scripts/econ.gd (a broken/missing file falls back to built-in defaults).",
+  "_about": "All of RIM's economy numbers in one place — edit these, not the code. See design/ECONOMY_GUIDE.md for what every field means. Loaded by scripts/econ.gd (a broken/missing file falls back to built-in defaults).",
 
   "start": {"intel": 20, "cash": 0, "creds": 0, "exploits": 0, "crypto": 0},
   "cap_base": 100,

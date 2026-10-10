@@ -6,7 +6,7 @@ extends RefCounted
 ## one personal detail, so you can see how the city lives. Every building gets a name, an occupant, a
 ## flavour security level and a short story.
 ##
-## ALL WRITTEN CONTENT lives in res://data/city_lore.json (see data/LORE_GUIDE.md) — this script only
+## ALL WRITTEN CONTENT lives in res://data/city_lore.json (see design/LORE_GUIDE.md) — this script only
 ## assembles it. Deterministic from the map seed on its OWN rng, so lore never perturbs the layout.
 
 const DATA_PATH := "res://data/city_lore.json"

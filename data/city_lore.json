@@ -1,5 +1,5 @@
 {
-  "_about": "Content pools for RIM's procedural city lore. Read data/LORE_GUIDE.md before editing. Words in curly braces are placeholders filled at runtime; only the ones listed in the guide exist.",
+  "_about": "Content pools for RIM's procedural city lore. Read design/LORE_GUIDE.md before editing. Words in curly braces are placeholders filled at runtime; only the ones listed in the guide exist.",
   "district_names": {
     "prefixes": [
       "Neon",
