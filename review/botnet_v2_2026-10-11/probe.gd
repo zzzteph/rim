@@ -17,7 +17,7 @@ func fresh(seed_v: int = SEED) -> void:
 	game.town_seed = seed_v
 	root.add_child(game)
 	game.set_process(false)
-	game._rival_timer = 1.0e9      # rival off unless a case turns it on
+	game.ai_enabled = false        # AI botnets off unless a case turns them on
 
 func check(name: String, cond: bool, info: Dictionary = {}) -> void:
 	results.append({"case": name, "pass": cond, "observed": info})
@@ -54,11 +54,12 @@ func _run() -> void:
 		for h in game.hosts:
 			if (h.links as Array).is_empty(): all_linked = false
 	fresh()
-	var own := {0: 0, 1: 0, 2: 0}
+	var own := {0: 0, 1: 0, 2: 0, 3: 0}
 	for h in game.hosts: own[int(h.owner)] += 1
 	var distinct := {}
 	for s in sizes: distinct[s] = true
-	check("01_generation", game.hosts.size() <= 36 and game.hosts.size() >= 24 and own[1] == 2 and own[2] == 2
+	check("01_generation", game.hosts.size() <= 36 and game.hosts.size() >= 24 and own[1] == 2 and own[2] == 2 and own[3] == 2
+		and int(game.rig[game.RIVAL2]) == game.cell_at(0, 5)
 		and rigP() == game.cell_at(0, 0) and rigR() == game.cell_at(5, 5) and game.hub >= 0
 		and int(game.hosts[game.hub].owner) == game.NEUTRAL and (game.hosts[game.hub].builds as Array).size() == 2
 		and int(game.hosts[game.hub].slots) == 4 and all_connected and all_linked and distinct.size() > 1,
@@ -146,18 +147,19 @@ func _run() -> void:
 	check("07_capture_and_security_caps", regrew_to_sec and cap_r and owned_regrows and int(game.hosts[nn].owner) == game.PLAYER and (game.hosts[nn].job as Dictionary).is_empty() and int(game.hosts[nn].assign) == -1,
 		{"neutral_regrew_to_security": regrew_to_sec, "after_rival": cap_r, "owned_regrows_past_security": owned_regrows, "after_player": game.hosts[nn].owner})
 
-	# 08 the rival concentrates several sources on one soft bordering building and starts one build
+	# 08 an AI botnet cannot afford an attack from a cold start, so it builds an Intel harvester first, then
+	#    concentrates several sources on one soft bordering building (checked after 15 s of play)
 	fresh()
-	game._rival_timer = 0.0
-	game._rival_ai(0.01)
+	game.ai_enabled = true
+	step(15.0, 0.1)
 	var assigned := []
 	for i in game.hosts.size():
-		if int(game.hosts[i].owner) == game.RIVAL and int(game.hosts[i].assign) >= 0: assigned.append([i, game.hosts[i].assign])
-	var jobs := []
+		if int(game.hosts[i].owner) == game.RIVAL and int(game.hosts[i].assign) >= 0 and bool(game.hosts[i].live) and int(game.hosts[game.hosts[i].assign].owner) != game.RIVAL: assigned.append([i, game.hosts[i].assign])
+	var built_intel := 0
 	for i in game.hosts.size():
-		if int(game.hosts[i].owner) == game.RIVAL and not (game.hosts[i].job as Dictionary).is_empty(): jobs.append([i, game.hosts[i].job.kind])
-	var same_target: bool = assigned.size() == 2 and int(assigned[0][1]) == int(assigned[1][1]) and int(game.hosts[int(assigned[0][1])].owner) == game.NEUTRAL
-	check("08_rival_concentrates_and_builds", same_target and jobs.size() == 1, {"assigned": assigned, "jobs": jobs})
+		if int(game.hosts[i].owner) == game.RIVAL: built_intel += game._count_all(i, "intel")
+	var same_target: bool = assigned.size() >= 2 and int(assigned[0][1]) == int(assigned[1][1])
+	check("08_ai_builds_then_concentrates", same_target and built_intel >= 1, {"assigned": assigned, "harvesters": built_intel, "nyx_intel": game.intel[game.RIVAL]})
 
 	# 09 Cash packets travel home and bank at the rig; a market ON the rig banks directly
 	fresh()
@@ -188,9 +190,9 @@ func _run() -> void:
 	for dt in [1.0 / 60.0, 0.5]:
 		fresh()
 		t11 = neutral_nb(rigP())
-		game.hosts[rigP()].assign = t11; game.hosts[n8].assign = t11
+		game.hosts[rigP()].assign = t11; game.hosts[rigP()].live = true; game.hosts[n8].assign = t11; game.hosts[n8].live = true
 		step(20.0, dt)
-		boards.append({"dt": dt, "target_bots": game.hosts[t11].bots, "owner": game.hosts[t11].owner, "intel": game.intel, "flights": game.flights.size()})
+		boards.append({"dt": dt, "target_bots": game.hosts[t11].bots, "owner": game.hosts[t11].owner, "intel": game.intel[game.PLAYER], "flights": game.flights.size()})
 	var b_ok := absf(float(boards[0].target_bots) - float(boards[1].target_bots)) <= 1.0 and absf(float(boards[0].intel) - float(boards[1].intel)) <= 1.0
 	check("11_frame_rate_consistency", b_ok, {"boards": boards})
 
@@ -198,20 +200,76 @@ func _run() -> void:
 	#    a second stream then captures it
 	fresh()
 	var tgt := neutral_nb(rigP())
-	game.hosts[tgt].owner = game.RIVAL; game.hosts[tgt].bots = 12.0; game.hosts[tgt].assign = rigP()   # it attacks your rig
-	game.hosts[rigP()].assign = tgt                                                                    # one stream back
-	game.intel = 1000.0
+	game.hosts[tgt].owner = game.RIVAL; game.hosts[tgt].bots = 12.0; game.hosts[tgt].assign = rigP(); game.hosts[tgt].live = true   # it attacks your rig
+	game.hosts[rigP()].assign = tgt; game.hosts[rigP()].live = true                                                                 # one stream back
+	game.intel[game.PLAYER] = 1000.0; game.hosts[rigP()].builds = ["bot", "bot", "intel", "intel"]
+	game.intel[game.RIVAL] = 1000.0
 	step(40.0, 0.1)
-	var at_garrison: bool = int(game.hosts[tgt].owner) == game.RIVAL and float(game.hosts[tgt].bots) <= game.RIVAL_RESERVE + 1.5
+	var at_garrison: bool = int(game.hosts[tgt].owner) == game.RIVAL and float(game.hosts[tgt].bots) <= game.AI_RESERVE + 1.5
 	var bots_mid: float = game.hosts[tgt].bots
-	game.hosts[n8].assign = tgt
+	game.hosts[n8].assign = tgt; game.hosts[n8].live = true
 	step(45.0, 0.1)
 	check("12_attack_the_attacker", at_garrison and int(game.hosts[tgt].owner) == game.PLAYER, {"one_stream_bots": bots_mid, "owner_after_two": game.hosts[tgt].owner})
 
+	# 14 two verbs: wiring is dormant and free; only LAUNCH starts flows; STOP keeps wires; Esc never
+	#    touches wires; a wire needs a path through your own buildings
+	fresh()
+	var t14 := neutral_nb(rigP())
+	game.sel = {n8: true}; game._wire(t14)
+	var wired_dormant: bool = int(game.hosts[n8].assign) == t14 and not bool(game.hosts[n8].live) and game._inspect == t14 and game.sel.is_empty()
+	step(3.0, 0.1)
+	var nothing_moved: bool = game.flights.is_empty() and absf(float(game.intel[game.PLAYER]) - game.INTEL_START) < 0.001
+	game.sel = {n8: true}; game._wire(rigR())
+	var no_path: bool = int(game.hosts[n8].assign) == t14 and game._msg.begins_with("✖ No path")
+	game._launch(t14)
+	step(1.5, 0.1)
+	var launched: bool = bool(game.hosts[n8].live) and game.flights.size() >= 1 and float(game.intel[game.PLAYER]) < game.INTEL_START
+	game._halt(t14)
+	var halted: bool = not bool(game.hosts[n8].live) and int(game.hosts[n8].assign) == t14
+	game._clear_all()
+	var esc_keeps: bool = int(game.hosts[n8].assign) == t14
+	game._cancel_to(t14)
+	check("14_connect_then_launch", wired_dormant and nothing_moved and no_path and launched and halted and esc_keeps and int(game.hosts[n8].assign) == -1,
+		{"wired_dormant": wired_dormant, "nothing_moved": nothing_moved, "no_path_refused": no_path, "launched": launched, "halted_keeps_wire": halted, "esc_keeps_wire": esc_keeps})
+
+	# 15 guards: a wire into your own building arms itself when it is damaged or attacked, stands down when full
+	fresh()
+	game.sel = {n8: true}; game._wire(rigP())
+	game._auto_guards()
+	var standby: bool = int(game.hosts[n8].assign) == rigP() and not bool(game.hosts[n8].live) and game._src_state(n8) == "guarding (standby)"
+	game.hosts[rigP()].bots = 20.0; game._auto_guards()
+	var armed_damaged: bool = bool(game.hosts[n8].live) and game._src_state(n8) == "defending"
+	game.hosts[rigP()].bots = 30.0; game._auto_guards()
+	var stood_down: bool = not bool(game.hosts[n8].live)
+	var foe := neutral_nb(rigP())
+	game.hosts[foe].owner = game.RIVAL; game.hosts[foe].bots = 30.0; game.hosts[foe].assign = rigP(); game.hosts[foe].live = true
+	game._auto_guards()
+	var armed_attacked: bool = bool(game.hosts[n8].live)
+	check("15_guards_arm_themselves", standby and armed_damaged and stood_down and armed_attacked,
+		{"standby_when_full": standby, "armed_when_damaged": armed_damaged, "stood_down_when_full": stood_down, "armed_when_attacked": armed_attacked})
+
+	# 16 ownership changes: losing a building stands your wires down (kept); capturing one turns your
+	#    attack flows into guards that top it up and stand down
+	fresh()
+	var t16 := neutral_nb(rigP())
+	game.sel = {n8: true, rigP(): true}; game._wire(t16); game._launch(t16)
+	game.hosts[t16].bots = 0.5
+	game._deliver({"route": [rigP(), t16], "hops": [0.0], "depart_t": 0.0, "arrive_t": 1.0, "owner": game.PLAYER, "kind": "bot", "amount": 1.0})
+	var became_guards: bool = int(game.hosts[t16].owner) == game.PLAYER and int(game.hosts[n8].assign) == t16 and bool(game.hosts[n8].live)
+	game._auto_guards()
+	var still_topping: bool = bool(game.hosts[n8].live)
+	game.hosts[t16].bots = 30.0; game._auto_guards()
+	var guards_stood_down: bool = not bool(game.hosts[n8].live) and int(game.hosts[n8].assign) == t16
+	game.hosts[t16].bots = 20.0; game._auto_guards()
+	game._capture(t16, game.RIVAL)
+	var lost_stands_down: bool = int(game.hosts[n8].assign) == t16 and not bool(game.hosts[n8].live) and game._msg.begins_with("Lost")
+	check("16_capture_and_loss_wire_status", became_guards and still_topping and guards_stood_down and lost_stands_down,
+		{"flows_became_guards": became_guards, "topping_up_below_full": still_topping, "stood_down_at_full": guards_stood_down, "lost_stands_down_kept": lost_stands_down})
+
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
-	var alone := _run_match(SEED, false, 900.0)
-	var greedy7 := _run_match(SEED, true, 900.0)
-	var greedy11 := _run_match(11, true, 900.0)
+	var alone := _run_match(SEED, false, 600.0)
+	var greedy7 := _run_match(SEED, true, 600.0)
+	var greedy11 := _run_match(11, true, 600.0)
 	check("13_pacing_readings", true, {"rival_alone": alone, "greedy_seed7": greedy7, "greedy_seed11": greedy11})
 
 	var out := FileAccess.open("res://results.json", FileAccess.WRITE)
@@ -225,7 +283,8 @@ func _run() -> void:
 # with enough streams to beat its regeneration, keeps a garrison, rallies nothing.
 func _run_match(seed_v: int, scripted: bool, max_s: float) -> Dictionary:
 	fresh(seed_v)
-	game._rival_timer = game.RIVAL_CADENCE
+	game.ai_enabled = true
+	var wall0 := Time.get_ticks_msec()
 	var dt := 0.1
 	var t := 0.0
 	var think := 0.0
@@ -236,18 +295,19 @@ func _run_match(seed_v: int, scripted: bool, max_s: float) -> Dictionary:
 			think = 0.0
 			_greedy_player()
 		if first_capture < 0.0 and game._player_nodes() > 2: first_capture = t
+	print("match seed %d scripted=%s took %d ms wall for %.0f s of game" % [seed_v, str(scripted), Time.get_ticks_msec() - wall0, t])
 	return {"outcome": ("WIN" if game.won else ("LOSS" if game.lost else "timeout")), "cause": game._end_cause, "t": snapped(t, 0.1),
 		"player_nodes": game._player_nodes(), "rival_nodes": game._faction_nodes(game.RIVAL),
-		"cash": [int(game.cash[game.PLAYER]), int(game.cash[game.RIVAL])], "first_capture_t": snapped(first_capture, 0.1), "intel": int(game.intel)}
+		"cash": [int(game.cash[game.PLAYER]), int(game.cash[game.RIVAL])], "first_capture_t": snapped(first_capture, 0.1), "intel": int(game.intel[game.PLAYER]), "kraken_nodes": game._faction_nodes(game.RIVAL2), "cash_kraken": int(game.cash[game.RIVAL2])}
 
 
 func _greedy_player() -> void:
 	var mine := []
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) == game.PLAYER: mine.append(i)
-	for i in mine:   # an order whose target is now ours is done
+	for i in mine:   # a wire whose target is now ours has done its job (its guards stand down on their own)
 		var a := int(game.hosts[i].assign)
-		if a >= 0 and int(game.hosts[a].owner) == game.PLAYER: game.hosts[i].assign = -1
+		if a >= 0 and int(game.hosts[a].owner) == game.PLAYER: game.hosts[i].assign = -1; game.hosts[i].live = false
 	# attention: stay inside the building with a running job; else start one somewhere
 	if game._inside >= 0 and not (game.hosts[game._inside].job as Dictionary).is_empty(): return
 	game._inside = -1
@@ -269,7 +329,7 @@ func _greedy_player() -> void:
 	# one attack at a time, concentrated
 	var active := false
 	for i in mine:
-		if int(game.hosts[i].assign) >= 0: active = true
+		if int(game.hosts[i].assign) >= 0 and bool(game.hosts[i].live): active = true
 	if active: return
 	var cands := []
 	for i in mine:
@@ -290,4 +350,4 @@ func _greedy_player() -> void:
 	srcs.sort_custom(func(a, b): return a[0] < b[0])
 	if srcs.size() < 2: return
 	for s in srcs.slice(0, mini(need, srcs.size())):
-		game.hosts[int(s[1])].assign = pick
+		game.hosts[int(s[1])].assign = pick; game.hosts[int(s[1])].live = true

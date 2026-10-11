@@ -181,7 +181,18 @@ verbs (dormant wiring, path constraint, launch, stop, Esc), guards arming and st
 changes (flows become guards, loss stands wires down). Rendered captures of the panel states and scripted
 matches are in `gallery/`.
 
-**Pacing readings** for the free-for-all build are being re-measured (scripted matches at 10 Hz); the table is updated in the review folder's `results.json` and here once the run completes.
+**Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active:**
+
+| Run | Outcome | Time | Buildings you / NYX / KRAKEN |
+|---|---|---|---|
+| You idle (seed 7) | KRAKEN banks 600 | 4:17 | 2 / 7 / 7 |
+| Greedy scripted player, perfect attention (seed 7) | KRAKEN banks 600 | 4:15 | 3 / 7 / 5 |
+| Greedy scripted player (seed 11) | NYX banks 600 | 3:51 | 7 / 8 / 6 |
+
+The AIs now set a ~4-minute clock and beat the greedy script on both seeds, so as asked they are strong. A
+first human run will need a handicap: raise `CASH_GOAL`, slow the AI `cadence`, or lower `aggr`. Tune one
+value at a time after watching play; the AI only attacks what it can afford and beat, so the honest first
+knob is its Intel start or cadence, not its combat numbers.
 
 ## Open question: Intel (explore before changing)
 Today bots regenerate for free and **attacking** spends Intel. That reads as a duplicate: Intel is only an

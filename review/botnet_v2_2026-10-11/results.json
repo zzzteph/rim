@@ -4,19 +4,20 @@
 			"case": "01_generation",
 			"observed": {
 				"all_connected": true,
-				"hosts": 29,
+				"hosts": 28,
 				"hub": 16,
 				"owners": {
-					"0": 25,
+					"0": 22,
 					"1": 2,
-					"2": 2
+					"2": 2,
+					"3": 2
 				},
 				"sizes_by_seed": [
-					30,
+					31,
+					31,
 					32,
-					33,
-					33,
-					33
+					32,
+					34
 				]
 			},
 			"pass": true
@@ -26,7 +27,6 @@
 			"observed": {
 				"player_route": [
 					5,
-					0,
 					6
 				],
 				"target": 6,
@@ -115,24 +115,20 @@
 			"pass": true
 		},
 		{
-			"case": "08_rival_concentrates_and_builds",
+			"case": "08_ai_builds_then_concentrates",
 			"observed": {
 				"assigned": [
 					[
-						22,
-						17
+						21,
+						26
 					],
 					[
-						28,
-						17
+						27,
+						26
 					]
 				],
-				"jobs": [
-					[
-						22,
-						"bot"
-					]
-				]
+				"harvesters": 1,
+				"nyx_intel": 49.6000000000001
 			},
 			"pass": true
 		},
@@ -159,17 +155,17 @@
 				"boards": [
 					{
 						"dt": 0.0166666666666667,
-						"flights": 3,
+						"flights": 2,
 						"intel": 10.0,
 						"owner": 0,
-						"target_bots": 7.9666666666675
+						"target_bots": 7.6500000000008
 					},
 					{
 						"dt": 0.5,
-						"flights": 3,
+						"flights": 2,
 						"intel": 10.0,
 						"owner": 0,
-						"target_bots": 7.50000000000002
+						"target_bots": 7.16666666666669
 					}
 				]
 			},
@@ -184,46 +180,84 @@
 			"pass": true
 		},
 		{
+			"case": "14_connect_then_launch",
+			"observed": {
+				"esc_keeps_wire": true,
+				"halted_keeps_wire": true,
+				"launched": true,
+				"no_path_refused": true,
+				"nothing_moved": true,
+				"wired_dormant": true
+			},
+			"pass": true
+		},
+		{
+			"case": "15_guards_arm_themselves",
+			"observed": {
+				"armed_when_attacked": true,
+				"armed_when_damaged": true,
+				"standby_when_full": true,
+				"stood_down_when_full": true
+			},
+			"pass": true
+		},
+		{
+			"case": "16_capture_and_loss_wire_status",
+			"observed": {
+				"flows_became_guards": true,
+				"lost_stands_down_kept": true,
+				"stood_down_at_full": true,
+				"topping_up_below_full": true
+			},
+			"pass": true
+		},
+		{
 			"case": "13_pacing_readings",
 			"observed": {
 				"greedy_seed11": {
 					"cash": [
-						262,
+						195,
 						601
 					],
-					"cause": "The rival banked 600 Cash first.",
+					"cash_kraken": 318,
+					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": 21.5,
-					"intel": 98,
+					"intel": 99,
+					"kraken_nodes": 6,
 					"outcome": "LOSS",
-					"player_nodes": 10,
-					"rival_nodes": 9,
-					"t": 266.4
+					"player_nodes": 7,
+					"rival_nodes": 8,
+					"t": 230.7
 				},
 				"greedy_seed7": {
 					"cash": [
-						601,
-						566
+						262,
+						391
 					],
-					"cause": "You banked 600 Cash.",
-					"first_capture_t": 42.5,
-					"intel": 99,
-					"outcome": "WIN",
-					"player_nodes": 10,
-					"rival_nodes": 11,
-					"t": 329.9
+					"cash_kraken": 601,
+					"cause": "KRAKEN banked 600 Cash first.",
+					"first_capture_t": 40.2,
+					"intel": 21,
+					"kraken_nodes": 5,
+					"outcome": "LOSS",
+					"player_nodes": 3,
+					"rival_nodes": 7,
+					"t": 255.3
 				},
 				"rival_alone": {
 					"cash": [
 						0,
-						601
+						378
 					],
-					"cause": "The rival banked 600 Cash first.",
+					"cash_kraken": 601,
+					"cause": "KRAKEN banked 600 Cash first.",
 					"first_capture_t": -1.0,
 					"intel": 50,
+					"kraken_nodes": 7,
 					"outcome": "LOSS",
 					"player_nodes": 2,
-					"rival_nodes": 12,
-					"t": 337.4
+					"rival_nodes": 7,
+					"t": 256.7
 				}
 			},
 			"pass": true
