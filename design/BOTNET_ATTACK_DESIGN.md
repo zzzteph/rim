@@ -15,9 +15,10 @@ and routes that sustain it.
 
 - **A node's bots ARE its health, capped at 30** (`NODE_CAP`). Every node — yours and the enemy's —
   **regenerates** toward the cap at `PROD_RATE` (1 bot/s).
-- **Command production, don't micro bots.** You set where each source's output goes; it then **releases one
-  bot per second** (`SEND_RATE`) along its own network. Reinforcement arrivals become **resident stock that
-  can later be re-dispatched**.
+- **Command production, don't micro bots.** You **wire** where each source's output would go; the source
+  **releases one bot per second** (`SEND_RATE`) along its own network only while that wire is **live** (a
+  launched attack, or a guard that armed itself). Reinforcement arrivals become **resident stock that can
+  later be re-dispatched**.
 - **Bots act ONLY on arrival.** A bot in transit does nothing; on reaching the final target each bot
   **reduces an enemy node by 1** (attrition) or **adds 1 to a friendly node** (reinforce, capped at 30).
   Reduce an enemy node to **0 → it flips to the attacker** (overflow occupies it).
@@ -73,45 +74,57 @@ after correctness; don't silently restore older rates.)
 A command targets a **building's aggregate production** (one node in this prototype). You never pick individual
 bots.
 
-**Three deliberate steps — nothing starts until you press the button; neither a click nor a drag commits:**
+**Two separate verbs — CONNECT wires a dormant plan; what fires is the wire's STATUS: an attack launches from
+the ⚔ button on the enemy node's own panel, a guard arms itself when the protected node is threatened.
+Neither a click nor a drag ever fires anything.**
 
-- **① Select:** **Left-click** your node(s) to select, **replacing** the previous selection. **Shift-click**
-  adds/removes; **drag on empty map** = box-select. Left-click an enemy with no selection = inspect it.
-- **② Aim (two interchangeable ways):** with sources selected, either **left-click any other node**, or
-  **drag a line from your node onto it** (the line is a pure aiming gesture — release just aims). Either sets
-  the **pending target** (`sel_target`) and **starts nothing**. Dragging from an *unselected* owned node picks
-  just that source; dragging from a *selected* group member keeps the whole group.
-- **Focus / fog on aim:** the moment you aim, the target, **every node connected to it**, and the **routes your
-  sources take to it** stay bright; **every other node and link fades** (~20% opacity) so the active subgraph is
-  all you read. The target shows a yellow ring + an on-canvas **⚔ attack / 🛡 reinforce** label; the panel
-  shows `N/M can reach` and the command button.
-- **③ Commit:** **press the ⚔ ATTACK / 🛡 REINFORCE button** to issue the order. Only this button commits;
-  a click or a drag never does. `A→X` then `B→Y` stay independent.
-- The group **stays selected** after a command, so **retargeting is: aim a new target → press the button**.
-- **Commit is an explicit button.** Aiming shows an **ORDER PREVIEW** panel (destination + ownership, how many
-  of your selected sources can reach, send rate and its Intel cost); pressing **START ATTACK / REINFORCE**
-  commits. Neither a click nor a drag ever commits. After commit the group stays selected and the panel shows
-  the running order so **Change target** (aim again) and **Stop supply** are one step.
-- **A supply order persists until you STOP it** (the network *connection* stays — you can re-order later).
-  Stopping affects *future* departures only (incoming reinforcement, enemy attacks, and already-travelling bots
-  all continue):
-  - **From a source** — select it → **"Stop supply"** (or "Stop supply (N)" for a group).
-  - **Into a node** — select or inspect it → **"Stop all supply into it"**. This touches **only your own
-    sources**; enemy attacks on the node are never affected by your commands.
-  **SPACE** pauses; **Esc / right-click** clears selection, pending target, and inspect together.
-- **Visual language.** Thin links = the network (where travel is possible). A bright **dashed** line = a preview
-  (what you're about to order). A solid line = a **committed** supply order, coloured by the *source's* faction
-  (your attack = amber **arrow**, your reinforcement = green **diamond**, an enemy attack on you = red **arrow**),
-  so attack vs reinforcement reads by shape as well as colour. Moving dots/squares = actual bots (yours = circle,
-  enemy = square). A node of yours under attack keeps a **red ring** and stays visible even while you aim
-  elsewhere (the focus/fog never hides a live threat).
-- **Retargeting affects future departures only.** Already-dispatched bots keep their faction, destination, and
+- **① CONNECT — drag-and-drop ONLY.** **Left-click** your node(s) to select (Shift-click adds/removes;
+  **drag on empty map** = box-select), then **DRAG a line onto the target**; dragging from a selected group
+  member wires the whole group. **Clicking never wires** — a click only selects / opens a node's panel.
+  **A link can only be made where a path runs through your own nodes** — never through enemy territory (the
+  rubber band turns red with "✖ no path" over an unreachable target; a failed wire keeps your selection).
+  A wire is a **dashed, dormant connection**: no bots move, no Intel is spent. One connection per node;
+  wiring again **replaces** it (a rewired connection is dormant until launched again), and wiring a node's
+  current target changes nothing (it never interrupts a live flow). The plan has no timer — wires sit for
+  minutes and can be rewired forever. After wiring, the selection clears and the **target's panel opens**.
+- **② ATTACK and DEFEND are the wire's STATUS.**
+  - **Wire → an ENEMY node = an attack.** Click that node: its panel lists **everything connected to it**
+    ("3 node(s) — 1 flowing · 2 dormant", per-source states) and carries the **⚔ ATTACK** button — the only
+    trigger. Pressing it turns every **dormant** wire into that node **live at the same moment** — a
+    coordinated strike. Each target launches **independently**, and wires added **after** a launch stay
+    dormant until the button is pressed again. Unrouted wires are held and reported, never silently launched.
+  - **Wire → YOUR OWN node = a GUARD.** No button: guards **arm themselves automatically** the moment the
+    protected node is under attack (or below full, counting help already in the air) and **stand down** once
+    it's safe and topped up. Capturing a node turns your attack flows into guards that top it up and stop;
+    **losing** a node stands your wires down — assaulting it back is your explicit call.
+- **Stop vs Disconnect.** **"Stop N flow(s) (keep connections)"** pauses an attack's live flows but keeps the
+  wires — relaunch anytime. Guards are never hand-stopped (the status does the work) — only **disconnected**.
+  **"Disconnect"** removes wires (from selected sources, or all into a node). Both affect *future* departures
+  only — travelling bots and enemy attacks continue. Player commands never touch enemy wires. **SPACE** pauses;
+  **Esc / right-click** clears selection and panel — **never your wires**.
+- **Focus / fog — strict, with gold and red rings.** Opening a node's panel (or dragging a line over one)
+  brightens ONLY the nodes a link runs **from** (wired into it) and **to** (its own target); the route lines
+  stay lit but the nodes a route merely **passes through** fog like everything else, as do network neighbours
+  and even nodes under attack elsewhere (their full-brightness **red ring** still shows through the fog, so a
+  threat is never invisible). **Gold ring = friendly connection**; **red ring (wide) = an enemy node connected
+  into it**. The focused node shows the yellow ring + an on-canvas **⚔ attack / 🛡 defend** label. A
+  **↻ Restart run** button is always available at the bottom of the panel.
+- **Visual language.** Thin links = the network (where travel is possible). **Dashed** line = a **dormant wire**
+  (the plan; bright yellow while being dragged or focused). **Solid** line = a **live flow**, coloured by the
+  *source's* faction (your attack = amber **arrow**, your defence/reinforcement = green **diamond**, an enemy
+  attack on you = red **arrow**) — attack vs defence reads by shape as well as colour. Moving dots/squares =
+  actual bots (yours = circle, enemy = square). A node of yours under attack always carries a small
+  full-brightness **red ring** — even fogged, a live threat is never invisible.
+- **Rewiring affects future departures only.** Already-dispatched bots keep their faction, destination, and
   route and **finish even after a source or relay changes ownership** (declared prototype simplification).
-- **Ownership transitions are announced.** Capturing a destination turns its incoming attack supply into
-  reinforcement ("Captured X — N sources now reinforce it"); losing one turns supply into attack. Capturing or
-  losing a source clears its own outgoing order and immediately changes who can command it.
-- **Route loss stops future dispatch and says so** ("…order stopped — no route; reissue to restore"); it does
-  not auto-resume. An alternate owned route is used automatically if one exists.
+- **Ownership transitions are announced.** Capturing a destination turns your incoming attack flows into
+  **guards** that top it up and stand down; **losing** a destination **stands your wires down** (dormant, kept)
+  — retaking it is an explicit ⚔ ATTACK. Capturing or losing a source clears its own connection and
+  immediately changes who can command it.
+- **Route loss pauses the flow and says so** ("flow stopped — no route; connection kept; launch again when
+  routed"); the wire survives, and an alternate owned route is used automatically if one exists.
+- **Future hook (not built):** dormant wires could later be **detectable** — a defender noticing connections
+  planted into their hosts before the strike fires (risk/reward for long preparation).
 
 ## Enemy behavior
 
@@ -144,13 +157,53 @@ economy advantage, or new unit types.
 
 ## Validation questions (not balance verdicts)
 
-Engine checks currently pass for: independent orders; group retarget in one command; source-scoped stop
-preserving incoming + travelling bots; chronological arrivals (earlier reinforcement prevents a false HUB win;
-reversing the flight list changes nothing); terminal freeze (no retake after a win; never both outcomes);
-frame-rate consistency (60 Hz vs large hitches within tolerance); enemy retargeting of a completed order. Open
-for a small player round: can players predict where the next bot goes, explain why a node was lost, and adapt
-their allocation in a few actions? Is `1/s` the right baseline, or `2/s`? Is the full-hold experiment worth
-keeping?
+Headless check suites currently pass for: the simulation core (chronological arrivals and the false-HUB-win
+case; terminal freeze — never both outcomes; frame-rate consistency; hop/pause travel; two sources capture
+where one stalls against regen); the economy (D=1.5A power, Intel cost/hold, time-fair emission with no
+source-index bias, lockout recovery via rebuild); and the control scheme (wiring fires nothing and spends
+nothing; drag-only wiring with the own-territory path constraint; per-target launch; stop-keeps-wires;
+rewire-moves-one-wire; guards arm/stand down/heal automatically; node loss stands wires down; Esc never
+touches wires; strict fog; enemy AI unaffected by player commands). Open for a small player round: can
+players predict where the next bot goes, explain why a node was lost, and adapt their wiring in a few
+actions? Is `1/s` the right baseline, or `2/s`? Is the full-hold experiment worth keeping?
+
+## Change log — how this design evolved (all 2026-10-10 → 2026-10-11)
+
+Each change was driven by playtesting feedback from the designer; the current spec above always wins over
+anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.md`.
+
+1. **Bot-attrition core** replaced the fuel/interior/siege drafts: bots = node health (cap 30), universal
+   regeneration, hop-by-hop travel with pauses, effects only on arrival, HUB win / last-node defeat.
+2. **Simulation hardening** (review-driven): one shared clock with absolute depart/arrive times; chronological
+   arrival resolution (fixed a false HUB win); terminal freeze; hop leftover-time carry; cancellation scoped
+   to player-owned sources.
+3. **Combat power + Intel economy:** D = 1.5·A (defenders' edge → concentration matters); 2 build slots from
+   Bot / Intel production / Intel capacity; player attack bots cost 1 Intel each, reinforcement free.
+4. **Command scheme, iteration 1 — rejected:** drag auto-started attacks ("you drag and drop an attack
+   immediately started"). Rule since then: **nothing ever auto-fires from a gesture.**
+5. **Iteration 2 — rejected:** select sources → click target → per-group START button. Problem: each group's
+   press fired immediately — impossible to stage a multi-pronged strike ("I start the attack! I want first to
+   make connections, and when I will be ready — I can press attack").
+6. **Iteration 3 — CURRENT: two verbs.** **CONNECT** (wires = dashed dormant plans, rewirable forever,
+   Esc never touches them) and **LAUNCH from the target's own panel** (its button fires all dormant wires
+   into it at once; each target independent; later wires wait for the next press).
+7. **Readability pass:** decision-oriented panel; combined contribution at a target (flowing vs dormant,
+   per-source states); cause→action stall diagnostics; Intel reserve/income/spend in the HUD; result screen
+   with cause + elapsed time; "stop supply/disconnect" terminology (never "remove link" — the network
+   connection remains); routes coloured by **source** faction (an enemy attack can never look green/friendly);
+   attack = arrow vs defence = diamond; your bots = circles vs enemy = squares; time-fair Intel emission;
+   building rebuild (no permanent Intel lockout); panel reserves map space; always-available **↻ Restart**.
+8. **Wiring constraints:** links are made by **drag-and-drop only** (clicking selects / opens panels, never
+   wires) and only where a **path runs through your own nodes** (red rubber band + "✖ no path" otherwise).
+9. **Focus highlighting, user-tuned:** clicking a node highlights STRICTLY its connections — from-whom
+   (gold ring = friendly, wide red ring = enemy attacker) and to-whom (gold ring); route pass-through nodes,
+   network neighbours, and unrelated under-attack nodes all stay fogged (the small red threat ring still
+   shows through). Earlier cyan rings were dropped — cyan belongs to the HUB alone.
+10. **Attack and defend as the wire's STATUS:** wire → enemy = attack (manual ⚔ launch); wire → own node =
+    **guard** — arms itself while the protected node is under attack or below full (counting inbound help),
+    stands down after; capture turns attack flows into topping-up guards; loss stands your wires down.
+11. **Future hook (agreed, not built):** dormant wires may later be *detectable* by their target's owner —
+    discovery risk for long-prepared strikes.
 
 ---
 
@@ -162,8 +215,8 @@ which is **PENDING**.
 
 ## A. Player success / failure (and progress)
 
-- **Objective (shown in the HUD and the idle panel):** *"Build your botnet, combine supply from several
-  sources, and capture the HUB."* This matches the implementation (HUB capture is the only win).
+- **Objective (shown in the HUD and the idle panel):** *"Wire connections from several nodes, then launch
+  them — capture the HUB."* This matches the implementation (HUB capture is the only win).
 - **Victory:** the exact instant an attack reduces the **CENTRAL HUB** to 0 bots and it flips to you.
 - **Defeat:** the exact instant you own **zero** nodes.
 - **Progress (observable before victory):** nodes owned (HUD `nodes k/15`), total bots, Intel reserve/income/
@@ -178,13 +231,13 @@ Advice is shown only when the current rules actually support it.
 
 | Blocker | How the UI shows it | What to do | Auto-resumes? |
 |---|---|---|---|
-| **Insufficient Intel** | source state "no Intel"; HUD −spend vs +income; preview "⚠ Out of Intel" | add Intel production, or **Stop supply** on another attack | **Yes**, when Intel returns |
-| **No available bots** | source state "no bots" | let the source regenerate, or reinforce it | **Yes**, when a bot is ready |
-| **No route** | the order is dropped with "supply stopped — no route" | capture a node bordering the target, then re-order | **No** — must re-order |
+| **Insufficient Intel** | source state "no Intel"; HUD −spend vs +income; the target panel's "⚠ Out of Intel" line | add Intel production, or **Stop** another attack's flows | **Yes**, when Intel returns |
+| **No available bots** | source state "no bots" | let the source regenerate, or wire a guard to it | **Yes**, when a bot is ready |
+| **No route** | flow pauses: "flow stopped — no route (connection kept)" | capture a node bordering the target, then press ⚔ ATTACK there again | **No** — the wire survives, but relaunch is manual |
 | **Bots travelling, not yet arrived** | moving dots/squares; "in transit toward it" | wait; bots act only on arrival | n/a |
-| **Pressure < regeneration** | inspect: "↔ Not overcoming regeneration (−x/s vs +y/s) — add another source" | add/concentrate another source | continues, but won't capture |
-| **A source is captured** | it leaves your selection; its order clears; authority changes | re-take it or re-plan from remaining nodes | **No** |
-| **A destination changes owner** | labels flip attack⇄reinforce live; announced | retarget if the intent changed | order persists on the same node |
+| **Pressure < regeneration** | target panel: "↔ Not overcoming regeneration (−x/s vs +y/s) — add another source" | wire + launch another source at it | continues, but won't capture |
+| **A source is captured** | it leaves your selection; its connection clears; authority changes | re-take it or re-plan from remaining nodes | **No** |
+| **A destination changes owner** | announced; captured → your flows become guards, top it up, stand down; lost → your wires stand down (kept, dormant) | captured: nothing to do; lost: press ⚔ ATTACK there to retake | capture: auto-guards; loss: **no** — relaunch is your call |
 
 Representative wording in the build: *"Waiting for Intel — add Intel production or stop another attack."*
 *"Not overcoming regeneration — add another source."*
@@ -222,7 +275,9 @@ enemy AI enabled either lose (~3 min from the 2-node start) or **stalemate** (su
 start without winning). This indicates a **pacing/balance** problem — attacks struggle to overcome the 1/s
 regeneration under enemy pressure — **not** a simulation defect (capture, HUB-win, frame-rate, and chronology
 checks all pass). It must be resolved by a **tuning pass (one change at a time)** and/or confirmed by human
-play before expanding features; combat values were **not** silently changed to hide it.
+play before expanding features; combat values were **not** silently changed to hide it. *Note: those runs
+predate the connect/guard control rework — automatic guards may change defensive economics, so the
+feasibility probe should be re-run on the current build before any tuning decision.*
 
 ## E. Evaluation method (human test — PENDING)
 

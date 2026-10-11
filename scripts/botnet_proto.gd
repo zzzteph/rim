@@ -10,13 +10,16 @@ extends Control
 ##
 ## OBJECTIVE: build your botnet, wire up connections from several sources, and capture the HUB.
 ## TWO SEPARATE VERBS — the core of the control scheme (the user's design, do not merge them):
-##   1. CONNECT — select your node(s) and click a target (or drag a line to it). This only WIRES a dashed,
-##      dormant connection. It never fires, never spends Intel, and can be rewired forever. One connection
-##      per node; rewiring replaces it (and a rewired connection is dormant until launched again).
-##   2. LAUNCH — click the TARGET node itself: its panel lists every node connected to it, and the ⚔ ATTACK
-##      (enemy node) / 🛡 DEFEND (your node) button on THAT panel is the only thing that starts the flow.
-##      Each target launches independently; connections wired after a launch stay dormant until you press
-##      the target's button again. "Stop" pauses a running flow but keeps the wires; "Disconnect" removes them.
+##   1. CONNECT — DRAG a line from your node (or a selected group member) onto a target. Drag-and-drop is the
+##      ONLY wiring gesture; clicking never wires (it selects / opens a panel). A link can only be made where
+##      a path runs through YOUR OWN nodes — never through enemy territory. Wiring makes a dashed, dormant
+##      connection: it never fires, never spends Intel, and can be rewired forever. One connection per node;
+##      rewiring replaces it (and a rewired connection is dormant until launched again).
+##   2. LAUNCH / GUARD — "attack and defend is the STATUS" of a wire. Wire → ENEMY node = an ATTACK: click
+##      that node and press ⚔ ATTACK on its panel (the only trigger); each target launches independently and
+##      later wires stay dormant until the button is pressed again. Wire → YOUR OWN node = a GUARD: it arms
+##      ITSELF the moment that node is under attack (or below full) and stands down after — no button, never
+##      hand-stopped, only disconnected. "Stop" pauses attack flows but keeps wires; "Disconnect" removes them.
 ## Right-click / Esc = clear selection (never your wires). SPACE pauses. Bots act only when they ARRIVE.
 
 const GRID_COLS := 5
@@ -238,12 +241,12 @@ func _replace_build(i: int, slot: int, kind: String) -> void:
 	_flash("Rebuilt slot %d as %s on %s" % [slot + 1, kind, str(hosts[i].name)]); _refresh_panel(); queue_redraw()
 
 
-# total player Intel production per second (income) and the Intel/sec your active attacks are draining
+# the Intel/sec your LIVE attacks are draining (dormant wires cost nothing)
 func _attack_demand() -> float:
 	var n := 0
 	for i in hosts.size():
 		var t := int(hosts[i].assign)
-		if bool(hosts[i].owned) and t >= 0 and not bool(hosts[t].owned) and not _route(i, t).is_empty(): n += 1
+		if bool(hosts[i].owned) and bool(hosts[i].live) and t >= 0 and not bool(hosts[t].owned) and not _route(i, t).is_empty(): n += 1
 	return float(n) * SEND_RATE
 
 
@@ -252,6 +255,10 @@ func _src_state(s: int) -> String:
 	var tgt := int(hosts[s].assign)
 	if tgt < 0: return "idle"
 	if _route(s, tgt).is_empty(): return "no route"
+	if bool(hosts[s].owned) and bool(hosts[tgt].owned):          # guard wire: the STATUS does the work
+		if not bool(hosts[s].live): return "guarding (standby)"
+		return "defending" if float(hosts[s].bots) >= 1.0 else "defending · no bots"
+	if not bool(hosts[s].live): return "wired (not launched)"
 	if float(hosts[s].bots) < 1.0: return "no bots"
 	if bool(hosts[s].owned) and not bool(hosts[tgt].owned) and intel < 1.0: return "no Intel"
 	return "sending"
@@ -272,6 +279,7 @@ func _process(dt: float) -> void:
 			var nb := _count(i, "bot")
 			if nb > 0: hosts[i].bots = minf(NODE_CAP, float(hosts[i].bots) + PROD_RATE * float(nb) * dt)
 		intel = minf(_intel_cap(), intel + _intel_rate() * dt)   # Intel from your "intel" buildings
+		_auto_guards()      # guard wires arm themselves while their node is threatened, stand down after
 		_emit_due()
 		_deliver_due()      # chronological; may set won/lost and then stops
 		_enemy_ai(dt)
@@ -287,10 +295,33 @@ func _process(dt: float) -> void:
 	queue_redraw()
 
 
+# "Attack and defend is the STATUS" (user's rule): a wire into an ENEMY node is an attack — launched
+# manually from the target's panel. A wire into YOUR OWN node is a GUARD — it stands by dormant and starts
+# flowing AUTOMATICALLY the moment the protected node is under attack (or below full, counting help already
+# in the air), then stands down again. Guards are never launched or stopped by hand — only disconnected.
+func _under_attack(t: int) -> bool:
+	if _incoming(t, false) > 0.0: return true
+	for i in hosts.size():
+		if not bool(hosts[i].owned) and bool(hosts[i].live) and int(hosts[i].assign) == t: return true
+	return false
+
+
+func _auto_guards() -> void:
+	for s in hosts.size():
+		if not bool(hosts[s].owned): continue
+		var t := int(hosts[s].assign)
+		if t < 0 or not bool(hosts[t].owned): continue       # only wires into YOUR OWN nodes are guards
+		var want: bool = _under_attack(t) or (float(hosts[t].bots) + _incoming(t, true) < NODE_CAP - 0.25)
+		if want and not bool(hosts[s].live):
+			hosts[s].live = true; _next_depart[s] = _t
+		elif not want and bool(hosts[s].live):
+			hosts[s].live = false; _next_depart.erase(s)
+
+
 # can this source release a bot right now? (used by both the emitter and the on-screen diagnostics)
 func _can_emit(i: int) -> bool:
 	var tgt := int(hosts[i].assign)
-	if tgt < 0 or not _next_depart.has(i): return false
+	if tgt < 0 or not bool(hosts[i].live) or not _next_depart.has(i): return false   # dormant wires never emit
 	if float(_next_depart[i]) > _t: return false
 	if float(hosts[i].bots) < 1.0: return false
 	var is_patk := bool(hosts[i].owned) and not bool(hosts[tgt].owned)
@@ -306,12 +337,12 @@ func _can_emit(i: int) -> bool:
 func _emit_due() -> void:
 	var interval := 1.0 / SEND_RATE
 	var n := hosts.size()
-	for i in n:                                     # validate orders & seed departure times
+	for i in n:                                     # validate LAUNCHED connections & seed departure times
 		var tgt := int(hosts[i].assign)
-		if tgt < 0: continue
+		if tgt < 0 or not bool(hosts[i].live): continue
 		if _route(i, tgt).is_empty():
-			hosts[i].assign = -1; _next_depart.erase(i)
-			_flash("%s's supply stopped — no route (reissue to restore)" % str(hosts[i].name)); continue
+			hosts[i].live = false; _next_depart.erase(i)   # flow pauses; the WIRE stays — relaunch when routed
+			_flash("%s's flow stopped — no route (connection kept; launch again when routed)" % str(hosts[i].name)); continue
 		if not _next_depart.has(i): _next_depart[i] = _t
 	var guard := 0
 	while guard < 4000:
@@ -331,7 +362,7 @@ func _emit_due() -> void:
 		_next_depart[best] = dep + interval
 		_emit_cursor = best + 1
 	for i in n:                                     # anti-burst: a held source doesn't accumulate a backlog
-		if int(hosts[i].assign) >= 0 and _next_depart.has(i) and float(_next_depart[i]) < _t:
+		if int(hosts[i].assign) >= 0 and bool(hosts[i].live) and _next_depart.has(i) and float(_next_depart[i]) < _t:
 			_next_depart[i] = _t
 
 
@@ -373,17 +404,21 @@ func _deliver(f: Dictionary) -> void:
 			var to_player := bool(f.player)
 			hosts[t].owned = to_player
 			hosts[t].bots = minf(NODE_CAP, -float(hosts[t].bots))
-			hosts[t].assign = -1; _next_depart.erase(t)
+			hosts[t].assign = -1; hosts[t].live = false; _next_depart.erase(t)
 			if sel.has(t) and not to_player: sel.erase(t)   # a selected source lost to the enemy is uncontrollable
-			var feeders := 0
-			for i in hosts.size():
-				if int(hosts[i].assign) == t: feeders += 1
 			if to_player:
+				var flowing := 0
+				for i in hosts.size():
+					if bool(hosts[i].owned) and int(hosts[i].assign) == t and bool(hosts[i].live): flowing += 1
 				if t == hub: won = true; _end_cause = "You captured the CENTRAL HUB."
-				elif feeders > 0: _flash("Captured %s — %d source(s) now REINFORCE it" % [str(hosts[t].name), feeders])
+				elif flowing > 0: _flash("Captured %s — %d flow(s) now top it up as guards" % [str(hosts[t].name), flowing])
 				else: _flash("Captured %s" % str(hosts[t].name))
 			else:
-				if feeders > 0: _flash("Lost %s — %d source(s) now ATTACK it" % [str(hosts[t].name), feeders])
+				var stood := 0      # your wires into a LOST node stand down — attacking it again is YOUR call
+				for i in hosts.size():
+					if bool(hosts[i].owned) and int(hosts[i].assign) == t and bool(hosts[i].live):
+						hosts[i].live = false; _next_depart.erase(i); stood += 1
+				if stood > 0: _flash("Lost %s — %d connection(s) stand down (press ATTACK there to retake)" % [str(hosts[t].name), stood])
 				else: _flash("Lost %s" % str(hosts[t].name))
 			_refresh_panel()      # ownership changed → keep the panel's labels/contribution current
 
@@ -397,16 +432,16 @@ func _enemy_ai(dt: float) -> void:
 		if bool(hosts[e].owned): continue
 		var a := int(hosts[e].assign)
 		if a >= 0 and (bool(hosts[a].owned) == false or _route(e, a).is_empty()):
-			hosts[e].assign = -1; _next_depart.erase(e)
-	# activate one idle enemy frontier node to start streaming at a bordering node of yours
+			hosts[e].assign = -1; hosts[e].live = false; _next_depart.erase(e)
+	# activate one idle enemy frontier node: the enemy wires AND launches in the same step (no planning phase)
 	var opts := []
 	for e in hosts.size():
-		if bool(hosts[e].owned) or int(hosts[e].assign) >= 0 or float(hosts[e].bots) < 5.0: continue
+		if bool(hosts[e].owned) or (int(hosts[e].assign) >= 0 and bool(hosts[e].live)) or float(hosts[e].bots) < 5.0: continue
 		for p in hosts[e].links:
 			if bool(hosts[p].owned): opts.append([e, p]); break
 	if opts.is_empty(): return
 	var pick: Array = opts[rng.randi() % opts.size()]
-	hosts[int(pick[0])].assign = int(pick[1]); _next_depart[int(pick[0])] = _t
+	hosts[int(pick[0])].assign = int(pick[1]); hosts[int(pick[0])].live = true; _next_depart[int(pick[0])] = _t
 	_flash("⚔ %s is attacking %s — defend it!" % [str(hosts[int(pick[0])].name), str(hosts[int(pick[1])].name)])
 
 
@@ -422,8 +457,8 @@ func _pointer_over_panel() -> bool:
 	return panel != null and panel.get_global_rect().has_point(get_viewport().get_mouse_position())
 
 
-func _clear_all() -> void:
-	sel = {}; sel_target = -1; _inspect = -1; _drag_from = -1; _dragging = false; _boxing = false; _show_build = false
+func _clear_all() -> void:   # clears SELECTION state only — never touches wired connections
+	sel = {}; _inspect = -1; _drag_from = -1; _dragging = false; _boxing = false; _show_build = false
 
 
 func _gui_input(event: InputEvent) -> void:
@@ -447,7 +482,7 @@ func _gui_input(event: InputEvent) -> void:
 		if _boxing and moved:
 			_marquee(Rect2(_box_start, event.position - _box_start).abs(), shift)
 		elif _drag_from >= 0 and moved and hit >= 0 and hit != _drag_from:
-			_drag_aim(_drag_from, hit)     # dragged a line onto a node → that node becomes the PENDING target
+			_drag_wire(_drag_from, hit)    # dragged a line onto a node → WIRE a dormant connection to it
 		elif not moved:
 			_left_click(hit, shift)
 		_boxing = false; _drag_from = -1; _dragging = false
@@ -458,8 +493,9 @@ func _gui_input(event: InputEvent) -> void:
 		_refresh_panel(); queue_redraw()
 
 
-# (1) left-click your node(s) to SELECT. (2) left-click a target node → it becomes PENDING and an
-# ATTACK / REINFORCE button appears in the panel. (3) press the button to start. Nothing fires on click.
+# CLICK never wires — links are made ONLY by drag-and-drop (the user was explicit about this).
+# Click = look at / select: your node → select it + its panel; any other node → just open its panel.
+# Shift-click builds a group; drag from any group member then wires the whole group.
 func _left_click(hit: int, shift: bool) -> void:
 	if hit < 0:
 		_clear_all()
@@ -467,38 +503,27 @@ func _left_click(hit: int, shift: bool) -> void:
 	if shift and bool(hosts[hit].owned):
 		if sel.has(hit): sel.erase(hit)
 		else: sel[hit] = true
-		sel_target = -1; _inspect = -1; _show_build = false
+		_inspect = -1; _show_build = false
 		return
-	if sel.is_empty():                       # no sources yet → this click picks a source (or inspects an enemy)
-		if bool(hosts[hit].owned): sel = {hit: true}
-		else: _inspect = hit
-		sel_target = -1; _show_build = false
-		return
-	if bool(hosts[hit].owned) and sel.has(hit):
-		return                               # clicking a selected source → no change
-	sel_target = hit                         # any other node → PENDING target; the command button appears
+	if bool(hosts[hit].owned):
+		sel = {hit: true}; _inspect = hit    # your node: select it (ready to drag) + show its panel
+	else:
+		sel = {}; _inspect = hit             # other node: open its panel (the launch pad)
 	_show_build = false
 
 
-func _do_command() -> void:                  # the START ATTACK / REINFORCE button
-	if sel_target >= 0:
-		var t := sel_target
-		sel_target = -1                      # clear FIRST so the panel refreshes to the running-order view
-		_command(t)
-
-
-# dragging a line from your node onto another node AIMS at it (sets the pending target) — it never fires.
-# Dragging from a node already in the selection keeps the whole group; from an unselected node picks just it.
-func _drag_aim(src: int, dest: int) -> void:
+# dragging a line from your node onto another node WIRES it (dormant connection) — it never fires.
+# Dragging from a node already in the selection wires the whole group; from an unselected node, just it.
+func _drag_wire(src: int, dest: int) -> void:
 	if not sel.has(src): sel = {src: true}
-	sel_target = dest; _inspect = -1
+	_wire(dest)
 
 
 func _marquee(r: Rect2, shift: bool) -> void:
 	if not shift: sel = {}
 	for i in hosts.size():
 		if bool(hosts[i].owned) and r.has_point(hosts[i].pos): sel[i] = true
-	sel_target = -1; _inspect = -1; _show_build = false   # a fresh box-select never inherits an old target
+	_inspect = -1; _show_build = false   # a fresh box-select never inherits an old panel
 
 
 func _host_at(p: Vector2) -> int:
@@ -507,34 +532,66 @@ func _host_at(p: Vector2) -> int:
 	return -1
 
 
-# command the selected group to a destination (persistent). Enemy = Attack, friendly = Reinforce. The
-# group stays selected so retargeting is one more command. Retargeting affects FUTURE departures only.
-func _command(dest: int) -> void:
+# CONNECT (drag-and-drop only): wire every selected owned source to `dest` — dashed and DORMANT, nothing
+# fires, no Intel spent. A link can only be made where a PATH exists through your own nodes (never through
+# enemy territory). One connection per node: wiring replaces the old one (a rewired one is dormant again);
+# wiring a node's current target changes nothing (it never interrupts a live flow).
+func _wire(dest: int) -> void:
 	if dest < 0 or sel.is_empty(): return
-	var done := 0; var excl := 0
+	var done := 0; var nopath := 0
 	for s in sel.keys():
-		if bool(hosts[int(s)].owned) and not _route(int(s), dest).is_empty():
-			hosts[int(s)].assign = dest
-			if not _next_depart.has(int(s)): _next_depart[int(s)] = _t
-			done += 1
-		else: excl += 1
+		var i := int(s)
+		if not bool(hosts[i].owned) or i == dest: continue
+		if _route(i, dest).is_empty(): nopath += 1; continue
+		if int(hosts[i].assign) != dest:
+			hosts[i].assign = dest; hosts[i].live = false; _next_depart.erase(i)
+		done += 1
 	if done > 0:
-		var act := "Reinforce" if bool(hosts[dest].owned) else "Attack"
-		_flash("%s %s · %d source(s)%s" % [act, str(hosts[dest].name), done, ("  ·  %d excluded (no route)" % excl) if excl > 0 else ""])
-	else:
-		_flash("No selected source can reach %s" % str(hosts[dest].name))
-	_inspect = dest
-	_refresh_panel()
+		var extra := ("  ·  %d had no path" % nopath) if nopath > 0 else ""
+		if bool(hosts[dest].owned):
+			_flash("Connected %d guard(s) → %s%s  (auto-defend when it's attacked or damaged)" % [done, str(hosts[dest].name), extra])
+		else:
+			_flash("Connected %d node(s) → %s%s  (dormant — press ATTACK on %s to launch)" % [done, str(hosts[dest].name), extra, str(hosts[dest].name)])
+		sel = {}; _inspect = dest; _show_build = false   # wired: move to the target's panel
+	elif nopath > 0:
+		_flash("✖ No path to %s — links can only run through your own nodes" % str(hosts[dest].name))
+	_refresh_panel(); queue_redraw()
 
 
-# stop ONLY the selected player-owned sources' future outgoing supply (incoming + travelling bots continue)
-func _stop_supplying() -> void:
+# LAUNCH: the button on the TARGET's panel — turns every dormant connection into `t` live, together.
+# Connections wired after this stay dormant until the button is pressed again. Unrouted wires stay dormant.
+func _launch(t: int) -> void:
+	var started := 0; var unrouted := 0
+	for i in hosts.size():
+		if not bool(hosts[i].owned) or int(hosts[i].assign) != t or bool(hosts[i].live): continue
+		if _route(i, t).is_empty(): unrouted += 1; continue
+		hosts[i].live = true; _next_depart[i] = _t; started += 1
+	var act := "🛡 Defending" if bool(hosts[t].owned) else "⚔ Attacking"
+	if started > 0: _flash("%s %s — %d flow(s) launched%s" % [act, str(hosts[t].name), started, ("  ·  %d held (no route)" % unrouted) if unrouted > 0 else ""])
+	elif unrouted > 0: _flash("Cannot launch on %s — no routes (capture a bordering node first)" % str(hosts[t].name))
+	else: _flash("Nothing to launch — no dormant connections into %s" % str(hosts[t].name))
+	_refresh_panel(); queue_redraw()
+
+
+# STOP: pause every live flow into `t` — the wires stay, ready to launch again
+func _halt(t: int) -> void:
+	var n := 0
+	for i in hosts.size():
+		if bool(hosts[i].owned) and int(hosts[i].assign) == t and bool(hosts[i].live):
+			hosts[i].live = false; _next_depart.erase(i); n += 1
+	if n > 0: _flash("Stopped %d flow(s) into %s (connections kept)" % [n, str(hosts[t].name)])
+	else: _flash("No live flows into %s" % str(hosts[t].name))
+	_refresh_panel(); queue_redraw()
+
+
+# DISCONNECT the selected sources entirely (wire removed; travelling bots still finish)
+func _disconnect_selected() -> void:
 	var n := 0
 	for s in sel.keys():
 		if bool(hosts[int(s)].owned) and int(hosts[int(s)].assign) >= 0:
-			hosts[int(s)].assign = -1; _next_depart.erase(int(s)); n += 1
-	if n > 0: _flash("Stopped supply from %d source(s)" % n)
-	else: _flash("No active supply to stop")
+			hosts[int(s)].assign = -1; hosts[int(s)].live = false; _next_depart.erase(int(s)); n += 1
+	if n > 0: _flash("Disconnected %d node(s)" % n)
+	else: _flash("Nothing to disconnect")
 	_refresh_panel()
 
 
@@ -552,22 +609,21 @@ func _owned_feeders(node: int) -> Array:
 	return out
 
 
-# A supply ORDER persists until stopped; stopping it leaves the network connection intact (you can re-order
-# later). Stop from a source (its own outgoing supply) or into a node (all YOUR supply aimed at it). Player
-# commands only ever touch player-owned sources — enemy supply is never affected.
+# A CONNECTION persists until you disconnect it (stopping a flow with _halt keeps the wire). Player commands
+# only ever touch player-owned sources — enemy wires/flows are never affected.
 func _cancel_from(src: int) -> void:
 	if src >= 0 and bool(hosts[src].owned) and int(hosts[src].assign) >= 0:
-		hosts[src].assign = -1; _next_depart.erase(src)
-		_flash("Stopped %s's supply" % str(hosts[src].name))
+		hosts[src].assign = -1; hosts[src].live = false; _next_depart.erase(src)
+		_flash("Disconnected %s" % str(hosts[src].name))
 	_refresh_panel(); queue_redraw()
 
 
 func _cancel_to(dest: int) -> void:
 	var n := 0
 	for i in _owned_feeders(dest):
-		hosts[int(i)].assign = -1; _next_depart.erase(int(i)); n += 1
-	if n > 0: _flash("Stopped %d supply order(s) into %s" % [n, str(hosts[dest].name)])
-	else: _flash("No supply of yours is aimed at %s" % str(hosts[dest].name))
+		hosts[int(i)].assign = -1; hosts[int(i)].live = false; _next_depart.erase(int(i)); n += 1
+	if n > 0: _flash("Disconnected %d node(s) from %s" % [n, str(hosts[dest].name)])
+	else: _flash("Nothing of yours is connected to %s" % str(hosts[dest].name))
 	_refresh_panel(); queue_redraw()
 
 
@@ -618,16 +674,16 @@ func _fmt_time(t: float) -> String:
 func _esc_btn() -> void: _clear_all(); _refresh_panel(); queue_redraw()
 
 
-# Panel is organised around the player's current decision. Four states: PREVIEW (about to commit), SELECTING
-# (sources chosen, picking a destination / managing orders), INSPECT (reading a node), IDLE (first-use help).
+# Panel is organised around the two verbs: CONNECT (selection panel) and LAUNCH (a node's own panel carries
+# its ⚔ ATTACK / 🛡 DEFEND button). States: SELECTING, NODE (launch pad), IDLE, RESULT.
 func _refresh_panel() -> void:
 	for c in panel_box.get_children(): c.queue_free()
 	if won or lost: _panel_result(); return
-	if not sel.is_empty() and sel_target >= 0: _panel_preview()
-	elif not sel.is_empty(): _panel_selecting()
+	if not sel.is_empty(): _panel_selecting()
 	elif _inspect >= 0: _panel_inspect()
 	else: _panel_idle()
 	if paused: _plabel("— PAUSED (Space) —", 15, Color(1, 0.9, 0.4))
+	_btn("↻ Restart run", _reset)   # always available, any time
 
 
 func _panel_result() -> void:
@@ -638,54 +694,71 @@ func _panel_result() -> void:
 	_btn("↻ Restart", _reset)
 
 
-func _panel_preview() -> void:   # ABOUT TO COMMIT — the primary button sits high so it never needs scrolling
-	var tgt := sel_target
-	var atk := not bool(hosts[tgt].owned)
-	var elig := 0; var excl := 0
-	for s in sel.keys():
-		if _link_kind(int(s), tgt) != "": elig += 1
-		else: excl += 1
-	_plabel("ORDER PREVIEW", 14, Color(1, 0.9, 0.5))
-	_plabel("%s  →  %s (%s)" % [("⚔ ATTACK" if atk else "🛡 REINFORCE"), str(hosts[tgt].name), ("enemy" if atk else "yours")],
-		17, Color(1, 0.72, 0.6) if atk else Color(0.6, 1, 0.8))
-	_plabel("From %d selected · %d can reach%s" % [sel.size(), elig, ("  ·  %d excluded (no route)" % excl) if excl > 0 else ""], 13)
-	if atk:
-		_plabel("Up to %d bot/s · costs %d Intel/s  (reserve %d, +%d/s)" % [elig, elig, int(intel), int(_intel_rate())], 13, Color(0.82, 0.9, 1.0))
-		if intel < 1.0: _plabel("⚠ Out of Intel now — bots wait until Intel returns.", 12, Color(1, 0.82, 0.4))
-	else:
-		_plabel("Up to %d bot/s · free. Adds to the node's RESERVE, not its send rate." % elig, 12, Color(0.82, 0.9, 1.0))
-	var already := []
-	for i in _owned_feeders(tgt):
-		if not sel.has(int(i)): already.append(int(i))
-	if not already.is_empty(): _plabel("Already supplying (kept): %s" % _names(already), 12, Color(0.6, 0.92, 0.72))
-	_btn(("⚔  START ATTACK on %s" if atk else "🛡  START REINFORCE %s") % str(hosts[tgt].name), _do_command, elig > 0)
-	_btn("Cancel preview (Esc)", func(): sel_target = -1; _refresh_panel(); queue_redraw())
-
-
 func _panel_selecting() -> void:
-	var stock := 0.0; var running := 0
+	var stock := 0.0; var wired := 0
 	for s in sel.keys():
 		stock += float(hosts[int(s)].bots)
-		if int(hosts[int(s)].assign) >= 0: running += 1
-	_plabel("SELECTED: %d source(s) · %d bots" % [sel.size(), int(stock)], 17)
+		if int(hosts[int(s)].assign) >= 0: wired += 1
+	_plabel("SELECTED: %d node(s) · %d bots" % [sel.size(), int(stock)], 17)
 	if sel.size() == 1:
 		var s0: int = int(sel.keys()[0])
 		var a := int(hosts[s0].assign)
-		if a >= 0: _plabel("Supply: %s → %s  (%s)" % [("reinforce" if bool(hosts[a].owned) else "attack"), str(hosts[a].name), _src_state(s0)], 14, Color(0.6, 1, 0.8))
-		else: _plabel("Supply: idle", 14, Color(0.7, 0.8, 0.9))
-	elif running > 0:
-		_plabel("%d of them already supplying." % running, 13, Color(0.7, 0.85, 1.0))
-	_plabel("▶ Pick a destination: click a node, or drag a line to it.", 14, Color(1, 0.9, 0.5))
-	if running > 0: _btn("■ Stop supply (%d)" % running, _stop_supplying)
-	if sel.size() == 1:
-		var s1: int = int(sel.keys()[0])
-		var into := _owned_feeders(s1)
-		if not into.is_empty(): _btn("■ Stop all %d supply into %s" % [into.size(), str(hosts[s1].name)], _cancel_to.bind(s1))
+		if a >= 0:
+			var kind := "defend" if bool(hosts[a].owned) else "attack"
+			_plabel("Connection: %s → %s  ·  %s" % [kind, str(hosts[a].name), _src_state(s0)], 14,
+				Color(0.6, 1, 0.8) if bool(hosts[s0].live) else Color(0.95, 0.9, 0.6))
+		else: _plabel("Connection: none", 14, Color(0.7, 0.8, 0.9))
+	elif wired > 0:
+		_plabel("%d of them already have a connection (wiring replaces it)." % wired, 13, Color(0.7, 0.85, 1.0))
+	_plabel("▶ CONNECT: DRAG a line from a selected node onto the target (only where a path runs through your nodes). Nothing fires — launch from the target's panel.", 14, Color(1, 0.9, 0.5))
+	if wired > 0: _btn("✖ Disconnect (%d)" % wired, _disconnect_selected)
+	if sel.size() == 1: _panel_node_in(int(sel.keys()[0]))   # this node as a TARGET: wires into it + 🛡 DEFEND
 	_btn("Clear selection (Esc)", _esc_btn)
 	if sel.size() == 1:
 		var s2: int = int(sel.keys()[0])
 		_btn("⚙ Hide node buildings" if _show_build else "⚙ Manage node buildings", func(): _show_build = not _show_build; _refresh_panel(); queue_redraw())
 		if _show_build: _build_menu(s2)
+
+
+# the LAUNCH PAD: everything about node `t` as a destination — who is wired into it, who is flowing,
+# and the ⚔ ATTACK / 🛡 DEFEND button that is the ONLY thing that starts those flows
+func _panel_node_in(t: int) -> void:
+	var efeed := []                      # enemy nodes wired into t (gold-ringed on the map like all connections)
+	for i in hosts.size():
+		if not bool(hosts[i].owned) and int(hosts[i].assign) == t: efeed.append(i)
+	if not efeed.is_empty():
+		var what := "attacking it" if bool(hosts[t].owned) else "supplying it"
+		_plabel("⚠ %d enemy node(s) %s: %s" % [efeed.size(), what, _names(efeed)], 13, Color(1, 0.6, 0.5))
+	var conns := _owned_feeders(t)
+	if conns.is_empty():
+		if not bool(hosts[t].owned):
+			_plabel("No connections of yours into it yet — select your node(s), then click here to connect.", 13, Color(0.7, 0.8, 0.9))
+		return
+	var livec := 0
+	for i in conns:
+		if bool(hosts[int(i)].live): livec += 1
+	var dormant := conns.size() - livec
+	var atk := not bool(hosts[t].owned)
+	if atk:
+		_plabel("Connected to %s: %d node(s) — %d flowing · %d dormant" % [str(hosts[t].name), conns.size(), livec, dormant], 14, Color(0.85, 0.95, 0.9))
+		if livec > 0:
+			var sending := 0
+			for i in conns:
+				if _src_state(int(i)) == "sending": sending += 1
+			_panel_attack_diag(t, conns, sending)
+		_plabel("Launching costs 1 Intel per bot  (reserve %d · +%d/s · −%d/s)" % [int(intel), int(_intel_rate()), int(_attack_demand())], 12, Color(0.82, 0.9, 1.0))
+		if dormant > 0: _btn("⚔  ATTACK %s  (launch %d)" % [str(hosts[t].name), dormant], _launch.bind(t))
+		if livec > 0: _btn("■ Stop %d flow(s) (keep connections)" % livec, _halt.bind(t))
+	else:
+		# guards: DEFEND is a STATUS, not a button — they arm when this node is attacked/damaged, stand down after
+		_plabel("🛡 %d guard(s) connected — %d defending now · %d on standby" % [conns.size(), livec, dormant], 14, Color(0.85, 0.95, 0.9))
+		_plabel("Guards flow automatically while %s is under attack or below full, then stand down." % str(hosts[t].name), 12, Color(0.7, 0.85, 0.95))
+	_btn("✖ Disconnect all (%d)" % conns.size(), _cancel_to.bind(t))
+	_btn("Select connected node(s)", _select_contributors.bind(conns))
+	var shown := 0
+	for i in conns:
+		if shown >= 6: break
+		_plabel("   • %s: %s" % [str(hosts[int(i)].name), _src_state(int(i))], 12, Color(0.72, 0.86, 1.0)); shown += 1
 
 
 func _build_menu(i: int) -> void:
@@ -709,22 +782,13 @@ func _panel_inspect() -> void:
 	var yin := int(_incoming(_inspect, true)); var ein := int(_incoming(_inspect, false))
 	_plabel("In transit toward it: %d yours · %d enemy" % [yin, ein], 13, Color(0.7, 0.85, 1.0))
 	if bool(h.owned) and ein > 0: _plabel("⚠ Under attack — %d enemy bots inbound." % ein, 13, Color(1, 0.72, 0.5))
-	var feeders := _owned_feeders(_inspect)
-	if feeders.is_empty():
-		_plabel("None of your sources is supplying it.", 13, Color(0.7, 0.8, 0.9))
-	else:
-		var sending := 0
-		for i in feeders:
-			if _src_state(int(i)) == "sending": sending += 1
-		_plabel("Your supply: %d source(s) — %d sending, %d waiting" % [feeders.size(), sending, feeders.size() - sending], 13, Color(0.82, 0.95, 0.9))
-		if not bool(h.owned): _panel_attack_diag(_inspect, feeders, sending)
-		_btn("Select these sources", _select_contributors.bind(feeders))
-		_btn("■ Stop all supply into it", _cancel_to.bind(_inspect))
-		var shown := 0
-		for i in feeders:
-			if shown >= 6: break
-			_plabel("   • %s: %s" % [str(hosts[int(i)].name), _src_state(int(i))], 12, Color(0.72, 0.86, 1.0)); shown += 1
-	_plabel("Click a node of yours to command it. Esc clears.", 12, Color(0.6, 0.7, 0.8))
+	var aout := int(h.assign)            # whom THIS node is connected to (gold-ringed on the map)
+	if aout >= 0:
+		var verb := "defending" if bool(hosts[aout].owned) == bool(h.owned) else "attacking"
+		_plabel("Its own connection → %s  (%s, %s)" % [str(hosts[aout].name), verb, ("flowing" if bool(h.live) else "dormant")],
+			13, Color(1, 0.75, 0.6) if verb == "attacking" else Color(0.7, 0.9, 0.8))
+	_panel_node_in(_inspect)
+	_plabel("Esc clears. Click your node(s) to select and wire more.", 12, Color(0.6, 0.7, 0.8))
 
 
 # cause → action for an attack that isn't finishing (only advice the current rules actually support)
@@ -746,11 +810,11 @@ func _panel_attack_diag(t: int, feeders: Array, sending: int) -> void:
 
 
 func _panel_idle() -> void:
-	_plabel("OBJECTIVE: build your botnet, combine supply from several sources, and capture the HUB.", 14, Color(0.92, 0.96, 1.0))
-	_plabel("① Click a node of yours to select it (Shift-click or drag a box to pick several).", 13)
-	_plabel("② Click a target, or drag a line to it — connected nodes light up.", 13, Color(0.8, 0.86, 0.96))
-	_plabel("③ Press START ATTACK / REINFORCE. Bots act only when they ARRIVE.", 13, Color(0.8, 0.86, 0.96))
-	_plabel("Right-click or Esc clears · Space pauses.", 12, Color(0.6, 0.7, 0.8))
+	_plabel("OBJECTIVE: wire connections from several nodes, then launch them — capture the HUB.", 14, Color(0.92, 0.96, 1.0))
+	_plabel("① CONNECT — DRAG a line from your node onto a target (Shift / box-drag selects a group; dragging from the group wires them all). Links need a path through YOUR nodes. Dashed = dormant: nothing fires yet.", 13)
+	_plabel("② LAUNCH — click the enemy node itself: its panel lists who's connected; press ⚔ ATTACK to start those flows together. Wires into YOUR OWN nodes are GUARDS — they defend automatically when that node is attacked.", 13, Color(0.8, 0.86, 0.96))
+	_plabel("Clicking only selects / opens a node's panel — it never wires. Rewire any time; bots act only when they ARRIVE.", 13, Color(0.8, 0.86, 0.96))
+	_plabel("Right-click or Esc clears selection (never your wires) · Space pauses.", 12, Color(0.6, 0.7, 0.8))
 
 
 func _hud_text() -> String:
@@ -762,34 +826,52 @@ func _hud_text() -> String:
 
 
 # ============================================================ DRAW
-# which node is being AIMED at: an explicit pending target, else the node under a dragged line
+# the node whose plan is in focus: the node under a dragged line, else the node whose panel is open
 func _aim_target() -> int:
-	if sel_target >= 0: return sel_target
 	if _dragging and _drag_from >= 0:
 		var hov := _host_at(get_local_mouse_position())
 		if hov >= 0 and hov != _drag_from: return hov
-	return -1
+	return _inspect
 
 
-# which sources the aim applies to (the drag source alone if it isn't part of the selection, else the group)
+# the sources whose routes light up for the focused node: everything WIRED into it, plus the drag group
 func _aim_sources() -> Array:
-	if _dragging and _drag_from >= 0 and not sel.has(_drag_from): return [_drag_from]
-	return sel.keys()
+	var out := {}
+	var aim := _aim_target()
+	if aim >= 0:
+		for i in _owned_feeders(aim): out[int(i)] = true
+	if _dragging and _drag_from >= 0:
+		if sel.has(_drag_from):
+			for s in sel.keys(): out[int(s)] = true
+		else: out[_drag_from] = true
+	return out.keys()
 
 
 func _lk(a: int, b: int) -> String: return "%d_%d" % [mini(a, b), maxi(a, b)]
 
 
-# the focused subgraph when aiming: the target, every node connected to it, and the routes your sources take
+# the focused subgraph for node `aim`: STRICTLY the node itself, the nodes WIRED into it (either faction),
+# the node its own wire points at, and the drag group. Route intermediates light their LINKS only — the
+# nodes a route merely passes through stay fogged, as does everything unconnected (threat rings still
+# draw at full brightness on fogged nodes, so an attack elsewhere is never invisible).
+func _focus_route(rt: Array, flinks: Dictionary) -> void:
+	for k in range(rt.size() - 1): flinks[_lk(int(rt[k]), int(rt[k + 1]))] = true
+
+
 func _build_focus(aim: int, fnodes: Dictionary, flinks: Dictionary) -> void:
 	fnodes[aim] = true
-	for nb in hosts[aim].links:
-		fnodes[int(nb)] = true; flinks[_lk(aim, int(nb))] = true
-	for s in _aim_sources():
+	for i in hosts.size():                      # incoming: everyone wired into it, both factions
+		if int(hosts[i].assign) == aim:
+			fnodes[i] = true
+			_focus_route(_route(i, aim), flinks)
+	var aout := int(hosts[aim].assign)          # outgoing: whom this node itself is connected to
+	if aout >= 0:
+		fnodes[aout] = true
+		_focus_route(_route(aim, aout), flinks)
+	for s in _aim_sources():                    # the drag group while a wire is being aimed
 		if int(s) == aim: continue
-		var rt := _route(int(s), aim)
-		for k in rt.size(): fnodes[int(rt[k])] = true
-		for k in range(rt.size() - 1): flinks[_lk(int(rt[k]), int(rt[k + 1]))] = true
+		fnodes[int(s)] = true
+		_focus_route(_route(int(s), aim), flinks)
 
 
 func _draw() -> void:
@@ -806,33 +888,53 @@ func _draw() -> void:
 			var lcol: Color = Color(0.3, 1, 0.55, 0.4) if both else Color(0.35, 0.5, 0.7, 0.18)
 			if focus_on and not flinks.has(_lk(i, j)): lcol.a *= 0.22      # fog links outside the focus
 			draw_line(hosts[i].pos, hosts[j].pos, lcol, 2.0 if both else 1.0, true)
-	# committed supply routes (solid). Enemy attacks on YOUR nodes stay visible even through the fog (threats).
+	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent).
+	# During focus, STRICT fog: only the focused node's own connections stay bright (threat RINGS still show).
 	for i in hosts.size():
 		if int(hosts[i].assign) >= 0:
 			var d := int(hosts[i].assign)
-			var is_threat: bool = bool(hosts[d].owned) and not bool(hosts[i].owned)
-			var dimmed: bool = focus_on and not is_threat and not (fnodes.has(i) and fnodes.has(d))
-			_draw_route_line(_route(i, d), i, d, dimmed)
+			var dimmed: bool = focus_on and not (fnodes.has(i) and fnodes.has(d))
+			if bool(hosts[i].live):
+				_draw_route_line(_route(i, d), i, d, dimmed)
+			else:
+				var kcol: Color = Color(0.45, 0.95, 0.7, 0.8) if bool(hosts[d].owned) else Color(1, 0.85, 0.4, 0.8)
+				if dimmed: kcol.a *= 0.25
+				var rt := _route(i, d)
+				if rt.size() >= 2: _draw_dashed(rt, kcol, 2.0)
+				else: _draw_dashed([i, d], Color(0.8, 0.5, 0.5, (0.15 if dimmed else 0.55)), 1.5)   # unrouted plan
 	# in-flight bots (the only moving things): yours = circle, enemy = square (shape, not just colour)
 	for fl in flights:
 		var pp := _packet_pos(fl.route, _t - float(fl.depart_t))
 		var endn := int((fl.route as Array)[(fl.route as Array).size() - 1])
-		var threat: bool = not bool(fl.player) and bool(hosts[endn].owned)   # enemy bot inbound to your node
-		var ba: float = 1.0 if (not focus_on or fnodes.has(endn) or threat) else 0.3
+		var ba: float = 1.0 if (not focus_on or fnodes.has(endn)) else 0.3
 		if bool(fl.player): draw_circle(pp, 3.5, Color(0.5, 1, 0.7, ba))
 		else: draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(1, 0.45, 0.4, ba), true)
-	# nodes — a node of yours under attack stays lit (threat) with a red ring, even while you aim elsewhere
+	# nodes — strict fog: ONLY nodes connected to the focused one stay bright. A fogged node under attack
+	# still shows its full-brightness red ring, so a threat elsewhere is never invisible.
 	for i in hosts.size():
-		var nthreat: bool = bool(hosts[i].owned) and _incoming(i, false) > 0.0
-		var na: float = 1.0 if (not focus_on or fnodes.has(i) or nthreat) else 0.22
-		_draw_node(f, i, na, i == aim)
-	# aiming: bold routes from your sources to the target + an on-canvas action label
+		_draw_node(f, i, 1.0 if (not focus_on or fnodes.has(i)) else 0.22, i == aim)
+	# focused node's rings: GOLD = friendly connections (nodes it's connected to + your nodes wired into it),
+	# RED = enemy nodes connected into it (attackers). Connected = wired, never mere adjacency.
 	if focus_on:
+		var gold := Color(1, 0.85, 0.3, 0.95)
+		var red := Color(1, 0.35, 0.3, 0.95)
+		for i in hosts.size():
+			if i != aim and int(hosts[i].assign) == aim:
+				draw_arc(hosts[i].pos, R + 11.0, 0.0, TAU, 32, gold if bool(hosts[i].owned) else red, 2.5, true)
+		var aout := int(hosts[aim].assign)
+		if aout >= 0: draw_arc(hosts[aout].pos, R + 11.0, 0.0, TAU, 32, gold, 2.5, true)
+	# focused node: bold-dash its wired routes + an on-canvas label of what the launch button would do.
+	# While DRAGGING a wire, an unreachable target says so in red (links need a path through your own nodes).
+	if focus_on:
+		var reach := 0
 		for s in _aim_sources():
-			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 3.0)
-		var act: String = "🛡 reinforce %s" if bool(hosts[aim].owned) else "⚔ attack %s"
-		draw_string(f, (hosts[aim].pos as Vector2) + Vector2(-R, -R - 24.0), act % str(hosts[aim].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.92, 0.5))
-	# sources selected but NOT yet aiming: glow where they can go + hover preview (no fog)
+			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 3.0); reach += 1
+		if _dragging and reach == 0:
+			draw_string(f, (hosts[aim].pos as Vector2) + Vector2(-R, -R - 24.0), "✖ no path to %s" % str(hosts[aim].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.45, 0.4))
+		else:
+			var act: String = "🛡 defend %s" if bool(hosts[aim].owned) else "⚔ attack %s"
+			draw_string(f, (hosts[aim].pos as Vector2) + Vector2(-R, -R - 24.0), act % str(hosts[aim].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.92, 0.5))
+	# sources selected (connect step): glow where they can wire + hover preview (no fog)
 	elif not sel.is_empty():
 		var src_keys: Array = sel.keys()
 		for i in hosts.size():
@@ -846,14 +948,21 @@ func _draw() -> void:
 			for s in src_keys:
 				if _link_kind(int(s), hov) != "": _draw_dashed(_route(int(s), hov)); elig += 1
 			if elig > 0:
-				draw_string(f, (hosts[hov].pos as Vector2) + Vector2(-R, -R - 22.0), "click or drag here to target %s" % str(hosts[hov].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.9, 0.5))
-	# the dragged rubber-band line — the boldest thing on screen while you aim it
+				draw_string(f, (hosts[hov].pos as Vector2) + Vector2(-R, -R - 22.0), "drag here to connect %s" % str(hosts[hov].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.9, 0.5))
+	# the dragged rubber-band line — the boldest thing on screen while you aim it; RED over a target
+	# no selected source has a path to (links can only run through your own nodes)
 	if _dragging and _drag_from >= 0:
 		var to := get_local_mouse_position()
 		var hv := _host_at(to)
-		if hv >= 0 and hv != _drag_from: to = hosts[hv].pos
-		draw_line(hosts[_drag_from].pos, to, Color(1, 0.95, 0.55, 0.95), 3.0, true)
-		draw_circle(to, 4.0, Color(1, 0.95, 0.55, 0.95))
+		var lcol2 := Color(1, 0.95, 0.55, 0.95)
+		if hv >= 0 and hv != _drag_from:
+			to = hosts[hv].pos
+			var ok := false
+			for s in _aim_sources():
+				if _link_kind(int(s), hv) != "": ok = true; break
+			if not ok: lcol2 = Color(1, 0.4, 0.35, 0.95)
+		draw_line(hosts[_drag_from].pos, to, lcol2, 3.0, true)
+		draw_circle(to, 4.0, lcol2)
 	# marquee box
 	if _boxing:
 		var r := Rect2(_box_start, get_local_mouse_position() - _box_start).abs()
