@@ -1,0 +1,105 @@
+{
+	"cases": [
+		{
+			"case": "01_dispatch_depends_on_frame_rate",
+			"observed": {
+				"emitted_by_fps": {
+					"1": 8,
+					"10": 20,
+					"60": 19
+				},
+				"seconds": 8,
+				"send_rate": 2.5
+			}
+		},
+		{
+			"case": "02_new_packet_aged_before_emission_time",
+			"observed": {
+				"already_delivered": true,
+				"earliest_valid_arrival": 1.9,
+				"first_emission_due": 0.4,
+				"frame_seconds": 1.5,
+				"target_bots": 20.5
+			}
+		},
+		{
+			"case": "03_cancel_friendly_stops_enemy_attack",
+			"observed": {
+				"enemy_order_after_cancel": -1
+			}
+		},
+		{
+			"case": "04_cancel_enemy_stops_enemy_attack",
+			"observed": {
+				"enemy_order_after_cancel": -1
+			}
+		},
+		{
+			"case": "05_full_friendly_discards_supply",
+			"observed": {
+				"destination_after": 30.0,
+				"destination_before": 30,
+				"source_after": 29.0,
+				"source_before": 30
+			}
+		},
+		{
+			"case": "06_enemy_keeps_friendly_target",
+			"observed": {
+				"assigned_friendly_target": 0,
+				"available_hostile_neighbor": 6,
+				"enemy_source": 1
+			}
+		},
+		{
+			"case": "07_relay_loss_erases_order_packet_continues",
+			"observed": {
+				"packet_delivered_through_lost_relay": true,
+				"restored_route_assignment": -1
+			}
+		},
+		{
+			"case": "08_later_arrival_processed_first_can_grant_false_win",
+			"observed": {
+				"enemy_reinforcement_arrives_at": 0.1,
+				"outcomes": [
+					{
+						"hub_bots": 1.0,
+						"hub_owned": false,
+						"list_chronological": false,
+						"won": true
+					},
+					{
+						"hub_bots": 1.0,
+						"hub_owned": false,
+						"list_chronological": true,
+						"won": false
+					}
+				],
+				"player_attack_arrives_at": 0.5
+			}
+		},
+		{
+			"case": "09_packets_mutate_board_after_win",
+			"observed": {
+				"hub_owned": false,
+				"won": true
+			}
+		},
+		{
+			"case": "10_pause_preserves_simulation",
+			"observed": {
+				"passed": true
+			}
+		},
+		{
+			"case": "11_retarget_preserves_dispatched_destination",
+			"observed": {
+				"future_target": 5,
+				"packet_target": 1
+			}
+		}
+	],
+	"method": "Controlled engine fixtures using frozen production script; no human playtest or balance verdict",
+	"send_rate": 2.5
+}

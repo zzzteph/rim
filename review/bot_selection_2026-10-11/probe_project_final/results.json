@@ -1,0 +1,1665 @@
+{
+	"cases": [
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						21.0
+					],
+					"text": "DRAG from your node to another to LINK it."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						503.0,
+						362.0,
+						43.0
+					],
+					"text": "Enemy → ATTACK, friendly → DEFEND. Then press the button."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						550.0,
+						362.0,
+						41.0
+					],
+					"text": "Bots act only when they ARRIVE. Right-click a node to cancel. SPACE pauses."
+				}
+			],
+			"flights": [],
+			"name": "01_initial",
+			"notes": "",
+			"selected_sources": [],
+			"selected_target": -1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 1  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						21.0
+					],
+					"text": "②  From: 1 node(s) · 30 bots   (1 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						557.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						598.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "02_one_source_plan",
+			"notes": "",
+			"selected_sources": [
+				0
+			],
+			"selected_target": 1
+		},
+		{
+			"assignments": {
+				"0": 1
+			},
+			"bots": {
+				"0": 29.0,
+				"1": 21.0,
+				"10": 11.0,
+				"11": 21.0,
+				"12": 21.0,
+				"13": 21.0,
+				"14": 11.0,
+				"2": 21.0,
+				"3": 21.0,
+				"4": 11.0,
+				"5": 30.0,
+				"6": 21.0,
+				"7": 30.0,
+				"8": 21.0,
+				"9": 11.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 59  ·  enemy bots 242  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 1  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						20.0
+					],
+					"text": "②  From: drag your nodes onto the target"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						556.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						597.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [
+				{
+					"count": 1.0,
+					"dur": 1.5,
+					"player": true,
+					"route": [
+						0,
+						1
+					],
+					"t": 1.0
+				}
+			],
+			"name": "03_panel_target_count_stale",
+			"notes": "Panel says 20 target bots while node has regenerated to 21",
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 6  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						21.0
+					],
+					"text": "②  From: 2 node(s) · 60 bots   (2 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						557.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						598.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "04_two_drags_share_target",
+			"notes": "",
+			"selected_sources": [
+				0,
+				5
+			],
+			"selected_target": 6
+		},
+		{
+			"assignments": {
+				"0": 6,
+				"5": 6
+			},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 6  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						20.0
+					],
+					"text": "②  From: drag your nodes onto the target"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						556.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						597.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "05_both_sources_second_target",
+			"notes": "",
+			"selected_sources": [],
+			"selected_target": 6
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						20.0
+					],
+					"text": "①  Drag onto a node to link it"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						531.0,
+						362.0,
+						21.0
+					],
+					"text": "②  From: 2 node(s) · 60 bots"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						556.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						597.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "06_friendly_click_is_source",
+			"notes": "",
+			"selected_sources": [
+				0,
+				5
+			],
+			"selected_target": -1
+		},
+		{
+			"assignments": {
+				"0": 5
+			},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						21.0
+					],
+					"text": "DRAG from your node to another to LINK it."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						503.0,
+						362.0,
+						43.0
+					],
+					"text": "Enemy → ATTACK, friendly → DEFEND. Then press the button."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						550.0,
+						362.0,
+						41.0
+					],
+					"text": "Bots act only when they ARRIVE. Right-click a node to cancel. SPACE pauses."
+				}
+			],
+			"flights": [],
+			"name": "07_clear_draft_keeps_assignment",
+			"notes": "",
+			"selected_sources": [],
+			"selected_target": -1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 29.0,
+				"1": 21.0,
+				"10": 11.0,
+				"11": 21.0,
+				"12": 21.0,
+				"13": 21.0,
+				"14": 11.0,
+				"2": 21.0,
+				"3": 21.0,
+				"4": 11.0,
+				"5": 29.0,
+				"6": 21.0,
+				"7": 30.0,
+				"8": 21.0,
+				"9": 11.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 58  ·  enemy bots 242  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						21.0
+					],
+					"text": "DRAG from your node to another to LINK it."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						503.0,
+						362.0,
+						43.0
+					],
+					"text": "Enemy → ATTACK, friendly → DEFEND. Then press the button."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						550.0,
+						362.0,
+						41.0
+					],
+					"text": "Bots act only when they ARRIVE. Right-click a node to cancel. SPACE pauses."
+				}
+			],
+			"flights": [
+				{
+					"count": 1.0,
+					"dur": 1.5,
+					"player": true,
+					"route": [
+						0,
+						1
+					],
+					"t": 1.0
+				},
+				{
+					"count": 1.0,
+					"dur": 1.5,
+					"player": true,
+					"route": [
+						5,
+						0
+					],
+					"t": 1.0
+				}
+			],
+			"name": "08_right_source_cancels_incoming",
+			"notes": "Outgoing A→X AND incoming B→A removed; in-flight packets preserved",
+			"selected_sources": [],
+			"selected_target": -1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						21.0
+					],
+					"text": "DRAG from your node to another to LINK it."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						503.0,
+						362.0,
+						43.0
+					],
+					"text": "Enemy → ATTACK, friendly → DEFEND. Then press the button."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						550.0,
+						362.0,
+						41.0
+					],
+					"text": "Bots act only when they ARRIVE. Right-click a node to cancel. SPACE pauses."
+				}
+			],
+			"flights": [],
+			"name": "09_invalid_drag_silent",
+			"notes": "",
+			"selected_sources": [],
+			"selected_target": -1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 30.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 30.0,
+				"3": 30.0,
+				"4": 30.0,
+				"5": 30.0,
+				"6": 30.0,
+				"7": 30.0,
+				"8": 30.0,
+				"9": 30.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 14  (10 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						21.0
+					],
+					"text": "②  From: 10 node(s) · 300 bots   (10 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						557.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						598.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "10_ten_source_plan",
+			"notes": "10 source clicks + target click + commit = 12 clicks",
+			"selected_sources": [
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9
+			],
+			"selected_target": 14
+		},
+		{
+			"assignments": {
+				"0": 14,
+				"1": 14,
+				"2": 14,
+				"3": 14,
+				"4": 14,
+				"5": 14,
+				"6": 14,
+				"7": 14,
+				"8": 14,
+				"9": 14
+			},
+			"bots": {
+				"0": 30.0,
+				"1": 30.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 30.0,
+				"3": 30.0,
+				"4": 30.0,
+				"5": 30.0,
+				"6": 30.0,
+				"7": 30.0,
+				"8": 30.0,
+				"9": 30.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 14  (10 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						20.0
+					],
+					"text": "②  From: drag your nodes onto the target"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						556.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						597.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "11_ten_sources_committed",
+			"notes": "",
+			"selected_sources": [],
+			"selected_target": 14
+		},
+		{
+			"assignments": {
+				"0": 1
+			},
+			"bots": {
+				"0": 30.0,
+				"1": 1.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 1  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						20.0
+					],
+					"text": "②  From: drag your nodes onto the target"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						556.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						597.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "12_capture_keeps_order_as_defend",
+			"notes": "An attack assignment implicitly becomes reinforcement after capture",
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 1.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 1  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						21.0
+					],
+					"text": "②  From: 1 node(s) · 30 bots   (1 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						557.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						598.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "13_draft_label_wrong_after_capture",
+			"notes": "ATTACK button persists although the current target is now friendly",
+			"selected_sources": [
+				0
+			],
+			"selected_target": 1
+		},
+		{
+			"assignments": {
+				"0": 1
+			},
+			"bots": {
+				"0": 29.0,
+				"1": 21.0,
+				"10": 11.0,
+				"11": 21.0,
+				"12": 21.0,
+				"13": 21.0,
+				"14": 11.0,
+				"2": 21.0,
+				"3": 21.0,
+				"4": 11.0,
+				"5": 30.0,
+				"6": 21.0,
+				"7": 30.0,
+				"8": 21.0,
+				"9": 11.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 59  ·  enemy bots 242  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 1  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						20.0
+					],
+					"text": "②  From: drag your nodes onto the target"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						556.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						597.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [
+				{
+					"count": 1.0,
+					"dur": 1.5,
+					"player": true,
+					"route": [
+						0,
+						1
+					],
+					"t": 1.0
+				}
+			],
+			"name": "14_packets_freeze_when_paused",
+			"notes": "Credit: actual packet motion now freezes correctly",
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 1  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						21.0
+					],
+					"text": "②  From: 2 node(s) · 40 bots   (1 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						557.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						598.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "15_mixed_eligibility",
+			"notes": "",
+			"selected_sources": [
+				0,
+				14
+			],
+			"selected_target": 1
+		},
+		{
+			"assignments": {
+				"0": 1
+			},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						507.0,
+						362.0,
+						21.0
+					],
+					"text": "①  Linked to: Node 1  (20 bots)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						532.0,
+						362.0,
+						20.0
+					],
+					"text": "②  From: drag your nodes onto the target"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						556.0,
+						362.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						597.0,
+						362.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"flights": [],
+			"name": "16_silent_partial_commit",
+			"notes": "",
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"assignments": {},
+			"bots": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						746.0,
+						25.0
+					],
+					"text": "BOTNET  ·  your nodes 2 / 15  ·  your bots 60  ·  enemy bots 230  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						478.0,
+						362.0,
+						21.0
+					],
+					"text": "DRAG from your node to another to LINK it."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						503.0,
+						362.0,
+						43.0
+					],
+					"text": "Enemy → ATTACK, friendly → DEFEND. Then press the button."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						550.0,
+						362.0,
+						41.0
+					],
+					"text": "Bots act only when they ARRIVE. Right-click a node to cancel. SPACE pauses."
+				}
+			],
+			"flights": [],
+			"name": "17_right_click_enemy_stops_enemy",
+			"notes": "Current cancel accepts an enemy node and removes its enemy AI attack assignment",
+			"selected_sources": [],
+			"selected_target": -1
+		}
+	],
+	"human_playtest": false,
+	"method": "Frozen latest script; actual GUI input; controlled attrition/ownership fixtures",
+	"source_lines": 405,
+	"viewport": [
+		1280,
+		720
+	]
+}

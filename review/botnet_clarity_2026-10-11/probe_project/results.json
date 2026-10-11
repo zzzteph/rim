@@ -1,0 +1,2133 @@
+{
+	"cases": [
+		{
+			"assignments": {},
+			"case": "01_initial",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						45.0
+					],
+					"text": "① LEFT-CLICK your node(s) to select (Shift adds · drag empty map = box-select)."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						433.0,
+						388.0,
+						43.0
+					],
+					"text": "② Click a target node OR drag a line onto it (relevant nodes light up), then press the button."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						480.0,
+						388.0,
+						19.0
+					],
+					"text": "Bots act only on ARRIVAL. Right-click = deselect. SPACE pauses."
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": -1
+		},
+		{
+			"assignments": {},
+			"case": "02_select_source",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						20.0
+					],
+					"text": "Link: none (idle)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						437.0,
+						388.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						460.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						501.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						542.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						583.0,
+						388.0,
+						43.0
+					],
+					"text": "▶ Click a target node (or drag a line onto it), then press ATTACK / REINFORCE."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						630.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": -1
+		},
+		{
+			"assignments": {},
+			"case": "03_aim_enemy",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						20.0
+					],
+					"text": "Link: none (idle)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						437.0,
+						388.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						460.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						501.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						542.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						583.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						608.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						649.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": 1
+		},
+		{
+			"assignments": {
+				"0": 1
+			},
+			"case": "04_commit_leaves_stale_attack_button",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						380.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						380.0,
+						21.0
+					],
+					"text": "Link: attack → Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						438.0,
+						380.0,
+						37.0
+					],
+					"text": "✖ Remove this link (from YOUR RIG)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						479.0,
+						380.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						502.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						543.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						584.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						625.0,
+						380.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						650.0,
+						380.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						24.0,
+						691.0,
+						380.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": 1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": -1
+		},
+		{
+			"assignments": {
+				"0": 1
+			},
+			"case": "05_live_stock_panel_stale",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 58  ·  Intel 48/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						380.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						380.0,
+						21.0
+					],
+					"text": "Link: attack → Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						438.0,
+						380.0,
+						37.0
+					],
+					"text": "✖ Remove this link (from YOUR RIG)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						479.0,
+						380.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						502.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						543.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						584.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						625.0,
+						380.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						650.0,
+						380.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						24.0,
+						691.0,
+						380.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [
+				{
+					"arrive_t": 2.0,
+					"depart_t": 1.0,
+					"player": true,
+					"route": [
+						0,
+						1
+					]
+				}
+			],
+			"inspect": 1,
+			"intel": 48.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 28.0,
+				"1": 20.3333333333333,
+				"10": 11.0,
+				"11": 21.0,
+				"12": 21.0,
+				"13": 21.0,
+				"14": 11.0,
+				"2": 21.0,
+				"3": 21.0,
+				"4": 11.0,
+				"5": 30.0,
+				"6": 21.0,
+				"7": 30.0,
+				"8": 21.0,
+				"9": 11.0
+			},
+			"target": -1
+		},
+		{
+			"assignments": {
+				"0": 1
+			},
+			"case": "06_click_other_source_aims_reinforcement",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 58  ·  Intel 48/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						380.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  28 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						380.0,
+						21.0
+					],
+					"text": "Link: attack → Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						438.0,
+						380.0,
+						37.0
+					],
+					"text": "✖ Remove this link (from YOUR RIG)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						479.0,
+						380.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						502.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						543.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						584.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						625.0,
+						380.0,
+						21.0
+					],
+					"text": "Target: Node 5  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						650.0,
+						380.0,
+						37.0
+					],
+					"text": "🛡  REINFORCE Node 5"
+				},
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						24.0,
+						691.0,
+						380.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [
+				{
+					"arrive_t": 2.0,
+					"depart_t": 1.0,
+					"player": true,
+					"route": [
+						0,
+						1
+					]
+				}
+			],
+			"inspect": 1,
+			"intel": 48.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 28.0,
+				"1": 20.3333333333333,
+				"10": 11.0,
+				"11": 21.0,
+				"12": 21.0,
+				"13": 21.0,
+				"14": 11.0,
+				"2": 21.0,
+				"3": 21.0,
+				"4": 11.0,
+				"5": 30.0,
+				"6": 21.0,
+				"7": 30.0,
+				"8": 21.0,
+				"9": 11.0
+			},
+			"target": 5
+		},
+		{
+			"assignments": {},
+			"case": "07_escape_keeps_pending_target_and_fog",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						45.0
+					],
+					"text": "① LEFT-CLICK your node(s) to select (Shift adds · drag empty map = box-select)."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						433.0,
+						388.0,
+						43.0
+					],
+					"text": "② Click a target node OR drag a line onto it (relevant nodes light up), then press the button."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						480.0,
+						388.0,
+						19.0
+					],
+					"text": "Bots act only on ARRIVAL. Right-click = deselect. SPACE pauses."
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": 1
+		},
+		{
+			"assignments": {},
+			"case": "08_two_sources_aimed",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  2 source(s)  ·  60 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  2/2 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						438.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						479.0,
+						388.0,
+						37.0
+					],
+					"text": "✖ Remove links from all selected (keep bots here)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						520.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0,
+				5
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": 1
+		},
+		{
+			"assignments": {
+				"0": 1,
+				"5": 1
+			},
+			"case": "09_two_sources_attacking",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 58  ·  Intel 48/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  2 source(s)  ·  60 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  2/2 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						438.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						479.0,
+						388.0,
+						37.0
+					],
+					"text": "✖ Remove links from all selected (keep bots here)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						520.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [
+				{
+					"arrive_t": 1.0,
+					"depart_t": 0.0,
+					"player": true,
+					"route": [
+						0,
+						1
+					]
+				},
+				{
+					"arrive_t": 2.25,
+					"depart_t": 0.0,
+					"player": true,
+					"route": [
+						5,
+						0,
+						1
+					]
+				}
+			],
+			"inspect": 1,
+			"intel": 48.0,
+			"note": "",
+			"selection": [
+				0,
+				5
+			],
+			"stock": {
+				"0": 29.0,
+				"1": 20.1,
+				"10": 10.1,
+				"11": 20.1,
+				"12": 20.1,
+				"13": 20.1,
+				"14": 10.1,
+				"2": 20.1,
+				"3": 20.1,
+				"4": 10.1,
+				"5": 29.0,
+				"6": 20.1,
+				"7": 30.0,
+				"8": 20.1,
+				"9": 10.1
+			},
+			"target": -1
+		},
+		{
+			"assignments": {},
+			"case": "10_bottom_node_click_intercepted_by_panel",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						45.0
+					],
+					"text": "① LEFT-CLICK your node(s) to select (Shift adds · drag empty map = box-select)."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						433.0,
+						388.0,
+						43.0
+					],
+					"text": "② Click a target node OR drag a line onto it (relevant nodes light up), then press the button."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						480.0,
+						388.0,
+						19.0
+					],
+					"text": "Bots act only on ARRIVAL. Right-click = deselect. SPACE pauses."
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "Node10 center is inside panel, actual mouse click does not inspect it",
+			"selection": [],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": -1
+		},
+		{
+			"assignments": {
+				"0": 1,
+				"5": 1
+			},
+			"case": "11_zero_intel_orders_look_active_no_block_reason",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						666.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 0/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  2 source(s)  ·  60 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  2/2 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						438.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						479.0,
+						388.0,
+						37.0
+					],
+					"text": "✖ Remove links from all selected (keep bots here)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						520.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": 1,
+			"intel": 0.0,
+			"note": "",
+			"selection": [
+				0,
+				5
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 21.0,
+				"10": 11.0,
+				"11": 21.0,
+				"12": 21.0,
+				"13": 21.0,
+				"14": 11.0,
+				"2": 21.0,
+				"3": 21.0,
+				"4": 11.0,
+				"5": 30.0,
+				"6": 21.0,
+				"7": 30.0,
+				"8": 21.0,
+				"9": 11.0
+			},
+			"target": -1
+		},
+		{
+			"assignments": {},
+			"case": "12_drag_is_preview_only",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						20.0
+					],
+					"text": "Link: none (idle)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						437.0,
+						388.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						460.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						501.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						542.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						583.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						608.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						649.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": 1
+		},
+		{
+			"assignments": {
+				"0": 1,
+				"5": 0
+			},
+			"case": "13_retarget_action_below_build_and_remove_controls",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						380.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						380.0,
+						21.0
+					],
+					"text": "Link: attack → Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						438.0,
+						380.0,
+						37.0
+					],
+					"text": "✖ Remove this link (from YOUR RIG)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						479.0,
+						380.0,
+						37.0
+					],
+					"text": "✖ Remove all 1 link(s) into YOUR RIG"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						520.0,
+						380.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						543.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						584.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						625.0,
+						380.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						666.0,
+						380.0,
+						21.0
+					],
+					"text": "Target: Node 6  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						24.0,
+						691.0,
+						380.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 6"
+				},
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						24.0,
+						732.0,
+						380.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": 6
+		},
+		{
+			"assignments": {
+				"10": 5
+			},
+			"case": "14_aim_dims_attacked_owned_source",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						20.0
+					],
+					"text": "Link: none (idle)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						437.0,
+						388.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						460.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						501.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						542.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						583.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						608.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						649.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [
+				{
+					"arrive_t": 1.0,
+					"depart_t": 0.0,
+					"player": false,
+					"route": [
+						10,
+						5
+					]
+				}
+			],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "Enemy10 attacks owned5, both excluded from focus while aiming at1",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.1,
+				"10": 9.1,
+				"11": 20.1,
+				"12": 20.1,
+				"13": 20.1,
+				"14": 10.1,
+				"2": 20.1,
+				"3": 20.1,
+				"4": 10.1,
+				"5": 30.0,
+				"6": 20.1,
+				"7": 30.0,
+				"8": 20.1,
+				"9": 10.1
+			},
+			"target": 1
+		},
+		{
+			"assignments": {
+				"0": 1,
+				"2": 1
+			},
+			"case": "15_contributor_selection_includes_enemy_source",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  2 source(s)  ·  50 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						43.0
+					],
+					"text": "▶ Click a target node (or drag a line onto it), then press ATTACK / REINFORCE."
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						460.0,
+						388.0,
+						37.0
+					],
+					"text": "✖ Remove links from all selected (keep bots here)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						501.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0,
+				2
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": -1
+		},
+		{
+			"assignments": {},
+			"case": "16_target_capture_keeps_wrong_action_label",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 3/15  ·  bots 61  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						20.0
+					],
+					"text": "Link: none (idle)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						437.0,
+						388.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						460.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						501.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						542.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						583.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						608.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						649.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "",
+			"selection": [
+				0
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 1.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": 1
+		},
+		{
+			"assignments": {},
+			"case": "17_new_group_inherits_old_pending_target",
+			"controls": [
+				{
+					"center_in_panel_view": false,
+					"disabled": false,
+					"rect": [
+						20.0,
+						12.0,
+						676.0,
+						25.0
+					],
+					"text": "BOTNET  ·  nodes 2/15  ·  bots 60  ·  Intel 50/100 (+0/s)  ·  take the HUB → OVERLOAD"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						384.0,
+						388.0,
+						25.0
+					],
+					"text": "SELECTED  ·  1 source(s)  ·  30 bots"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						413.0,
+						388.0,
+						20.0
+					],
+					"text": "Link: none (idle)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						437.0,
+						388.0,
+						19.0
+					],
+					"text": "Buildings (1/2): Bot"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						460.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Bot production (+1 bot/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						501.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel production (+1/s)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						542.0,
+						388.0,
+						37.0
+					],
+					"text": "+ Intel capacity (+100)"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						583.0,
+						388.0,
+						21.0
+					],
+					"text": "Target: Node 1  ·  1/1 can reach"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						608.0,
+						388.0,
+						37.0
+					],
+					"text": "⚔  ATTACK Node 1"
+				},
+				{
+					"center_in_panel_view": true,
+					"disabled": false,
+					"rect": [
+						24.0,
+						649.0,
+						388.0,
+						37.0
+					],
+					"text": "Clear selection (Esc)"
+				}
+			],
+			"flights": [],
+			"inspect": -1,
+			"intel": 50.0,
+			"note": "Controlled marquee fixture retains prior target",
+			"selection": [
+				5
+			],
+			"stock": {
+				"0": 30.0,
+				"1": 20.0,
+				"10": 10.0,
+				"11": 20.0,
+				"12": 20.0,
+				"13": 20.0,
+				"14": 10.0,
+				"2": 20.0,
+				"3": 20.0,
+				"4": 10.0,
+				"5": 30.0,
+				"6": 20.0,
+				"7": 30.0,
+				"8": 20.0,
+				"9": 10.0
+			},
+			"target": 1
+		}
+	],
+	"method": "Actual GUI input except explicitly controlled state/keyboard/marquee fixtures; no new human playtest",
+	"viewport": [
+		1280,
+		720
+	]
+}

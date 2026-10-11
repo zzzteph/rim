@@ -1,0 +1,21 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 576.40 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 3060 Laptop GPU
+
+CASE 01_initial
+CASE 02_select_source
+CASE 03_aim_enemy
+CASE 04_commit_leaves_stale_attack_button
+CASE 05_live_stock_panel_stale
+CASE 06_click_other_source_aims_reinforcement
+CASE 07_escape_keeps_pending_target_and_fog
+CASE 08_two_sources_aimed
+CASE 09_two_sources_attacking
+CASE 10_bottom_node_click_intercepted_by_panel
+CASE 11_zero_intel_orders_look_active_no_block_reason
+CASE 12_drag_is_preview_only
+CASE 13_retarget_action_below_build_and_remove_controls
+CASE 14_aim_dims_attacked_owned_source
+CASE 15_contributor_selection_includes_enemy_source
+CASE 16_target_capture_keeps_wrong_action_label
+CASE 17_new_group_inherits_old_pending_target
+CLARITY_AUDIT_COMPLETE 17 cases

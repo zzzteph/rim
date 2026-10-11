@@ -1,0 +1,21 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 576.40 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 3060 Laptop GPU
+
+CASE 01_initial
+CASE 02_one_source_plan
+CASE 03_panel_target_count_stale
+CASE 04_two_drags_share_target
+CASE 05_both_sources_second_target
+CASE 06_friendly_click_is_source
+CASE 07_clear_draft_keeps_assignment
+CASE 08_right_source_cancels_incoming
+CASE 09_invalid_drag_silent
+CASE 10_ten_source_plan
+CASE 11_ten_sources_committed
+CASE 12_capture_keeps_order_as_defend
+CASE 13_draft_label_wrong_after_capture
+CASE 14_packets_freeze_when_paused
+CASE 15_mixed_eligibility
+CASE 16_silent_partial_commit
+CASE 17_right_click_enemy_stops_enemy
+AUDIT_COMPLETE 17 cases

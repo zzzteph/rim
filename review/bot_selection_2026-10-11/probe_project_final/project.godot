@@ -1,0 +1,15 @@
+config_version=5
+[application]
+config/name="RIM bot selection audit"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+config/use_custom_user_dir=true
+config/custom_user_dir_name="RIM_BotSelection_Audit_2026_10_11"
+[display]
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+[rendering]
+renderer/rendering_method="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.05,0.06,0.09,1)
+[gui]
+theme/custom="res://assets/ui_theme.tres"

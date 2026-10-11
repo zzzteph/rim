@@ -1,0 +1,271 @@
+{
+	"cases": [
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {
+				"0": 120
+			},
+			"final_intel": 49.9999999999932,
+			"final_target_bots": 30.0,
+			"initial_intel": 50.0,
+			"intel_income": 1.0,
+			"name": "one_funded_source_ordinary",
+			"outstanding_packets": 1,
+			"packets_sent_to_target": 120,
+			"source0_builds": [
+				"bot",
+				"intel"
+			],
+			"source5_builds": [
+				"bot"
+			],
+			"sources": [
+				0
+			],
+			"target": 1
+		},
+		{
+			"captured_at": 63.2666666666667,
+			"departures_by_source": {
+				"0": 64,
+				"5": 64
+			},
+			"final_intel": 48.5333333333261,
+			"final_target_bots": 0.0666666666664816,
+			"initial_intel": 50.0,
+			"intel_income": 2.0,
+			"name": "two_funded_sources_ordinary",
+			"outstanding_packets": 3,
+			"packets_sent_to_target": 128,
+			"source0_builds": [
+				"bot",
+				"intel"
+			],
+			"source5_builds": [
+				"bot",
+				"intel"
+			],
+			"sources": [
+				0,
+				5
+			],
+			"target": 1
+		},
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {
+				"0": 120,
+				"5": 120,
+				"6": 120
+			},
+			"final_intel": 49.9999999999795,
+			"final_target_bots": 29.9666666666668,
+			"initial_intel": 50.0,
+			"intel_income": 3.0,
+			"name": "three_funded_sources_idle_hub",
+			"outstanding_packets": 6,
+			"packets_sent_to_target": 360,
+			"source0_builds": [
+				"bot",
+				"intel"
+			],
+			"source5_builds": [
+				"bot",
+				"intel"
+			],
+			"sources": [
+				0,
+				5,
+				6
+			],
+			"target": 7
+		},
+		{
+			"captured_at": 46.2666666666667,
+			"departures_by_source": {
+				"0": 47,
+				"1": 47,
+				"5": 47,
+				"6": 47
+			},
+			"final_intel": 47.0666666666759,
+			"final_target_bots": 0.166666666664885,
+			"initial_intel": 50.0,
+			"intel_income": 4.0,
+			"name": "four_funded_sources_idle_hub",
+			"outstanding_packets": 9,
+			"packets_sent_to_target": 188,
+			"source0_builds": [
+				"bot",
+				"intel"
+			],
+			"source5_builds": [
+				"bot",
+				"intel"
+			],
+			"sources": [
+				0,
+				1,
+				5,
+				6
+			],
+			"target": 7
+		},
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {
+				"0": 25,
+				"5": 25
+			},
+			"final_intel": 0.0,
+			"final_target_bots": 30.0,
+			"initial_intel": 50.0,
+			"intel_income": 0.0,
+			"name": "two_sources_no_income_ordinary",
+			"outstanding_packets": 0,
+			"packets_sent_to_target": 50,
+			"source0_builds": [
+				"bot"
+			],
+			"source5_builds": [
+				"bot"
+			],
+			"sources": [
+				0,
+				5
+			],
+			"target": 1
+		},
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {
+				"0": 25,
+				"5": 25
+			},
+			"final_intel": 0.0,
+			"final_target_bots": 30.0,
+			"initial_intel": 50.0,
+			"intel_income": 0.0,
+			"name": "two_sources_no_income_weakest_frontier",
+			"outstanding_packets": 0,
+			"packets_sent_to_target": 50,
+			"source0_builds": [
+				"bot"
+			],
+			"source5_builds": [
+				"bot"
+			],
+			"sources": [
+				0,
+				5
+			],
+			"target": 10
+		},
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {},
+			"final_intel": 0.0,
+			"final_target_bots": 30.0,
+			"initial_intel": 0.0,
+			"intel_income": 0.0,
+			"name": "full_slots_zero_intel_no_recovery",
+			"outstanding_packets": 0,
+			"packets_sent_to_target": 0,
+			"source0_builds": [
+				"bot",
+				"bot"
+			],
+			"source5_builds": [
+				"bot",
+				"cap"
+			],
+			"sources": [
+				0,
+				5
+			],
+			"target": 1
+		},
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {
+				"0": 120
+			},
+			"final_intel": 0.000000000000186295423532101,
+			"final_target_bots": 29.3333333333333,
+			"initial_intel": 0.0,
+			"intel_income": 1.0,
+			"name": "two_orders_one_income_zero_bank",
+			"outstanding_packets": 1,
+			"packets_sent_to_target": 120,
+			"source0_builds": [
+				"bot",
+				"intel"
+			],
+			"source5_builds": [
+				"bot"
+			],
+			"sources": [
+				0,
+				5
+			],
+			"target": 1
+		},
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {
+				"0": 120,
+				"5": 120
+			},
+			"final_intel": 100.0,
+			"final_target_bots": 30.0,
+			"initial_intel": 50.0,
+			"intel_income": 2.0,
+			"name": "serial_reinforcement_then_attack",
+			"outstanding_packets": 3,
+			"packets_sent_to_target": 120,
+			"source0_builds": [
+				"bot",
+				"intel"
+			],
+			"source5_builds": [
+				"bot",
+				"intel"
+			],
+			"sources": [
+				0,
+				5
+			],
+			"target": 1
+		},
+		{
+			"captured_at": -1.0,
+			"departures_by_source": {
+				"0": 120
+			},
+			"final_intel": 49.9999999999932,
+			"final_target_bots": 30.0,
+			"initial_intel": 50.0,
+			"intel_income": 1.0,
+			"name": "double_bot_source_still_one_stream",
+			"outstanding_packets": 1,
+			"packets_sent_to_target": 120,
+			"source0_builds": [
+				"bot",
+				"bot"
+			],
+			"source5_builds": [
+				"bot",
+				"intel"
+			],
+			"sources": [
+				0
+			],
+			"target": 1
+		}
+	],
+	"enemy_ai": "disabled: isolates whether the UI-described attack can progress against idle regeneration",
+	"fps": 60.0,
+	"limitations": "Not a complete match or win-path proof. Outgoing enemy streams and changing ownership alter resistance. Known runtime timing approximations remain.",
+	"model": "Frozen actual production script; controlled ownership/building fixtures; unchanged combat rates",
+	"seconds": 120.0
+}

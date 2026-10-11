@@ -1,0 +1,1854 @@
+{
+	"cases": [
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						21.0
+					],
+					"text": "DRAG from your building to a node to LINK it."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						443.0,
+						372.0,
+						43.0
+					],
+					"text": "Enemy → ATTACK, friendly → DEFEND. Then press the button."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						490.0,
+						372.0,
+						19.0
+					],
+					"text": "Nothing flows until you press the button. SPACE pauses."
+				}
+			],
+			"intel": 15.0,
+			"name": "01_initial",
+			"notes": "",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": -1
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "①  Linked to: Host 1"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "②  From: 1 building(s) · 10 bots   (1 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						89.0,
+						37.0
+					],
+					"text": "◉ Direct"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						123.0,
+						497.0,
+						101.0,
+						37.0
+					],
+					"text": "Utility first"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						538.0,
+						372.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						579.0,
+						372.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"intel": 15.0,
+			"name": "02_one_source_plan",
+			"notes": "",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [
+				0
+			],
+			"selected_target": 1
+		},
+		{
+			"animation_clock": 1.0,
+			"assignments": {
+				"0": 1
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						900.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 11 / active 10  ·  Intel 14 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 49s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "OPERATION  ·  Host 1  (direct)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "Assigned buildings: 1"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "▶ Bots flowing · active 0 · hitting: Required Node"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						372.0,
+						19.0
+					],
+					"text": "Select more war buildings, then ATTACK, to reinforce."
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						520.0,
+						372.0,
+						37.0
+					],
+					"text": "◀ Retreat operation"
+				}
+			],
+			"intel": 14.36,
+			"name": "03_operation_stale_panel",
+			"notes": "One simulation second elapsed without a user-input refresh",
+			"ops": {
+				"1": {
+					"abots": 9.2,
+					"acap": 82.8,
+					"activating": 0.0,
+					"blocked": false,
+					"cur": 0,
+					"nodes": [
+						{
+							"controlled": true,
+							"def": 0.0,
+							"defmax": 0.0,
+							"kind": "entry",
+							"name": "Firewall"
+						},
+						{
+							"controlled": false,
+							"def": 12.8,
+							"defmax": 22.0,
+							"kind": "required",
+							"name": "Required Node"
+						},
+						{
+							"controlled": false,
+							"def": 10.0,
+							"defmax": 10.0,
+							"kind": "utility",
+							"name": "Utility Node"
+						},
+						{
+							"controlled": false,
+							"def": 70.0,
+							"defmax": 70.0,
+							"kind": "core",
+							"name": "CORE MAINFRAME"
+						}
+					],
+					"objective": "direct",
+					"seq": [
+						1,
+						3
+					],
+					"target": 1,
+					"util_applied": false,
+					"waiting": false
+				}
+			},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "①  Linked to: Host 6"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "②  From: 2 building(s) · 20 bots   (2 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						89.0,
+						37.0
+					],
+					"text": "◉ Direct"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						123.0,
+						497.0,
+						101.0,
+						37.0
+					],
+					"text": "Utility first"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						538.0,
+						372.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						579.0,
+						372.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"intel": 15.0,
+			"name": "04_two_different_drags",
+			"notes": "A→1 followed by B→6 becomes A+B→6",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [
+				0,
+				5
+			],
+			"selected_target": 6
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {
+				"0": 6,
+				"5": 6
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "OPERATION  ·  Host 6  (direct)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "Assigned buildings: 2"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "▶ Bots flowing · active 0 · hitting: Required Node"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						372.0,
+						19.0
+					],
+					"text": "Select more war buildings, then ATTACK, to reinforce."
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						520.0,
+						372.0,
+						37.0
+					],
+					"text": "◀ Retreat operation"
+				}
+			],
+			"intel": 15.0,
+			"name": "05_both_assigned_second_target",
+			"notes": "",
+			"ops": {
+				"6": {
+					"abots": 0.0,
+					"acap": 0.0,
+					"activating": 0.0,
+					"blocked": false,
+					"cur": 0,
+					"nodes": [
+						{
+							"controlled": true,
+							"def": 0.0,
+							"defmax": 0.0,
+							"kind": "entry",
+							"name": "Firewall"
+						},
+						{
+							"controlled": false,
+							"def": 22.0,
+							"defmax": 22.0,
+							"kind": "required",
+							"name": "Required Node"
+						},
+						{
+							"controlled": false,
+							"def": 10.0,
+							"defmax": 10.0,
+							"kind": "utility",
+							"name": "Utility Node"
+						},
+						{
+							"controlled": false,
+							"def": 70.0,
+							"defmax": 70.0,
+							"kind": "core",
+							"name": "CORE MAINFRAME"
+						}
+					],
+					"objective": "direct",
+					"seq": [
+						1,
+						3
+					],
+					"target": 6,
+					"util_applied": false,
+					"waiting": false
+				}
+			},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": 6
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						20.0
+					],
+					"text": "①  Drag onto a node to link it"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						471.0,
+						372.0,
+						21.0
+					],
+					"text": "②  From: 2 building(s) · 20 bots"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						496.0,
+						372.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						537.0,
+						372.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"intel": 15.0,
+			"name": "06_friendly_click_adds_source",
+			"notes": "Attempt source click then friendly target click",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [
+				0,
+				5
+			],
+			"selected_target": -1
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "Host 10"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "No war building here."
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						37.0
+					],
+					"text": "Build War Building  (25 Intel)"
+				}
+			],
+			"intel": 15.0,
+			"name": "07_friendly_nonwar_opens_build",
+			"notes": "",
+			"ops": {},
+			"selected_build": 10,
+			"selected_sources": [],
+			"selected_target": -1
+		},
+		{
+			"animation_clock": 0.5,
+			"assignments": {
+				"0": 5
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "LINKS → DEFEND"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "①  Linked to: RIG B"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "②  From: 1 building(s) · 7 bots   (1 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						372.0,
+						37.0
+					],
+					"text": "③  🛡  DEFEND — send bots to hold"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						538.0,
+						372.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"intel": 15.6,
+			"name": "08_defend_source_no_stop",
+			"notes": "",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [
+				0
+			],
+			"selected_target": 5
+		},
+		{
+			"animation_clock": 0.5,
+			"assignments": {
+				"0": 5
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "LINKS → DEFEND"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "①  Linked to: RIG B"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						20.0
+					],
+					"text": "②  From: drag your buildings onto the node"
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						496.0,
+						372.0,
+						37.0
+					],
+					"text": "③  🛡  DEFEND — send bots to hold"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						537.0,
+						372.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"intel": 15.6,
+			"name": "09_clear_links_keeps_live_order",
+			"notes": "",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": 5
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "①  Linked to: Host 1"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "②  From: 2 building(s) · 20 bots   (1 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						89.0,
+						37.0
+					],
+					"text": "◉ Direct"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						123.0,
+						497.0,
+						101.0,
+						37.0
+					],
+					"text": "Utility first"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						538.0,
+						372.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						579.0,
+						372.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"intel": 15.0,
+			"name": "10_mixed_eligibility",
+			"notes": "",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [
+				0,
+				14
+			],
+			"selected_target": 1
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {
+				"0": 1
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "OPERATION  ·  Host 1  (direct)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "Assigned buildings: 1"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "▶ Bots flowing · active 0 · hitting: Required Node"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						372.0,
+						19.0
+					],
+					"text": "Select more war buildings, then ATTACK, to reinforce."
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						520.0,
+						372.0,
+						37.0
+					],
+					"text": "◀ Retreat operation"
+				}
+			],
+			"intel": 15.0,
+			"name": "11_silent_partial_commit",
+			"notes": "",
+			"ops": {
+				"1": {
+					"abots": 0.0,
+					"acap": 0.0,
+					"activating": 0.0,
+					"blocked": false,
+					"cur": 0,
+					"nodes": [
+						{
+							"controlled": true,
+							"def": 0.0,
+							"defmax": 0.0,
+							"kind": "entry",
+							"name": "Firewall"
+						},
+						{
+							"controlled": false,
+							"def": 22.0,
+							"defmax": 22.0,
+							"kind": "required",
+							"name": "Required Node"
+						},
+						{
+							"controlled": false,
+							"def": 10.0,
+							"defmax": 10.0,
+							"kind": "utility",
+							"name": "Utility Node"
+						},
+						{
+							"controlled": false,
+							"def": 70.0,
+							"defmax": 70.0,
+							"kind": "core",
+							"name": "CORE MAINFRAME"
+						}
+					],
+					"objective": "direct",
+					"seq": [
+						1,
+						3
+					],
+					"target": 1,
+					"util_applied": false,
+					"waiting": false
+				}
+			},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {
+				"0": 1
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "OPERATION  ·  Host 1  (direct)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "Assigned buildings: 1"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						45.0
+					],
+					"text": "▶ Bots flowing · active 0 · hitting: Required Node  ⛽ waiting for fuel"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						521.0,
+						372.0,
+						19.0
+					],
+					"text": "Select more war buildings, then ATTACK, to reinforce."
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						544.0,
+						372.0,
+						37.0
+					],
+					"text": "◀ Retreat operation"
+				}
+			],
+			"intel": 15.0,
+			"name": "12_production_wait_named_fuel",
+			"notes": "Sources exist, no active/resident bots; positive Intel",
+			"ops": {
+				"1": {
+					"abots": 0.0,
+					"acap": 0.0,
+					"activating": 0.0,
+					"blocked": false,
+					"cur": 0,
+					"nodes": [
+						{
+							"controlled": true,
+							"def": 0.0,
+							"defmax": 0.0,
+							"kind": "entry",
+							"name": "Firewall"
+						},
+						{
+							"controlled": false,
+							"def": 22.0,
+							"defmax": 22.0,
+							"kind": "required",
+							"name": "Required Node"
+						},
+						{
+							"controlled": false,
+							"def": 10.0,
+							"defmax": 10.0,
+							"kind": "utility",
+							"name": "Utility Node"
+						},
+						{
+							"controlled": false,
+							"def": 70.0,
+							"defmax": 70.0,
+							"kind": "core",
+							"name": "CORE MAINFRAME"
+						}
+					],
+					"objective": "direct",
+					"seq": [
+						1,
+						3
+					],
+					"target": 1,
+					"util_applied": false,
+					"waiting": true
+				}
+			},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"animation_clock": 1.0,
+			"assignments": {
+				"0": 1
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 10 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "OPERATION  ·  Host 1  (direct)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "Assigned buildings: 1"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						45.0
+					],
+					"text": "▶ Bots flowing · active 0 · hitting: Required Node  ⛽ waiting for fuel"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						521.0,
+						372.0,
+						19.0
+					],
+					"text": "Select more war buildings, then ATTACK, to reinforce."
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						544.0,
+						372.0,
+						37.0
+					],
+					"text": "◀ Retreat operation"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						585.0,
+						372.0,
+						23.0
+					],
+					"text": "— PAUSED —"
+				}
+			],
+			"intel": 15.0,
+			"name": "13_paused_flow_clock_advances",
+			"notes": "",
+			"ops": {
+				"1": {
+					"abots": 0.0,
+					"acap": 0.0,
+					"activating": 0.0,
+					"blocked": false,
+					"cur": 0,
+					"nodes": [
+						{
+							"controlled": true,
+							"def": 0.0,
+							"defmax": 0.0,
+							"kind": "entry",
+							"name": "Firewall"
+						},
+						{
+							"controlled": false,
+							"def": 22.0,
+							"defmax": 22.0,
+							"kind": "required",
+							"name": "Required Node"
+						},
+						{
+							"controlled": false,
+							"def": 10.0,
+							"defmax": 10.0,
+							"kind": "utility",
+							"name": "Utility Node"
+						},
+						{
+							"controlled": false,
+							"def": 70.0,
+							"defmax": 70.0,
+							"kind": "core",
+							"name": "CORE MAINFRAME"
+						}
+					],
+					"objective": "direct",
+					"seq": [
+						1,
+						3
+					],
+					"target": 1,
+					"util_applied": false,
+					"waiting": true
+				}
+			},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": 1
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "LINKS → ATTACK"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "①  Linked to: Host 14"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "②  From: 10 building(s) · 100 bots   (10 linked)"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						89.0,
+						37.0
+					],
+					"text": "◉ Direct"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						123.0,
+						497.0,
+						101.0,
+						37.0
+					],
+					"text": "Utility first"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						538.0,
+						372.0,
+						37.0
+					],
+					"text": "③  ⚔  ATTACK — send the bots"
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						579.0,
+						372.0,
+						37.0
+					],
+					"text": "Clear links"
+				}
+			],
+			"intel": 15.0,
+			"name": "14_ten_source_plan",
+			"notes": "Synthetic scale fixture: ten source clicks + one target + one Attack = 12 clicks",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9
+			],
+			"selected_target": 14
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {
+				"0": 14,
+				"1": 14,
+				"2": 14,
+				"3": 14,
+				"4": 14,
+				"5": 14,
+				"6": 14,
+				"7": 14,
+				"8": 14,
+				"9": 14
+			},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "OPERATION  ·  Host 14  (direct)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "Assigned buildings: 10"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						21.0
+					],
+					"text": "▶ Bots flowing · active 0 · hitting: Required Node"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						497.0,
+						372.0,
+						19.0
+					],
+					"text": "Select more war buildings, then ATTACK, to reinforce."
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						520.0,
+						372.0,
+						37.0
+					],
+					"text": "◀ Retreat operation"
+				}
+			],
+			"intel": 15.0,
+			"name": "15_ten_source_committed",
+			"notes": "",
+			"ops": {
+				"14": {
+					"abots": 0.0,
+					"acap": 0.0,
+					"activating": 0.0,
+					"blocked": false,
+					"cur": 0,
+					"nodes": [
+						{
+							"controlled": true,
+							"def": 0.0,
+							"defmax": 0.0,
+							"kind": "entry",
+							"name": "Firewall"
+						},
+						{
+							"controlled": false,
+							"def": 22.0,
+							"defmax": 22.0,
+							"kind": "required",
+							"name": "Required Node"
+						},
+						{
+							"controlled": false,
+							"def": 10.0,
+							"defmax": 10.0,
+							"kind": "utility",
+							"name": "Utility Node"
+						},
+						{
+							"controlled": false,
+							"def": 70.0,
+							"defmax": 70.0,
+							"kind": "core",
+							"name": "CORE MAINFRAME"
+						}
+					],
+					"objective": "direct",
+					"seq": [
+						1,
+						3
+					],
+					"target": 14,
+					"util_applied": false,
+					"waiting": false
+				}
+			},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": 14
+		},
+		{
+			"animation_clock": 10.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 3/15  ·  bots resident 24 / active 0  ·  Intel 33 (+1.8/s)   ·   ⚠ NET WATCH → RIG A in 40s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "Host 10"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "No war building here."
+				},
+				{
+					"class": "Button",
+					"disabled": true,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						37.0
+					],
+					"text": "Build War Building  (25 Intel)"
+				}
+			],
+			"intel": 33.0,
+			"name": "16_stale_build_affordability",
+			"notes": "Enough Intel earned; Build button remains disabled until input refresh",
+			"ops": {},
+			"selected_build": 10,
+			"selected_sources": [],
+			"selected_target": -1
+		},
+		{
+			"animation_clock": 10.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 3/15  ·  bots resident 24 / active 0  ·  Intel 33 (+1.8/s)   ·   ⚠ NET WATCH → RIG A in 40s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						25.0
+					],
+					"text": "Host 10"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						447.0,
+						372.0,
+						21.0
+					],
+					"text": "No war building here."
+				},
+				{
+					"class": "Button",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						472.0,
+						372.0,
+						37.0
+					],
+					"text": "Build War Building  (25 Intel)"
+				}
+			],
+			"intel": 33.0,
+			"name": "17_build_panel_shadows_target",
+			"notes": "Clicking an enemy after selecting a build site retains the Build panel",
+			"ops": {},
+			"selected_build": 10,
+			"selected_sources": [],
+			"selected_target": 6
+		},
+		{
+			"animation_clock": 0.0,
+			"assignments": {},
+			"controls": [
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						20.0,
+						12.0,
+						891.0,
+						25.0
+					],
+					"text": "BOTNET  ·  hosts 2/15  ·  bots resident 20 / active 0  ·  Intel 15 (+1.2/s)   ·   ⚠ NET WATCH → RIG A in 50s (str 12)"
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						418.0,
+						372.0,
+						21.0
+					],
+					"text": "DRAG from your building to a node to LINK it."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						443.0,
+						372.0,
+						43.0
+					],
+					"text": "Enemy → ATTACK, friendly → DEFEND. Then press the button."
+				},
+				{
+					"class": "Label",
+					"disabled": false,
+					"focus_mode": 0,
+					"rect": [
+						30.0,
+						490.0,
+						372.0,
+						19.0
+					],
+					"text": "Nothing flows until you press the button. SPACE pauses."
+				}
+			],
+			"intel": 15.0,
+			"name": "18_invalid_drag_silent",
+			"notes": "Illegal drag destination produces no explanation",
+			"ops": {},
+			"selected_build": -1,
+			"selected_sources": [],
+			"selected_target": -1
+		}
+	],
+	"human_playtest": false,
+	"method": "Frozen production script, SubViewport input dispatch and controlled simulation states",
+	"viewport": [
+		1280,
+		720
+	]
+}
