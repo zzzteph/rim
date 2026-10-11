@@ -1,0 +1,233 @@
+{
+	"cases": [
+		{
+			"case": "01_generation",
+			"observed": {
+				"all_connected": true,
+				"hosts": 29,
+				"hub": 16,
+				"owners": {
+					"0": 25,
+					"1": 2,
+					"2": 2
+				},
+				"sizes_by_seed": [
+					30,
+					32,
+					33,
+					33,
+					33
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "02_routing",
+			"observed": {
+				"player_route": [
+					5,
+					0,
+					6
+				],
+				"target": 6,
+				"unreachable_rival_rig": []
+			},
+			"pass": true
+		},
+		{
+			"case": "03_link_capacity_queues",
+			"observed": {
+				"arrive": 3.0001,
+				"entries_same_instant": [
+					0.0,
+					0.0,
+					1.0001,
+					1.0001,
+					2.0002
+				],
+				"two_hop_hops": [
+					0.0,
+					2.0001
+				],
+				"waiting_at_middle": true
+			},
+			"pass": true
+		},
+		{
+			"case": "04_chronological_terminal_freeze",
+			"observed": {
+				"cause": "You banked 600 Cash.",
+				"node_bots": 0.5,
+				"node_owner_after": 1,
+				"won": true
+			},
+			"pass": true
+		},
+		{
+			"case": "05_control_stages",
+			"observed": {
+				"stages": [
+					[
+						0,
+						3,
+						1,
+						1,
+						1
+					],
+					[
+						1,
+						2,
+						1,
+						1,
+						0
+					],
+					[
+						2,
+						1,
+						1,
+						0,
+						0
+					]
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "06_jobs_need_attention",
+			"observed": {
+				"player_inside": true,
+				"player_without_inside": true,
+				"rival_builds": [
+					"bot",
+					"cash"
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "07_capture_and_security_caps",
+			"observed": {
+				"after_player": 1,
+				"after_rival": true,
+				"neutral_regrew_to_security": true,
+				"owned_regrows_past_security": true
+			},
+			"pass": true
+		},
+		{
+			"case": "08_rival_concentrates_and_builds",
+			"observed": {
+				"assigned": [
+					[
+						22,
+						17
+					],
+					[
+						28,
+						17
+					]
+				],
+				"jobs": [
+					[
+						22,
+						"bot"
+					]
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "09_cash_travels_home",
+			"observed": {
+				"on_rig": 4.0,
+				"via_link": 3.0
+			},
+			"pass": true
+		},
+		{
+			"case": "10_rally_garrison",
+			"observed": {
+				"held_at_garrison": true,
+				"held_when_rally_full": true,
+				"sent_when_room": true
+			},
+			"pass": true
+		},
+		{
+			"case": "11_frame_rate_consistency",
+			"observed": {
+				"boards": [
+					{
+						"dt": 0.0166666666666667,
+						"flights": 3,
+						"intel": 10.0,
+						"owner": 0,
+						"target_bots": 7.9666666666675
+					},
+					{
+						"dt": 0.5,
+						"flights": 3,
+						"intel": 10.0,
+						"owner": 0,
+						"target_bots": 7.50000000000002
+					}
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "12_attack_the_attacker",
+			"observed": {
+				"one_stream_bots": 6.99999999999985,
+				"owner_after_two": 1
+			},
+			"pass": true
+		},
+		{
+			"case": "13_pacing_readings",
+			"observed": {
+				"greedy_seed11": {
+					"cash": [
+						262,
+						601
+					],
+					"cause": "The rival banked 600 Cash first.",
+					"first_capture_t": 21.5,
+					"intel": 98,
+					"outcome": "LOSS",
+					"player_nodes": 10,
+					"rival_nodes": 9,
+					"t": 266.4
+				},
+				"greedy_seed7": {
+					"cash": [
+						601,
+						566
+					],
+					"cause": "You banked 600 Cash.",
+					"first_capture_t": 42.5,
+					"intel": 99,
+					"outcome": "WIN",
+					"player_nodes": 10,
+					"rival_nodes": 11,
+					"t": 329.9
+				},
+				"rival_alone": {
+					"cash": [
+						0,
+						601
+					],
+					"cause": "The rival banked 600 Cash first.",
+					"first_capture_t": -1.0,
+					"intel": 50,
+					"outcome": "LOSS",
+					"player_nodes": 2,
+					"rival_nodes": 12,
+					"t": 337.4
+				}
+			},
+			"pass": true
+		}
+	],
+	"fails": 0
+}
