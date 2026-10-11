@@ -15,3 +15,10 @@ Run (Godot 4.7.2, from a project folder that contains `scripts/` and `scenes/`):
 godot --headless --path <project> --script res://probe.gd
 xvfb-run -a godot --path <project> --rendering-driver opengl3 --script res://shot.gd
 ```
+
+## Screenshot gallery
+
+`gallery.gd` drives the real scene through 32 scripted states and saves one PNG each into `gallery/`
+(towns from four seeds, every panel state, a two-stream attack with a busy link, a capture, the rally point,
+the rate dial, overflow, Cash packets, the inside view, a rival attack, a scripted match at one-minute
+intervals on two seeds, and the three endings). `gallery/00_contact_sheet.png` is an overview of all of them.
