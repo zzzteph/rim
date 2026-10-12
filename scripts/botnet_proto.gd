@@ -97,6 +97,7 @@ const ANY_COST_MULT := CfgCards.ANY_COST_MULT
 const ANY_TIME_MULT := CfgCards.ANY_TIME_MULT
 const WORM_FALLOFF := CfgCards.WORM_FALLOFF
 const CARD_ALARM := CfgCards.CARD_ALARM
+const STEAL_DUR := CfgCards.STEAL_DUR
 
 const NODE_CAP := CfgTuning.NODE_CAP
 const PROD_RATE := CfgTuning.PROD_RATE
@@ -264,7 +265,7 @@ func _gen() -> void:
 				"name": "HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
 				"links": [], "owner": NEUTRAL, "bots": sec, "sec": sec, "value": value, "slots": slots,
 				"builds": _slot_array(["bot", "bot"] if is_hub else ["bot"], slots), "job": {}, "assign": -1, "live": false, "mode": "attack", "rate": 1.0,
-				"prod_off": 0.0, "route_off": 0.0, "hit_t": -100.0, "junction": false})
+				"prod_off": 0.0, "route_off": 0.0, "steal_until": -100.0, "steal_by": -1, "hit_t": -100.0, "junction": false})
 	for c in _cell.keys():   # streets: grid neighbours (some missing), a few diagonals (never crossing)
 		for d in [Vector2i(1, 0), Vector2i(0, 1)]:
 			var nb: Vector2i = c + d
@@ -440,6 +441,13 @@ func _mine(i: int) -> bool: return i >= 0 and int(hosts[i].owner) == PLAYER
 
 
 func _routing_down(i: int) -> bool: return float(hosts[i].get("route_off", 0.0)) > 0.0   # a card cut its routing
+
+
+func _stolen(i: int) -> bool: return float(hosts[i].get("steal_until", -100.0)) > _t and int(hosts[i].get("steal_by", -1)) in BOTNETS
+
+
+func _benef(i: int) -> int:   # who gets i's production right now: the supply-chain thief, else the owner
+	return int(hosts[i].steal_by) if _stolen(i) else int(hosts[i].owner)
 
 
 func _prod_down(i: int) -> bool: return float(hosts[i].get("prod_off", 0.0)) > 0.0       # a card switched it off
@@ -709,14 +717,14 @@ func _res_cap(fac: int, kind: String) -> float:   # "cred" or "lab": the resourc
 func _cred_rate(fac: int) -> float:
 	var r := 0.0
 	for i in hosts.size():
-		if int(hosts[i].owner) == fac: r += float(_count(i, "cred")) * CRED_PER_BUILD * _tmult(i, "cred")
+		if _benef(i) == fac: r += float(_count(i, "cred")) * CRED_PER_BUILD * _tmult(i, "cred")
 	return r
 
 
 func _research_rate(fac: int) -> float:
 	var r := 0.0
 	for i in hosts.size():
-		if int(hosts[i].owner) == fac: r += float(_count(i, "lab")) * RESEARCH_PER_BUILD * _tmult(i, "research")
+		if _benef(i) == fac: r += float(_count(i, "lab")) * RESEARCH_PER_BUILD * _tmult(i, "research")
 	return r
 
 
@@ -744,15 +752,19 @@ func _pool_add(fac: int, r: String, d: float) -> void:   # spending never trigge
 func _intel_rate(fac: int) -> float:
 	var r := 0.0
 	for i in hosts.size():
-		if int(hosts[i].owner) == fac: r += float(_count(i, "intel")) * INTEL_PER_BUILD * _tmult(i, "intel")
+		if _benef(i) == fac: r += float(_count(i, "intel")) * INTEL_PER_BUILD * _tmult(i, "intel")
 	return r
 
 
-func _cash_rate(fac: int) -> float:   # Cash/s a faction's active markets emit (before travel)
+func _cash_rate(fac: int) -> float:   # Cash/s a faction's active markets emit (a stolen market feeds the thief)
 	var r := 0.0
 	for i in hosts.size():
-		if int(hosts[i].owner) == fac: r += float(_count(i, "cash")) * float(hosts[i].value) * _tmult(i, "cash") / CASH_INTERVAL
+		if _benef(i) == fac: r += _cash_of_host(i)
 	return r
+
+
+func _cash_of_host(i: int) -> float:   # Cash/s this one market produces
+	return float(_count(i, "cash")) * float(hosts[i].value) * _tmult(i, "cash") / CASH_INTERVAL
 
 
 # one job per building. Into an EMPTY slot: build (BUILD_TIME). Onto an OCCUPIED slot: replace — the old
@@ -953,6 +965,9 @@ func _process(dt: float) -> void:
 		for i in hosts.size():   # card effects wear off
 			if float(hosts[i].prod_off) > 0.0: hosts[i].prod_off = maxf(0.0, float(hosts[i].prod_off) - dt)
 			if float(hosts[i].route_off) > 0.0: hosts[i].route_off = maxf(0.0, float(hosts[i].route_off) - dt)
+			if _stolen(i):   # intel/cred/research already route to the thief via _benef; credit its Cash too
+				var thief := int(hosts[i].steal_by)
+				cash[thief] = float(cash[thief]) + _cash_of_host(i) * (ai_cash_mult if thief != PLAYER else 1.0) * dt
 		_tick_research(dt)
 		_fx = _fx.filter(func(x): return float(x.until) > _t)
 		_worms = _worms.filter(func(x): return float(x.until) > _t)
@@ -1014,6 +1029,7 @@ func _can_emit_cash(i: int) -> bool:
 	if not _next_cash.has(i) or float(_next_cash[i]) > _t or _routing_down(i): return false
 	var fac := int(hosts[i].owner)
 	if not rig.has(fac): return false
+	if _stolen(i): return false   # its Cash is being siphoned by a supply-chain thief, credited directly
 	var rg := int(rig[fac])
 	if int(hosts[rg].owner) != fac: return false   # the sink is gone → Cash holds until it is retaken
 	if i == rg: return true
@@ -1139,7 +1155,7 @@ func _capture(t: int, fac: int) -> void:
 		scans[f][t] = {"key": str(old.get("key", "")), "done": bool(old.get("done", false)), "progress": 0.0, "bots": 0.0, "cap": NODE_CAP, "at": _t}
 	hosts[t].bots = minf(NODE_CAP, -float(hosts[t].bots))
 	hosts[t].assign = -1; hosts[t].live = false; hosts[t].job = {}; hosts[t].rate = 1.0
-	hosts[t].prod_off = 0.0; hosts[t].route_off = 0.0; hosts[t].hit_t = -100.0   # a new owner, a clean slate
+	hosts[t].prod_off = 0.0; hosts[t].route_off = 0.0; hosts[t].steal_until = -100.0; hosts[t].steal_by = -1; hosts[t].hit_t = -100.0   # a new owner, a clean slate
 	_next_depart.erase(t); _next_cash.erase(t)
 	if fac != PLAYER:
 		if sel.has(t): sel.erase(t)          # a selected building lost to a rival is uncontrollable
@@ -1250,9 +1266,9 @@ func _effect_text(cd: Dictionary, i: int, s: float) -> String:
 	var mult := "" if absf(s - 1.0) < 0.01 else " (%s %s)" % [str(NODE_TYPES[str(hosts[i].get("type", "pc"))].name), _xmult(s)]
 	match str(cd.effect):
 		"defenders": return "defenders −%d %%%s" % [int(round(float(cd.power) * s * 100.0)), mult]
-		"production": return "production off %.0f s%s" % [float(cd.dur) * s, mult]
-		"routing": return "routing cut %.0f s%s" % [float(cd.dur) * s, mult]
-		_: return "defenders −%d %% and routing cut %.0f s%s" % [int(round(float(cd.power) * s * 100.0)), float(cd.dur) * s, mult]
+		"deny": return "production off + routing cut %.0f s%s" % [float(cd.dur) * s, mult]
+		"steal": return "production stolen %.0f s%s" % [float(cd.dur) * s, mult]
+		_: return "defenders −%d %% + routing cut %.0f s%s" % [int(round(float(cd.power) * s * 100.0)), float(cd.dur) * s, mult]
 
 
 # ---- research: a queue per botnet; the head item consumes its cost spread over its time ----
@@ -1369,8 +1385,10 @@ func _apply_effect(fac: int, cd: Dictionary, i: int) -> float:   # returns the s
 	var eff := str(cd.effect)
 	if eff == "defenders" or eff == "breach":
 		hosts[i].bots = maxf(0.0, float(hosts[i].bots) - float(hosts[i].bots) * minf(1.0, float(cd.power) * s))
-	if eff == "production": hosts[i].prod_off = maxf(float(hosts[i].prod_off), float(cd.dur) * s)
-	if eff == "routing" or eff == "breach": hosts[i].route_off = maxf(float(hosts[i].route_off), float(cd.dur) * s)
+	if eff == "deny": hosts[i].prod_off = maxf(float(hosts[i].prod_off), float(cd.dur) * s)
+	if eff == "routing" or eff == "breach" or eff == "deny": hosts[i].route_off = maxf(float(hosts[i].route_off), float(cd.dur) * s)
+	if eff == "steal":   # the target's production flows to the caster for a few seconds
+		hosts[i].steal_until = maxf(float(hosts[i].steal_until), _t + float(cd.dur) * s); hosts[i].steal_by = fac
 	hosts[i].hit_t = _t
 	_mark_scanned(fac, i)   # the payload reports back: the building is revealed to its attacker
 	return s
@@ -1658,32 +1676,32 @@ func _ai_think(fac: int) -> void:
 	var chased: bool = leader >= 0 and _faction_nodes(leader) >= _faction_nodes(fac) + int(AI_CHOKE_LEAD)
 	if (L.queue as Array).is_empty() and _kind_total(fac, "lab") > 0 and _kind_total(fac, "cred") > 0:
 		var want := ""
-		if chased and _held(fac, "phish:linked") < 1: want = "phish:linked"
-		elif _held(fac, "stuff:linked") < 1: want = "stuff:linked"
-		elif _held(fac, "phish:linked") < 1: want = "phish:linked"
+		if chased and _held(fac, "dos:linked") < 1: want = "dos:linked"            # deny the control leader
+		elif _held(fac, "oneday:linked") < 1: want = "oneday:linked"               # a cheap defender-dropper
+		elif _held(fac, "stuff:linked") < 1: want = "stuff:linked"                 # the full wipe
 		elif aggr > 0.6 and _held(fac, "credworm:linked") < 1: want = "credworm:linked"
-		elif _held(fac, "stuff:linked") < 2: want = "stuff:linked"
+		elif _held(fac, "oneday:linked") < 2: want = "oneday:linked"
 		if want != "": (L.queue as Array).append(want)
 	# ── 2c. cards on a target it is streaming at (scanned, so the numbers are real): phish its regeneration off, then wipe it ──
 	var worm_seed := -1; var worm_best := 0.0
 	for tk in ops.keys():
 		var t2 := int(tk)
-		if not _scanned(fac, t2): continue
-		if _held(fac, "phish:linked") > 0 and _ai_known_bots(fac, t2) >= 6.0 and _ai_known_regen(fac, t2) > 0.0 and not _prod_down(t2) and _card_scale("phish", t2) >= 0.5:
-			_play_card(fac, "phish:linked", t2); break
-		if _ai_known_bots(fac, t2) < 6.0 or _card_scale("cred", t2) <= 0.0: continue
-		if _held(fac, "credworm:linked") > 0 and int(hosts[t2].owner) != NEUTRAL:
+		if not _scanned(fac, t2) or _ai_known_bots(fac, t2) < 4.0: continue       # about to fall anyway
+		if _held(fac, "credworm:linked") > 0 and int(hosts[t2].owner) != NEUTRAL and _card_scale("cred", t2) > 0.0:
 			var wv := _ai_worm_value(fac, t2)
 			if wv > worm_best: worm_best = wv; worm_seed = t2
 			continue
-		if _held(fac, "stuff:linked") > 0: _play_card(fac, "stuff:linked", t2); break
+		if _held(fac, "stuff:linked") > 0 and _card_scale("cred", t2) >= 0.5: _play_card(fac, "stuff:linked", t2); break
+		if _held(fac, "phish:linked") > 0 and _card_scale("phish", t2) >= 0.5: _play_card(fac, "phish:linked", t2); break
+		if _held(fac, "oneday:linked") > 0 and _card_scale("oneday", t2) >= 0.5: _play_card(fac, "oneday:linked", t2); break
 	if worm_seed >= 0: _play_card(fac, "credworm:linked", worm_seed)   # the seed whose public types promise the longest chain
-	# ── 2d. choke the Cash leader: phish a known market of the botnet ahead in the race ──
-	if chased and _held(fac, "phish:linked") > 0:
+	# ── 2d. choke the control leader: DoS one of its production buildings (markets, harvesters, labs) ──
+	if chased and _held(fac, "dos:linked") > 0:
 		for tk in (scans[fac] as Dictionary).keys():
 			var t3 := int(tk)
-			if int(hosts[t3].owner) != leader or not _scanned(fac, t3) or _prod_down(t3) or _card_scale("phish", t3) < 0.5: continue
-			if not _ai_known_builds(fac, t3).has("cash"): continue
+			if int(hosts[t3].owner) != leader or not _scanned(fac, t3) or _prod_down(t3) or _card_scale("dos", t3) < 0.5: continue
+			var kinds3 := _ai_known_builds(fac, t3)
+			if not (kinds3.has("cash") or kinds3.has("intel") or kinds3.has("cred") or kinds3.has("lab")): continue
 			var laid := -1
 			if not _linked(fac, t3):   # a dormant wire is free and silent: the LINKED delivery route
 				var bsrc := -1; var bl := 999
@@ -1693,7 +1711,7 @@ func _ai_think(fac: int) -> void:
 					if not rt.is_empty() and rt.size() < bl: bl = rt.size(); bsrc = e
 				if bsrc < 0: continue
 				hosts[bsrc].assign = t3; hosts[bsrc].live = false; _next_depart.erase(bsrc); laid = bsrc
-			var played := _play_card(fac, "phish:linked", t3)
+			var played := _play_card(fac, "dos:linked", t3)
 			if laid >= 0: _ai_release(laid)   # the card is in the air; the source is free again
 			if played: break
 	# ── 3. offence: scout what it does not know, strike what it knows it can take ──
@@ -1749,8 +1767,10 @@ func _ai_think(fac: int) -> void:
 		var launch: Array = pick_srcs.slice(0, 2) if quiet else pick_srcs
 		for s in launch:
 			hosts[int(s[1])].assign = pick; hosts[int(s[1])].live = true; hosts[int(s[1])].mode = "scan" if quiet else "attack"; _next_depart[int(s[1])] = _t
-		if pick_known and _held(fac, "phish:linked") > 0 and _ai_known_bots(fac, pick) >= 6.0 and _ai_known_regen(fac, pick) > 0.0 and not _prod_down(pick) and _card_scale("phish", pick) >= 0.5:
-			_play_card(fac, "phish:linked", pick)                 # prepare the ground: the card lands as the streams arrive
+		if pick_known and _ai_known_bots(fac, pick) >= 4.0 and _linked(fac, pick):   # prepare the ground: soften it as the streams arrive
+			for ck in [["stuff", "cred"], ["phish", "phish"], ["oneday", "oneday"]]:
+				if _held(fac, str(ck[0]) + ":linked") > 0 and _card_scale(str(ck[1]), pick) >= 0.5:
+					_play_card(fac, str(ck[0]) + ":linked", pick); break
 		recs[pick] = {"since": _t, "bots": _ai_known_bots(fac, pick), "prog": _scan_progress(fac, pick)}
 		if _mine(pick) and not quiet: _flash("⚔ %s is attacking %s with %d source(s) — defend it!" % [fname(fac), str(hosts[pick].name), launch.size()])
 	elif ops.is_empty() and float(intel[fac]) >= AI_SCOUT_INTEL:   # ── 3b. idle scouting: learn the richest unknown neighbour ──
@@ -2405,6 +2425,7 @@ func _panel_inspect() -> void:   # a building's own panel (for a foreign one: th
 	_plabel(_stage_line(i), 14, C_TEXT)
 	if _prod_down(i): _plabel("⚠ Production off · %.0f s" % float(h.prod_off), 14, C_WARN)
 	if _routing_down(i): _plabel("⚠ Routing cut · %.0f s" % float(h.route_off), 14, C_BAD)
+	if _stolen(i): _plabel("⚠ Production siphoned by %s · %.0f s" % [fname(int(h.steal_by)), float(h.steal_until) - _t], 14, C_WARN)
 	var aout := int(h.assign)            # whom THIS building is wired to (a foreign building's plan shows only while it flows)
 	if aout >= 0 and (_mine(i) or _wire_visible(i)):
 		var verb := "guarding" if int(hosts[aout].owner) == fac else "→ attacking"
@@ -2744,6 +2765,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		_frame(p, rr + 3.0, Color(1, 0.4, 0.35, 0.95), 2.5)
 	if _prod_down(i): _frame(p, rr + 4.5, Color(1, 0.62, 0.2, 0.9), 1.5)      # a card: production off
 	if _routing_down(i): _frame(p, rr + 6.0, Color(1, 0.35, 0.65, 0.9), 1.5)  # a card: routing cut
+	if _stolen(i): _frame(p, rr + 7.5, FAMILY_COL["supply"], 1.5)             # a card: production siphoned
 	if sel.has(i): _frame(p, rr + 6.0, Color(1, 1, 1, 0.95 * a), 2.0)
 	if i == _inspect: _frame(p, rr + 8.0, Color(1, 0.9, 0.3, a), 1.5)
 	if is_aim: _frame(p, rr + 9.0, Color(1, 0.9, 0.3), 2.0)
@@ -2771,10 +2793,12 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if known and int(hosts[i].owner) != NEUTRAL and st == 2: sub = "CRITICAL"
 	elif known and int(hosts[i].owner) != NEUTRAL and st == 1: sub = "SHAKY"
 	elif _mine(i) and float(hosts[i].bots) >= NODE_CAP - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
+	elif _stolen(i): sub = "SIPHON %ds" % int(ceil(float(hosts[i].steal_until) - _t))
 	elif _prod_down(i): sub = "OFF %ds" % int(ceil(float(hosts[i].prod_off)))
 	elif _routing_down(i): sub = "CUT %ds" % int(ceil(float(hosts[i].route_off)))
 	var subcol := Color(1, 0.85, 0.4, a)
 	if sub == "junction": subcol = Color(0.7, 0.85, 1.0, 0.8 * a)
+	if sub.begins_with("SIPHON"): subcol = Color(FAMILY_COL["supply"].r, FAMILY_COL["supply"].g, FAMILY_COL["supply"].b, a)
 	if sub.begins_with("OFF"): subcol = Color(1, 0.62, 0.2, a)
 	elif sub.begins_with("CUT"): subcol = Color(1, 0.4, 0.65, a)
 	elif sub == "CRITICAL": subcol = Color(1, 0.5, 0.45, a)
@@ -2956,44 +2980,32 @@ func _draw_type_glyph(c: CanvasItem, t: String, centre: Vector2, sz: float, fill
 func _draw_card_glyph(c: CanvasItem, card: String, centre: Vector2, sz: float, col: Color, f: Font) -> void:
 	var ink := Color(0.06, 0.07, 0.1, col.a)
 	var w := maxf(1.5, sz * 0.07)
-	match card:
-		"stuff":     # a padlock sprung open, a key driven into it
+	match str(CARDS[card].fam):
+		"cred":      # a padlock sprung open, a key driven into it
 			var body := Rect2(centre + Vector2(-sz * 0.3, -sz * 0.02), Vector2(sz * 0.6, sz * 0.46))
 			c.draw_rect(body, col, true)
-			c.draw_arc(centre + Vector2(-sz * 0.08, -sz * 0.14), sz * 0.2, PI, TAU, 16, col, w, true)      # the shackle, swung aside
+			c.draw_arc(centre + Vector2(-sz * 0.08, -sz * 0.14), sz * 0.2, PI, TAU, 16, col, w, true)
 			c.draw_line(centre + Vector2(-sz * 0.28, -sz * 0.14), centre + Vector2(-sz * 0.28, 0), col, w, true)
 			c.draw_circle(centre + Vector2(0, sz * 0.18), sz * 0.07, ink)
-			c.draw_line(centre + Vector2(sz * 0.02, sz * 0.2), centre + Vector2(sz * 0.44, sz * 0.46), ink, w * 1.2, true)   # the key
+			c.draw_line(centre + Vector2(sz * 0.02, sz * 0.2), centre + Vector2(sz * 0.44, sz * 0.46), ink, w * 1.2, true)
 			c.draw_circle(centre + Vector2(sz * 0.44, sz * 0.46), sz * 0.07, ink)
 		"phish":     # a baited hook under an envelope
 			var env := Rect2(centre + Vector2(-sz * 0.42, -sz * 0.46), Vector2(sz * 0.5, sz * 0.32))
 			c.draw_rect(env, col, true)
 			c.draw_line(env.position, env.position + env.size * 0.5, ink, w, true)
 			c.draw_line(env.position + Vector2(env.size.x, 0), env.position + Vector2(env.size.x * 0.5, env.size.y * 0.5), ink, w, true)
-			c.draw_line(centre + Vector2(sz * 0.2, -sz * 0.48), centre + Vector2(sz * 0.2, sz * 0.12), col, w, true)   # the line
-			c.draw_arc(centre + Vector2(sz * 0.05, sz * 0.12), sz * 0.15, 0.0, PI, 14, col, w, true)                # the hook
-			c.draw_line(centre + Vector2(-sz * 0.1, sz * 0.12), centre + Vector2(-sz * 0.02, sz * 0.0), col, w, true)   # the barb
-		"oneday", "zeroday":   # a cracked shield with the day count
+			c.draw_line(centre + Vector2(sz * 0.2, -sz * 0.48), centre + Vector2(sz * 0.2, sz * 0.12), col, w, true)
+			c.draw_arc(centre + Vector2(sz * 0.05, sz * 0.12), sz * 0.15, 0.0, PI, 14, col, w, true)
+			c.draw_line(centre + Vector2(-sz * 0.1, sz * 0.12), centre + Vector2(-sz * 0.02, sz * 0.0), col, w, true)
+		"oneday", "zeroday":   # a shield with the day count — 1-day outlined, 0-day filled
+			var zero: bool = str(CARDS[card].fam) == "zeroday"
 			var sh := PackedVector2Array([centre + Vector2(-sz * 0.4, -sz * 0.42), centre + Vector2(sz * 0.4, -sz * 0.42), centre + Vector2(sz * 0.4, sz * 0.05), centre + Vector2(0, sz * 0.48), centre + Vector2(-sz * 0.4, sz * 0.05)])
-			if card == "zeroday": c.draw_colored_polygon(sh, col)
+			if zero: c.draw_colored_polygon(sh, col)
 			else:
 				var o := PackedVector2Array(sh); o.append(sh[0]); c.draw_polyline(o, col, w, true)
 			var crack := PackedVector2Array([centre + Vector2(sz * 0.05, -sz * 0.42), centre + Vector2(-sz * 0.08, -sz * 0.12), centre + Vector2(sz * 0.08, sz * 0.02), centre + Vector2(-sz * 0.04, sz * 0.3)])
-			c.draw_polyline(crack, ink if card == "zeroday" else col, w, true)
-			c.draw_string(f, centre + Vector2(sz * 0.08, sz * 0.12), "0" if card == "zeroday" else "1", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz * 0.42), ink if card == "zeroday" else col)
-		"credworm":  # a worm carrying a key through three buildings
-			var wave := PackedVector2Array()
-			for k in 13:
-				var x := -sz * 0.46 + sz * 0.92 * float(k) / 12.0
-				wave.append(centre + Vector2(x, sz * 0.12 + sin(float(k) * 1.2) * sz * 0.12))
-			c.draw_polyline(wave, col, w * 1.6, true)
-			c.draw_circle(wave[12], sz * 0.1, col)
-			for k in 3:
-				var bx := centre + Vector2(-sz * 0.34 + float(k) * sz * 0.34, -sz * 0.3)
-				c.draw_rect(Rect2(bx - Vector2(sz * 0.11, sz * 0.11), Vector2(sz * 0.22, sz * 0.22)), col, false, w)
-			c.draw_line(centre + Vector2(-sz * 0.4, sz * 0.4), centre + Vector2(-sz * 0.14, sz * 0.4), col, w, true)   # the key
-			c.draw_circle(centre + Vector2(-sz * 0.4, sz * 0.4), sz * 0.07, col)
-			c.draw_line(centre + Vector2(-sz * 0.2, sz * 0.4), centre + Vector2(-sz * 0.2, sz * 0.48), col, w, true)
+			c.draw_polyline(crack, ink if zero else col, w, true)
+			c.draw_string(f, centre + Vector2(sz * 0.08, sz * 0.12), "0" if zero else "1", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz * 0.42), ink if zero else col)
 		"supply":    # crates on a belt, the middle one struck
 			for k in 3:
 				var bx := centre + Vector2(-sz * 0.32 + float(k) * sz * 0.32, 0)
@@ -3001,20 +3013,21 @@ func _draw_card_glyph(c: CanvasItem, card: String, centre: Vector2, sz: float, c
 				if k < 2: c.draw_line(bx + Vector2(sz * 0.13, 0), bx + Vector2(sz * 0.19, 0), col, w, true)
 			var bolt := PackedVector2Array([centre + Vector2(sz * 0.08, -sz * 0.48), centre + Vector2(-sz * 0.06, -sz * 0.12), centre + Vector2(sz * 0.04, -sz * 0.12), centre + Vector2(-sz * 0.08, sz * 0.14)])
 			c.draw_polyline(bolt, ink, w * 1.3, true)
-			c.draw_line(centre + Vector2(-sz * 0.46, sz * 0.36), centre + Vector2(sz * 0.46, sz * 0.36), col, w, true)   # the belt
+			c.draw_line(centre + Vector2(-sz * 0.46, sz * 0.36), centre + Vector2(sz * 0.46, sz * 0.36), col, w, true)
 			for k in 4: c.draw_circle(centre + Vector2(-sz * 0.36 + float(k) * sz * 0.24, sz * 0.44), sz * 0.05, col)
-		"zeroworm":  # a skull riding the worm
-			var wave := PackedVector2Array()
-			for k in 13:
-				var x := -sz * 0.46 + sz * 0.92 * float(k) / 12.0
-				wave.append(centre + Vector2(x, sz * 0.3 + sin(float(k) * 1.2) * sz * 0.1))
-			c.draw_polyline(wave, col, w * 1.5, true)
-			var hc := centre + Vector2(0, -sz * 0.14)
-			c.draw_circle(hc, sz * 0.26, col)
-			c.draw_rect(Rect2(hc + Vector2(-sz * 0.15, sz * 0.14), Vector2(sz * 0.3, sz * 0.16)), col, true)
-			c.draw_circle(hc + Vector2(-sz * 0.1, -sz * 0.04), sz * 0.07, ink)
-			c.draw_circle(hc + Vector2(sz * 0.1, -sz * 0.04), sz * 0.07, ink)
-			for k in 3: c.draw_line(hc + Vector2(-sz * 0.08 + float(k) * sz * 0.08, sz * 0.18), hc + Vector2(-sz * 0.08 + float(k) * sz * 0.08, sz * 0.3), ink, w * 0.8, true)
+		"dos":       # a building swamped by arrows from every side (the flood)
+			var box := Rect2(centre - Vector2(sz * 0.18, sz * 0.18), Vector2(sz * 0.36, sz * 0.36))
+			c.draw_rect(box, col, false, w)
+			c.draw_line(box.position + Vector2(0, box.size.y), box.position + box.size, ink, w, true)
+			for a in 8:   # arrows converging on it
+				var ang := float(a) * TAU / 8.0
+				var dir := Vector2(cos(ang), sin(ang))
+				var tip := centre + dir * sz * 0.26
+				var tail := centre + dir * sz * 0.48
+				c.draw_line(tail, tip, col, w, true)
+				var perp := Vector2(-dir.y, dir.x)
+				c.draw_line(tip, tip + (perp - dir) * sz * 0.08, col, w, true)
+				c.draw_line(tip, tip + (-perp - dir) * sz * 0.08, col, w, true)
 		_:
 			c.draw_rect(Rect2(centre - Vector2(sz * 0.4, sz * 0.4), Vector2(sz * 0.8, sz * 0.8)), col, false, w)
 

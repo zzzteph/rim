@@ -379,69 +379,69 @@ func _run() -> void:
 	#    an ANY card costs ×4 and takes ×2
 	fresh()
 	game.cash[game.PLAYER] = 100.0; game.creds[game.PLAYER] = 50.0; game.research[game.PLAYER] = 50.0
-	game._queue_research(game.PLAYER, "stuff:linked")       # 20$ 30K 10R over 20 s
+	game._queue_research(game.PLAYER, "stuff:linked")       # 20$ 35K 10R over 25 s
 	step(10.0, 0.1)
-	var half_spent: bool = absf(float(game.cash[game.PLAYER]) - 90.0) < 0.5 and absf(float(game.creds[game.PLAYER]) - 35.0) < 0.5 and absf(float(game.research[game.PLAYER]) - 45.0) < 0.5
+	var half_spent: bool = absf(float(game.cash[game.PLAYER]) - 92.0) < 0.5 and absf(float(game.creds[game.PLAYER]) - 36.0) < 0.5 and absf(float(game.research[game.PLAYER]) - 46.0) < 0.5   # 0.4 of it consumed
 	var not_yet: bool = game._held(game.PLAYER, "stuff:linked") == 0
 	game._toggle_research(game.PLAYER)
 	step(5.0, 0.1)
-	var paused_holds: bool = absf(float(game.cash[game.PLAYER]) - 90.0) < 0.5 and absf(float(game.lab[game.PLAYER].progress) - 10.0) < 0.2
+	var paused_holds: bool = absf(float(game.cash[game.PLAYER]) - 92.0) < 0.5 and absf(float(game.lab[game.PLAYER].progress) - 10.0) < 0.2
 	game._toggle_research(game.PLAYER)
-	step(10.5, 0.1)
+	step(15.5, 0.1)
 	var done: bool = game._held(game.PLAYER, "stuff:linked") == 1 and (game.lab[game.PLAYER].queue as Array).is_empty()
-	var spent: bool = absf(float(game.cash[game.PLAYER]) - 80.0) < 0.5 and absf(float(game.creds[game.PLAYER]) - 20.0) < 0.5
+	var spent: bool = absf(float(game.cash[game.PLAYER]) - 80.0) < 0.5 and absf(float(game.creds[game.PLAYER]) - 15.0) < 0.5
 	game.creds[game.PLAYER] = 0.0
 	game._queue_research(game.PLAYER, "stuff:linked")
 	step(3.0, 0.1)
 	var stalled: bool = str(game.lab[game.PLAYER].stall) == "creds" and float(game.lab[game.PLAYER].progress) < 0.01 and absf(float(game.cash[game.PLAYER]) - 80.0) < 0.5
 	game.creds[game.PLAYER] = 50.0
-	step(20.5, 0.1)
+	step(25.5, 0.1)
 	var accumulates: bool = game._held(game.PLAYER, "stuff:linked") == 2
-	var any_dearer: bool = absf(float(game._card_cost("stuff:any").cash) - 80.0) < 0.01 and absf(game._card_time("stuff:any") - 40.0) < 0.01
+	var any_dearer: bool = absf(float(game._card_cost("stuff:any").cash) - 80.0) < 0.01 and absf(game._card_time("stuff:any") - 50.0) < 0.01
 	check("21_research_queue", half_spent and not_yet and paused_holds and done and spent and stalled and accumulates and any_dearer,
 		{"half_spent": half_spent, "paused_consumes_nothing": paused_holds, "completed": done, "cost_spent": spent, "stalls_without_creds": stalled, "accumulates": accumulates, "any_x4_cost_x2_time": any_dearer})
 
-	# 22 single-host cards: LINKED needs a connection into the target, ANY does not; the effect scales with
-	#    the type (DB resists credential attacks 50 % → half; PC weak to phishing → ×1.5; IoT resists phishing
-	#    90 %); it never captures (a bot still has to arrive); the hit reveals and alarms; effects wear off
+	# 22 single cards: the defender ladder (1-day −25 %, phishing −50 %, stuffing −100 %), reach (LINKED needs a
+	#    connection, ANY does not), resist scaling (DB resists credential ×½, PC weak to phishing ×1.5, IoT resists
+	#    phishing 90 %), no capture, reveal+alarm, and 0-day's routing cut that wears off
 	fresh()
-	var t22 := neutral_nb(rigP())
-	game.cards[game.PLAYER] = {"stuff:linked": 1, "stuff:any": 1, "phish:linked": 2, "oneday:linked": 1}
-	var refused: bool = not game._play_card(game.PLAYER, "stuff:linked", t22) and game._held(game.PLAYER, "stuff:linked") == 1   # a refused play costs nothing
-	var b0: float = game.hosts[t22].bots
-	game.hosts[t22].type = "db"
-	var any_ok: bool = game._play_card(game.PLAYER, "stuff:any", t22)
-	var in_flight: bool = game.flights.size() == 1 and str(game.flights[0].kind) == "card" and absf(float(game.hosts[t22].bots) - b0) < 0.01   # nothing lands before it arrives
-	step(1.5, 0.1)
-	var halved: bool = float(game.hosts[t22].bots) >= b0 * 0.5 - 0.01 and float(game.hosts[t22].bots) < b0 * 0.5 + 0.7   # halved on landing, ~0.5 s of regeneration since
-	var revealed22: bool = game._scanned(game.PLAYER, t22) and game._under_attack(t22) and int(game.hosts[t22].owner) == game.NEUTRAL
-	game.sel = {rigP(): true}; game._wire(t22)
-	game.hosts[t22].type = "pc"
-	var linked_ok: bool = game._play_card(game.PLAYER, "stuff:linked", t22)
-	step(1.5, 0.1)
-	var wiped: bool = float(game.hosts[t22].bots) < 0.7 and int(game.hosts[t22].owner) == game.NEUTRAL   # wiped on landing; ~0.5 s of regeneration since
-	game._play_card(game.PLAYER, "phish:linked", t22)
-	step(1.5, 0.1)
-	var phished: bool = float(game.hosts[t22].prod_off) > 36.5 and float(game.hosts[t22].prod_off) <= 37.5 and game._regen(t22) == 0.0   # 37.5 s on a PC, landed ~0.5 s ago
-	game._launch(t22, "attack")                              # one stream now takes it: no defenders, no regeneration
+	var t22 := -1
+	for o in game.hosts[rigP()].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL: t22 = int(o); break
+	game._set_builds(t22, [])   # no regeneration, so a card's effect is exact
+	game.cards[game.PLAYER] = {"stuff:linked": 1}
+	var refused: bool = not game._play_card(game.PLAYER, "stuff:linked", t22) and game._held(game.PLAYER, "stuff:linked") == 1   # no connection → LINKED refused, costs nothing
+	# 1-day −25 % on a Server (oneday resist 0)
+	game.hosts[t22].type = "server"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"oneday:any": 1}
+	game._play_card(game.PLAYER, "oneday:any", t22)
+	var in_flight: bool = game.flights.size() == 1 and str(game.flights[0].kind) == "card" and absf(float(game.hosts[t22].bots) - 20.0) < 0.01
 	step(4.0, 0.1)
-	var taken_by_bots: bool = int(game.hosts[t22].owner) == game.PLAYER and float(game.hosts[t22].prod_off) == 0.0
-	var t22b := neutral_nb(secondP(), rigP())
-	game.hosts[t22b].type = "iot"
-	game.sel = {secondP(): true}; game._wire(t22b)
-	game._play_card(game.PLAYER, "phish:linked", t22b)
-	game._play_card(game.PLAYER, "oneday:linked", t22b)
-	var hops22: int = game._route(secondP(), t22b).size() - 1
-	step(float(hops22) * 1.3 + 0.6, 0.1)
-	var iot_resists: bool = game._prod_down(t22b) and float(game.hosts[t22b].prod_off) <= 2.5   # 2.5 s on an IoT device
-	var cut: bool = float(game.hosts[t22b].route_off) > 23.0 and float(game.hosts[t22b].route_off) <= 25.0   # 25 s: IoT is weak to exploits ×1.25
-	step(3.0, 0.1)
-	var phish_over: bool = not game._prod_down(t22b) and game._routing_down(t22b)
-	step(23.0, 0.1)
-	var cut_over: bool = not game._routing_down(t22b)
-	var spent22: bool = game._hand_size(game.PLAYER) == 0
-	check("22_single_cards", refused and any_ok and in_flight and halved and revealed22 and linked_ok and wiped and phished and taken_by_bots and iot_resists and cut and phish_over and cut_over and spent22,
-		{"linked_refused_without_connection": refused, "any_plays_anywhere": any_ok, "travels_as_a_card_packet": in_flight, "db_halves_credential": halved, "hit_reveals_alarms_no_capture": revealed22, "pc_wiped": wiped, "pc_phish_x1_5": phished, "then_one_stream_takes_it": taken_by_bots, "iot_phish_2_5s": iot_resists, "iot_routing_cut_25s": cut, "effects_wear_off": phish_over and cut_over, "hand_spent": spent22})
+	var oneday25: bool = absf(float(game.hosts[t22].bots) - 15.0) < 0.2
+	var revealed22: bool = game._scanned(game.PLAYER, t22) and game._under_attack(t22) and int(game.hosts[t22].owner) == game.NEUTRAL   # revealed, alarmed, not captured
+	# phishing −50 %, on a PC which is weak to phishing ×1.5 → −75 %
+	game.hosts[t22].type = "pc"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"phish:any": 1}
+	game._play_card(game.PLAYER, "phish:any", t22); step(4.0, 0.1)
+	var pc_phish: bool = absf(float(game.hosts[t22].bots) - 5.0) < 0.2
+	# stuffing −100 % wipes a Web (cred resist 0)
+	game.hosts[t22].type = "web"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"stuff:any": 1}
+	game._play_card(game.PLAYER, "stuff:any", t22); step(4.0, 0.1)
+	var wiped: bool = float(game.hosts[t22].bots) < 0.01
+	# a DB resists credential attacks 50 % → stuffing only halves
+	game.hosts[t22].type = "db"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"stuff:any": 1}
+	game._play_card(game.PLAYER, "stuff:any", t22); step(4.0, 0.1)
+	var db_half: bool = absf(float(game.hosts[t22].bots) - 10.0) < 0.2
+	# an IoT resists phishing 90 % → barely dented
+	game.hosts[t22].type = "iot"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"phish:any": 1}
+	game._play_card(game.PLAYER, "phish:any", t22); step(4.0, 0.1)
+	var iot_resist: bool = absf(float(game.hosts[t22].bots) - 19.0) < 0.3   # 20 − 20×0.5×0.1
+	# 0-day on a DB (zeroday resist 0): halves AND cuts routing; the routing cut wears off
+	game.hosts[t22].type = "db"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"zeroday:any": 1}
+	game._play_card(game.PLAYER, "zeroday:any", t22); step(4.0, 0.1)
+	var zday: bool = absf(float(game.hosts[t22].bots) - 10.0) < 0.2 and game._routing_down(t22) and float(game.hosts[t22].route_off) > 15.0
+	step(21.0, 0.5)
+	var zday_over: bool = not game._routing_down(t22)
+	check("22_single_cards", refused and in_flight and oneday25 and revealed22 and pc_phish and wiped and db_half and iot_resist and zday and zday_over,
+		{"linked_refused": refused, "travels_as_packet": in_flight, "oneday_minus25": oneday25, "reveal_alarm_no_capture": revealed22, "pc_phish_minus75": pc_phish, "stuff_wipes": wiped, "db_resists_half": db_half, "iot_resists_phish_90": iot_resist, "zeroday_half_and_cut": zday, "routing_wears_off": zday_over})
 
 	# 23 worms: the chain spreads along the streets with falling odds (jump 1: 100 %, then −25 % per jump),
 	#    never onto the caster's own buildings, each building once, at most 4 jumps, captures nothing,
@@ -805,7 +805,7 @@ func _run() -> void:
 		if int(game.hosts[i].owner) == game.NEUTRAL and claimed37 < 4: game.hosts[i].owner = game.RIVAL2; game.hosts[i].bots = 30.0; claimed37 += 1
 	var m37 := neutral_nb(rigR())
 	game.hosts[m37].owner = game.RIVAL2; game.hosts[m37].type = "pc"; game.hosts[m37].bots = 30.0; game._set_builds(m37, ["bot", "cash"]); game._mark_scanned(game.RIVAL, m37)
-	game.cards[game.RIVAL] = {"phish:linked": 1}
+	game.cards[game.RIVAL] = {"dos:linked": 1}
 	game._ai_think(game.RIVAL)
 	var played37: bool = int(game.card_plays[game.RIVAL]) == 1
 	var flight37 := false
@@ -816,11 +816,11 @@ func _run() -> void:
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) == game.NEUTRAL and claimed37b < 4: game.hosts[i].owner = game.RIVAL2; game.hosts[i].bots = 30.0; claimed37b += 1
 	var m37b := neutral_nb(rigR())
-	game.hosts[m37b].owner = game.RIVAL2; game.hosts[m37b].type = "pc"; game.hosts[m37b].bots = 30.0; game._set_builds(m37b, ["bot", "intel"]); game._mark_scanned(game.RIVAL, m37b)
-	game.cards[game.RIVAL] = {"phish:linked": 1}
+	game.hosts[m37b].owner = game.RIVAL2; game.hosts[m37b].type = "pc"; game.hosts[m37b].bots = 30.0; game._set_builds(m37b, ["bot", "bot"]); game._mark_scanned(game.RIVAL, m37b)
+	game.cards[game.RIVAL] = {"dos:linked": 1}
 	game._ai_think(game.RIVAL)
 	var spared: bool = int(game.card_plays[game.RIVAL]) == 0
-	check("37_choke_the_leader", played37 and flight37 and spared, {"phished_known_market": played37 and flight37, "no_market_no_phish": spared})
+	check("37_choke_the_leader", played37 and flight37 and spared, {"dossed_known_production": played37 and flight37, "no_production_no_dos": spared})
 
 	# 38 remember where it hurt: a full rear building pre-wires its guard to the frontier building hit most recently
 	fresh()
@@ -920,6 +920,38 @@ func _run() -> void:
 		if not game._scanned(game.PLAYER, k41): badge = "?"
 		ui.append(JSON.stringify([txt, fk, lk, amber, badge]))
 	check("41_ui_twin", ui[0] == ui[1], {"same_panel_focus_streets": ui[0] == ui[1], "digest": str(ui[0]).left(200)})
+
+	# 43 supply-chain steal: for a few seconds the target's production flows to the caster, not its owner
+	fresh()
+	var tm43 := neutral_nb(rigP())
+	game.hosts[tm43].owner = game.RIVAL; game.hosts[tm43].type = "pc"; game.hosts[tm43].bots = 20.0
+	game._set_builds(tm43, ["cash", "intel"]); game._mark_scanned(game.PLAYER, tm43)
+	var owner_rate0: float = game._intel_rate(game.RIVAL)   # RIVAL gets tm43's Intel now
+	game.cards[game.PLAYER] = {"supply:any": 1}
+	game._play_card(game.PLAYER, "supply:any", tm43); step(3.0, 0.1)
+	var stealing: bool = game._stolen(tm43) and int(game.hosts[tm43].steal_by) == game.PLAYER and game._benef(tm43) == game.PLAYER
+	var thief_rate: bool = game._intel_rate(game.PLAYER) > 0.9 and game._cash_rate(game.PLAYER) > 0.0   # tm43 now feeds the player
+	var owner_denied: bool = game._intel_rate(game.RIVAL) < owner_rate0 - 0.9   # and no longer the owner
+	var pcash0: float = game.cash[game.PLAYER]; var rcash0: float = game.cash[game.RIVAL]; var pintel0: float = game.intel[game.PLAYER]
+	step(2.0, 0.1)
+	var thief_gains: bool = game.cash[game.PLAYER] > pcash0 + 0.1 and game.intel[game.PLAYER] > pintel0 + 0.1
+	var owner_gets_nothing: bool = absf(game.cash[game.RIVAL] - rcash0) < 0.01
+	step(5.0, 0.1)
+	var wore_off: bool = not game._stolen(tm43) and game._benef(tm43) == game.RIVAL
+	check("43_supply_chain_steal", stealing and thief_rate and owner_denied and thief_gains and owner_gets_nothing and wore_off,
+		{"stealing": stealing, "thief_gets_the_rates": thief_rate, "owner_denied": owner_denied, "thief_pools_grow": thief_gains, "owner_pools_frozen": owner_gets_nothing, "wears_off": wore_off})
+
+	# 44 denial of service: production off AND routing cut together, for the duration, then both recover
+	fresh()
+	var td44 := neutral_nb(rigP())
+	game.hosts[td44].owner = game.RIVAL; game.hosts[td44].type = "pc"; game.hosts[td44].bots = 20.0
+	game._set_builds(td44, ["bot", "cash"]); game._mark_scanned(game.PLAYER, td44)
+	game.cards[game.PLAYER] = {"dos:any": 1}
+	game._play_card(game.PLAYER, "dos:any", td44); step(3.0, 0.1)
+	var denied: bool = game._prod_down(td44) and game._routing_down(td44) and game._regen(td44) == 0.0 and game._count(td44, "cash") == 0 and float(game.hosts[td44].route_off) > 20.0
+	step(26.0, 0.5)
+	var dos_over: bool = not game._prod_down(td44) and not game._routing_down(td44) and game._regen(td44) > 0.0
+	check("44_denial_of_service", denied and dos_over, {"production_and_routing_down": denied, "both_recover": dos_over})
 
 	# 42 domination: holding more than half the town for HOLD_SECS wins; losing the majority resets the clock
 	fresh()

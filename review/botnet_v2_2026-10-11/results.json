@@ -56,9 +56,9 @@
 		{
 			"case": "04_chronological_terminal_freeze",
 			"observed": {
-				"cause": "You banked 600 Cash.",
-				"node_bots": 0.5,
-				"node_owner_after": 1,
+				"cause": "You are the last botnet standing.",
+				"kraken_last": 1,
+				"rival_last": 1,
 				"won": true
 			},
 			"pass": true
@@ -285,18 +285,16 @@
 		{
 			"case": "22_single_cards",
 			"observed": {
-				"any_plays_anywhere": true,
-				"db_halves_credential": true,
-				"effects_wear_off": true,
-				"hand_spent": true,
-				"hit_reveals_alarms_no_capture": true,
-				"iot_phish_2_5s": true,
-				"iot_routing_cut_25s": true,
-				"linked_refused_without_connection": true,
-				"pc_phish_x1_5": true,
-				"pc_wiped": true,
-				"then_one_stream_takes_it": true,
-				"travels_as_a_card_packet": true
+				"db_resists_half": true,
+				"iot_resists_phish_90": true,
+				"linked_refused": true,
+				"oneday_minus25": true,
+				"pc_phish_minus75": true,
+				"reveal_alarm_no_capture": true,
+				"routing_wears_off": true,
+				"stuff_wipes": true,
+				"travels_as_packet": true,
+				"zeroday_half_and_cut": true
 			},
 			"pass": true
 		},
@@ -329,18 +327,18 @@
 		{
 			"case": "25_ai_uses_cards",
 			"observed": {
-				"cards_played_by_ais": 8,
+				"cards_played_by_ais": 9,
 				"economy_built": {
 					"2": true,
 					"3": true
 				},
-				"kraken_cash": 4,
-				"nyx_cash": 600,
+				"kraken_cash": 3,
+				"nyx_cash": 458,
 				"researched": {
 					"2": true,
 					"3": true
 				},
-				"t": 297.7
+				"t": 300.1
 			},
 			"pass": true
 		},
@@ -470,8 +468,8 @@
 		{
 			"case": "37_choke_the_leader",
 			"observed": {
-				"no_market_no_phish": true,
-				"phished_known_market": true
+				"dossed_known_production": true,
+				"no_production_no_dos": true
 			},
 			"pass": true
 		},
@@ -489,8 +487,8 @@
 		{
 			"case": "39_worm_value_public_types",
 			"observed": {
-				"hard": 9.81,
-				"soft": 12.31
+				"hard": 8.88,
+				"soft": 11.38
 			},
 			"pass": true
 		},
@@ -523,8 +521,39 @@
 		{
 			"case": "41_ui_twin",
 			"observed": {
-				"digest": "[\"Bank 600 Cash before NYX or KRAKEN.\\nNYX (red, bottom right) and KRAKEN (purple, bottom left) are the two AI botnets racing you. Grey buildings are neutral city security.\\n①  Drag a line from your b",
+				"digest": "[\"Control the most of the town when the clock runs out.\\n5-minute match. Hold more than half the town for 45 s to win outright, or wipe out both rivals; otherwise whoever controls the most buildings a",
 				"same_panel_focus_streets": true
+			},
+			"pass": true
+		},
+		{
+			"case": "43_supply_chain_steal",
+			"observed": {
+				"owner_denied": true,
+				"owner_pools_frozen": true,
+				"stealing": true,
+				"thief_gets_the_rates": true,
+				"thief_pools_grow": true,
+				"wears_off": true
+			},
+			"pass": true
+		},
+		{
+			"case": "44_denial_of_service",
+			"observed": {
+				"both_recover": true,
+				"production_and_routing_down": true
+			},
+			"pass": true
+		},
+		{
+			"case": "42_domination_hold",
+			"observed": {
+				"cause": "You held the majority for 45 s.",
+				"clock_resets_on_loss": true,
+				"clock_ticks": true,
+				"majority": true,
+				"won": true
 			},
 			"pass": true
 		},
@@ -534,62 +563,62 @@
 				"greedy_seed11": {
 					"cards_played": [
 						0,
-						4,
-						4
+						5,
+						5
 					],
 					"cash": [
 						0,
-						601
+						445
 					],
-					"cash_kraken": 430,
-					"cause": "NYX banked 600 Cash first.",
+					"cash_kraken": 396,
+					"cause": "Time's up — NYX controlled the most buildings (12).",
 					"first_capture_t": 18.5,
 					"intel": 0,
 					"kraken_nodes": 6,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 10,
-					"t": 321.9
+					"rival_nodes": 12,
+					"t": 300.1
 				},
 				"greedy_seed7": {
 					"cards_played": [
 						0,
 						4,
-						4
+						2
 					],
 					"cash": [
 						0,
-						600
+						298
 					],
-					"cash_kraken": 48,
-					"cause": "NYX banked 600 Cash first.",
+					"cash_kraken": 23,
+					"cause": "Time's up — NYX controlled the most buildings (10).",
 					"first_capture_t": 12.5,
 					"intel": 0,
-					"kraken_nodes": 5,
+					"kraken_nodes": 3,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 9,
-					"t": 322.4
+					"rival_nodes": 10,
+					"t": 300.1
 				},
 				"rival_alone": {
 					"cards_played": [
 						0,
-						4,
+						5,
 						4
 					],
 					"cash": [
 						0,
-						600
+						458
 					],
-					"cash_kraken": 4,
-					"cause": "NYX banked 600 Cash first.",
+					"cash_kraken": 3,
+					"cause": "Time's up — NYX controlled the most buildings (10).",
 					"first_capture_t": -1.0,
 					"intel": 50,
 					"kraken_nodes": 6,
 					"outcome": "LOSS",
 					"player_nodes": 1,
-					"rival_nodes": 11,
-					"t": 297.7
+					"rival_nodes": 10,
+					"t": 300.1
 				}
 			},
 			"pass": true
