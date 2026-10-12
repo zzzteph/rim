@@ -557,6 +557,307 @@ func _run() -> void:
 	check("26_several_paths", bridged >= 1 and only_bridges and jok and double_cap and plain_cap,
 		{"gaps": gaps, "straddled_gaps": straddled, "highways": bridged, "highways_span_one_gap": only_bridges, "junctions": junctions.size(), "junction_streets_x2": double_cap, "plain_street_x1": plain_cap})
 
+	# ── the AI under the player's fog ──
+	# 27 the twin test: the AI's decisions must not change when ONLY hidden fields of buildings it has not
+	#    scanned change (bots, security, what is built inside, jobs, rate dials of others)
+	var digests := []
+	for pass_n in 2:
+		fresh(); game.intel[game.RIVAL] = 60.0; game.intel[game.RIVAL2] = 60.0
+		if pass_n == 1:
+			for i in game.hosts.size():
+				var o := int(game.hosts[i].owner)
+				if o == game.RIVAL or game._scanned(game.RIVAL, i): continue
+				if o == game.NEUTRAL: game.hosts[i].bots = maxf(1.0, float(game.hosts[i].bots) - 3.0)
+				else: game.hosts[i].bots = 21.0
+				game.hosts[i].sec = float(game.hosts[i].sec) + 5.0
+				var bl: Array = game.hosts[i].builds
+				var placed := false
+				for k27 in bl.size():
+					if str(bl[k27]) == "" and not placed: bl[k27] = "intel"; placed = true
+				if not placed and bl.size() > 1: bl[1] = "cash"
+				game.hosts[i].job = {"kind": "cash", "slot": 0, "phase": "build", "left": 5.0}
+				game.hosts[i].rate = 0.25
+		game._ai_think(game.RIVAL)
+		var d := []
+		for i in game.hosts.size():
+			if int(game.hosts[i].owner) == game.RIVAL: d.append([i, int(game.hosts[i].assign), bool(game.hosts[i].live), str(game.hosts[i].mode), str(game.hosts[i].job.get("kind", ""))])
+		var ks: Array = (game._ai[game.RIVAL].ops as Dictionary).keys(); ks.sort()
+		d.append(ks); d.append(int(game.card_plays[game.RIVAL])); d.append((game.lab[game.RIVAL].queue as Array).duplicate())
+		digests.append(JSON.stringify(d))
+	var live_any: bool = str(digests[0]).find("true") >= 0
+	check("27_fog_twin", digests[0] == digests[1] and live_any, {"same_decisions": digests[0] == digests[1], "acts": live_any, "digest": digests[0].left(160)})
+
+	# 28 the prior is public: computed from type, value, owner and the hub only — never the real bots
+	fresh()
+	var pri := {}
+	for i in game.hosts.size():
+		var h: Dictionary = game.hosts[i]
+		if int(h.owner) == game.NEUTRAL and not bool(h.hub) and str(h.type) == "pc" and int(h.value) == 1 and not pri.has("pc1"): pri["pc1"] = i
+		if int(h.owner) == game.NEUTRAL and str(h.type) == "iot" and int(h.value) == 1 and not pri.has("iot1"): pri["iot1"] = i
+		if int(h.owner) == game.RIVAL2 and not pri.has("kraken"): pri["kraken"] = i
+	for i in pri.values(): game.hosts[int(i)].bots = 1.0   # the real number must not matter
+	var p_pc: float = game._ai_prior_bots(int(pri.pc1)); var p_iot: float = game._ai_prior_bots(int(pri.iot1))
+	var p_hub: float = game._ai_prior_bots(game.hub); var p_bot: float = game._ai_prior_bots(int(pri.kraken))
+	check("28_prior_is_public", absf(p_pc - 9.5) < 0.01 and absf(p_iot - 6.5) < 0.01 and absf(p_hub - 30.0) < 0.01 and absf(p_bot - 18.0) < 0.01,
+		{"pc_value1": p_pc, "iot_value1": p_iot, "hub": p_hub, "botnet_building": p_bot})
+
+	# 29 scout then strike: the first move on an unknown neighbour is a quiet two-source scan that never
+	#    alarms it; once the scan lands the AI knows the live numbers and attacks with a sized force
+	fresh(); game.intel[game.RIVAL] = 100.0
+	game._ai_think(game.RIVAL)
+	var tgt29 := -1; var n29 := 0; var all_scan := true
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) >= 0 and int(game.hosts[game.hosts[i].assign].owner) != game.RIVAL:
+			tgt29 = int(game.hosts[i].assign); n29 += 1
+			if str(game.hosts[i].mode) != "scan": all_scan = false
+	var scouting: bool = tgt29 >= 0 and n29 <= 2 and all_scan and not game._scanned(game.RIVAL, tgt29)
+	var rec29_prior: bool = tgt29 >= 0 and absf(float(game._ai[game.RIVAL].ops[tgt29].bots) - game._ai_prior_bots(tgt29)) < 0.01
+	var never_alarmed := true; var g29 := 0
+	while tgt29 >= 0 and not game._scanned(game.RIVAL, tgt29) and g29 < 400:
+		game._process(0.1); g29 += 1
+		if game._under_attack(tgt29): never_alarmed = false
+	var learned: bool = tgt29 >= 0 and game._scanned(game.RIVAL, tgt29) and absf(float(game.scans[game.RIVAL][tgt29].bots) - float(game.hosts[tgt29].bots)) < 1.5
+	var stood := true
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) == tgt29: stood = false
+	if tgt29 >= 0: game.hosts[tgt29].bots = 4.0   # the scan shows a soft building (live numbers, it is scanned): worth a strike
+	game.intel[game.RIVAL] = 100.0
+	game._ai_think(game.RIVAL)
+	var strike := false
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and str(game.hosts[i].mode) == "attack" and int(game.hosts[i].assign) == tgt29: strike = true
+	check("29_scout_then_strike", scouting and rec29_prior and never_alarmed and learned and stood and strike,
+		{"target": tgt29, "scan_sources": n29, "quiet": never_alarmed, "learned_live_bots": learned, "stood_down": stood, "then_attacks_known": strike, "scan_took_s": snapped(float(g29) * 0.1, 0.1)})
+
+	# 30 pile on what is VISIBLE: a third party's live attack wire or bot packets count, its quiet scan does not
+	fresh()
+	var t30 := neutral_nb(rigR())
+	var k30 := -1
+	for o in game.hosts[t30].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL and int(o) != t30: k30 = int(o); break
+	game.hosts[k30].owner = game.RIVAL2; game.hosts[k30].bots = 30.0
+	var o0: int = game._ai_others_on(game.RIVAL, t30)
+	game.hosts[k30].assign = t30; game.hosts[k30].live = true; game.hosts[k30].mode = "attack"
+	var o1: int = game._ai_others_on(game.RIVAL, t30)
+	game.hosts[k30].mode = "scan"
+	var o2: int = game._ai_others_on(game.RIVAL, t30)
+	game.hosts[k30].live = false; game.hosts[k30].assign = -1
+	game.flights = [{"route": [k30, t30], "hops": [game._t], "depart_t": game._t, "arrive_t": game._t + 1.0, "owner": game.RIVAL2, "kind": "bot", "amount": 1.0}]
+	var o3: int = game._ai_others_on(game.RIVAL, t30)
+	game.flights[0].kind = "scan"
+	var o4: int = game._ai_others_on(game.RIVAL, t30)
+	game.flights = []
+	check("30_pile_on_visible_only", o0 == 0 and o1 == 1 and o2 == 0 and o3 == 1 and o4 == 0, {"none": o0, "live_wire": o1, "quiet_scan_wire": o2, "bot_packet": o3, "scan_packet": o4})
+
+	# 31 the bleeder and the hidden dial: a building visibly streaming out is softer; its rate dial is never read
+	fresh()
+	var t31 := neutral_nb(rigR())
+	game.hosts[t31].type = "pc"; game._set_builds(t31, ["bot"]); game.hosts[t31].bots = 12.0; game._mark_scanned(game.RIVAL, t31)
+	var s0: float = game._ai_fall_secs(game.RIVAL, t31, 2)
+	var n31 := -1
+	for o in game.hosts[t31].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL and int(o) != t31: n31 = int(o); break
+	game.hosts[t31].assign = n31; game.hosts[t31].live = true; game.hosts[t31].mode = "attack"; game._next_depart[t31] = game._t; game.hosts[t31].rate = 0.3
+	var s1: float = game._ai_fall_secs(game.RIVAL, t31, 2)
+	game.hosts[t31].mode = "scan"
+	var s2: float = game._ai_fall_secs(game.RIVAL, t31, 2)
+	check("31_bleeder_hidden_dial", absf(s0 - 36.0) < 0.5 and absf(s1 - 9.0) < 0.5 and absf(s2 - 36.0) < 0.5, {"idle": snapped(s0, 0.1), "visibly_streaming_out": snapped(s1, 0.1), "quiet_scan_invisible": snapped(s2, 0.1)})
+
+	# 32 memory: a scan remembers bots, cap and time; when the inside changes the live number goes dark and the
+	#    AI uses what it saw, regrown at a farm's rate; a witnessed capture is remembered as near-empty
+	fresh()
+	var t32 := neutral_nb(rigR())
+	game.hosts[t32].type = "pc"
+	game._mark_scanned(game.RIVAL, t32)
+	var rec32: Dictionary = game.scans[game.RIVAL][t32]
+	var remembered: bool = absf(float(rec32.bots) - float(game.hosts[t32].bots)) < 0.01 and absf(float(rec32.cap) - float(game.hosts[t32].sec)) < 0.01
+	var seen_bots: float = float(rec32.bots)
+	game.hosts[t32].builds[1] = "cash"; game.hosts[t32].bots = 3.0
+	var dark: bool = not game._scanned(game.RIVAL, t32) and absf(game._ai_known_bots(game.RIVAL, t32) - seen_bots) < 0.01
+	var kinds32: Array = game._ai_known_builds(game.RIVAL, t32)
+	var remembered_kinds: bool = kinds32 == ["bot"]
+	game._t += 10.0
+	var regrown: bool = absf(game._ai_known_bots(game.RIVAL, t32) - minf(float(rec32.cap), seen_bots + 10.0)) < 0.01
+	var t32b := neutral_nb(secondR(), rigR())
+	game._capture(t32b, game.PLAYER)
+	var flip: bool = absf(game._ai_known_bots(game.RIVAL, t32b)) < 0.01
+	check("32_scan_memory", remembered and dark and remembered_kinds and regrown and flip,
+		{"remembers_on_scan": remembered, "dark_after_change_uses_memory": dark, "remembered_kinds": kinds32, "regrows": regrown, "capture_known_empty": flip})
+
+	# 33 counter-attack is lawful: a VISIBLE attacker gets two streams sized on the public prior; a quiet scan
+	#    into its building is not even noticed; hidden bots of the attacker do not change the decision
+	var wires33 := []
+	for pass33 in 2:
+		fresh(); game.intel[game.RIVAL] = 100.0
+		var t33 := secondR()
+		var k33 := -1
+		for o in game.hosts[t33].links:
+			if int(game.hosts[o].owner) == game.NEUTRAL: k33 = int(o); break
+		game.hosts[k33].owner = game.RIVAL2; game.hosts[k33].bots = 30.0 if pass33 == 0 else 5.0; game._set_builds(k33, ["bot"])
+		game.hosts[k33].assign = t33; game.hosts[k33].live = true; game.hosts[k33].mode = "attack"; game._next_depart[k33] = game._t
+		for o in game.hosts[rigR()].links:   # a third building, so two sources are free while the attacked one holds
+			if int(game.hosts[o].owner) == game.NEUTRAL and int(o) != k33: game.hosts[int(o)].owner = game.RIVAL; game.hosts[int(o)].bots = 30.0; game._set_builds(int(o), ["bot"]); break
+		game._ai_think(game.RIVAL)
+		var w := []
+		for i in game.hosts.size():
+			if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) == k33 and str(game.hosts[i].mode) == "attack": w.append(i)
+		wires33.append(w)
+		if pass33 == 0:
+			var r33: Dictionary = game._ai[game.RIVAL].ops.get(k33, {})
+			wires33.append(absf(float(r33.get("bots", -1.0)) - 18.0) < 0.01)
+	fresh(); game.intel[game.RIVAL] = 100.0
+	var t33b := secondR(); var k33b := -1
+	for o in game.hosts[t33b].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL: k33b = int(o); break
+	game.hosts[k33b].owner = game.RIVAL2; game.hosts[k33b].bots = 30.0; game.hosts[k33b].assign = t33b; game.hosts[k33b].live = true; game.hosts[k33b].mode = "scan"; game._next_depart[k33b] = game._t
+	game._ai_think(game.RIVAL)
+	var ignored: bool = not game._under_attack(t33b)
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) == k33b: ignored = false
+	check("33_counter_attack_lawful", (wires33[0] as Array).size() == 2 and bool(wires33[1]) and wires33[0] == wires33[2] and ignored,
+		{"two_streams": (wires33[0] as Array).size(), "sized_on_prior_18": wires33[1], "same_with_hidden_bots_5": wires33[0] == wires33[2], "quiet_scan_unnoticed": ignored})
+
+	# 34 know your limits, then learn: a target the prior says it cannot take within its patience is not
+	#    attacked (a quiet scan is allowed); once scanned and found weak, it is attacked
+	fresh(); game.intel[game.RIVAL] = 100.0
+	var c34 := neutral_nb(rigR())
+	game.hosts[c34].type = "db"; game.hosts[c34].value = 2; game.hosts[c34].slots = 4; game.hosts[c34].sec = 24.0; game.hosts[c34].bots = 24.0; game._set_builds(c34, ["bot"])
+	game._ai_think(game.RIVAL)
+	var attacked34 := false
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) == c34 and str(game.hosts[i].mode) == "attack": attacked34 = true
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL: game._ai_release(i)
+	game._ai[game.RIVAL].ops = {}
+	game._mark_scanned(game.RIVAL, c34); game.hosts[c34].bots = 6.0; game.scans[game.RIVAL][c34].bots = 6.0
+	game._ai_think(game.RIVAL)
+	var attacked34b := false
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) == c34 and str(game.hosts[i].mode) == "attack": attacked34b = true
+	check("34_know_limits_then_learn", not attacked34 and attacked34b, {"skipped_unknown_strong_prior": not attacked34, "attacks_once_known_weak": attacked34b})
+
+	# 35 retake what it lost: a building it owned and lost ranks above an equal neutral
+	fresh(); game.intel[game.RIVAL] = 100.0
+	var l35 := secondR()
+	game._capture(l35, game.RIVAL2)
+	var lost_recorded: bool = int((game._ai[game.RIVAL].lost as Dictionary).get(l35, {}).get("to", -1)) == game.RIVAL2
+	game.hosts[l35].bots = 6.0; game.hosts[l35].type = "pc"; game.hosts[l35].value = 1; game._set_builds(l35, ["bot"]); game._mark_scanned(game.RIVAL, l35)
+	var m35 := -1
+	for o in game.hosts[rigR()].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL: m35 = int(o); break
+	game.hosts[m35].owner = game.RIVAL; game.hosts[m35].bots = 30.0; game._set_builds(m35, ["bot"])
+	var n35 := -1
+	for o in game.hosts[rigR()].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL and int(o) != l35: n35 = int(o); break
+	if n35 >= 0:
+		game.hosts[n35].type = "pc"; game.hosts[n35].value = 1; game.hosts[n35].bots = 6.0; game._set_builds(n35, ["bot"]); game._mark_scanned(game.RIVAL, n35)
+	game._ai_think(game.RIVAL)
+	var retake := false; var other := false
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and str(game.hosts[i].mode) == "attack":
+			if int(game.hosts[i].assign) == l35: retake = true
+			elif int(game.hosts[i].assign) == n35: other = true
+	check("35_retake_remembered", lost_recorded and retake and not other, {"lost_recorded": lost_recorded, "retakes_lost_building": retake, "equal_neutral_not_preferred": not other})
+
+	# 36 idle scouting: with Intel for learning but not for a strike, one source scans the richest unknown
+	#    neighbour quietly; with less Intel it keeps its reserve
+	fresh(); game.intel[game.RIVAL] = 22.0
+	game._ai_think(game.RIVAL)
+	var sc36 := []
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) >= 0: sc36.append([i, int(game.hosts[i].assign), str(game.hosts[i].mode)])
+	var one_scan: bool = sc36.size() == 1 and str(sc36[0][2]) == "scan" and not game._scanned(game.RIVAL, int(sc36[0][1]))
+	fresh(); game.intel[game.RIVAL] = 5.0
+	game._ai_think(game.RIVAL)
+	var none := true
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live) and int(game.hosts[i].assign) >= 0 and int(game.hosts[game.hosts[i].assign].owner) != game.RIVAL: none = false
+	check("36_idle_scouting", one_scan and none, {"scouts_with_22_intel": one_scan, "keeps_reserve_with_5": none, "scout": sc36})
+
+	# 37 choke the leader: a rival far ahead in Cash gets its known market phished, over a dormant wire laid for it
+	fresh(); game.cash[game.RIVAL2] = 500.0; game.cash[game.RIVAL] = 100.0
+	var m37 := neutral_nb(rigR())
+	game.hosts[m37].owner = game.RIVAL2; game.hosts[m37].type = "pc"; game.hosts[m37].bots = 30.0; game._set_builds(m37, ["bot", "cash"]); game._mark_scanned(game.RIVAL, m37)
+	game.cards[game.RIVAL] = {"phish:linked": 1}
+	game._ai_think(game.RIVAL)
+	var played37: bool = int(game.card_plays[game.RIVAL]) == 1
+	var flight37 := false
+	for fl in game.flights:
+		if str(fl.kind) == "card" and int((fl.route as Array)[(fl.route as Array).size() - 1]) == m37: flight37 = true
+	fresh(); game.cash[game.RIVAL2] = 500.0; game.cash[game.RIVAL] = 100.0
+	var m37b := neutral_nb(rigR())
+	game.hosts[m37b].owner = game.RIVAL2; game.hosts[m37b].type = "pc"; game.hosts[m37b].bots = 30.0; game._set_builds(m37b, ["bot", "intel"]); game._mark_scanned(game.RIVAL, m37b)
+	game.cards[game.RIVAL] = {"phish:linked": 1}
+	game._ai_think(game.RIVAL)
+	var spared: bool = int(game.card_plays[game.RIVAL]) == 0
+	check("37_choke_the_leader", played37 and flight37 and spared, {"phished_known_market": played37 and flight37, "no_market_no_phish": spared})
+
+	# 38 remember where it hurt: a full rear building pre-wires its guard to the frontier building hit most recently
+	fresh()
+	var rr38 := rigR()
+	var fronts := []
+	for o in game.hosts[rr38].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL: game.hosts[int(o)].owner = game.RIVAL; game.hosts[int(o)].bots = 20.0; game._set_builds(int(o), ["bot"]); fronts.append(int(o))
+	for fr38 in fronts:
+		for o in game.hosts[int(fr38)].links:
+			if int(game.hosts[o].owner) == game.NEUTRAL: game.hosts[int(o)].owner = game.RIVAL; game.hosts[int(o)].bots = 20.0; game._set_builds(int(o), ["bot"])
+	var rear_ok: bool = not game._ai_frontier(rr38)
+	var f1 := -1; var att := -1
+	for i in game.hosts.size():   # a frontier building of RIVAL's with a neutral neighbour to play the attacker
+		if int(game.hosts[i].owner) != game.RIVAL or i == rr38: continue
+		for o in game.hosts[i].links:
+			if int(game.hosts[o].owner) == game.NEUTRAL: f1 = i; att = int(o); break
+		if f1 >= 0: break
+	var f2 := -1
+	for fr38c in fronts:
+		if int(fr38c) != f1 and game._ai_frontier(int(fr38c)): f2 = int(fr38c); break
+	if f2 < 0:
+		for i in game.hosts.size():
+			if int(game.hosts[i].owner) == game.RIVAL and i != f1 and i != rr38 and game._ai_frontier(i): f2 = i; break
+	game.hosts[att].owner = game.RIVAL2; game.hosts[att].bots = 30.0; game.hosts[att].assign = f1; game.hosts[att].live = true; game.hosts[att].mode = "attack"; game._next_depart[att] = game._t
+	game.hosts[rr38].bots = 30.0; game.hosts[rr38].assign = -1
+	game._ai_think(game.RIVAL)
+	var edge_seen: bool = absf(float((game._ai[game.RIVAL].edges as Dictionary).get(f1, -1.0)) - game._t) < 0.01
+	game.hosts[att].live = false; game.hosts[att].assign = -1; game._next_depart.erase(att)
+	if f2 >= 0: game.hosts[f2].bots = 10.0
+	game._ai_release(rr38); game.hosts[rr38].bots = 30.0
+	game._ai_think(game.RIVAL)
+	var guarded_edge: bool = int(game.hosts[rr38].assign) == f1 and not bool(game.hosts[rr38].live)
+	check("38_remember_where_it_hurt", rear_ok and edge_seen and guarded_edge, {"rear": rear_ok, "edge_remembered": edge_seen, "guard_on_learned_edge": guarded_edge, "f1": f1, "f2": f2})
+
+	# 39 worm value by public types: a soft cluster (PC, IoT, Web) promises a longer chain than a hard one (DB, ERP)
+	fresh()
+	var s39 := -1
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.NEUTRAL and (game.hosts[i].links as Array).size() >= 2: s39 = i; break
+	var ring := [s39]
+	for o in game.hosts[s39].links: ring.append(int(o))
+	for i in ring: game.hosts[int(i)].type = "pc"
+	var v_soft: float = game._ai_worm_value(game.RIVAL, s39)
+	for i in ring: game.hosts[int(i)].type = "erp"
+	var v_hard: float = game._ai_worm_value(game.RIVAL, s39)
+	check("39_worm_value_public_types", v_soft > v_hard and v_hard > 0.0, {"soft": snapped(v_soft, 0.01), "hard": snapped(v_hard, 0.01)})
+
+	# 40 the AIs still act under the fog: on seeds 7 and 11, both AIs on, each captures a building within 150 s
+	#    and holds at least one scan record that came from a quiet scan (a learn scan), not from an attack
+	var pacing := {}
+	for sd in [7, 11]:
+		fresh(sd); game.ai_enabled = true
+		var first := {2: -1.0, 3: -1.0}; var tt := 0.0
+		while tt < 150.0 and not game.won and not game.lost:
+			game._process(0.1); tt += 0.1
+			for fac in game.AIS:
+				if float(first[fac]) < 0.0 and game._faction_nodes(fac) > 2: first[fac] = snapped(tt, 0.1)
+		var learned40 := {2: 0, 3: 0}
+		for fac in game.AIS:
+			for tk in (game.scans[fac] as Dictionary).keys():
+				var r40: Dictionary = game.scans[fac][tk]
+				if bool(r40.get("done", false)): learned40[fac] += 1
+		pacing[sd] = {"first_capture": first, "scans_done": learned40}
+	var active: bool = float(pacing[7].first_capture[2]) > 0.0 and float(pacing[7].first_capture[3]) > 0.0 and float(pacing[11].first_capture[2]) > 0.0 and float(pacing[11].first_capture[3]) > 0.0
+	var learns: bool = int(pacing[7].scans_done[2]) > 0 and int(pacing[7].scans_done[3]) > 0
+	check("40_ai_acts_under_fog", active and learns, pacing)
+
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)
 	var greedy7 := _run_match(SEED, true, 600.0)

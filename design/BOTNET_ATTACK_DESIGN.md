@@ -260,30 +260,60 @@ frame rate (checked at 60 Hz vs 2 Hz).
 - **Set rally point** on one building: every **unwired** idle building of yours sends its surplus above
   `RALLY_RESERVE` (10) to it, never overfilling it (inbound counted), and **pauses while under attack**.
 
-### The AI botnets (decision: rival botnets; "super clever", they build too)
-Every `cadence` (NYX 3 s, KRAKEN 3.5 s) an AI runs one think, in this order:
-1. **Housekeeping:** release wires whose target it now holds (once full and safe) or cannot reach; drop an
-   attack that made **no progress for `AI_PATIENCE`** (30 s) and avoid that target next time.
-2. **Defence:** for each of its buildings under attack, compare the hostile streams' damage with its
-   regeneration plus the help already flowing; if losing, wire idle neighbours with surplus as live guards.
-   If an attacker is **soft** (≤ 14 bots) and streaming out, it **counter-attacks it with two sources**.
-3. **Build** (one job at a time): an Intel harvester in its safest building while income is below
-   1 + running attacks or the reserve is low; a second Bot farm in a building that borders another botnet;
-   once it holds three buildings and a market, one Credential harvester and one Research lab in the rear
-   (best type multiplier, away from botnet borders); otherwise a market in its richest building.
-   **Research:** with both in place and an empty queue it queues, in order, Credential stuffing, Phishing,
-   a Credential worm (NYX only) and a second Credential stuffing — all LINKED; it never pauses.
-   **Cards:** on a target it is already streaming at (and has scanned) it plays Phishing while the target
-   still regenerates (unless the type resists it by half or more), then wipes the defenders with a
-   Credential worm (botnet-owned targets) or Credential stuffing once the target holds 6+ bots.
-4. **Offence** (one front, two for NYX once it holds 5 buildings): every bordering foreign building is scored
-   by benefit (value, slots, buildings inside, +bonus if owned by a botnet, +bonus if others are already
-   softening it, +bonus if it sits on its rig's doorstep) over time-to-capture; only attacks it can afford
-   in Intel and beat in regeneration are considered; it concentrates `ceil((regen + 0.5) / 0.667)` sources
-   (2…`AI_MAX_STREAMS` 4), nearest first, each keeping a garrison of `AI_RESERVE` (6).
-5. **Supply:** full rear buildings wire **dormant guards** to the weakest frontier building, so help is
-   pre-wired and arms itself when that building is hit.
-NYX is aggressive (`aggr` 0.8: prefers botnet targets, opens a second front); KRAKEN is economic (0.45).
+### The AI botnets (decision: rival botnets; "super clever", they build too — and play under your fog)
+**NYX** (red, bottom right, `aggr` 0.8: prefers botnet targets, opens a second front) and **KRAKEN** (purple,
+bottom left, `aggr` 0.45: economic) are the two AI botnets. Every `cadence` (NYX 3 s, KRAKEN 3.5 s, × `AI_SPEED`)
+an AI runs one think.
+
+**What an AI may know (the same as you).** Its own buildings: everything. A foreign building it has
+**scanned** (record done, contents unchanged): the live bots and what is built — exactly your badge and panel.
+Anything else: **"?"**, so it reasons like you would from public facts — the type (the pictogram), the value
+(the `$` marks), the owner, the streets, the rig frames, the hub, the OFF / CUT frames — and from **memory**:
+what it last saw there (regrown at one Bot farm's rate since), the kinds it saw inside, a building it lost, a
+capture it witnessed (a just-taken building is known to be near empty), where it was last hit. It sees other
+botnets' **live attack flows** and their bot, Cash and card packets, and rival Cash in the HUD; it never sees a
+dormant plan, a quiet scan, a rate dial, a job, or the inside of a building it has not scanned. Two gates
+enforce this in code: `_ai_known_bots` and `_ai_known_builds`; every other AI reader is built on them, and a
+twin test (probe 27) proves the AI's decisions do not change when only hidden fields change. The public
+estimate for an unscanned building: hub 30; a botnet's building `AI_PRIOR_BOTNET` × 30 = 18; a neutral
+`2 + 5 × value + 2.5 + type bonus` (4…28).
+
+**The same rule for you.** The map and panel no longer show other botnets' dormant wires or quiet scans, nor the
+SHAKY / CRITICAL band under a foreign building you have not scanned.
+
+**One think, in order:**
+1. **Remember** — refresh the memory of every building it currently sees.
+2. **Housekeeping** — release wires whose target it now holds (full and safe) or cannot reach; patience runs on
+   what it can see: a scan landing bots, a reveal, a scanned target's bots dropping all count as progress;
+   `AI_PATIENCE` (30 s) without any → give up, avoid that target next time.
+3. **Defence** — remember the edge that is under attack; wire idle neighbours with surplus as live guards when
+   the visible threat (every attacker assumed at 100 % rate) beats regeneration plus help; **counter-attack a
+   visible attacker** with two streams when, on what it knows, that attacker falls within patience and the
+   Intel is there (a building streaming out is net-zero at home).
+4. **Build** — Intel harvester in the safest building while income is short; a second Bot farm on a botnet
+   border; once it holds three buildings and a market, a Credential harvester and a Research lab in the rear;
+   otherwise a market in its richest building.
+5. **Research** — Phishing first when a rival leads the Cash race by `AI_CHOKE_LEAD` (50), else Credential
+   stuffing, Phishing, a Credential worm (NYX), a second stuffing.
+6. **Cards on its current targets** — phish a scanned target's regeneration off, then wipe it: a Credential
+   worm goes to the seed whose **public types** promise the longest chain, else Credential stuffing.
+7. **Choke the Cash leader** — phish a known market of the rival ahead, laying a dormant wire to deliver the
+   LINKED card.
+8. **Offence — scout, then strike.** Every bordering foreign building is scored by benefit over time-to-fall
+   **on what the AI knows**; a known building gets +2 (trust what it learned), a visibly bleeding one +1.5, one
+   someone else is visibly cracking +3 (+8 and a two-stream dash when it is nearly down: steal the kill), one it
+   lost +4…6, a junction +3; a siege longer than `AI_SIEGE_MAX` (120 s) on what it knows is not started (know
+   your limits — a slow steady siege still counts as progress for patience). An **unknown**
+   pick is first **scanned quietly with two sources** (no alarm) — unless it is already alarmed by someone else;
+   the next think re-scores it as known and attacks with the sized force, phishing its regeneration off first
+   when it holds the card.
+9. **Idle scouting** — with nothing worth striking and `AI_SCOUT_INTEL` (20) in reserve, one source quietly
+   scans the richest unknown neighbour so the knowledge is banked for the next expansion.
+10. **Supply** — full rear buildings pre-wire dormant guards to the frontier building hit most recently
+    (`AI_EDGE_MEMORY` 60 s), else to the weakest; the guard arms itself when the next blow lands.
+
+Tuning for a human: `AI_SPEED` (1.5 = every AI thinks a third slower), then `AI_PRIOR_BOTNET`, `AI_SIEGE_MAX`,
+`AI_PATIENCE`, `CASH_GOAL`. All in `scripts/botnet_cfg/factions.gd` and `tuning.gd`.
 
 ## Where the numbers live
 Everything tunable is in `scripts/botnet_cfg/`, one file per concern, and the game script only aliases them
@@ -301,7 +331,8 @@ Everything tunable is in `scripts/botnet_cfg/`, one file per concern, and the ga
 Change a value, restart the scene. Nothing in `botnet_proto.gd` defines a number.
 
 ## Provisional values
-`HIGHWAY_P 0.85 · JUNCTIONS 2 · JUNCTION_CAP_MULT 2 · NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 ·
+`AI_SPEED 1 · AI_CASH_MULT 1 · AI_PRIOR_BOTNET 0.6 · AI_SCOUT_INTEL 20 · AI_CHOKE_LEAD 50 · AI_EDGE_MEMORY 60 · AI_SIEGE_MAX 120 ·
+HIGHWAY_P 0.85 · JUNCTIONS 2 · JUNCTION_CAP_MULT 2 · NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 ·
 LINK_CAP 2 · MAX_QUEUE 1 · SCAN_BASE 10 · SCAN_PER_BUILD 5 · BUILD_TIME 10 · DEMOLISH_TIME 5 · ENTER_TIME 2 · CASH_INTERVAL 3 · CASH_GOAL 600 · INTEL_START 50 ·
 INTEL_CAP_BASE 100 · INTEL_CAP_PER_BUILD 50 · CRED_PER_BUILD 0.5 · RESEARCH_PER_BUILD 0.5 · RES_CAP_BASE 50 · RES_CAP_PER_BUILD 50 ·
 ANY_COST_MULT 4 · ANY_TIME_MULT 2 · WORM_FALLOFF 0.25 · CARD_ALARM 8 · RALLY_RESERVE 10 · AI cadence 3 / 3.5 · AI_RESERVE 6 · AI_PATIENCE 30 ·
@@ -338,20 +369,22 @@ card is a packet in the flights list and nothing lands before it arrives. Render
 states, the research tab with its card faces, a card packet in flight and scripted matches are in `gallery/`.
 
 **Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active, 10 s builds, typed buildings,
-scanning before attacks, cards in play:**
+scanning before attacks, cards in play, highways and junctions, the AIs under the player's fog:**
 
 | Run | Outcome | Time | Buildings you / NYX / KRAKEN | Cards played you / NYX / KRAKEN |
 |---|---|---|---|---|
-| You idle (seed 7) | NYX banks 600 | 5:01 | 1 / 10 / 9 | 0 / 4 / 4 |
-| Greedy scripted player, perfect attention (seed 7) | NYX banks 600 | 5:01 | 1 / 10 / 8 | 0 / 4 / 3 |
-| Greedy scripted player (seed 11) | KRAKEN banks 600 | 4:53 | 3 / 10 / 8 | 0 / 4 / 4 |
+| You idle (seed 7) | NYX banks 600 | 4:58 | 1 / 10 / 7 | 0 / 4 / 4 |
+| Greedy scripted player, perfect attention (seed 7) | NYX banks 600 | 5:32 | 2 / 11 / 4 | 0 / 5 / 5 |
+| Greedy scripted player (seed 11) | NYX banks 600 | 5:16 | 3 / 12 / 7 | 0 / 4 / 4 |
 
-Cards slowed the AIs' clock by half a minute (they now spend Cash and build two more buildings before their
-markets) but made them deadlier to a neighbour: the greedy script, which knows nothing about cards, is phished
-and stuffed down to one building. The AIs still set a ~5-minute clock and beat the script, so as asked they are
-strong. A first human run will need a handicap: raise `CASH_GOAL`, slow the AI `cadence`, or lower `aggr`. Tune
-one value at a time after watching play; the AI only attacks what it can afford and beat, so the honest first
-knob is its Intel start or cadence, not its combat numbers.
+Playing under the fog cost the AIs their first captures (NYX's first capture on seed 7 moved from ~25 s to
+~50 s: it scouts first) but the highways gave their logistics the time back, so the clock is still five minutes.
+**The clock is expansion, not thinking:** `AI_SPEED` 2.0 (every AI thinks half as often) moves the idle clock
+only to 5:35–7:56, and `AI_CASH_MULT` 0.5 (half their Cash income) to 6:40–7:10, because the AIs answer a
+thinner income by taking more markets. The honest handicaps for a first human run are therefore the win line
+(`CASH_GOAL`) or a start handicap (fewer starting bots / Intel for the AIs); both are one number in
+`scripts/botnet_cfg/`. The designer's question "is five minutes tough?" — yes, for a human who also has to
+learn the verbs; the readings above are the baseline to tune against after the first human runs.
 
 **Worm reach (a tuning note):** with the 100/75/50/25 % jump chances on a 6×6 town with 0.78 street density, a
 worm fired at the downtown hub reached 18 of 31 buildings in the gallery capture (seed 7, rng 4242) and 4 from a
@@ -516,6 +549,23 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     one meaning per colour (facts, secondary, needs you, going your way, hostile) replaced some forty colour
     literals; owners keep faction colours and cards keep their family neon. The flash message wraps inside
     the map instead of running under the panel.
+23. **The AI plays under your fog (2026-10-12):** the designer's rule — the AI must have the same knowledge
+    as the player, scan to learn, and plan from what it learned. An audit (three independent readers) found
+    the AI omniscient in three places (target bots, target insides, attacker softness) and leaky in five more
+    (rate dials, quiet-scan wires, the scheduler); a judged panel of three designs chose "two knowledge gates,
+    scout-then-strike, eleven small tricks". Built as designed: `_ai_known_bots` / `_ai_known_builds` (own =
+    exact, scanned = live, else memory regrown or a public prior), derived readers for regeneration, visible
+    outflow, time-to-fall, third-party pressure and worm reach; memory in the scan record (bots, cap, time),
+    lost buildings, witnessed captures, edges under attack. Tricks: scout quietly with two sources before any
+    strike; price the dark from type and value; trust unchanged memory; pile on what others visibly crack and
+    steal the kill; hit the bleeder; know your limits (`AI_SIEGE_MAX`); retake what it lost; idle scouting;
+    choke the Cash leader with phishing over a dormant wire; pre-wire guards where it was last hit; worm the
+    softest cluster by public types; counter a visible attacker on its prior. The attacker's rate dial is
+    hidden from everyone (`_threat_rate` assumes 100 %). The same rule now applies to the player's screen: other
+    botnets' dormant wires and quiet scans are not drawn or listed, and the SHAKY / CRITICAL band shows only on
+    scanned buildings. A twin test (probe 27) perturbs only hidden fields and asserts identical AI decisions;
+    thirteen more cases cover the gates, memory and every trick; a pacing guard asserts both AIs still capture
+    within 150 s on two seeds. `AI_SPEED` is the human handicap knob.
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral

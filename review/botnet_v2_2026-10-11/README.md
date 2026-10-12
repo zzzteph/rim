@@ -7,7 +7,10 @@ with the designer's two-verb control scheme (wire by drag, launch from the targe
 themselves) and the cost-aware AI botnets.
 
 - `all_cards.png` — every card face, LINKED row and ANY row, as the research tab draws them.
-- `probe.gd` — SceneTree script: 26 fixture cases on a fixed town seed plus three full 10 Hz matches as
+- `probe.gd` — SceneTree script: 40 fixture cases on a fixed town seed (27–40 cover the fog-bound AI: a twin
+  test that perturbs only hidden fields, the public prior, scout-then-strike, visibility of others' flows, scan
+  memory, the lawful counter-attack, limits, retaking, idle scouting, choking the leader, learned edges, worm
+  value, and a pacing guard) plus three full 10 Hz matches as
   pacing readings. Calls the real simulation functions; not a usability test, not a balance verdict.
 - `results.json` — the run recorded here.
 - `shot.gd` + `captures/` — early rendered checks of the four panel states.
