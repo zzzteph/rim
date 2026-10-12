@@ -61,7 +61,7 @@ func _run() -> void:
 	check("01_generation", game.hosts.size() <= 36 and game.hosts.size() >= 24 and own[1] == 2 and own[2] == 2 and own[3] == 2
 		and int(game.rig[game.RIVAL2]) == game.cell_at(0, 5)
 		and rigP() == game.cell_at(0, 0) and rigR() == game.cell_at(5, 5) and game.hub >= 0
-		and int(game.hosts[game.hub].owner) == game.NEUTRAL and (game.hosts[game.hub].builds as Array).size() == 2
+		and int(game.hosts[game.hub].owner) == game.NEUTRAL and game._built_kinds(game.hub).size() == 2
 		and int(game.hosts[game.hub].slots) == 4 and all_connected and all_linked and distinct.size() > 1,
 		{"hosts": game.hosts.size(), "owners": own, "hub": game.hub, "sizes_by_seed": sizes, "all_connected": all_connected})
 
@@ -110,7 +110,7 @@ func _run() -> void:
 
 	# 05 control stages switch slots off as bots fall; the first slot always works
 	fresh()
-	game.hosts[n8].builds = ["bot", "intel", "cash"]
+	game._set_builds(n8, ["bot", "intel", "cash"])
 	var st := []
 	for b in [25.0, 15.0, 5.0]:
 		game.hosts[n8].bots = b
@@ -121,12 +121,12 @@ func _run() -> void:
 	fresh()
 	game._start_job(n8, "cash")
 	game._tick_jobs(100.0)
-	var not_built: bool = (game.hosts[n8].builds as Array).size() == 1
+	var not_built: bool = game._built_kinds(n8).size() == 1
 	game._inside = n8; game._enter_left = 0.0
 	game._tick_jobs(game.BUILD_TIME + 0.01)
-	var built: bool = (game.hosts[n8].builds as Array) == ["bot", "cash"]
+	var built: bool = game._built_kinds(n8) == ["bot", "cash"]
 	game._start_job(secondR(), "cash"); game._tick_jobs(game.BUILD_TIME + 0.01)
-	check("06_jobs_need_attention", not_built and built and (game.hosts[secondR()].builds as Array) == ["bot", "cash"],
+	check("06_jobs_need_attention", not_built and built and game._built_kinds(secondR()) == ["bot", "cash"],
 		{"player_without_inside": not_built, "player_inside": built, "rival_builds": game.hosts[secondR()].builds})
 
 	# 07 capture flips a building to the attacker's faction and cancels its orders and jobs; neutral
@@ -148,10 +148,10 @@ func _run() -> void:
 		{"neutral_regrew_to_security": regrew_to_sec, "after_rival": cap_r, "owned_regrows_past_security": owned_regrows, "after_player": game.hosts[nn].owner})
 
 	# 08 an AI botnet cannot afford an attack from a cold start, so it builds an Intel harvester first, then
-	#    concentrates several sources on one soft bordering building (checked after 15 s of play)
+	#    concentrates several sources on one soft bordering building (checked after 22 s of play)
 	fresh()
 	game.ai_enabled = true
-	step(15.0, 0.1)
+	step(22.0, 0.1)
 	var assigned := []
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) == game.RIVAL and int(game.hosts[i].assign) >= 0 and bool(game.hosts[i].live) and int(game.hosts[game.hosts[i].assign].owner) != game.RIVAL: assigned.append([i, game.hosts[i].assign])
@@ -163,11 +163,11 @@ func _run() -> void:
 
 	# 09 Cash packets travel home and bank at the rig; a market ON the rig banks directly
 	fresh()
-	game.hosts[n8].builds = ["bot", "cash"]
+	game._set_builds(n8, ["bot", "cash"])
 	step(10.0, 0.1)
 	var c1: float = game.cash[game.PLAYER]
 	fresh()
-	game.hosts[rigP()].builds = ["bot", "bot", "cash"]
+	game._set_builds(rigP(), ["bot", "bot", "cash"])
 	step(10.0, 0.1)
 	check("09_cash_travels_home", c1 >= 3.0 and c1 <= 4.0 and float(game.cash[game.PLAYER]) >= 3.0 and float(game.cash[game.PLAYER]) <= 4.0, {"via_link": c1, "on_rig": game.cash[game.PLAYER]})
 
@@ -202,7 +202,7 @@ func _run() -> void:
 	var tgt := neutral_nb(rigP())
 	game.hosts[tgt].owner = game.RIVAL; game.hosts[tgt].bots = 12.0; game.hosts[tgt].assign = rigP(); game.hosts[tgt].live = true   # it attacks your rig
 	game.hosts[rigP()].assign = tgt; game.hosts[rigP()].live = true                                                                 # one stream back
-	game.intel[game.PLAYER] = 1000.0; game.hosts[rigP()].builds = ["bot", "bot", "intel", "intel"]
+	game.intel[game.PLAYER] = 1000.0; game._set_builds(rigP(), ["bot", "bot", "intel", "intel"])
 	game.intel[game.RIVAL] = 1000.0
 	step(40.0, 0.1)
 	var at_garrison: bool = int(game.hosts[tgt].owner) == game.RIVAL and float(game.hosts[tgt].bots) <= game.AI_RESERVE + 1.5
@@ -266,6 +266,29 @@ func _run() -> void:
 	check("16_capture_and_loss_wire_status", became_guards and still_topping and guards_stood_down and lost_stands_down,
 		{"flows_became_guards": became_guards, "topping_up_below_full": still_topping, "stood_down_at_full": guards_stood_down, "lost_stands_down_kept": lost_stands_down})
 
+	# 17 slots: a card dropped on an EMPTY slot builds there in BUILD_TIME; on an OCCUPIED slot it replaces —
+	#    the old building goes offline, DEMOLISH_TIME clears the slot, BUILD_TIME builds the new one
+	fresh()
+	var cannot_outside: bool = not game._can_drop(n8, 1, "cash")
+	game._inside = n8; game._enter_left = 0.0
+	var same_refused: bool = not game._can_drop(n8, 0, "bot")
+	game._drop_build(n8, 1, "cash")
+	var j1: Dictionary = game.hosts[n8].job
+	var build_started: bool = not j1.is_empty() and str(j1.phase) == "build" and int(j1.slot) == 1 and absf(float(j1.left) - game.BUILD_TIME) < 0.01
+	game._tick_jobs(game.BUILD_TIME + 0.01)
+	var built_in_slot1: bool = str(game.hosts[n8].builds[1]) == "cash" and (game.hosts[n8].job as Dictionary).is_empty()
+	game._drop_build(n8, 0, "intel")                      # replace the Bot farm in slot 1
+	var j2: Dictionary = game.hosts[n8].job
+	var replace_started: bool = not j2.is_empty() and str(j2.phase) == "demolish" and absf(float(j2.left) - game.DEMOLISH_TIME) < 0.01
+	var offline_meanwhile: bool = game._count(n8, "bot") == 0
+	game._tick_jobs(game.DEMOLISH_TIME + 0.01)
+	var cleared_then_building: bool = str(game.hosts[n8].builds[0]) == "" and str(game.hosts[n8].job.phase) == "build" and absf(float(game.hosts[n8].job.left) - game.BUILD_TIME) < 0.01
+	game._tick_jobs(game.BUILD_TIME + 0.01)
+	var replaced: bool = str(game.hosts[n8].builds[0]) == "intel" and (game.hosts[n8].job as Dictionary).is_empty()
+	check("17_slot_build_and_replace", cannot_outside and same_refused and build_started and built_in_slot1 and replace_started and offline_meanwhile and cleared_then_building and replaced,
+		{"cannot_drop_from_outside": cannot_outside, "same_kind_refused": same_refused, "build_started": build_started, "built_in_slot": built_in_slot1,
+		 "replace_started": replace_started, "offline_meanwhile": offline_meanwhile, "cleared_then_building": cleared_then_building, "replaced": replaced, "builds": game.hosts[n8].builds})
+
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)
 	var greedy7 := _run_match(SEED, true, 600.0)
@@ -319,7 +342,9 @@ func _greedy_player() -> void:
 		for p in game.hosts[i].links:
 			if int(game.hosts[p].owner) != game.PLAYER: frontier = true
 		var kind := "cash"
-		if intel_n < 2: kind = "intel"
+		if intel_n < 1: kind = "intel"
+		elif cash_n == 0: kind = "cash"
+		elif intel_n < 2: kind = "intel"
 		elif frontier and game._count_all(i, "bot") < 2: kind = "bot"
 		elif cash_n <= intel_n: kind = "cash"
 		else: kind = "intel"

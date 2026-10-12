@@ -59,7 +59,7 @@ func _run() -> void:
 	# ── the command flow on seed 7 ──
 	fresh(7)
 	var rp := rigP(); var sp := secondP()
-	game.hosts[rp].builds = ["bot", "bot", "intel"]; game.intel[game.PLAYER] = 100.0   # fuel for the whole sequence
+	game._set_builds(rp, ["bot", "bot", "intel"]); game.intel[game.PLAYER] = 100.0   # fuel for the whole sequence
 	var t1 := neutral_nb(rp, [sp])
 	var t2 := neutral_nb(sp, [rp, t1])
 	if t2 < 0: t2 = neutral_nb(sp, [rp])
@@ -108,7 +108,7 @@ func _run() -> void:
 	await shoot("guard_arms_when_damaged")
 	game._cancel_to(rp)
 	# cash flowing home
-	game.hosts[t1].builds = ["bot", "cash", "cash"]; game.hosts[t1].bots = 25.0; game.hosts[rp].builds = ["bot", "bot", "cash"]
+	game._set_builds(t1, ["bot", "cash", "cash"]); game.hosts[t1].bots = 25.0; game._set_builds(rp, ["bot", "bot", "cash"])
 	sim(8.0)
 	game._clear_all()
 	await shoot("cash_packets_travelling_home")
@@ -119,11 +119,17 @@ func _run() -> void:
 	sim(2.5)
 	await shoot("inside_building_slots")
 	game._player_build(sp, "cash")
-	sim(2.0)
+	sim(4.0)
 	await shoot("inside_build_job_in_progress")
-	sim(5.0)
-	game.hosts[sp].builds = ["bot", "intel", "cash"]
-	await shoot("inside_slots_full_demolish")
+	sim(7.0)
+	game._set_builds(sp, ["bot", "intel", "cash"])
+	await shoot("inside_slots_full")
+	game._drop_build(sp, 0, "cash")
+	sim(2.0)
+	await shoot("inside_replacing_slot_clearing")
+	sim(4.0)
+	await shoot("inside_replacing_slot_building")
+	sim(10.0)
 	game._leave()
 
 	# ── threats ──

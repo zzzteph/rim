@@ -25,7 +25,7 @@ plus the decisions taken on 2026-10-11:
 ## The five experiments (what each tests)
 
 1. **A local with an attention cost.** "Enter building" takes `ENTER_TIME` to connect, builds take `BUILD_TIME`
-   and **progress only while you stay inside**, and while you are inside the map **keeps running and cannot be
+   (a replace `DEMOLISH_TIME` + `BUILD_TIME`) and **progress only while you stay inside**, and while you are inside the map **keeps running and cannot be
    commanded**. *Tests:* does micro cost you buildings on the map?
 2. **Link capacity shared by bots and Cash.** Each link direction admits `LINK_CAP` packets per `LINK_TIME`;
    later packets queue at the building before the link; a source whose first link cannot admit its packet
@@ -104,18 +104,26 @@ offline (the first slot always works). A freshly captured building starts near 0
 runs until it is reinforced or regenerates.
 
 ### Buildings (the local, experiment 1)
-| Kind | Effect |
-|---|---|
-| Bot farm | +1 bot/s regeneration in that building |
-| Intel harvester | +1 Intel/s (global to its owner) |
-| Darknet market | one Cash packet worth the building's **value** every `CASH_INTERVAL` (3 s), travelling home to the owner's rig |
-| Intel vault | +100 Intel capacity |
+| Kind | Icon | Effect |
+|---|---|---|
+| Bot farm | green server rack | +1 bot/s regeneration in that building |
+| Intel harvester | cyan eye with antenna | +1 Intel/s (global to its owner) |
+| Darknet market | gold coin | one Cash packet worth the building's **value** every `CASH_INTERVAL` (3 s), travelling home to the owner's rig |
+| Intel vault | violet vault door | +100 Intel capacity |
 
-- Select one of your buildings → **Enter building** (`ENTER_TIME` 2 s to connect). Inside: slots, one build job
-  at a time (`BUILD_TIME` 6 s, progresses only while you are inside), demolish, leave (Esc / right-click).
-- While inside: the map is veiled but **alive**; you cannot command it; alerts still arrive. If the building
-  falls while you are inside, you are thrown out.
-- Each AI botnet runs **one build job at a time** (its attention), always progressing.
+- Select one of your buildings → **Enter building** (`ENTER_TIME` 2 s to connect). Inside, the panel shows the
+  building's **slots** as a row of boxes: an empty slot shows **+**, a built slot shows the building's icon and
+  name (dimmed with "OFF" when the control stage has switched it off), a working slot shows a progress bar.
+  Below the slots sit **cards**, one per building kind, each with its icon and build time.
+- **Drag a card onto an empty slot** to build there: `BUILD_TIME` (10 s). **Drag a card onto an occupied
+  slot** to replace: the old building goes offline at once, `DEMOLISH_TIME` (5 s) clears the slot, then
+  `BUILD_TIME` (10 s) builds the new one — 15 s in all. Dropping the same kind on a slot does nothing.
+  Clicking a card builds it into the first empty slot. A Demolish button per built slot clears it in 5 s.
+- One job per building; it **progresses only while you stay inside**; Cancel stops it. While inside, the map
+  is veiled but **alive**; you cannot command it; alerts still arrive. If the building falls while you are
+  inside, you are thrown out.
+- Each AI botnet runs **one build job at a time** (its attention), always progressing, into its first empty
+  slot; it never replaces.
 
 ### Intel (under review — see "Open question: Intel")
 Each attack bot released costs its owner 1 Intel; guards and reinforcement are free. Every botnet starts
@@ -159,7 +167,7 @@ NYX is aggressive (`aggr` 0.8: prefers botnet targets, opens a second front); KR
 
 ## Provisional values
 `NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 ·
-LINK_CAP 2 · MAX_QUEUE 1 · BUILD_TIME 6 · ENTER_TIME 2 · CASH_INTERVAL 3 · CASH_GOAL 600 · INTEL_START 50 ·
+LINK_CAP 2 · MAX_QUEUE 1 · BUILD_TIME 10 · DEMOLISH_TIME 5 · ENTER_TIME 2 · CASH_INTERVAL 3 · CASH_GOAL 600 · INTEL_START 50 ·
 INTEL_CAP_BASE 100 · RALLY_RESERVE 10 · AI cadence 3 / 3.5 · AI_RESERVE 6 · AI_PATIENCE 30 ·
 AI_MAX_STREAMS 4 · EMPTY_CELL 0.15 · LINK_KEEP 0.78 · DIAG_P 0.18`
 
@@ -173,24 +181,25 @@ AI_MAX_STREAMS 4 · EMPTY_CELL 0.15 · LINK_KEEP 0.78 · DIAG_P 0.18`
   not for downtown. Building an Intel harvester early is mandatory; the idle panel says so.
 
 ## Validation (2026-10-11, Godot 4.7.2 headless + rendered under Xvfb)
-Mechanics probe in `review/botnet_v2_2026-10-11/`: 16 cases — generation (three botnets, connected,
+Mechanics probe in `review/botnet_v2_2026-10-11/`: 17 cases — generation (three botnets, connected,
 different per seed), faction routing, link capacity queueing, chronological arrivals with terminal freeze,
 control stages, attention-gated jobs, capture and the neutral security cap, AI concentration and building,
 Cash travel and banking, rally garrison and overfill, frame-rate consistency, attack-the-attacker, the two
 verbs (dormant wiring, path constraint, launch, stop, Esc), guards arming and standing down, and ownership
-changes (flows become guards, loss stands wires down). Rendered captures of the panel states and scripted
+changes (flows become guards, loss stands wires down), and the slot board (build into a chosen slot, replace in
+5 + 10 s with the slot offline meanwhile). Rendered captures of the panel states and scripted
 matches are in `gallery/`.
 
-**Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active:**
+**Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active, 10 s builds:**
 
 | Run | Outcome | Time | Buildings you / NYX / KRAKEN |
 |---|---|---|---|
-| You idle (seed 7) | KRAKEN banks 600 | 4:17 | 2 / 7 / 7 |
-| Greedy scripted player, perfect attention (seed 7) | KRAKEN banks 600 | 4:15 | 3 / 7 / 5 |
-| Greedy scripted player (seed 11) | NYX banks 600 | 3:51 | 7 / 8 / 6 |
+| You idle (seed 7) | KRAKEN banks 600 | 4:21 | 2 / 9 / 8 |
+| Greedy scripted player, perfect attention (seed 7) | KRAKEN banks 600 | 4:29 | 1 / 10 / 7 |
+| Greedy scripted player (seed 11) | NYX banks 600 | 4:17 | 3 / 9 / 6 |
 
-The AIs now set a ~4-minute clock and beat the greedy script on both seeds, so as asked they are strong. A
-first human run will need a handicap: raise `CASH_GOAL`, slow the AI `cadence`, or lower `aggr`. Tune one
+The AIs set a ~4½-minute clock and now also take the greedy script's buildings, so as asked they are strong.
+A first human run will need a handicap: raise `CASH_GOAL`, slow the AI `cadence`, or lower `aggr`. Tune one
 value at a time after watching play; the AI only attacks what it can afford and beat, so the honest first
 knob is its Intel start or cadence, not its combat numbers.
 
@@ -271,6 +280,9 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     out; any botnet banking the goal first ends the run.
 14. **Merged** the two-verb scheme (items 6, 8, 9, 10) into v2; guards replaced v1's "full-hold" experiment
     and manual reinforcement orders; the rally point now applies only to **unwired** buildings.
+15. **Slots as a drag-and-drop board (2026-10-12):** the local view shows positional slots (empty = +, built =
+    icon) and draggable building cards; drop on an empty slot to build in 10 s, on an occupied slot to replace
+    in 5 s clear + 10 s build; a slot being worked on is offline; icons are drawn procedurally.
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral

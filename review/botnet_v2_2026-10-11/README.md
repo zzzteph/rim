@@ -5,14 +5,14 @@ free-for-all, Cash race, link capacity, attention-gated local view, control stag
 with the designer's two-verb control scheme (wire by drag, launch from the target's panel, guards that arm
 themselves) and the cost-aware AI botnets.
 
-- `probe.gd` — SceneTree script: 16 fixture cases on a fixed town seed plus three full 10 Hz matches as
+- `probe.gd` — SceneTree script: 17 fixture cases on a fixed town seed plus three full 10 Hz matches as
   pacing readings. Calls the real simulation functions; not a usability test, not a balance verdict.
 - `results.json` — the run recorded here.
 - `shot.gd` + `captures/` — early rendered checks of the four panel states.
-- `gallery.gd` + `gallery/` — the real scene rendered under Xvfb through 32 scripted states: towns from four
+- `gallery.gd` + `gallery/` — the real scene rendered under Xvfb through 34 scripted states: towns from four
   seeds, selection, dormant wires and the launch pad, a launched two-stream attack with a busy link, the
   inspect diagnostics, a capture, the rally point, the rate dial, a guard arming when its building is
-  damaged, Cash packets, the inside view, an attack by NYX, a scripted match at one-minute intervals on two
+  damaged, Cash packets, the inside view with its slot board (build, replace in progress), an attack by NYX, a scripted match at one-minute intervals on two
   seeds, and the three endings. `gallery/00_contact_sheet.png` is an overview.
 
 Run (Godot 4.7.2, from a project folder that contains `scripts/` and `scenes/`):

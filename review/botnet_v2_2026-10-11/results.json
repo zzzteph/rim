@@ -99,7 +99,8 @@
 				"player_without_inside": true,
 				"rival_builds": [
 					"bot",
-					"cash"
+					"cash",
+					""
 				]
 			},
 			"pass": true
@@ -128,7 +129,7 @@
 					]
 				],
 				"harvesters": 1,
-				"nyx_intel": 49.6000000000001
+				"nyx_intel": 44.6000000000001
 			},
 			"pass": true
 		},
@@ -212,52 +213,71 @@
 			"pass": true
 		},
 		{
+			"case": "17_slot_build_and_replace",
+			"observed": {
+				"build_started": true,
+				"builds": [
+					"intel",
+					"cash",
+					""
+				],
+				"built_in_slot": true,
+				"cannot_drop_from_outside": true,
+				"cleared_then_building": true,
+				"offline_meanwhile": true,
+				"replace_started": true,
+				"replaced": true,
+				"same_kind_refused": true
+			},
+			"pass": true
+		},
+		{
 			"case": "13_pacing_readings",
 			"observed": {
 				"greedy_seed11": {
 					"cash": [
-						195,
-						601
+						0,
+						602
 					],
-					"cash_kraken": 318,
+					"cash_kraken": 354,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": 21.5,
-					"intel": 99,
+					"intel": 0,
 					"kraken_nodes": 6,
 					"outcome": "LOSS",
-					"player_nodes": 7,
-					"rival_nodes": 8,
-					"t": 230.7
+					"player_nodes": 3,
+					"rival_nodes": 9,
+					"t": 257.0
 				},
 				"greedy_seed7": {
 					"cash": [
-						262,
-						391
+						0,
+						383
 					],
-					"cash_kraken": 601,
+					"cash_kraken": 600,
 					"cause": "KRAKEN banked 600 Cash first.",
-					"first_capture_t": 40.2,
-					"intel": 21,
-					"kraken_nodes": 5,
+					"first_capture_t": -1.0,
+					"intel": 0,
+					"kraken_nodes": 7,
 					"outcome": "LOSS",
-					"player_nodes": 3,
-					"rival_nodes": 7,
-					"t": 255.3
+					"player_nodes": 1,
+					"rival_nodes": 10,
+					"t": 268.7
 				},
 				"rival_alone": {
 					"cash": [
 						0,
-						378
+						358
 					],
 					"cash_kraken": 601,
 					"cause": "KRAKEN banked 600 Cash first.",
 					"first_capture_t": -1.0,
 					"intel": 50,
-					"kraken_nodes": 7,
+					"kraken_nodes": 8,
 					"outcome": "LOSS",
 					"player_nodes": 2,
-					"rival_nodes": 7,
-					"t": 256.7
+					"rival_nodes": 9,
+					"t": 260.7
 				}
 			},
 			"pass": true

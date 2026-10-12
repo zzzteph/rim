@@ -69,13 +69,14 @@ const DEFEND_POWER := 1.5
 
 # ── the LOCAL layer: buildings inside a building (slots), built on a timer while you are INSIDE ──
 const HUB_SLOTS := 4
-const BUILD_TIME := 6.0            # seconds a build job needs; YOUR jobs progress only while you are inside
+const BUILD_TIME := 10.0           # seconds a build job needs; YOUR jobs progress only while you are inside
+const DEMOLISH_TIME := 5.0         # seconds to clear an occupied slot first (replace = DEMOLISH_TIME + BUILD_TIME)
 const ENTER_TIME := 2.0            # seconds to connect into a building before its local view is usable
 const BUILD_KINDS := {
-	"bot":   {"name": "Bot farm",        "short": "B", "desc": "+1 bot/s regeneration here"},
-	"intel": {"name": "Intel harvester", "short": "I", "desc": "+1 Intel/s (global). Attacks spend 1 Intel per bot."},
-	"cash":  {"name": "Darknet market",  "short": "$", "desc": "a Cash packet (worth the building's value) every 3 s, travelling home to your rig"},
-	"cap":   {"name": "Intel vault",     "short": "C", "desc": "+100 Intel capacity"},
+	"bot":   {"name": "Bot farm",        "short": "B", "col": Color(0.45, 0.95, 0.6),  "desc": "+1 bot/s regeneration here"},
+	"intel": {"name": "Intel harvester", "short": "I", "col": Color(0.4, 0.85, 1.0),   "desc": "+1 Intel/s (global). Attacks spend 1 Intel per bot."},
+	"cash":  {"name": "Darknet market",  "short": "$", "col": Color(1.0, 0.85, 0.3),   "desc": "a Cash packet (worth the building's value) every 3 s, travelling home to your rig"},
+	"cap":   {"name": "Intel vault",     "short": "C", "col": Color(0.75, 0.55, 1.0),  "desc": "+100 Intel capacity"},
 }
 const INTEL_START := 50.0
 const INTEL_CAP_BASE := 100.0
@@ -213,7 +214,7 @@ func _gen() -> void:
 			hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
 				"name": "DOWNTOWN HUB" if is_hub else "%s %d" % [TOWN_WORDS[rng.randi() % TOWN_WORDS.size()], hosts.size() + 1],
 				"links": [], "owner": NEUTRAL, "bots": sec, "sec": sec, "value": value, "slots": slots,
-				"builds": (["bot", "bot"] if is_hub else ["bot"]), "job": {}, "assign": -1, "live": false, "rate": 1.0})
+				"builds": _slot_array(["bot", "bot"] if is_hub else ["bot"], slots), "job": {}, "assign": -1, "live": false, "rate": 1.0})
 	for c in _cell.keys():   # streets: grid neighbours (some missing), a few diagonals (never crossing)
 		for d in [Vector2i(1, 0), Vector2i(0, 1)]:
 			var nb: Vector2i = c + d
@@ -269,8 +270,28 @@ func _components() -> Array:   # connected groups of buildings over the street n
 func _claim(i: int, fac: int, is_rig: bool, nm: String) -> void:
 	hosts[i].owner = fac; hosts[i].bots = NODE_CAP; hosts[i].value = 1; hosts[i].slots = maxi(3, int(hosts[i].slots))
 	if is_rig:
-		hosts[i].rig = true; rig[fac] = i; hosts[i].builds = ["bot", "bot"]
+		hosts[i].rig = true; rig[fac] = i; hosts[i].builds = _slot_array(["bot", "bot"], int(hosts[i].slots))
+	else:
+		hosts[i].builds = _slot_array(_built_kinds(i), int(hosts[i].slots))
 	if nm != "": hosts[i].name = nm
+
+
+func _slot_array(kinds: Array, n: int) -> Array:   # positional slots, "" = empty
+	var out := []
+	for k in n: out.append(str(kinds[k]) if k < kinds.size() else "")
+	return out
+
+
+func _set_builds(i: int, kinds: Array) -> void:   # scripts/probes: place these kinds from slot 1, pad with empties
+	hosts[i].slots = maxi(int(hosts[i].slots), kinds.size())
+	hosts[i].builds = _slot_array(kinds, int(hosts[i].slots))
+
+
+func _built_kinds(i: int) -> Array:   # kinds present, in slot order (empties skipped)
+	var out := []
+	for b in hosts[i].builds:
+		if str(b) != "": out.append(str(b))
+	return out
 
 
 func _link(a: int, b: int) -> void:
@@ -459,15 +480,35 @@ func _stage(i: int) -> int:
 	return 2
 
 
+func _slot_busy(i: int, k: int) -> bool:   # a job is working on this slot; its building is offline meanwhile
+	var job: Dictionary = hosts[i].job
+	return not job.is_empty() and int(job.slot) == k
+
+
+func _built(i: int) -> Array:   # [slot, kind] of every standing building in slot order (busy slots excluded)
+	var out := []
+	var b: Array = hosts[i].builds
+	for k in b.size():
+		if str(b[k]) != "" and not _slot_busy(i, k): out.append([k, str(b[k])])
+	return out
+
+
 func _active_slots(i: int) -> int:   # a weakened building runs fewer of its slots (the first always works)
-	return maxi(1, (hosts[i].builds as Array).size() - _stage(i))
+	return maxi(1, _built(i).size() - _stage(i))
+
+
+func _slot_active(i: int, k: int) -> bool:   # is the building in slot k among the ones still working?
+	var bl := _built(i); var act := _active_slots(i)
+	for idx in bl.size():
+		if int(bl[idx][0]) == k: return idx < act
+	return false
 
 
 func _count(i: int, kind: String) -> int:   # ACTIVE buildings of a kind
 	var n := 0
-	var b: Array = hosts[i].builds
-	for k in mini(_active_slots(i), b.size()):
-		if str(b[k]) == kind: n += 1
+	var bl := _built(i)
+	for k in mini(_active_slots(i), bl.size()):
+		if str(bl[k][1]) == kind: n += 1
 	return n
 
 
@@ -476,6 +517,13 @@ func _count_all(i: int, kind: String) -> int:   # built, active or not
 	for b in hosts[i].builds:
 		if str(b) == kind: n += 1
 	return n
+
+
+func _free_slot(i: int) -> int:   # first empty slot not reserved by a running job, or -1
+	var b: Array = hosts[i].builds
+	for k in b.size():
+		if str(b[k]) == "" and not _slot_busy(i, k): return k
+	return -1
 
 
 func _intel_cap(fac: int) -> float:
@@ -499,18 +547,47 @@ func _cash_rate(fac: int) -> float:   # Cash/s a faction's active markets emit (
 	return r
 
 
-func _start_job(i: int, kind: String) -> bool:
+# one job per building. Into an EMPTY slot: build (BUILD_TIME). Onto an OCCUPIED slot: replace — the old
+# building goes offline at once, the slot is cleared (DEMOLISH_TIME), then the new one is built (BUILD_TIME).
+func _start_job(i: int, kind: String, slot := -1) -> bool:
 	if i < 0 or int(hosts[i].owner) == NEUTRAL or not BUILD_KINDS.has(kind): return false
 	if not (hosts[i].job as Dictionary).is_empty(): return false
-	if (hosts[i].builds as Array).size() >= int(hosts[i].slots): return false
-	hosts[i].job = {"kind": kind, "left": BUILD_TIME}
+	if slot < 0: slot = _free_slot(i)
+	if slot < 0 or slot >= (hosts[i].builds as Array).size(): return false
+	var cur := str(hosts[i].builds[slot])
+	if cur == kind: return false
+	if cur == "": hosts[i].job = {"kind": kind, "slot": slot, "phase": "build", "left": BUILD_TIME}
+	else: hosts[i].job = {"kind": kind, "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME}
 	return true
 
 
-func _player_build(i: int, kind: String) -> void:
-	if _start_job(i, kind):
-		_flash("Building %s in %s — stay inside %.0f s to finish it" % [BUILD_KINDS[kind].name, str(hosts[i].name), BUILD_TIME])
+func _can_drop(i: int, slot: int, kind: String) -> bool:   # a card held over a slot of the building you are in
+	if i < 0 or not _mine(i) or _inside != i or _enter_left > 0.0 or not BUILD_KINDS.has(kind): return false
+	if not (hosts[i].job as Dictionary).is_empty(): return false
+	if slot < 0 or slot >= (hosts[i].builds as Array).size(): return false
+	return str(hosts[i].builds[slot]) != kind
+
+
+func _drop_build(i: int, slot: int, kind: String) -> void:   # a card dropped on a slot
+	if not _can_drop(i, slot, kind): return
+	var cur := str(hosts[i].builds[slot])
+	if _start_job(i, kind, slot):
+		if cur == "": _flash("Building %s in slot %d of %s — %.0f s, stay inside" % [BUILD_KINDS[kind].name, slot + 1, str(hosts[i].name), BUILD_TIME])
+		else: _flash("Replacing %s with %s in slot %d — %.0f s to clear, then %.0f s to build" % [BUILD_KINDS[cur].name, BUILD_KINDS[kind].name, slot + 1, DEMOLISH_TIME, BUILD_TIME])
 	_refresh_panel(); queue_redraw()
+
+
+func _card_click(kind: String) -> void:   # clicking a card (no drag) builds into the first empty slot
+	if _inside < 0: return
+	var s := _free_slot(_inside)
+	if s < 0:
+		_flash("No empty slot — drag the card onto an occupied slot to replace that building")
+		return
+	_drop_build(_inside, s, kind)
+
+
+func _player_build(i: int, kind: String) -> void:   # script helper: first empty slot of the building you are in
+	_drop_build(i, _free_slot(i), kind)
 
 
 func _cancel_job(i: int) -> void:
@@ -518,12 +595,11 @@ func _cancel_job(i: int) -> void:
 	_refresh_panel(); queue_redraw()
 
 
-func _demolish(i: int, slot: int) -> void:
+func _demolish(i: int, slot: int) -> void:   # clear a slot (DEMOLISH_TIME); the building is offline meanwhile
 	if i < 0 or slot < 0 or slot >= (hosts[i].builds as Array).size(): return
-	var kind := str(hosts[i].builds[slot])
-	(hosts[i].builds as Array).remove_at(slot)
-	intel[PLAYER] = minf(_intel_cap(PLAYER), float(intel[PLAYER]))
-	_flash("Demolished %s in %s" % [BUILD_KINDS[kind].name, str(hosts[i].name)])
+	if str(hosts[i].builds[slot]) == "" or not (hosts[i].job as Dictionary).is_empty(): return
+	hosts[i].job = {"kind": "", "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME}
+	_flash("Demolishing %s in slot %d of %s — %.0f s" % [BUILD_KINDS[str(hosts[i].builds[slot])].name, slot + 1, str(hosts[i].name), DEMOLISH_TIME])
 	_refresh_panel(); queue_redraw()
 
 
@@ -537,11 +613,20 @@ func _tick_jobs(dt: float) -> void:
 		var progress: bool = (fac != PLAYER) or (_inside == i and _enter_left <= 0.0)
 		if not progress: continue
 		job.left = float(job.left) - dt
-		if float(job.left) <= 0.0:
-			(hosts[i].builds as Array).append(str(job.kind))
+		if float(job.left) > 0.0: continue
+		var slot := int(job.slot)
+		if str(job.phase) == "demolish":
+			hosts[i].builds[slot] = ""
+			if str(job.kind) == "":
+				hosts[i].job = {}
+				if fac == PLAYER: _flash("Slot %d of %s cleared" % [slot + 1, str(hosts[i].name)]); _refresh_panel()
+			else:
+				job.phase = "build"; job.left = BUILD_TIME
+		else:
+			hosts[i].builds[slot] = str(job.kind)
 			hosts[i].job = {}
 			if fac == PLAYER:
-				_flash("Built %s in %s" % [BUILD_KINDS[str(job.kind)].name, str(hosts[i].name)])
+				_flash("Built %s in slot %d of %s" % [BUILD_KINDS[str(job.kind)].name, slot + 1, str(hosts[i].name)])
 				_refresh_panel()
 
 
@@ -912,7 +997,7 @@ func _ai_think(fac: int) -> void:
 	if not busy:
 		var free_slot := []
 		for e in mine:
-			if (hosts[e].builds as Array).size() < int(hosts[e].slots): free_slot.append(e)
+			if _free_slot(e) >= 0: free_slot.append(e)
 		if not free_slot.is_empty():
 			var site := -1; var kind := ""
 			var want_intel: bool = _intel_rate(fac) < 1.0 + float(ops.size()) or float(intel[fac]) < 15.0
@@ -927,7 +1012,7 @@ func _ai_think(fac: int) -> void:
 			if site < 0:   # otherwise the richest building gets a market
 				var bestv := -1.0
 				for e in free_slot:
-					var v := float(hosts[e].value) * 2.0 + float(int(hosts[e].slots) - (hosts[e].builds as Array).size()) * 0.3 - (1.0 if _ai_borders_botnet(e) else 0.0)
+					var v := float(hosts[e].value) * 2.0 + float(int(hosts[e].slots) - _built_kinds(e).size()) * 0.3 - (1.0 if _ai_borders_botnet(e) else 0.0)
 					if v > bestv: bestv = v; site = e; kind = "cash"
 			if site >= 0: _start_job(site, kind)
 	# ── 3. offence: a cost-aware target, enough streams to beat its regeneration, affordable in Intel ──
@@ -961,7 +1046,7 @@ func _ai_think(fac: int) -> void:
 			var cost := secs * float(n)
 			if cost > float(intel[fac]) + _intel_rate(fac) * secs: continue
 			var o := int(hosts[c].owner)
-			var benefit := float(hosts[c].value) * 3.0 + float(hosts[c].slots) + float((hosts[c].builds as Array).size())
+			var benefit := float(hosts[c].value) * 3.0 + float(hosts[c].slots) + float(_built_kinds(c).size())
 			if o != NEUTRAL: benefit += 4.0 + 6.0 * aggr          # taking a rival's building also hurts its income
 			if o == PLAYER: benefit += 2.0 * aggr
 			var others := 0
@@ -1204,10 +1289,10 @@ func _reset() -> void:   # a NEW town every restart
 
 
 func _build_names(builds: Array) -> String:
-	if builds.is_empty(): return "none"
 	var out := []
-	for b in builds: out.append(BUILD_KINDS[str(b)].name if BUILD_KINDS.has(str(b)) else str(b))
-	return ", ".join(out)
+	for b in builds:
+		if str(b) != "": out.append(BUILD_KINDS[str(b)].name if BUILD_KINDS.has(str(b)) else str(b))
+	return ", ".join(out) if not out.is_empty() else "none"
 
 
 func _flash(m: String) -> void: _msg = m; _msg_t = 4.0
@@ -1259,6 +1344,7 @@ func _esc_btn() -> void: _clear_all(); _refresh_panel(); queue_redraw()
 # Panel is organised around the two verbs: CONNECT (selection panel) and LAUNCH (a building's own panel
 # carries its ⚔ ATTACK button). States: RESULT · INSIDE (micro) · SELECTING · NODE (launch pad) · IDLE.
 func _refresh_panel() -> void:
+	if is_inside_tree() and get_viewport() != null and get_viewport().gui_is_dragging(): return   # a card is in the air
 	for c in panel_box.get_children(): c.queue_free()
 	if won or lost: _panel_result(); return
 	if _inside >= 0: _panel_inside()
@@ -1281,10 +1367,10 @@ func _stage_line(i: int) -> String:
 	var h: Dictionary = hosts[i]
 	if int(h.owner) == NEUTRAL:
 		return "security %d/%d · value ×%d · %d slots" % [int(h.bots), int(h.sec), int(h.value), int(h.slots)]
-	return "%s · %d/%d bots · %d of %d slots working · value ×%d" % [STAGE_NAME[_stage(i)], int(h.bots), int(NODE_CAP), mini(_active_slots(i), (h.builds as Array).size()), int(h.slots), int(h.value)]
+	return "%s · %d/%d bots · %d of %d slots working · value ×%d" % [STAGE_NAME[_stage(i)], int(h.bots), int(NODE_CAP), mini(_active_slots(i), _built(i).size()), int(h.slots), int(h.value)]
 
 
-func _panel_inside() -> void:   # MICRO — the local view of one building of yours
+func _panel_inside() -> void:   # MICRO — the local view of one building of yours: slots and building cards
 	var i := _inside
 	var h: Dictionary = hosts[i]
 	_plabel("INSIDE  %s" % str(h.name), 18, Color(1, 0.9, 0.5))
@@ -1296,28 +1382,36 @@ func _panel_inside() -> void:   # MICRO — the local view of one building of yo
 	_plabel(_stage_line(i), 13, Color(0.82, 0.9, 1.0))
 	var hin := int(_hostile_incoming(i))
 	if hin > 0: _plabel("⚠ Under attack — %d hostile bots inbound." % hin, 13, Color(1, 0.6, 0.5))
-	var builds: Array = h.builds
+	var row := HBoxContainer.new()   # the SLOTS: drop a card on one to build there; on an occupied one to replace
+	row.add_theme_constant_override("separation", 8)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for sl in int(h.slots):
+		var sb := SlotBox.new(); sb.game = self; sb.host = i; sb.slot = sl
+		row.add_child(sb)
+	panel_box.add_child(row)
 	var job: Dictionary = h.job
-	for s in int(h.slots):
-		if s < builds.size():
-			var k := str(builds[s])
-			var active: bool = s < _active_slots(i)
-			_plabel("Slot %d: %s%s — %s" % [s + 1, BUILD_KINDS[k].name, "" if active else " (OFFLINE: too few bots)", BUILD_KINDS[k].desc], 12, Color(0.75, 0.95, 0.8) if active else Color(0.8, 0.7, 0.6))
-		elif s == builds.size() and not job.is_empty():
-			_plabel("Slot %d: building %s… %.1f s left (only while you stay inside)" % [s + 1, BUILD_KINDS[str(job.kind)].name, float(job.left)], 12, Color(1, 0.9, 0.5))
-		else:
-			_plabel("Slot %d: empty" % (s + 1), 12, Color(0.6, 0.7, 0.8))
 	if not job.is_empty():
-		_btn("✖ Cancel build", _cancel_job.bind(i))
-	elif builds.size() < int(h.slots):
-		_plabel("Build (each takes %.0f s of your attention):" % BUILD_TIME, 13, Color(0.9, 0.95, 1.0))
-		for k in BUILD_KINDS.keys():
-			_plabel("%s: %s" % [BUILD_KINDS[k].name, BUILD_KINDS[k].desc], 11, Color(0.7, 0.8, 0.9))
-			_btn("+ Build %s" % BUILD_KINDS[k].name, _player_build.bind(i, str(k)))
+		var kn: String = str(BUILD_KINDS[str(job.kind)].name) if str(job.kind) != "" else ""
+		if str(job.phase) == "demolish" and kn == "": _plabel("Clearing slot %d… %.1f s (only while you stay inside)" % [int(job.slot) + 1, float(job.left)], 12, Color(1, 0.8, 0.5))
+		elif str(job.phase) == "demolish": _plabel("Replacing slot %d with %s: clearing… %.1f s, then %.0f s to build (only while you stay inside)" % [int(job.slot) + 1, kn, float(job.left), BUILD_TIME], 12, Color(1, 0.8, 0.5))
+		else: _plabel("Building %s in slot %d… %.1f s (only while you stay inside)" % [kn, int(job.slot) + 1, float(job.left)], 12, Color(1, 0.9, 0.5))
+		_btn("✖ Cancel job", _cancel_job.bind(i))
 	else:
-		_plabel("All slots full. Demolish one to rebuild it:", 12, Color(0.82, 0.86, 0.96))
-	for s in builds.size():
-		_btn("✖ Demolish slot %d: %s" % [s + 1, BUILD_KINDS[str(builds[s])].name], _demolish.bind(i, s))
+		_plabel("Drag a card onto a slot: empty = build (%.0f s) · occupied = replace (%.0f s to clear + %.0f s). Click a card = first empty slot." % [BUILD_TIME, DEMOLISH_TIME, BUILD_TIME], 11, Color(0.7, 0.8, 0.9))
+	var cards := HBoxContainer.new()   # the CARDS: one per building kind, draggable
+	cards.add_theme_constant_override("separation", 6)
+	cards.alignment = BoxContainer.ALIGNMENT_CENTER
+	cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for k in BUILD_KINDS.keys():
+		var c := BuildCard.new(); c.game = self; c.kind = str(k)
+		cards.add_child(c)
+	panel_box.add_child(cards)
+	for k in BUILD_KINDS.keys():
+		_plabel("%s — %s" % [BUILD_KINDS[k].name, BUILD_KINDS[k].desc], 10, Color(0.65, 0.75, 0.88))
+	if job.is_empty():
+		for sl in int(h.slots):
+			if str(h.builds[sl]) != "": _btn("✖ Demolish slot %d: %s (%.0f s)" % [sl + 1, BUILD_KINDS[str(h.builds[sl])].name, DEMOLISH_TIME], _demolish.bind(i, sl))
 	_btn("← Leave building (Esc)", _leave)
 
 
@@ -1661,9 +1755,9 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	draw_string(f, p + Vector2(-rr - 2.0, -rr - 7.0), str(hosts[i].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.85, 0.92, 1.0, a))
 	draw_string(f, p + Vector2(rr + 3.0, -rr + 2.0), vmarks, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 0.9, 0.4, 0.9 * a))
 	var bi := ""   # build badges: B bot farm · I intel · $ cash · C vault — lowercase when offline
-	var act := _active_slots(i)
-	for k in (hosts[i].builds as Array).size():
-		var sh: String = str(BUILD_KINDS[str(hosts[i].builds[k])].short)
+	var bl := _built(i); var act := _active_slots(i)
+	for k in bl.size():
+		var sh: String = str(BUILD_KINDS[str(bl[k][1])].short)
 		bi += sh if k < act else sh.to_lower()
 	if not (hosts[i].job as Dictionary).is_empty(): bi += "…"
 	if bi != "" and int(hosts[i].owner) != NEUTRAL: draw_string(f, p + Vector2(-rr, rr + 22.0), bi, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.95, 0.95, 0.6, 0.95 * a))
@@ -1714,3 +1808,122 @@ func _draw_route_line(rt: Array, src: int, tgt: int, dim := false) -> void:
 		draw_colored_polygon(PackedVector2Array([ctr + dir * 7.0, ctr + perp * 6.0, ctr - dir * 7.0, ctr - perp * 6.0]), c)
 	else:
 		draw_colored_polygon(PackedVector2Array([tip, tip - dir * 14.0 + perp * 8.0, tip - dir * 14.0 - perp * 8.0]), c)
+
+
+# ============================================================ LOCAL VIEW WIDGETS (slots & cards)
+# Icons are drawn procedurally so the prototype needs no art: each building kind has a glyph and a colour.
+func _draw_kind_icon(c: CanvasItem, kind: String, centre: Vector2, sz: float, col: Color, f: Font) -> void:
+	var ink := Color(0.06, 0.08, 0.12, col.a)
+	match kind:
+		"bot":   # a server rack: three units with a status LED each
+			for r in 3:
+				var y := centre.y - sz * 0.46 + float(r) * sz * 0.34
+				c.draw_rect(Rect2(centre.x - sz * 0.45, y, sz * 0.9, sz * 0.26), col, true)
+				c.draw_circle(Vector2(centre.x + sz * 0.3, y + sz * 0.13), sz * 0.06, ink)
+		"intel":   # an eye with an antenna arc
+			c.draw_arc(centre, sz * 0.4, 0.0, TAU, 32, col, sz * 0.09, true)
+			c.draw_circle(centre, sz * 0.15, col)
+			c.draw_arc(centre + Vector2(0, sz * 0.1), sz * 0.62, -2.45, -0.7, 16, col, sz * 0.07, true)
+		"cash":   # a coin with a $ sign
+			c.draw_circle(centre, sz * 0.46, col)
+			c.draw_arc(centre, sz * 0.36, 0.0, TAU, 32, ink, sz * 0.04, true)
+			c.draw_string(f, centre + Vector2(-sz * 0.17, sz * 0.21), "$", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz * 0.62), ink)
+		"cap":   # a vault door: a square with a dial
+			c.draw_rect(Rect2(centre - Vector2(sz * 0.44, sz * 0.44), Vector2(sz * 0.88, sz * 0.88)), col, true)
+			c.draw_arc(centre, sz * 0.2, 0.0, TAU, 24, ink, sz * 0.08, true)
+			c.draw_line(centre, centre + Vector2(sz * 0.17, 0), ink, sz * 0.06, true)
+		_:
+			c.draw_rect(Rect2(centre - Vector2(sz * 0.4, sz * 0.4), Vector2(sz * 0.8, sz * 0.8)), col, false, 2.0)
+
+
+class SlotBox extends Control:   # one slot of the building you are inside: "+" when empty, the icon when built
+	var game
+	var host := -1
+	var slot := 0
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(76, 90)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		tooltip_text = "Drop a building card here"
+
+	func _process(_dt: float) -> void: queue_redraw()
+
+	func _can_drop_data(_p: Vector2, data: Variant) -> bool:
+		return data is Dictionary and (data as Dictionary).has("kind") and game._can_drop(host, slot, str(data.kind))
+
+	func _drop_data(_p: Vector2, data: Variant) -> void:
+		game._drop_build(host, slot, str(data.kind))
+
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var w := size.x
+		var box := Rect2(Vector2.ZERO, Vector2(w, 72))
+		var h: Dictionary = game.hosts[host]
+		var kind := str(h.builds[slot])
+		var job: Dictionary = h.job
+		var busy: bool = not job.is_empty() and int(job.slot) == slot
+		var dragging: bool = get_viewport().gui_is_dragging()
+		var hover: bool = dragging and get_global_rect().has_point(get_global_mouse_position())
+		draw_rect(box, Color(0.1, 0.12, 0.17), true)
+		var edge := Color(0.45, 0.55, 0.7, 0.7)
+		if dragging: edge = Color(1, 0.9, 0.5, 0.95) if hover else Color(0.8, 0.75, 0.5, 0.7)
+		draw_rect(box, edge, false, 2.0)
+		draw_string(f, Vector2(4, 12), "slot %d" % (slot + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.55, 0.65, 0.8))
+		var centre := Vector2(w * 0.5, 38)
+		if busy:
+			var phase := str(job.phase)
+			var total: float = game.DEMOLISH_TIME if phase == "demolish" else game.BUILD_TIME
+			var frac: float = clampf(1.0 - float(job.left) / total, 0.0, 1.0)
+			var k2: String = str(job.kind) if phase == "build" else kind
+			if k2 != "": game._draw_kind_icon(self, k2, centre, 30.0, Color(game.BUILD_KINDS[k2].col, 0.35), f)
+			draw_rect(Rect2(6, 62, w - 12, 6), Color(0.2, 0.22, 0.28), true)
+			draw_rect(Rect2(6, 62, (w - 12) * frac, 6), Color(1, 0.6, 0.4) if phase == "demolish" else Color(1, 0.9, 0.5), true)
+			draw_string(f, Vector2(4, 86), ("clearing %.0f s" if phase == "demolish" else "building %.0f s") % float(job.left), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 0.9, 0.5))
+		elif kind == "":
+			draw_string(f, centre + Vector2(-9, 11), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color(0.6, 0.7, 0.85))
+			draw_string(f, Vector2(4, 86), "empty", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.6, 0.7, 0.8))
+		else:
+			var active: bool = game._slot_active(host, slot)
+			var col: Color = game.BUILD_KINDS[kind].col
+			if not active: col.a = 0.4
+			game._draw_kind_icon(self, kind, centre, 34.0, col, f)
+			draw_string(f, Vector2(4, 86), str(game.BUILD_KINDS[kind].name) + ("" if active else " · OFF"), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.95, 0.9) if active else Color(0.9, 0.7, 0.6))
+
+
+class DragIcon extends Control:   # the picture that follows the pointer while a card is dragged
+	var game
+	var kind := ""
+
+	func _draw() -> void:
+		game._draw_kind_icon(self, kind, size * 0.5, 36.0, game.BUILD_KINDS[kind].col, get_theme_default_font())
+
+
+class BuildCard extends Control:   # a draggable card for one building kind
+	var game
+	var kind := ""
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(92, 98)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+
+	func _ready() -> void:
+		tooltip_text = "%s — %s. Drag onto a slot." % [str(game.BUILD_KINDS[kind].name), str(game.BUILD_KINDS[kind].desc)]
+
+	func _get_drag_data(_p: Vector2) -> Variant:
+		var icon := DragIcon.new(); icon.game = game; icon.kind = kind
+		icon.custom_minimum_size = Vector2(48, 48); icon.size = Vector2(48, 48)
+		set_drag_preview(icon)
+		return {"kind": kind}
+
+	func _gui_input(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and not ev.pressed:
+			game._card_click(kind)
+
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var col: Color = game.BUILD_KINDS[kind].col
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.13, 0.15, 0.21), true)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(col.r, col.g, col.b, 0.85), false, 2.0)
+		game._draw_kind_icon(self, kind, Vector2(size.x * 0.5, 32), 32.0, col, f)
+		draw_string(f, Vector2(4, 68), str(game.BUILD_KINDS[kind].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.9, 0.95, 1.0))
+		draw_string(f, Vector2(4, 84), "%.0f s · drag ↑" % game.BUILD_TIME, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.8, 0.9))
