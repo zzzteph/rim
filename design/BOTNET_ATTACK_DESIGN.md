@@ -105,7 +105,7 @@ targets.
   departures only. **Esc / right-click** clears selection and panel — **never your wires**. Space pauses.
   **R** (or the tab bar at the top of the panel) switches between the MAP panel and the RESEARCH tab. A card is
   played by **dragging it from your hand onto a building** (the third drag gesture, next to wiring and
-  building).
+  building). Inside a building, **right-click a built slot** to demolish it.
 - **Ownership transitions.** Capturing a building turns your attack flows into **guards** that top it up and
   stand down ("N flow(s) now top it up as guards"); **losing** a building **stands your wires down** (dormant,
   kept) — retaking it is an explicit ⚔ ATTACK. The same applies to the AI botnets. A flow whose route is
@@ -119,7 +119,11 @@ targets.
   for the AIs). Solid = live flow, coloured by the **source's** faction: your attack = amber arrow, your
   defence = green diamond, an AI's flow = its colour, brighter when aimed at you. Packets: yours = circle,
   AI = square in its colour, Cash = diamond, **a card in flight = a glowing card shape in its family's colour
-  with its remaining path dashed**. Amber street = link at capacity. A card landing flashes an
+  with its remaining path dashed**. Amber street = link at capacity. Each building carries only its name with
+  its "$" value marks and a strength badge ("?" until scanned); one warning word under it when true (CRITICAL,
+  SHAKY, FULL ↩, OFF 12s, CUT 8s); what is built inside and the send rate show only while it is selected or
+  its panel is open. The HUD is one line: your Cash against the goal, the two rivals' Cash, Intel with its
+  drain while attacking, the clock. A card landing flashes an
   expanding frame in the caster's colour; a worm draws its jumps for four seconds; a building with production
   off wears an orange frame and "PROD OFF Ns", one with routing cut a pink frame and "ROUTE CUT Ns".
 
@@ -165,7 +169,7 @@ regenerate; a built harvester or lab still counts toward the limit.
 - **Drag a card onto an empty slot** to build there: `BUILD_TIME` (10 s). **Drag a card onto an occupied
   slot** to replace: the old building goes offline at once, `DEMOLISH_TIME` (5 s) clears the slot, then
   `BUILD_TIME` (10 s) builds the new one — 15 s in all. Dropping the same kind on a slot does nothing.
-  Clicking a card builds it into the first empty slot. A Demolish button per built slot clears it in 5 s.
+  Clicking a card builds it into the first empty slot. Right-clicking a built slot clears it in 5 s.
 - One job per building; it **progresses only while you stay inside**; Cancel stops it. While inside, the map
   is veiled but **alive**; you cannot command it; alerts still arrive. If the building falls while you are
   inside, you are thrown out.
@@ -206,7 +210,8 @@ so a worm prepares a chain and your streams take it.
 - **Two reaches:** a **LINKED** card can only be played on a building you have a **connection** into
   (dormant counts — the CONNECT verb is the delivery route). An **ANY** card can be played on any building
   on the map, at `ANY_COST_MULT` (×4) the cost and `ANY_TIME_MULT` (×2) the research time.
-- **Playing — drag and drop:** your hand sits at the bottom of the map panel (and on the research tab).
+- **Playing — drag and drop:** your hand sits under a foreign building's panel, right below that building's
+  weakness line (and on the research tab).
   **Drag a card onto a building on the map.** While it is in the air every building it can land on is framed
   in the card's colour and the one under the pointer shows what it would take there ("▼ production off 37 s
   (PC ×1.5)", "✖ immune", "✖ needs a connection", "✖ your own building"). Dropping it **launches the card as a
@@ -478,6 +483,17 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     the rig over any streets) and lands on arrival; it is drawn as a glowing card with its path dashed ahead.
     All tables and numbers moved to `scripts/botnet_cfg/*.gd` (factions, town, types, buildings, cards,
     tuning) with aliases in the game script.
+20. **Information hierarchy pass (2026-10-12):** the designer asked for a calmer, more spacious screen with
+    only the most important readings on the most-seen view. Two independent UI reviews (HUD and map; the panel
+    states) were run and applied: the HUD is one line led by the Cash race; buildings carry name, value and
+    badge, with one warning word when true and details only when focused; the map has more air (lower jitter,
+    wider pitch, floating labels flip below a building near the top edge). Every panel state leads with one
+    status line and its primary 36 px button; rules text moved into button tooltips (SCAN, ATTACK, Enter,
+    Rally, the RESEARCH tab); the preview, diagnostics and transit lines merged into one "✔ 2 flowing ·
+    −0.3/s net · ≈14 s · 2 bots in transit" line; Intel shows only when it is short; faulted sources only;
+    the hand shows only on a foreign building's panel under its weakness line; a built slot is demolished by
+    right-click; Restart is a flat text button at the bottom. Three text sizes (18 / 14 / 12, one 11 px
+    footer), 10 px row separation, 14 px panel inset.
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral
