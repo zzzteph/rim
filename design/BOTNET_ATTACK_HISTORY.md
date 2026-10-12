@@ -355,3 +355,21 @@ by adding more clicks.
 **Difference from the current prototype:** the prototype still runs the *earlier* one-shot-force model (§11,
 "Implemented"). None of §3–§9's proposed systems are built yet; this spec is the target to build toward once
 the open questions in §12 are decided.
+
+---
+
+## 14. The v1 attrition prototype (superseded 2026-10-11)
+
+*Replaced by the v2 macro/micro race in `design/BOTNET_ATTACK_DESIGN.md`. Kept as a summary; the full v1 spec
+is in git history before commit "Prototype v2".*
+
+- Fixed 5×3 grid, 15 nodes; you held two corner nodes, every other node was the enemy's. **Capture the
+  CENTRAL HUB = win**; lose every node = defeat.
+- Bots were health, cap 30, regeneration 1/s per Bot building for **every** node — so every enemy node grew to
+  a 30-bot fortress within 20 s, which made every capture after the opening a siege and was the real cause of
+  the "no feasible route" stopper.
+- Two slots per node: Bot / Intel / Intel-capacity; builds instant and free. Attacks cost 1 Intel per bot.
+- No link capacity, no economy flow, no local view, no rival economy; the enemy activated one frontier node
+  every 6 s and never built.
+- Engine checks that still hold in v2: chronological arrivals, terminal freeze, scoped stop, frame-rate
+  consistency, fair Intel.

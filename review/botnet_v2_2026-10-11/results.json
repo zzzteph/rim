@@ -1,0 +1,647 @@
+{
+	"cases": [
+		{
+			"case": "01_generation",
+			"observed": {
+				"all_connected": true,
+				"hosts": 31,
+				"hub": 17,
+				"owners": {
+					"0": 25,
+					"1": 2,
+					"2": 2,
+					"3": 2
+				},
+				"sizes_by_seed": [
+					33,
+					33,
+					33,
+					31,
+					32
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "02_routing",
+			"observed": {
+				"player_route": [
+					5,
+					1
+				],
+				"target": 1,
+				"unreachable_rival_rig": []
+			},
+			"pass": true
+		},
+		{
+			"case": "03_link_capacity_queues",
+			"observed": {
+				"arrive": 3.0001,
+				"entries_same_instant": [
+					0.0,
+					0.0,
+					1.0001,
+					1.0001,
+					2.0002
+				],
+				"two_hop_hops": [
+					0.0,
+					2.0001
+				],
+				"waiting_at_middle": true
+			},
+			"pass": true
+		},
+		{
+			"case": "04_chronological_terminal_freeze",
+			"observed": {
+				"cause": "You are the last botnet standing.",
+				"kraken_last": 1,
+				"rival_last": 1,
+				"won": true
+			},
+			"pass": true
+		},
+		{
+			"case": "05_control_stages",
+			"observed": {
+				"stages": [
+					[
+						0,
+						3,
+						1,
+						1,
+						1
+					],
+					[
+						1,
+						2,
+						1,
+						1,
+						0
+					],
+					[
+						2,
+						1,
+						1,
+						0,
+						0
+					]
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "06_jobs_need_attention",
+			"observed": {
+				"player_inside": true,
+				"player_without_inside": true,
+				"rival_builds": [
+					"bot",
+					"cash",
+					""
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "07_capture_and_security_caps",
+			"observed": {
+				"after_player": 1,
+				"after_rival": true,
+				"neutral_regrew_to_security": true,
+				"owned_regrows_past_security": true
+			},
+			"pass": true
+		},
+		{
+			"case": "08_ai_builds_then_concentrates",
+			"observed": {
+				"attacked": true,
+				"captured_within_25s": false,
+				"harvesters": 1,
+				"max_streams_on_one_target": 2,
+				"nyx_intel": 26.5499999999999
+			},
+			"pass": true
+		},
+		{
+			"case": "09_cash_travels_home",
+			"observed": {
+				"on_rig": 4.0,
+				"via_link": 3.0
+			},
+			"pass": true
+		},
+		{
+			"case": "10_rally_garrison",
+			"observed": {
+				"held_at_garrison": true,
+				"held_when_rally_full": true,
+				"sent_when_room": true
+			},
+			"pass": true
+		},
+		{
+			"case": "11_frame_rate_consistency",
+			"observed": {
+				"boards": [
+					{
+						"dt": 0.0166666666666667,
+						"flights": 2,
+						"intel": 12.0,
+						"owner": 1,
+						"target_bots": 3.98333333333339
+					},
+					{
+						"dt": 0.5,
+						"flights": 2,
+						"intel": 12.0,
+						"owner": 1,
+						"target_bots": 3.5
+					}
+				]
+			},
+			"pass": true
+		},
+		{
+			"case": "12_attack_the_attacker",
+			"observed": {
+				"one_stream_bots": 6.99999999999985,
+				"owner_after_two": 1
+			},
+			"pass": true
+		},
+		{
+			"case": "14_connect_then_launch",
+			"observed": {
+				"esc_keeps_wire": true,
+				"halted_keeps_wire": true,
+				"launched": true,
+				"no_path_refused": true,
+				"nothing_moved": true,
+				"wired_dormant": true
+			},
+			"pass": true
+		},
+		{
+			"case": "15_guards_arm_themselves",
+			"observed": {
+				"armed_when_attacked": true,
+				"armed_when_damaged": true,
+				"standby_when_full": true,
+				"stood_down_when_full": true
+			},
+			"pass": true
+		},
+		{
+			"case": "16_capture_and_loss_wire_status",
+			"observed": {
+				"flows_became_guards": true,
+				"lost_stands_down_kept": true,
+				"stood_down_at_full": true,
+				"topping_up_below_full": true
+			},
+			"pass": true
+		},
+		{
+			"case": "17_slot_build_and_replace",
+			"observed": {
+				"build_started": true,
+				"builds": [
+					"intel",
+					"cash",
+					""
+				],
+				"built_in_slot": true,
+				"cannot_drop_from_outside": true,
+				"cleared_then_building": true,
+				"offline_meanwhile": true,
+				"replace_started": true,
+				"replaced": true,
+				"same_kind_refused": true
+			},
+			"pass": true
+		},
+		{
+			"case": "18_building_types",
+			"observed": {
+				"db_intel_x2": true,
+				"erp_regen_x15": true,
+				"iot_single_slot": true,
+				"type_counts_seed7": {
+					"db": 2,
+					"erp": 1,
+					"file": 1,
+					"iot": 3,
+					"pc": 12,
+					"server": 6,
+					"web": 6
+				},
+				"types_consistent": true
+			},
+			"pass": true
+		},
+		{
+			"case": "19_scan_quiet_or_attack_loud",
+			"observed": {
+				"blind_attack_alarms_wounds_reveals": true,
+				"cost": 15.0,
+				"hidden_before": true,
+				"quiet_no_alarm": true,
+				"revealed_and_stood_down": true,
+				"stale_after_change": true,
+				"unharmed": true
+			},
+			"pass": true
+		},
+		{
+			"case": "20_resources_and_limits",
+			"observed": {
+				"cred_cap": 100.0,
+				"creds_10s": 5.0,
+				"intel_cap_two_harvesters": 200.0,
+				"production_off_stops_all": true,
+				"research_10s": 7.5,
+				"research_cap": 100.0,
+				"wears_off": true
+			},
+			"pass": true
+		},
+		{
+			"case": "21_research_queue",
+			"observed": {
+				"accumulates": true,
+				"any_x4_cost_x2_time": true,
+				"completed": true,
+				"cost_spent": true,
+				"half_spent": true,
+				"paused_consumes_nothing": true,
+				"stalls_without_creds": true
+			},
+			"pass": true
+		},
+		{
+			"case": "22_single_cards",
+			"observed": {
+				"db_resists_half": true,
+				"iot_resists_phish_90": true,
+				"linked_refused": true,
+				"oneday_minus25": true,
+				"pc_phish_minus75": true,
+				"reveal_alarm_no_capture": true,
+				"routing_wears_off": true,
+				"stuff_wipes": true,
+				"travels_as_packet": true,
+				"zeroday_half_and_cut": true
+			},
+			"pass": true
+		},
+		{
+			"case": "23_worm_chain",
+			"observed": {
+				"first_jump_certain": true,
+				"hit": 9,
+				"is_a_chain": true,
+				"jumps_drawn": true,
+				"max_jump": 3,
+				"no_capture": true,
+				"own_untouched": true,
+				"revealed": true
+			},
+			"pass": true
+		},
+		{
+			"case": "24_routing_cut",
+			"observed": {
+				"emits_nothing": true,
+				"flow_paused_wire_kept": true,
+				"recovers": true,
+				"relays_nothing": true,
+				"route_via_second": true,
+				"still_receives": true
+			},
+			"pass": true
+		},
+		{
+			"case": "25_ai_uses_cards",
+			"observed": {
+				"cards_played_by_ais": 4,
+				"economy_built": {
+					"2": true,
+					"3": true
+				},
+				"kraken_cash": 95,
+				"nyx_cash": 435,
+				"researched": {
+					"2": true,
+					"3": true
+				},
+				"t": 300.1
+			},
+			"pass": true
+		},
+		{
+			"case": "26_several_paths",
+			"observed": {
+				"gaps": 5,
+				"highways": 5,
+				"highways_span_one_gap": true,
+				"junction_streets_x2": true,
+				"junctions": 2,
+				"plain_street_x1": true,
+				"straddled_gaps": 6
+			},
+			"pass": true
+		},
+		{
+			"case": "27_fog_twin",
+			"observed": {
+				"acts": true,
+				"digest": "[[25,29,true,\"scan\",\"\"],[30,29,true,\"scan\",\"intel\"],[29],0,[]]",
+				"same_decisions": true
+			},
+			"pass": true
+		},
+		{
+			"case": "28_prior_is_public",
+			"observed": {
+				"botnet_building": 18.0,
+				"hub": 30.0,
+				"iot_value1": 6.5,
+				"pc_value1": 9.5
+			},
+			"pass": true
+		},
+		{
+			"case": "29_scout_then_strike",
+			"observed": {
+				"learned_live_bots": true,
+				"quiet": true,
+				"scan_sources": 2,
+				"scan_took_s": 8.1,
+				"stood_down": true,
+				"target": 24,
+				"then_attacks_known": true
+			},
+			"pass": true
+		},
+		{
+			"case": "30_pile_on_visible_only",
+			"observed": {
+				"bot_packet": 1,
+				"live_wire": 1,
+				"none": 0,
+				"quiet_scan_wire": 0,
+				"scan_packet": 0
+			},
+			"pass": true
+		},
+		{
+			"case": "31_bleeder_hidden_dial",
+			"observed": {
+				"idle": 36.0,
+				"quiet_scan_invisible": 36.0,
+				"routeless_rally_not_a_drain": true,
+				"visibly_streaming_out": 9.0
+			},
+			"pass": true
+		},
+		{
+			"case": "32_scan_memory",
+			"observed": {
+				"capture_known_empty": true,
+				"dark_after_change_uses_memory": true,
+				"loser_remembers_near_empty": true,
+				"memory_carries_no_hidden_key": true,
+				"regrows": true,
+				"remembered_kinds": [
+					"bot"
+				],
+				"remembers_on_scan": true
+			},
+			"pass": true
+		},
+		{
+			"case": "33_counter_attack_lawful",
+			"observed": {
+				"quiet_scan_unnoticed": true,
+				"same_with_hidden_bots_5": true,
+				"sized_on_prior_18": true,
+				"two_streams": 2
+			},
+			"pass": true
+		},
+		{
+			"case": "34_know_limits_then_learn",
+			"observed": {
+				"attacks_once_known_weak": true,
+				"skipped_unknown_strong_prior": true
+			},
+			"pass": true
+		},
+		{
+			"case": "35_retake_remembered",
+			"observed": {
+				"equal_neutral_not_preferred": true,
+				"lost_recorded": true,
+				"retakes_lost_building": true
+			},
+			"pass": true
+		},
+		{
+			"case": "36_idle_scouting",
+			"observed": {
+				"keeps_reserve_with_5": true,
+				"scout": [
+					[
+						25,
+						24,
+						"scan"
+					]
+				],
+				"scouts_with_22_intel": true
+			},
+			"pass": true
+		},
+		{
+			"case": "37_choke_the_leader",
+			"observed": {
+				"dossed_known_production": true,
+				"no_production_no_dos": true
+			},
+			"pass": true
+		},
+		{
+			"case": "38_remember_where_it_hurt",
+			"observed": {
+				"edge_remembered": true,
+				"f1": 17,
+				"f2": 18,
+				"guard_on_learned_edge": true,
+				"rear": true
+			},
+			"pass": true
+		},
+		{
+			"case": "39_worm_value_public_types",
+			"observed": {
+				"hard": 8.88,
+				"soft": 11.38
+			},
+			"pass": true
+		},
+		{
+			"case": "40_ai_acts_under_fog",
+			"observed": {
+				"7": {
+					"first_capture": {
+						"2": 38.6,
+						"3": 51.3
+					},
+					"scans_done": {
+						"2": 4,
+						"3": 3
+					}
+				},
+				"11": {
+					"first_capture": {
+						"2": 63.3,
+						"3": 51.3
+					},
+					"scans_done": {
+						"2": 3,
+						"3": 2
+					}
+				}
+			},
+			"pass": true
+		},
+		{
+			"case": "41_ui_twin",
+			"observed": {
+				"digest": "[\"Control the most of the town when the clock runs out.\\n5-minute match. Hold more than half the town for 45 s to win outright, or wipe out both rivals; otherwise whoever controls the most buildings a",
+				"same_panel_focus_streets": true
+			},
+			"pass": true
+		},
+		{
+			"case": "43_supply_chain_steal",
+			"observed": {
+				"owner_denied": true,
+				"owner_pools_frozen": true,
+				"stealing": true,
+				"thief_gets_the_rates": true,
+				"thief_pools_grow": true,
+				"wears_off": true
+			},
+			"pass": true
+		},
+		{
+			"case": "44_denial_of_service",
+			"observed": {
+				"both_recover": true,
+				"production_and_routing_down": true
+			},
+			"pass": true
+		},
+		{
+			"case": "45_ai_attention",
+			"observed": {
+				"bails_when_attacked": true,
+				"connect_delay_gates_progress": true,
+				"enters_the_build": true,
+				"locked_out_while_building": true,
+				"then_progresses": true
+			},
+			"pass": true
+		},
+		{
+			"case": "46_player_memory_symmetry",
+			"observed": {
+				"memory_refreshes_while_scanned": true,
+				"recalls_last_seen_when_dark": true
+			},
+			"pass": true
+		},
+		{
+			"case": "42_domination_hold",
+			"observed": {
+				"cause": "You held the majority for 45 s.",
+				"clock_resets_on_loss": true,
+				"clock_ticks": true,
+				"majority": true,
+				"won": true
+			},
+			"pass": true
+		},
+		{
+			"case": "13_pacing_readings",
+			"observed": {
+				"greedy_seed11": {
+					"cards_played": [
+						0,
+						5,
+						3
+					],
+					"cash": [
+						0,
+						629
+					],
+					"cash_kraken": 391,
+					"cause": "Time's up — NYX controlled the most buildings (10).",
+					"first_capture_t": 18.5,
+					"intel": 0,
+					"kraken_nodes": 6,
+					"outcome": "LOSS",
+					"player_nodes": 3,
+					"rival_nodes": 10,
+					"t": 300.1
+				},
+				"greedy_seed7": {
+					"cards_played": [
+						0,
+						2,
+						2
+					],
+					"cash": [
+						0,
+						435
+					],
+					"cash_kraken": 95,
+					"cause": "Time's up — NYX controlled the most buildings (9).",
+					"first_capture_t": 12.5,
+					"intel": 0,
+					"kraken_nodes": 5,
+					"outcome": "LOSS",
+					"player_nodes": 3,
+					"rival_nodes": 9,
+					"t": 300.1
+				},
+				"rival_alone": {
+					"cards_played": [
+						0,
+						2,
+						2
+					],
+					"cash": [
+						0,
+						435
+					],
+					"cash_kraken": 95,
+					"cause": "Time's up — NYX controlled the most buildings (9).",
+					"first_capture_t": -1.0,
+					"intel": 50,
+					"kraken_nodes": 5,
+					"outcome": "LOSS",
+					"player_nodes": 2,
+					"rival_nodes": 9,
+					"t": 300.1
+				}
+			},
+			"pass": true
+		}
+	],
+	"fails": 0
+}
