@@ -1,6 +1,7 @@
 # RIM — botnet prototype v2: macro/micro free-for-all (current spec)
 
-*Active specification for the standalone prototype (`scenes/botnet_proto.tscn` + `scripts/botnet_proto.gd`).
+*Active specification for the standalone prototype (`scenes/botnet_proto.tscn` + `scripts/botnet_proto.gd`;
+every number and table lives in `scripts/botnet_cfg/*.gd` — see "Where the numbers live").
 Supersedes the v1 attrition prototype (hub capture on a fixed 5×3 grid), archived in
 `design/BOTNET_ATTACK_HISTORY.md` §14. All numbers are provisional test candidates. Engine checks establish
 mechanical correctness only; they do not establish balance or novice usability.*
@@ -102,7 +103,9 @@ targets.
 - **Stop vs Disconnect.** "Stop N flow(s) (keep connections)" pauses an attack's live flows but keeps the
   wires. "Disconnect" removes wires (from selected sources, or all into a building). Both affect *future*
   departures only. **Esc / right-click** clears selection and panel — **never your wires**. Space pauses.
-  **R** (or the tab bar at the top of the panel) switches between the MAP panel and the RESEARCH tab.
+  **R** (or the tab bar at the top of the panel) switches between the MAP panel and the RESEARCH tab. A card is
+  played by **dragging it from your hand onto a building** (the third drag gesture, next to wiring and
+  building).
 - **Ownership transitions.** Capturing a building turns your attack flows into **guards** that top it up and
   stand down ("N flow(s) now top it up as guards"); **losing** a building **stands your wires down** (dormant,
   kept) — retaking it is an explicit ⚔ ATTACK. The same applies to the AI botnets. A flow whose route is
@@ -115,7 +118,8 @@ targets.
 - **Visual language.** Dashed = dormant wire (yellow for an attack plan, green for a guard, faction-tinted
   for the AIs). Solid = live flow, coloured by the **source's** faction: your attack = amber arrow, your
   defence = green diamond, an AI's flow = its colour, brighter when aimed at you. Packets: yours = circle,
-  AI = square in its colour, Cash = diamond. Amber street = link at capacity. A card landing flashes an
+  AI = square in its colour, Cash = diamond, **a card in flight = a glowing card shape in its family's colour
+  with its remaining path dashed**. Amber street = link at capacity. A card landing flashes an
   expanding frame in the caster's colour; a worm draws its jumps for four seconds; a building with production
   off wears an orange frame and "PROD OFF Ns", one with routing cut a pink frame and "ROUTE CUT Ns".
 
@@ -188,11 +192,12 @@ so a worm prepares a chain and your streams take it.
 
 - **Resources:** every card costs Cash ($), Credentials (K) and Research (R). The three come from Darknet
   markets, Credential harvesters and Research labs, each of which also raises its resource's limit.
-- **Research, not purchase:** the RESEARCH tab lists the catalogue; clicking a card queues it. The head of the
-  queue runs for the card's time and **consumes its cost spread over that time**; if a resource runs out it
-  stalls (consuming nothing) until the resource is there; **Pause** stops the consumption; Cancel loses what
-  was consumed. A finished card goes into your **hand**, which accumulates without limit (one research per
-  copy). The tab shows the hand, the queue and each card's cost, time and copies held.
+- **Research, not purchase:** the RESEARCH tab shows the catalogue as **cards** (Magic-style faces: name,
+  art, type line, a one-sentence rules text, a flavour line, cost and time, copies held); a LINKED / ANY
+  switch chooses which reach the catalogue shows; clicking a card queues it. The head of the queue runs for the
+  card's time and **consumes its cost spread over that time**; if a resource runs out it stalls (consuming
+  nothing) until the resource is there; **Pause** stops the consumption; Cancel loses what was consumed. A
+  finished card goes into your **hand**, which accumulates without limit (one research per copy).
 - **Two applications:** a **single-host** card (🎯) hits one building. A **chain** card (🐛, a worm) hits one
   building and jumps along the streets: jump 1 is certain, then the chance falls by `WORM_FALLOFF` (25 %) per
   jump — 75 %, 50 %, 25 %, 0 — so a worm reaches at most four jumps out. It never jumps onto the caster's own
@@ -201,10 +206,17 @@ so a worm prepares a chain and your streams take it.
 - **Two reaches:** a **LINKED** card can only be played on a building you have a **connection** into
   (dormant counts — the CONNECT verb is the delivery route). An **ANY** card can be played on any building
   on the map, at `ANY_COST_MULT` (×4) the cost and `ANY_TIME_MULT` (×2) the research time.
-- **Playing:** click a foreign building; its panel lists the cards in your hand with the effect **that type**
-  would take (e.g. "production off 37 s (PC ×1.5)" or "immune") and plays one on click. Every hit **reveals**
-  the building to you (as a scan would) and **alarms** its owner for `CARD_ALARM` (8 s): its guards arm, its
-  owner sees the red frame. The AI botnets research and play the same cards.
+- **Playing — drag and drop:** your hand sits at the bottom of the map panel (and on the research tab).
+  **Drag a card onto a building on the map.** While it is in the air every building it can land on is framed
+  in the card's colour and the one under the pointer shows what it would take there ("▼ production off 37 s
+  (PC ×1.5)", "✖ immune", "✖ needs a connection", "✖ your own building"). Dropping it **launches the card as a
+  packet**: a LINKED card leaves the connected building with the shortest route; an ANY card leaves your rig
+  along the shortest streets, through anyone's buildings. The packet travels like bots do (link time, capacity,
+  queues) and is drawn unmistakably differently — a glowing card shape in the family's colour with its
+  remaining path dashed ahead of it — so a card flying at you is visible. The effect lands **on arrival**; if
+  the building became yours meanwhile the card fizzles. Every hit **reveals** the building to you (as a scan
+  would) and **alarms** its owner for `CARD_ALARM` (8 s): its guards arm, its owner sees the red frame. The AI
+  botnets research and play the same cards, and their cards travel too.
 
 | Card | Family | Shape | Effect on the building (× its type's factor) | Cost (LINKED) | Time |
 |---|---|---|---|---|---|
@@ -259,6 +271,21 @@ Every `cadence` (NYX 3 s, KRAKEN 3.5 s) an AI runs one think, in this order:
    pre-wired and arms itself when that building is hit.
 NYX is aggressive (`aggr` 0.8: prefers botnet targets, opens a second front); KRAKEN is economic (0.45).
 
+## Where the numbers live
+Everything tunable is in `scripts/botnet_cfg/`, one file per concern, and the game script only aliases them
+(`const CASH_GOAL := CfgTuning.CASH_GOAL`), so probes and the panel keep their names:
+
+| File | Holds |
+|---|---|
+| `factions.gd` | the four owners, their names and colours, the AI personalities (`aggr`, `cadence`) and the AI reserve, patience and stream limits |
+| `town.gd` | grid size, gap chance, street keep chance, diagonal chance, street names |
+| `types.gd` | `NODE_TYPES` (slots, production multipliers, security bonus), `TYPE_WEIGHTS` by district, `RESIST` (the card families each type resists or is weak to) |
+| `buildings.gd` | `BUILD_KINDS` (the five things you build inside) and the build, demolish and enter times |
+| `cards.gd` | the card catalogue (cost, time, effect, rules text, flavour), the families' names and colours, the ANY multipliers, the worm fall-off and the alarm |
+| `tuning.gd` | bots and combat, resources and limits, Cash, scanning, links, control stages, rally |
+
+Change a value, restart the scene. Nothing in `botnet_proto.gd` defines a number.
+
 ## Provisional values
 `NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 ·
 LINK_CAP 2 · MAX_QUEUE 1 · SCAN_BASE 10 · SCAN_PER_BUILD 5 · BUILD_TIME 10 · DEMOLISH_TIME 5 · ENTER_TIME 2 · CASH_INTERVAL 3 · CASH_GOAL 600 · INTEL_START 50 ·
@@ -292,8 +319,9 @@ credential attack, PC takes phishing ×1.5, IoT takes it ×0.1, a wiped and phis
 arrive, effects wear off), worms (a chain from the target at 100/75/50/25 %, never onto the caster's buildings,
 each building once, no capture, every hit revealed, one drawn jump per spread), routing cuts (relays nothing,
 pauses flows through it with the wire kept, emits nothing, still receives, recovers), and the AI card economy
-(both AIs build a harvester and a lab, research, and play cards within 300 s of seed 7). Rendered captures of the
-panel states, the research tab, the card art and scripted matches are in `gallery/`.
+(both AIs build a harvester and a lab, research, and play cards within 300 s of seed 7). Cards travel: a played
+card is a packet in the flights list and nothing lands before it arrives. Rendered captures of the panel
+states, the research tab with its card faces, a card packet in flight and scripted matches are in `gallery/`.
 
 **Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active, 10 s builds, typed buildings,
 scanning before attacks, cards in play:**
@@ -438,6 +466,18 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     **art**: a procedural skill-icon tile (dark, chamfered corner, neon glyph in its family's colour — amber
     credential, cyan phishing, magenta supply-chain, acid-green exploit; a chain marker on worms; the reach
     tag L/A and the count in the hand), shown in the catalogue, the queue, the hand and a target's play list.
+
+19. **Relaxed UI, card faces, drag-to-play, config files (2026-10-12):** the designer asked for less text,
+    Magic-style cards and drag-and-drop. Every panel was cut to the lines a player acts on (the idle help is
+    six lines; the launch pad explains scanning in one; the inside view relies on tooltips; the launch pad's
+    source list is one line). Cards became full faces (190×262 in the catalogue, 124×174 in the hand: title,
+    art window, type line, rules text, flavour, cost bar, copies held, L/A reach tag, a chain marker on worms)
+    with a LINKED / ANY switch instead of two buttons per card. A card is played by **dragging it from the hand
+    onto a building**; valid targets light up and the hovered one previews the effect. A played card travels
+    as a **card packet** along the links (a LINKED card from the nearest connected building, an ANY card from
+    the rig over any streets) and lands on arrival; it is drawn as a glowing card with its path dashed ahead.
+    All tables and numbers moved to `scripts/botnet_cfg/*.gd` (factions, town, types, buildings, cards,
+    tuning) with aliases in the game script.
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral

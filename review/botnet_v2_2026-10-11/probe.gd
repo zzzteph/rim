@@ -401,14 +401,18 @@ func _run() -> void:
 	var b0: float = game.hosts[t22].bots
 	game.hosts[t22].type = "db"
 	var any_ok: bool = game._play_card(game.PLAYER, "stuff:any", t22)
-	var halved: bool = absf(float(game.hosts[t22].bots) - b0 * 0.5) < 0.01
+	var in_flight: bool = game.flights.size() == 1 and str(game.flights[0].kind) == "card" and absf(float(game.hosts[t22].bots) - b0) < 0.01   # nothing lands before it arrives
+	step(1.5, 0.1)
+	var halved: bool = float(game.hosts[t22].bots) >= b0 * 0.5 - 0.01 and float(game.hosts[t22].bots) < b0 * 0.5 + 0.7   # halved on landing, ~0.5 s of regeneration since
 	var revealed22: bool = game._scanned(game.PLAYER, t22) and game._under_attack(t22) and int(game.hosts[t22].owner) == game.NEUTRAL
 	game.sel = {rigP(): true}; game._wire(t22)
 	game.hosts[t22].type = "pc"
 	var linked_ok: bool = game._play_card(game.PLAYER, "stuff:linked", t22)
-	var wiped: bool = float(game.hosts[t22].bots) == 0.0 and int(game.hosts[t22].owner) == game.NEUTRAL
+	step(1.5, 0.1)
+	var wiped: bool = float(game.hosts[t22].bots) < 0.7 and int(game.hosts[t22].owner) == game.NEUTRAL   # wiped on landing; ~0.5 s of regeneration since
 	game._play_card(game.PLAYER, "phish:linked", t22)
-	var phished: bool = absf(float(game.hosts[t22].prod_off) - 37.5) < 0.01 and game._regen(t22) == 0.0
+	step(1.5, 0.1)
+	var phished: bool = float(game.hosts[t22].prod_off) > 36.5 and float(game.hosts[t22].prod_off) <= 37.5 and game._regen(t22) == 0.0   # 37.5 s on a PC, landed ~0.5 s ago
 	game._launch(t22, "attack")                              # one stream now takes it: no defenders, no regeneration
 	step(4.0, 0.1)
 	var taken_by_bots: bool = int(game.hosts[t22].owner) == game.PLAYER and float(game.hosts[t22].prod_off) == 0.0
@@ -416,16 +420,18 @@ func _run() -> void:
 	game.hosts[t22b].type = "iot"
 	game.sel = {secondP(): true}; game._wire(t22b)
 	game._play_card(game.PLAYER, "phish:linked", t22b)
-	var iot_resists: bool = absf(float(game.hosts[t22b].prod_off) - 2.5) < 0.01
 	game._play_card(game.PLAYER, "oneday:linked", t22b)
-	var cut: bool = absf(float(game.hosts[t22b].route_off) - 25.0) < 0.01   # IoT is weak to exploits ×1.25
+	var hops22: int = game._route(secondP(), t22b).size() - 1
+	step(float(hops22) * 1.3 + 0.6, 0.1)
+	var iot_resists: bool = game._prod_down(t22b) and float(game.hosts[t22b].prod_off) <= 2.5   # 2.5 s on an IoT device
+	var cut: bool = float(game.hosts[t22b].route_off) > 23.0 and float(game.hosts[t22b].route_off) <= 25.0   # 25 s: IoT is weak to exploits ×1.25
 	step(3.0, 0.1)
 	var phish_over: bool = not game._prod_down(t22b) and game._routing_down(t22b)
 	step(23.0, 0.1)
 	var cut_over: bool = not game._routing_down(t22b)
 	var spent22: bool = game._hand_size(game.PLAYER) == 0
-	check("22_single_cards", refused and any_ok and halved and revealed22 and linked_ok and wiped and phished and taken_by_bots and iot_resists and cut and phish_over and cut_over and spent22,
-		{"linked_refused_without_connection": refused, "any_plays_anywhere": any_ok, "db_halves_credential": halved, "hit_reveals_alarms_no_capture": revealed22, "pc_wiped": wiped, "pc_phish_x1_5": phished, "then_one_stream_takes_it": taken_by_bots, "iot_phish_2_5s": iot_resists, "iot_routing_cut_25s": cut, "effects_wear_off": phish_over and cut_over, "hand_spent": spent22})
+	check("22_single_cards", refused and any_ok and in_flight and halved and revealed22 and linked_ok and wiped and phished and taken_by_bots and iot_resists and cut and phish_over and cut_over and spent22,
+		{"linked_refused_without_connection": refused, "any_plays_anywhere": any_ok, "travels_as_a_card_packet": in_flight, "db_halves_credential": halved, "hit_reveals_alarms_no_capture": revealed22, "pc_wiped": wiped, "pc_phish_x1_5": phished, "then_one_stream_takes_it": taken_by_bots, "iot_phish_2_5s": iot_resists, "iot_routing_cut_25s": cut, "effects_wear_off": phish_over and cut_over, "hand_spent": spent22})
 
 	# 23 worms: the chain spreads along the streets with falling odds (jump 1: 100 %, then −25 % per jump),
 	#    never onto the caster's own buildings, each building once, at most 4 jumps, captures nothing,
@@ -437,6 +443,7 @@ func _run() -> void:
 	var before := []
 	for h in game.hosts: before.append([int(h.owner), float(h.bots)])
 	game._play_card(game.PLAYER, "credworm:any", t23)
+	step(1.5, 0.1)
 	var hit := []
 	for i in game.hosts.size():
 		if float(game.hosts[i].bots) < float(before[i][1]) - 0.01: hit.append(i)

@@ -157,27 +157,36 @@ func _run() -> void:
 	game.cards[game.PLAYER] = {"stuff:linked": 1, "phish:linked": 1, "credworm:any": 1, "oneday:any": 1}
 	sim(0.5)
 	await shoot("research_hand_with_cards")
-	game._set_tab("map")
+	game._set_reach("any")
+	await shoot("research_catalogue_any_cards")
+	game._set_reach("linked"); game._set_tab("map")
 	var tc := neutral_nb(rp, [sp])
 	game.sel = {rp: true}; game._wire(tc); game._clear_all(); game._inspect = tc
-	await shoot("target_panel_play_cards")
+	await shoot("target_panel_with_hand_to_drag")
 	game._play_card(game.PLAYER, "stuff:linked", tc)
-	sim(0.3)
+	sim(0.4)
+	await shoot("card_packet_in_flight")
+	sim(1.5)
 	await shoot("card_credential_stuffing_wiped_defenders")
 	game._play_card(game.PLAYER, "phish:linked", tc)
-	sim(0.3)
+	sim(2.0)
 	await shoot("card_phishing_production_off")
 	var tw: int = game.hub
 	game.rng.seed = 4242
 	game._play_card(game.PLAYER, "credworm:any", tw)
 	game._inspect = tw
+	sim(2.5)
+	await shoot("card_worm_flying_downtown")
+	var guardw := 0
+	while guardw < 60 and not game.flights.is_empty():
+		sim(0.5); guardw += 1
 	sim(0.4)
 	await shoot("card_worm_chain_from_downtown")
 	var tr := neutral_nb(sp, [rp, tc])
 	if tr < 0: tr = neutral_nb(tc, [rp, sp])
 	if tr >= 0: game._play_card(game.PLAYER, "oneday:any", tr)
 	game._clear_all()
-	sim(1.0)
+	sim(6.0)
 	await shoot("card_effects_labels_on_map")
 
 	# ── threats ──

@@ -295,7 +295,8 @@
 				"linked_refused_without_connection": true,
 				"pc_phish_x1_5": true,
 				"pc_wiped": true,
-				"then_one_stream_takes_it": true
+				"then_one_stream_takes_it": true,
+				"travels_as_a_card_packet": true
 			},
 			"pass": true
 		},
@@ -333,13 +334,13 @@
 					"2": true,
 					"3": true
 				},
-				"kraken_cash": 231,
-				"nyx_cash": 592,
+				"kraken_cash": 225,
+				"nyx_cash": 600,
 				"researched": {
 					"2": true,
 					"3": true
 				},
-				"t": 300.1
+				"t": 299.4
 			},
 			"pass": true
 		},
@@ -350,21 +351,21 @@
 					"cards_played": [
 						0,
 						4,
-						4
+						3
 					],
 					"cash": [
 						0,
-						518
+						601
 					],
-					"cash_kraken": 601,
-					"cause": "KRAKEN banked 600 Cash first.",
+					"cash_kraken": 585,
+					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": 18.5,
 					"intel": 0,
-					"kraken_nodes": 8,
+					"kraken_nodes": 7,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 10,
-					"t": 292.9
+					"rival_nodes": 9,
+					"t": 310.9
 				},
 				"greedy_seed7": {
 					"cards_played": [
@@ -376,7 +377,7 @@
 						0,
 						600
 					],
-					"cash_kraken": 219,
+					"cash_kraken": 212,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": 12.5,
 					"intel": 0,
@@ -384,7 +385,7 @@
 					"outcome": "LOSS",
 					"player_nodes": 1,
 					"rival_nodes": 10,
-					"t": 301.2
+					"t": 299.4
 				},
 				"rival_alone": {
 					"cards_played": [
@@ -396,7 +397,7 @@
 						0,
 						600
 					],
-					"cash_kraken": 231,
+					"cash_kraken": 225,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": -1.0,
 					"intel": 50,
@@ -404,7 +405,7 @@
 					"outcome": "LOSS",
 					"player_nodes": 1,
 					"rival_nodes": 10,
-					"t": 301.2
+					"t": 299.4
 				}
 			},
 			"pass": true
