@@ -513,6 +513,50 @@ func _run() -> void:
 	check("25_ai_uses_cards", econ[2] and econ[3] and (researched[2] or researched[3]) and played >= 1,
 		{"economy_built": econ, "researched": researched, "cards_played_by_ais": played, "t": snapped(t25, 0.1), "nyx_cash": int(game.cash[2]), "kraken_cash": int(game.cash[3])})
 
+	# 26 several paths: every gap with buildings on both sides may get a highway across it (none crosses a
+	#    building), two junctions exist in the mid town, and a junction's streets admit double traffic
+	fresh()
+	var gaps := 0; var bridged := 0; var straddled := 0
+	for gy in game.GRID_ROWS:
+		for gx in game.GRID_COLS:
+			var g := Vector2i(gx, gy)
+			if game._cell.has(g): continue
+			gaps += 1
+			for d in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var a: Vector2i = g - d; var b: Vector2i = g + d
+				if game._cell.has(a) and game._cell.has(b):
+					straddled += 1
+					if game._highways.has(game._lk(int(game._cell[a]), int(game._cell[b]))): bridged += 1
+	var only_bridges := true   # every highway spans exactly one gap in a straight line
+	for key in game._highways.keys():
+		var ab := str(key).split("_")
+		var ga: Vector2i = game.hosts[int(ab[0])].grid; var gb: Vector2i = game.hosts[int(ab[1])].grid
+		var mid: Vector2i = (ga + gb) / 2
+		if (ga - gb).length() != 2.0 or game._cell.has(mid): only_bridges = false
+	var junctions := []
+	for i in game.hosts.size():
+		if bool(game.hosts[i].junction): junctions.append(i)
+	var jok: bool = junctions.size() == int(game.JUNCTIONS)
+	for j in junctions:
+		if int(game.hosts[j].value) < 2 or (game.hosts[j].links as Array).size() < 3 or bool(game.hosts[j].hub) or bool(game.hosts[j].rig): jok = false
+	var j0: int = junctions[0]; var nb0: int = int(game.hosts[j0].links[0])
+	var kj: String = game._lkey(j0, nb0)
+	var entries := []
+	for q26 in 5: entries.append(game._link_entry(kj, 0.0)); game._reserve(kj, float(entries[q26]))
+	var double_cap: bool = float(entries[3]) == 0.0 and float(entries[4]) > 0.5   # 4 admitted at once on a junction street, the 5th waits
+	var plain := -1
+	for i in game.hosts.size():
+		if bool(game.hosts[i].junction): continue
+		for o in game.hosts[i].links:
+			if not bool(game.hosts[int(o)].junction): plain = i; break
+		if plain >= 0: break
+	var kp: String = game._lkey(plain, int(game.hosts[plain].links[0]))
+	var pe := []
+	for r26 in 3: pe.append(game._link_entry(kp, 0.0)); game._reserve(kp, float(pe[r26]))
+	var plain_cap: bool = float(pe[1]) == 0.0 and float(pe[2]) > 0.5
+	check("26_several_paths", bridged >= 1 and only_bridges and jok and double_cap and plain_cap,
+		{"gaps": gaps, "straddled_gaps": straddled, "highways": bridged, "highways_span_one_gap": only_bridges, "junctions": junctions.size(), "junction_streets_x2": double_cap, "plain_street_x1": plain_cap})
+
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)
 	var greedy7 := _run_match(SEED, true, 600.0)

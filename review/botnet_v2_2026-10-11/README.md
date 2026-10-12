@@ -6,7 +6,8 @@ scanning, and the card system: Credentials and Research, a research tab, single 
 with the designer's two-verb control scheme (wire by drag, launch from the target's panel, guards that arm
 themselves) and the cost-aware AI botnets.
 
-- `probe.gd` — SceneTree script: 25 fixture cases on a fixed town seed plus three full 10 Hz matches as
+- `all_cards.png` — every card face, LINKED row and ANY row, as the research tab draws them.
+- `probe.gd` — SceneTree script: 26 fixture cases on a fixed town seed plus three full 10 Hz matches as
   pacing readings. Calls the real simulation functions; not a usability test, not a balance verdict.
 - `results.json` — the run recorded here.
 - `shot.gd` + `captures/` — early rendered checks of the four panel states.

@@ -304,7 +304,7 @@
 			"case": "23_worm_chain",
 			"observed": {
 				"first_jump_certain": true,
-				"hit": 4,
+				"hit": 9,
 				"is_a_chain": true,
 				"jumps_drawn": true,
 				"max_jump": 3,
@@ -329,18 +329,31 @@
 		{
 			"case": "25_ai_uses_cards",
 			"observed": {
-				"cards_played_by_ais": 8,
+				"cards_played_by_ais": 7,
 				"economy_built": {
 					"2": true,
 					"3": true
 				},
-				"kraken_cash": 225,
-				"nyx_cash": 600,
+				"kraken_cash": 492,
+				"nyx_cash": 519,
 				"researched": {
 					"2": true,
 					"3": true
 				},
-				"t": 299.4
+				"t": 300.1
+			},
+			"pass": true
+		},
+		{
+			"case": "26_several_paths",
+			"observed": {
+				"gaps": 5,
+				"highways": 5,
+				"highways_span_one_gap": true,
+				"junction_streets_x2": true,
+				"junctions": 2,
+				"plain_street_x1": true,
+				"straddled_gaps": 6
 			},
 			"pass": true
 		},
@@ -351,61 +364,61 @@
 					"cards_played": [
 						0,
 						4,
+						5
+					],
+					"cash": [
+						0,
+						509
+					],
+					"cash_kraken": 601,
+					"cause": "KRAKEN banked 600 Cash first.",
+					"first_capture_t": 18.5,
+					"intel": 0,
+					"kraken_nodes": 8,
+					"outcome": "LOSS",
+					"player_nodes": 3,
+					"rival_nodes": 10,
+					"t": 364.9
+				},
+				"greedy_seed7": {
+					"cards_played": [
+						0,
+						5,
 						3
 					],
 					"cash": [
 						0,
-						601
+						592
 					],
-					"cash_kraken": 585,
-					"cause": "NYX banked 600 Cash first.",
-					"first_capture_t": 18.5,
+					"cash_kraken": 600,
+					"cause": "KRAKEN banked 600 Cash first.",
+					"first_capture_t": 12.5,
 					"intel": 0,
 					"kraken_nodes": 7,
 					"outcome": "LOSS",
 					"player_nodes": 3,
 					"rival_nodes": 9,
-					"t": 310.9
-				},
-				"greedy_seed7": {
-					"cards_played": [
-						0,
-						4,
-						3
-					],
-					"cash": [
-						0,
-						600
-					],
-					"cash_kraken": 212,
-					"cause": "NYX banked 600 Cash first.",
-					"first_capture_t": 12.5,
-					"intel": 0,
-					"kraken_nodes": 8,
-					"outcome": "LOSS",
-					"player_nodes": 1,
-					"rival_nodes": 10,
-					"t": 299.4
+					"t": 329.2
 				},
 				"rival_alone": {
 					"cards_played": [
 						0,
-						4,
-						4
+						5,
+						3
 					],
 					"cash": [
 						0,
-						600
+						592
 					],
-					"cash_kraken": 225,
-					"cause": "NYX banked 600 Cash first.",
+					"cash_kraken": 600,
+					"cause": "KRAKEN banked 600 Cash first.",
 					"first_capture_t": -1.0,
 					"intel": 50,
-					"kraken_nodes": 9,
+					"kraken_nodes": 7,
 					"outcome": "LOSS",
-					"player_nodes": 1,
-					"rival_nodes": 10,
-					"t": 299.4
+					"player_nodes": 2,
+					"rival_nodes": 9,
+					"t": 329.2
 				}
 			},
 			"pass": true

@@ -46,6 +46,13 @@ a garrison). *Tests:* does one order for the rear scale, or do we need districts
 - 6×6 cells; each non-forced cell is a gap with probability `EMPTY_CELL` (0.15). Positions jitter ±26 %.
   Grid streets exist with probability `LINK_KEEP` (0.78); diagonal shortcuts with `DIAG_P` (0.18), never
   crossing. Islands are joined by their shortest gap, so the town is always connected.
+- **Several paths, several fronts.** A gap gets a **highway** across it with probability `HIGHWAY_P` (0.85)
+  per direction: a street from the building before the gap to the one after it, drawn wide and pale, with
+  nothing to cross — so a park becomes a corridor and most districts have two ways in. The two best-connected
+  crossroads of the mid town (value ≥ 2, three or more streets, never a start cell or the hub) are
+  **junctions** (`JUNCTIONS`): every street touching a junction admits `JUNCTION_CAP_MULT` (×2) packets per
+  second. A junction wears a thin double frame and the word "junction"; its panel says so. Holding one is a
+  logistics prize: the second front runs through it.
 - A building has a **type** (below), **security** (neutral defenders: 2 + 5 × value + 0…5 + the type's
   bonus, clamped 4…28; the DOWNTOWN HUB 30), **value** (1…3: Cash per market packet; downtown 3, mid-town 2,
   rim 1). A building is drawn **as its type's pictogram**, filled in its owner's colour, sized by its slots, with a
@@ -119,7 +126,9 @@ targets.
   for the AIs). Solid = live flow, coloured by the **source's** faction: your attack = amber arrow, your
   defence = green diamond, an AI's flow = its colour, brighter when aimed at you. Packets: yours = circle,
   AI = square in its colour, Cash = diamond, **a card in flight = a glowing card shape in its family's colour
-  with its remaining path dashed**. Amber street = link at capacity. Each building carries only its name with
+  with its remaining path dashed**. Amber street = link at capacity. Wide pale street = a highway across a
+  gap; a thin double frame and the word "junction" = a junction (double traffic). Text uses five colours
+  with one meaning each: facts, secondary, needs you (amber), going your way (green), hostile (red). Each building carries only its name with
   its "$" value marks and a strength badge ("?" until scanned); one warning word under it when true (CRITICAL,
   SHAKY, FULL ↩, OFF 12s, CUT 8s); what is built inside and the send rate show only while it is selected or
   its panel is open. The HUD is one line: your Cash against the goal, the two rivals' Cash, Intel with its
@@ -292,7 +301,7 @@ Everything tunable is in `scripts/botnet_cfg/`, one file per concern, and the ga
 Change a value, restart the scene. Nothing in `botnet_proto.gd` defines a number.
 
 ## Provisional values
-`NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 ·
+`HIGHWAY_P 0.85 · JUNCTIONS 2 · JUNCTION_CAP_MULT 2 · NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 ·
 LINK_CAP 2 · MAX_QUEUE 1 · SCAN_BASE 10 · SCAN_PER_BUILD 5 · BUILD_TIME 10 · DEMOLISH_TIME 5 · ENTER_TIME 2 · CASH_INTERVAL 3 · CASH_GOAL 600 · INTEL_START 50 ·
 INTEL_CAP_BASE 100 · INTEL_CAP_PER_BUILD 50 · CRED_PER_BUILD 0.5 · RESEARCH_PER_BUILD 0.5 · RES_CAP_BASE 50 · RES_CAP_PER_BUILD 50 ·
 ANY_COST_MULT 4 · ANY_TIME_MULT 2 · WORM_FALLOFF 0.25 · CARD_ALARM 8 · RALLY_RESERVE 10 · AI cadence 3 / 3.5 · AI_RESERVE 6 · AI_PATIENCE 30 ·
@@ -494,6 +503,19 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     the hand shows only on a foreign building's panel under its weakness line; a built slot is demolished by
     right-click; Restart is a flat text button at the bottom. Three text sizes (18 / 14 / 12, one 11 px
     footer), 10 px row separation, 14 px panel inset.
+21. **Several paths and fronts (2026-10-12):** highways bridge the town's gaps (a wide pale street from the
+    building before a gap to the one after it, nothing to cross) and two junction spots, the best-connected
+    crossroads of the mid town, carry double traffic on every street that touches them. Most districts now
+    have two ways in; a junction is a logistics prize and the natural seat of a second front.
+22. **Readability pass (2026-10-12):** a programmatic overlap check (six seeds; names with value marks,
+    glyphs, warning words against the HUD strip, the panel, the flash strip and each other) drove tighter
+    jitter (±18 % × ±9 %) and a lower warning line; it reports zero overlaps. Resources got pictures: the
+    HUD, the research tab and every card's cost bar use the same icons as the building cards (coin = Cash,
+    key = Credentials, flask = Research, eye = Intel). The research queue lists what comes next with
+    "▲ research first" (the running card keeps its progress) and remove. One five-colour text palette with
+    one meaning per colour (facts, secondary, needs you, going your way, hostile) replaced some forty colour
+    literals; owners keep faction colours and cards keep their family neon. The flash message wraps inside
+    the map instead of running under the panel.
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral
