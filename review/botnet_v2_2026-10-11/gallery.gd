@@ -229,13 +229,11 @@ func _run() -> void:
 
 	# ── endings ──
 	fresh(7)
-	game.cash[game.PLAYER] = game.CASH_GOAL - 150.0; game.cash[game.RIVAL] = 410.0
-	game._bank(game.PLAYER, 150.0)
+	game._win_for(game.PLAYER, "You held the majority for %d s." % int(game.HOLD_SECS))
 	await shoot("victory_screen")
 	fresh(7)
-	game.cash[game.PLAYER] = 260.0
-	game._bank(game.RIVAL, game.CASH_GOAL)
-	await shoot("defeat_nyx_banked_first")
+	game._win_for(game.RIVAL, "Time's up — NYX controlled the most buildings (11).")
+	await shoot("defeat_nyx_controls_most")
 	fresh(7)
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) == game.PLAYER: game.hosts[i].owner = game.RIVAL

@@ -28,6 +28,7 @@ func rigP() -> int: return int(game.rig[game.PLAYER])
 func rigR() -> int: return int(game.rig[game.RIVAL])
 func secondP() -> int: return game.cell_at(0, 1)
 func secondR() -> int: return game.cell_at(game.GRID_COLS - 1, game.GRID_ROWS - 2)
+func secondR2() -> int: return game.cell_at(0, game.GRID_ROWS - 2)
 
 func neutral_nb(i: int, avoid_nb_of: int = -1) -> int:   # a neutral neighbour of i (not adjacent to avoid_nb_of if possible)
 	var fallback := -1
@@ -94,19 +95,28 @@ func _run() -> void:
 	check("03_link_capacity_queues", ok3 and ok3b and mid_pos == game.hosts[rigP()].pos,
 		{"entries_same_instant": e, "two_hop_hops": f.hops, "arrive": f.arrive_t, "waiting_at_middle": mid_pos == game.hosts[rigP()].pos})
 
-	# 04 arrivals resolve chronologically and a terminal Cash win freezes the board
+	# 04 arrivals resolve chronologically and the terminal (last botnet standing) freezes the board mid-delivery
 	fresh()
-	game.cash[game.PLAYER] = game.CASH_GOAL - 1.0
-	var n8 := secondP()
-	game.hosts[n8].bots = 0.5
+	var n8 := secondP()      # a player building reused by later fixtures
+	var rlast := secondR()   # make RIVAL and KRAKEN hold one building each, the player everything else
+	var klast := secondR2()
+	for i in game.hosts.size():
+		if i == rlast or i == klast: continue
+		if int(game.hosts[i].owner) != game.PLAYER: game.hosts[i].owner = game.PLAYER; game.hosts[i].bots = game.NODE_CAP
+	game.hosts[rlast].owner = game.RIVAL; game.hosts[rlast].bots = 0.5
+	game.hosts[klast].owner = game.RIVAL2; game.hosts[klast].bots = 0.5
+	var nr := neutral_nb(rlast); if nr < 0: nr = int(game.hosts[rlast].links[0])
+	var nk := neutral_nb(klast); if nk < 0: nk = int(game.hosts[klast].links[0])
 	game.flights = [
-		{"route": [neutral_nb(n8), n8], "hops": [0.0], "depart_t": 0.0, "arrive_t": 0.6, "owner": game.RIVAL, "kind": "bot", "amount": 1.0},
-		{"route": [n8, rigP()], "hops": [0.0], "depart_t": 0.0, "arrive_t": 0.5, "owner": game.PLAYER, "kind": "cash", "amount": 1.0},
+		{"route": [nk, klast], "hops": [0.0], "depart_t": 0.0, "arrive_t": 0.7, "owner": game.PLAYER, "kind": "bot", "amount": 1.0},
+		{"route": [nr, rlast], "hops": [0.0], "depart_t": 0.0, "arrive_t": 0.5, "owner": game.PLAYER, "kind": "bot", "amount": 1.0},
 	]
 	game._t = 1.0
 	game._deliver_due()
-	check("04_chronological_terminal_freeze", game.won and int(game.hosts[n8].owner) == game.PLAYER and float(game.hosts[n8].bots) == 0.5,
-		{"won": game.won, "cause": game._end_cause, "node_owner_after": game.hosts[n8].owner, "node_bots": game.hosts[n8].bots})
+	# the 0.5 arrival takes RIVAL's last building; KRAKEN still stands, so NOT yet won; the 0.7 arrival then takes KRAKEN's and wins, freezing
+	check("04_chronological_terminal_freeze", game.won and int(game.hosts[rlast].owner) == game.PLAYER and int(game.hosts[klast].owner) == game.PLAYER,
+		{"won": game.won, "cause": game._end_cause, "rival_last": game.hosts[rlast].owner, "kraken_last": game.hosts[klast].owner})
+	fresh()   # later cases assume a fresh town
 
 	# 05 control stages switch slots off as bots fall; the first slot always works
 	fresh()
@@ -789,7 +799,10 @@ func _run() -> void:
 	check("36_idle_scouting", one_scan and none, {"scouts_with_22_intel": one_scan, "keeps_reserve_with_5": none, "scout": sc36})
 
 	# 37 choke the leader: a rival far ahead in Cash gets its known market phished, over a dormant wire laid for it
-	fresh(); game.cash[game.RIVAL2] = 500.0; game.cash[game.RIVAL] = 100.0
+	fresh()
+	var claimed37 := 0   # RIVAL2 becomes the control leader: several more buildings than RIVAL
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.NEUTRAL and claimed37 < 4: game.hosts[i].owner = game.RIVAL2; game.hosts[i].bots = 30.0; claimed37 += 1
 	var m37 := neutral_nb(rigR())
 	game.hosts[m37].owner = game.RIVAL2; game.hosts[m37].type = "pc"; game.hosts[m37].bots = 30.0; game._set_builds(m37, ["bot", "cash"]); game._mark_scanned(game.RIVAL, m37)
 	game.cards[game.RIVAL] = {"phish:linked": 1}
@@ -798,7 +811,10 @@ func _run() -> void:
 	var flight37 := false
 	for fl in game.flights:
 		if str(fl.kind) == "card" and int((fl.route as Array)[(fl.route as Array).size() - 1]) == m37: flight37 = true
-	fresh(); game.cash[game.RIVAL2] = 500.0; game.cash[game.RIVAL] = 100.0
+	fresh()
+	var claimed37b := 0
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.NEUTRAL and claimed37b < 4: game.hosts[i].owner = game.RIVAL2; game.hosts[i].bots = 30.0; claimed37b += 1
 	var m37b := neutral_nb(rigR())
 	game.hosts[m37b].owner = game.RIVAL2; game.hosts[m37b].type = "pc"; game.hosts[m37b].bots = 30.0; game._set_builds(m37b, ["bot", "intel"]); game._mark_scanned(game.RIVAL, m37b)
 	game.cards[game.RIVAL] = {"phish:linked": 1}
@@ -904,6 +920,27 @@ func _run() -> void:
 		if not game._scanned(game.PLAYER, k41): badge = "?"
 		ui.append(JSON.stringify([txt, fk, lk, amber, badge]))
 	check("41_ui_twin", ui[0] == ui[1], {"same_panel_focus_streets": ui[0] == ui[1], "digest": str(ui[0]).left(200)})
+
+	# 42 domination: holding more than half the town for HOLD_SECS wins; losing the majority resets the clock
+	fresh()
+	var need42: int = game._control_need()
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.NEUTRAL and game._faction_nodes(game.PLAYER) < need42 + 1:
+			game.hosts[i].owner = game.PLAYER; game.hosts[i].bots = game.NODE_CAP
+	var majority: bool = game._faction_nodes(game.PLAYER) > need42
+	var rivals_alive: bool = game._faction_nodes(game.RIVAL) > 0 and game._faction_nodes(game.RIVAL2) > 0   # so it is a hold win, not elimination
+	step(30.0, 0.5)
+	var ticking: bool = absf(float(game._hold[game.PLAYER]) - 30.0) < 1.0 and not game.won
+	var drop := -1   # lose one building → below majority → the clock resets
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.PLAYER and i != rigP(): drop = i; break
+	game.hosts[drop].owner = game.NEUTRAL
+	step(1.0, 0.5)
+	var reset: bool = float(game._hold[game.PLAYER]) < 0.6
+	game.hosts[drop].owner = game.PLAYER; game.hosts[drop].bots = game.NODE_CAP   # retake it, hold to the win
+	step(float(game.HOLD_SECS) + 1.0, 0.5)
+	check("42_domination_hold", majority and rivals_alive and ticking and reset and game.won and game._end_cause.begins_with("You held"),
+		{"majority": majority, "clock_ticks": ticking, "clock_resets_on_loss": reset, "won": game.won, "cause": game._end_cause})
 
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)

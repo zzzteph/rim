@@ -17,7 +17,13 @@ const RESEARCH_PER_BUILD := 0.5    # Research/s per active Research lab (× the 
 const RES_CAP_BASE := 50.0         # Credentials and Research limits start here …
 const RES_CAP_PER_BUILD := 50.0    # … and each harvester / lab raises its own resource's limit by this
 const CASH_INTERVAL := 3.0         # seconds between Cash packets per active Darknet market
-const CASH_GOAL := 600.0           # bank this first → win (another botnet banking it first → defeat)
+
+# ── the win: three ways, in order. (1) hold a true majority (> HOLD_FRACTION of ALL buildings) for HOLD_SECS
+# without a break → instant win. (2) be the last botnet with buildings. (3) at the MATCH_TIME bell, whoever
+# controls the most buildings wins (ties: the most bots). So control always decides, and a snowball wins early.
+const HOLD_FRACTION := 0.5         # a true-majority instant win needs more than half of ALL buildings (16 of 31)
+const HOLD_SECS := 45.0            # seconds of continuous majority for the instant win
+const MATCH_TIME := 300.0          # a 5-minute match; at the bell the biggest holder wins
 
 # ── the bot-flow dials ──
 # ── scanning: a foreign building must be SCANNED before it can be attacked. Scan bots travel like attack

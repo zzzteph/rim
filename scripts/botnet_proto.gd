@@ -111,7 +111,9 @@ const RESEARCH_PER_BUILD := CfgTuning.RESEARCH_PER_BUILD
 const RES_CAP_BASE := CfgTuning.RES_CAP_BASE
 const RES_CAP_PER_BUILD := CfgTuning.RES_CAP_PER_BUILD
 const CASH_INTERVAL := CfgTuning.CASH_INTERVAL
-const CASH_GOAL := CfgTuning.CASH_GOAL
+const HOLD_FRACTION := CfgTuning.HOLD_FRACTION
+const HOLD_SECS := CfgTuning.HOLD_SECS
+const MATCH_TIME := CfgTuning.MATCH_TIME
 const SCAN_BASE := CfgTuning.SCAN_BASE
 const SCAN_PER_BUILD := CfgTuning.SCAN_PER_BUILD
 const SCAN_COSTS_INTEL := CfgTuning.SCAN_COSTS_INTEL
@@ -155,7 +157,8 @@ var rig := {}          # faction -> index of its rig (the Cash sink)
 var _cell := {}        # Vector2i grid cell -> host index (gaps have no entry)
 var _highways := {}    # "a_b" (a<b) -> true: a street that bridges a gap — a second path across the town
 var intel := {}        # faction -> Intel reserve
-var cash := {}         # faction -> Cash banked
+var cash := {}         # faction -> Cash (fuels cards; no longer the win)
+var _hold := {}        # faction -> seconds it has continuously held the majority
 var flights := []      # {route:[idx], hops:[link entry times], depart_t, arrive_t, owner, kind:"bot"|"cash", amount}
 var _res := {}         # "a>b" -> sorted entry times reserved on that link direction (capacity)
 var _next_depart := {} # bot source -> absolute time its next bot is due
@@ -225,10 +228,10 @@ func _gen() -> void:
 	rng.seed = town_seed
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; _highways = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}
-	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []
+	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []; _hold = {}
 	for fac in BOTNETS:
 		intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}; creds[fac] = 0.0; research[fac] = 0.0
-		cards[fac] = {}; lab[fac] = {"queue": [], "progress": 0.0, "paused": false, "stall": ""}; card_plays[fac] = 0
+		cards[fac] = {}; lab[fac] = {"queue": [], "progress": 0.0, "paused": false, "stall": ""}; card_plays[fac] = 0; _hold[fac] = 0.0
 	for fac in AIS: _ai[fac] = {"timer": float(AI_PROFILE[fac].cadence) * (0.5 + 0.3 * float(fac)), "ops": {}, "avoid": -1, "dead": false, "lost": {}, "edges": {}}
 	var ax := 60.0; var ay := 100.0
 	var aw := sz.x - PANEL_W - 130.0; var ah := sz.y - ay - 104.0
@@ -835,12 +838,53 @@ func _tick_jobs(dt: float) -> void:
 				_refresh_panel()
 
 
-func _bank(fac: int, amount: float) -> void:
+func _bank(fac: int, amount: float) -> void:   # Cash only fuels cards now; capturing ground is the win
 	cash[fac] = float(cash[fac]) + amount
+
+
+func _control_need() -> int:   # buildings a faction must exceed to hold the majority
+	return int(floor(HOLD_FRACTION * float(hosts.size())))
+
+
+func _win_for(fac: int, cause: String) -> void:
 	if won or lost: return
-	if float(cash[fac]) < CASH_GOAL: return
-	if fac == PLAYER: won = true; _end_cause = "You banked %d Cash." % int(CASH_GOAL)
-	else: lost = true; _end_cause = "%s banked %d Cash first." % [fname(fac), int(CASH_GOAL)]
+	_end_cause = cause
+	if fac == PLAYER: won = true
+	else: lost = true
+
+
+func _bot_sum(fac: int) -> float:
+	var b := 0.0
+	for h in hosts:
+		if int(h.owner) == fac: b += float(h.bots)
+	return b
+
+
+func _control_leader() -> int:   # the botnet holding the most buildings (ties: the most bots, then faction order)
+	var best := -1; var bn := -1; var bb := -1.0
+	for fac in BOTNETS:
+		var n := _faction_nodes(fac); var b := _bot_sum(fac)
+		if n > bn or (n == bn and b > bb): bn = n; bb = b; best = fac
+	return best
+
+
+func _tick_domination(dt: float) -> void:   # a true majority held wins now; last botnet wins; else control decides at the bell
+	var need := _control_need()
+	var alive := []
+	for fac in BOTNETS:
+		if _faction_nodes(fac) > 0: alive.append(fac)
+		if _faction_nodes(fac) > need: _hold[fac] = float(_hold[fac]) + dt
+		else: _hold[fac] = 0.0
+	for fac in BOTNETS:
+		if float(_hold[fac]) >= HOLD_SECS:
+			_win_for(fac, ("You held the majority for %d s." % int(HOLD_SECS)) if fac == PLAYER else ("%s held the majority for %d s." % [fname(fac), int(HOLD_SECS)]))
+			return
+	if alive.size() == 1:
+		_win_for(int(alive[0]), "You are the last botnet standing." if int(alive[0]) == PLAYER else "%s wiped out the other botnets." % fname(int(alive[0])))
+		return
+	if _t >= MATCH_TIME:   # the bell: whoever controls the most buildings takes it
+		var w := _control_leader()
+		_win_for(w, ("Time's up — you controlled the most buildings (%d)." % _faction_nodes(w)) if w == PLAYER else ("Time's up — %s controlled the most buildings (%d)." % [fname(w), _faction_nodes(w)]))
 
 
 # ---- who sends what where ----
@@ -919,6 +963,7 @@ func _process(dt: float) -> void:
 		_emit_due()
 		if not won and not lost: _deliver_due()      # chronological; may set won/lost and then stops
 		if not won and not lost: _ai_tick(dt)
+		if not won and not lost: _tick_domination(dt)
 		if not won and not lost and _player_nodes() == 0: lost = true; _end_cause = "You lost your last building."
 		for fac in AIS:
 			if not bool(_ai[fac].dead) and _faction_nodes(fac) == 0:
@@ -1119,6 +1164,11 @@ func _capture(t: int, fac: int) -> void:
 		else: _flash("Lost %s to %s" % [nm, fname(fac)])
 	else:
 		_flash("%s took %s%s" % [fname(fac), nm, ("" if prev == NEUTRAL else " from %s" % fname(prev))])
+	if prev != NEUTRAL and not won and not lost:   # did that capture leave one botnet standing?
+		var alive := []
+		for f in BOTNETS:
+			if _faction_nodes(f) > 0: alive.append(f)
+		if alive.size() == 1: _win_for(int(alive[0]), "You are the last botnet standing." if int(alive[0]) == PLAYER else "%s wiped out the other botnets." % fname(int(alive[0])))
 	_refresh_panel()
 
 
@@ -1488,7 +1538,7 @@ func _ai_leader(fac: int) -> int:   # the other botnet ahead in the public Cash 
 	var best := -1
 	for f in BOTNETS:
 		if f == fac or _faction_nodes(f) == 0: continue
-		if best < 0 or float(cash[f]) > float(cash[best]): best = f
+		if best < 0 or _faction_nodes(f) > _faction_nodes(best): best = f
 	return best
 
 
@@ -1605,7 +1655,7 @@ func _ai_think(fac: int) -> void:
 	# ── 2b. research: a cheap card of each useful kind; phishing first when a rival leads the Cash race ──
 	var L: Dictionary = lab[fac]
 	var leader := _ai_leader(fac)
-	var chased: bool = leader >= 0 and float(cash[leader]) >= float(cash[fac]) + AI_CHOKE_LEAD
+	var chased: bool = leader >= 0 and _faction_nodes(leader) >= _faction_nodes(fac) + int(AI_CHOKE_LEAD)
 	if (L.queue as Array).is_empty() and _kind_total(fac, "lab") > 0 and _kind_total(fac, "cred") > 0:
 		var want := ""
 		if chased and _held(fac, "phish:linked") < 1: want = "phish:linked"
@@ -1958,7 +2008,7 @@ func _cancel_to(dest: int) -> void:
 func _reset() -> void:   # a NEW town every restart
 	won = false; lost = false; _end_shown = false; _end_cause = ""; paused = false; _t = 0.0
 	_emit_cursor = 0; _panel_t = 0.0
-	rally = -1; _inside = -1; _enter_left = 0.0; town_seed = 0; _tab = "map"
+	rally = -1; _inside = -1; _enter_left = 0.0; town_seed = 0; _tab = "map"; _hold = {}
 	_clear_all()
 	_gen(); _refresh_panel()
 
@@ -2405,8 +2455,8 @@ func _panel_attack_diag(t: int, feeders: Array, sending: Array) -> void:   # one
 
 
 func _panel_idle() -> void:
-	_plabel("Bank %d Cash before NYX or KRAKEN." % int(CASH_GOAL), 18, C_TEXT)
-	_plabel("NYX (red, bottom right) and KRAKEN (purple, bottom left) are the two AI botnets racing you. Grey buildings are neutral city security.", 12, C_DIM)
+	_plabel("Control the most of the town when the clock runs out.", 18, C_TEXT)
+	_plabel("%d-minute match. Hold more than half the town for %d s to win outright, or wipe out both rivals; otherwise whoever controls the most buildings at the bell wins. NYX (red) and KRAKEN (purple) are the AI botnets; grey is neutral. Cash now only fuels cards." % [int(MATCH_TIME / 60.0), int(HOLD_SECS)], 12, C_DIM)
 	_gap(2.0)
 	_plabel("①  Drag a line from your building onto a target.", 14)
 	_plabel("②  Click the target — SCAN quietly or ATTACK.", 14)
@@ -2416,20 +2466,35 @@ func _panel_idle() -> void:
 	_plabel("Esc clears · Space pauses · R research", 11, C_DIM)
 
 
-func _hud_items() -> Array:   # the HUD, one glance: [icon kind or "", text, colour] — the Cash race first, then the fuel
+func _control_pct(fac: int) -> int:
+	return int(round(100.0 * float(_faction_nodes(fac)) / float(maxi(1, hosts.size()))))
+
+
+func _hud_items() -> Array:   # the HUD, one glance: the control race to the majority, then the card fuel
 	var demand := _attack_demand(PLAYER)
-	var inc := ("  +%.1f/s" % _cash_rate(PLAYER)) if _cash_rate(PLAYER) > 0.0 else ""
 	var drain := ("  −%d/s" % int(ceil(demand))) if demand > 0.0 else ""
-	return [
-		["cash", "%d / %d%s" % [int(cash[PLAYER]), int(CASH_GOAL), inc], C_TEXT],
-		["", "rivals", C_DIM],
-		["", "NYX %d" % int(cash[RIVAL]), fcol(RIVAL).lightened(0.3)],
-		["", "KRAKEN %d" % int(cash[RIVAL2]), fcol(RIVAL2).lightened(0.3)],
-		["intel", "%d/%d%s" % [int(intel[PLAYER]), int(_intel_cap(PLAYER)), drain], C_TEXT if drain == "" else C_WARN],
-		["cred", "%d/%d" % [int(creds[PLAYER]), int(_res_cap(PLAYER, "cred"))], C_TEXT],
-		["lab", "%d/%d" % [int(research[PLAYER]), int(_res_cap(PLAYER, "lab"))], C_TEXT],
-		["", _fmt_time(_t), C_DIM],
+	var need_pct := int(round(100.0 * float(_control_need() + 1) / float(maxi(1, hosts.size()))))
+	var pc: Color = C_GOOD if _faction_nodes(PLAYER) > _control_need() else C_TEXT
+	var lead0 := _control_leader()
+	var out := [
+		["", "CONTROL", C_DIM],
+		["", "%syou %d%%" % ["● " if lead0 == PLAYER else "", _control_pct(PLAYER)], pc],
+		["", "%sNYX %d%%" % ["● " if lead0 == RIVAL else "", _control_pct(RIVAL)], fcol(RIVAL).lightened(0.3)],
+		["", "%sKRAKEN %d%%" % ["● " if lead0 == RIVAL2 else "", _control_pct(RIVAL2)], fcol(RIVAL2).lightened(0.3)],
 	]
+	for fac in BOTNETS:   # whoever is on the clock to win
+		if float(_hold[fac]) > 0.5:
+			out.append(["", "⏳ %s %d/%ds" % [("you" if fac == PLAYER else fname(fac)), int(_hold[fac]), int(HOLD_SECS)], C_WARN])
+			break
+	out.append(["intel", "%d/%d%s" % [int(intel[PLAYER]), int(_intel_cap(PLAYER)), drain], C_TEXT if drain == "" else C_WARN])
+	out.append(["cash", "%d" % int(cash[PLAYER]), C_TEXT])
+	out.append(["cred", "%d/%d" % [int(creds[PLAYER]), int(_res_cap(PLAYER, "cred"))], C_TEXT])
+	out.append(["lab", "%d/%d" % [int(research[PLAYER]), int(_res_cap(PLAYER, "lab"))], C_TEXT])
+	var left := maxf(0.0, MATCH_TIME - _t)
+	var lead := _control_leader()
+	var lc: Color = C_GOOD if lead == PLAYER else fcol(lead).lightened(0.3)
+	out.append(["", "⏱ %s left · leading: %s" % [_fmt_time(left), ("you" if lead == PLAYER else fname(lead))], lc])
+	return out
 
 
 func _hud_text() -> String:   # probes and scripts: the HUD as one line

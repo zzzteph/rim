@@ -24,6 +24,6 @@ const AI_CASH_MULT := 1.0          # multiplies the AI botnets' Cash income: mea
 # ── what an AI may assume about what it has not scanned (it plays under the player's fog) ──
 const AI_PRIOR_BOTNET := 0.6       # an unscanned building of another botnet is assumed to hold this × NODE_CAP bots
 const AI_SCOUT_INTEL := 20.0       # Intel it keeps before spending a quiet scan on learning alone
-const AI_CHOKE_LEAD := 50.0        # Cash lead of a rival that makes an AI phish that rival's markets
+const AI_CHOKE_LEAD := 2.0         # building lead of the control-leader rival that makes an AI phish its markets
 const AI_EDGE_MEMORY := 60.0       # seconds it remembers where it was last hit (pre-wired guards go there)
 const AI_SIEGE_MAX := 120.0        # the longest siege an AI starts, on what it knows (a slow steady siege still counts as progress)
