@@ -168,9 +168,10 @@ func _run() -> void:
 	await shoot("card_packet_in_flight")
 	sim(1.5)
 	await shoot("card_credential_stuffing_wiped_defenders")
+	game.hosts[tc].bots = 20.0
 	game._play_card(game.PLAYER, "phish:linked", tc)
 	sim(2.0)
-	await shoot("card_phishing_production_off")
+	await shoot("card_phishing_halves_defenders")
 	var tw: int = game.hub
 	game.rng.seed = 4242
 	game._play_card(game.PLAYER, "credworm:any", tw)
@@ -182,11 +183,23 @@ func _run() -> void:
 		sim(0.5); guardw += 1
 	sim(0.4)
 	await shoot("card_worm_chain_from_downtown")
-	var tr := neutral_nb(sp, [rp, tc])
-	if tr < 0: tr = neutral_nb(tc, [rp, sp])
-	if tr >= 0: game._play_card(game.PLAYER, "oneday:any", tr)
+	# the two new signature cards: a DoS (production off + routing cut) and a supply-chain steal
+	var td := neutral_nb(rp, [sp, tc])
+	if td < 0: td = neutral_nb(sp, [rp, tc])
+	if td >= 0:
+		game.cards[game.PLAYER] = {"dos:any": 1, "supply:any": 1}
+		game._mark_scanned(game.PLAYER, td); game.hosts[td].owner = game.RIVAL; game._set_builds(td, ["bot", "cash"])
+		game._play_card(game.PLAYER, "dos:any", td)
+		var ts := neutral_nb(sp, [rp, tc, td])
+		if ts >= 0: game.hosts[ts].owner = game.RIVAL2; game._set_builds(ts, ["cash", "intel"]); game._mark_scanned(game.PLAYER, ts); game._play_card(game.PLAYER, "supply:any", ts)
+		game._clear_all(); game._inspect = td
+		var gd := 0
+		while gd < 40 and not game.flights.is_empty():
+			sim(0.5); gd += 1
+		sim(0.5)
+		await shoot("card_dos_and_supply_chain")
 	game._clear_all()
-	sim(6.0)
+	sim(2.0)
 	await shoot("card_effects_labels_on_map")
 
 	# ── threats ──

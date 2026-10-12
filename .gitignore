@@ -16,3 +16,6 @@ Thumbs.db
 
 # Exported game builds
 build/
+
+# Session scratchpad (headless Godot, downloads)
+scratchpad/

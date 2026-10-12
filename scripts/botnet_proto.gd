@@ -2080,11 +2080,11 @@ func _lbl(parent: Control, txt: String, sz: int, col: Color, minw: float) -> Lab
 	return l
 
 
-func _card_grid(keys: Array, big: bool, counts: bool, enabled_fn: Callable, note_fn: Callable, click_fn: Callable, draggable := false) -> void:   # a grid of card faces
+func _card_grid(keys: Array, big: bool, counts: bool, enabled_fn: Callable, note_fn: Callable, click_fn: Callable, draggable := false, show_reach := true) -> void:   # a grid of card faces
 	var grid := GridContainer.new(); grid.columns = 2 if big else 3
 	grid.add_theme_constant_override("h_separation", 8); grid.add_theme_constant_override("v_separation", 8)
 	for key in keys:
-		var c := CardFace.new(); c.game = self; c.card = _card_of(str(key)); c.reach = _reach_of(str(key))
+		var c := CardFace.new(); c.game = self; c.card = _card_of(str(key)); c.reach = _reach_of(str(key)); c.show_reach = show_reach
 		c.custom_minimum_size = Vector2(190, 262) if big else Vector2(124, 174)
 		if counts: c.count = _held(PLAYER, str(key))
 		c.enabled = bool(enabled_fn.call(str(key))) if enabled_fn.is_valid() else true
@@ -2226,7 +2226,7 @@ func _panel_research() -> void:   # the research tab: resources, what is researc
 	_plabel("LINKED: only where you hold a connection. ANY: anywhere on the map." if _reach_sel == "linked" else "ANY: any building on the map, no connection needed.", 11, C_DIM)
 	var keys := []
 	for c2 in CARD_ORDER: keys.append(_card_key(c2, _reach_sel))
-	_card_grid(keys, true, true, Callable(), Callable(), _queue_research.bind(PLAYER))
+	_card_grid(keys, true, true, Callable(), Callable(), _queue_research.bind(PLAYER), false, false)   # reach is the toggle above, not per card
 	var hand := _hand(PLAYER)
 	if not hand.is_empty():
 		_kicker("your hand · drag a card onto a building on the map")
@@ -2514,30 +2514,30 @@ func _control_pct(fac: int) -> int:
 	return int(round(100.0 * float(_faction_nodes(fac)) / float(maxi(1, hosts.size()))))
 
 
-func _hud_items() -> Array:   # the HUD, one glance: the control race to the majority, then the card fuel
+func _hud_items() -> Array:   # the HUD, one glance: time, the control race to the majority, then the card fuel
 	var demand := _attack_demand(PLAYER)
 	var drain := ("  −%d/s" % int(ceil(demand))) if demand > 0.0 else ""
-	var need_pct := int(round(100.0 * float(_control_need() + 1) / float(maxi(1, hosts.size()))))
 	var pc: Color = C_GOOD if _faction_nodes(PLAYER) > _control_need() else C_TEXT
 	var lead0 := _control_leader()
+	var hold_fac := -1
+	for fac in BOTNETS:   # whoever is on the clock to win outright
+		if float(_hold[fac]) > 0.5: hold_fac = fac; break
+	var clock_item: Array                      # the leftmost slot: the match clock, or the hold-to-win countdown
+	if hold_fac >= 0:
+		clock_item = ["", "⏳ %s %d/%ds" % [("you" if hold_fac == PLAYER else fname(hold_fac)), int(_hold[hold_fac]), int(HOLD_SECS)], C_WARN]
+	else:
+		var left := maxf(0.0, MATCH_TIME - _t)
+		clock_item = ["", "⏱ %s" % _fmt_time(left), (C_WARN if left <= 30.0 else C_DIM)]
 	var out := [
-		["", "CONTROL", C_DIM],
+		clock_item,
 		["", "%syou %d%%" % ["● " if lead0 == PLAYER else "", _control_pct(PLAYER)], pc],
 		["", "%sNYX %d%%" % ["● " if lead0 == RIVAL else "", _control_pct(RIVAL)], fcol(RIVAL).lightened(0.3)],
 		["", "%sKRAKEN %d%%" % ["● " if lead0 == RIVAL2 else "", _control_pct(RIVAL2)], fcol(RIVAL2).lightened(0.3)],
 	]
-	for fac in BOTNETS:   # whoever is on the clock to win
-		if float(_hold[fac]) > 0.5:
-			out.append(["", "⏳ %s %d/%ds" % [("you" if fac == PLAYER else fname(fac)), int(_hold[fac]), int(HOLD_SECS)], C_WARN])
-			break
 	out.append(["intel", "%d/%d%s" % [int(intel[PLAYER]), int(_intel_cap(PLAYER)), drain], C_TEXT if drain == "" else C_WARN])
 	out.append(["cash", "%d" % int(cash[PLAYER]), C_TEXT])
 	out.append(["cred", "%d/%d" % [int(creds[PLAYER]), int(_res_cap(PLAYER, "cred"))], C_TEXT])
 	out.append(["lab", "%d/%d" % [int(research[PLAYER]), int(_res_cap(PLAYER, "lab"))], C_TEXT])
-	var left := maxf(0.0, MATCH_TIME - _t)
-	var lead := _control_leader()
-	var lc: Color = C_GOOD if lead == PLAYER else fcol(lead).lightened(0.3)
-	out.append(["", "⏱ %s left · leading: %s" % [_fmt_time(left), ("you" if lead == PLAYER else fname(lead))], lc])
 	return out
 
 
@@ -3058,7 +3058,9 @@ func _draw_card_glyph(c: CanvasItem, card: String, centre: Vector2, sz: float, c
 class HudBar extends Control:   # the one-line HUD with resource icons
 	var game
 
-	func _init() -> void: mouse_filter = Control.MOUSE_FILTER_IGNORE
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		clip_contents = true            # a hard guard: the row can never bleed under the right panel
 
 	func _draw() -> void:
 		var f := get_theme_default_font()
@@ -3093,6 +3095,7 @@ class CardFace extends Control:   # a Magic-style card: title, art, type line, r
 	var game
 	var card := "stuff"
 	var reach := "linked"
+	var show_reach := true   # the L/A tag; off in the catalogue, where one toggle governs the whole grid
 	var count := -1          # copies held (a badge when >= 0)
 	var enabled := true
 	var draggable := false   # a hand card: drag it onto a building on the map to play it
@@ -3159,11 +3162,12 @@ class CardFace extends Control:   # a Magic-style card: title, art, type line, r
 			draw_string(f, Vector2(bx + 14.0 * k, h - 7.0 * k), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz, Color(1, 0.95, 0.8, a))
 			bx += 14.0 * k + f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsz).x + 8.0 * k
 		draw_string(f, Vector2(bx, h - 7.0 * k), "%.0f s" % game._card_time(key), HORIZONTAL_ALIGNMENT_LEFT, -1, fsz, Color(1, 0.95, 0.8, 0.8 * a))
-		var tag := reach.to_upper() if big else reach.to_upper().left(1)
-		var tag_fs := maxi(9, int(10.0 * k))
-		var tw := f.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_fs).x + 8.0
-		draw_rect(Rect2(art.position + Vector2(2, 2), Vector2(tw, 14.0 * maxf(k, 0.8))), Color(col.r, col.g, col.b, 0.22 * a), true)
-		draw_string(f, art.position + Vector2(6.0, 12.0 * maxf(k, 0.8)), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_fs, Color(col.r, col.g, col.b, 0.95 * a))
+		if show_reach:
+			var tag := reach.to_upper() if big else reach.to_upper().left(1)
+			var tag_fs := maxi(9, int(10.0 * k))
+			var tw := f.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_fs).x + 8.0
+			draw_rect(Rect2(art.position + Vector2(2, 2), Vector2(tw, 14.0 * maxf(k, 0.8))), Color(col.r, col.g, col.b, 0.22 * a), true)
+			draw_string(f, art.position + Vector2(6.0, 12.0 * maxf(k, 0.8)), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tag_fs, Color(col.r, col.g, col.b, 0.95 * a))
 		if bool(cd.chain):   # chain marker beside the title
 			for j in 3:
 				var cx := w - ch - 34.0 * k + float(j) * 10.0 * k
