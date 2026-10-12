@@ -35,7 +35,6 @@ func fill_ai(fac: int) -> void:   # fill every slot so the AI never stops to bui
 			var full := []
 			for k in int(game.hosts[i].slots): full.append("bot")
 			game._set_builds(i, full)
-	game._ai[fac].inside = -1; game._ai[fac].enter_left = 0.0
 
 func neutral_nb(i: int, avoid_nb_of: int = -1) -> int:   # a neutral neighbour of i (not adjacent to avoid_nb_of if possible)
 	var fallback := -1
@@ -134,21 +133,24 @@ func _run() -> void:
 		st.append([game._stage(n8), game._active_slots(n8), game._count(n8, "bot"), game._count(n8, "intel"), game._count(n8, "cash")])
 	check("05_control_stages", st == [[0, 3, 1, 1, 1], [1, 2, 1, 1, 0], [2, 1, 1, 0, 0]], {"stages": st})
 
-	# 06 a build job progresses only while its owner is ATTENDING it — the player inside it, an AI "inside" it
+	# 06 build jobs run on their own for everyone: nobody has to stay with them, several can run in one
+	#    building at once, and each one is paid in Intel when it starts
 	fresh()
-	game._start_job(n8, "cash")
-	game._tick_jobs(100.0)
-	var not_built: bool = game._built_kinds(n8).size() == 1   # no progress without being inside
-	game._inside = n8; game._enter_left = 0.0
-	game._tick_jobs(game.BUILD_TIME + 0.01)
-	var built: bool = game._built_kinds(n8) == ["bot", "cash"]
+	game.hosts[n8].slots = 3; game._set_builds(n8, ["bot"])
+	var i06 := float(game.intel[game.PLAYER])
+	game._start_job(n8, "cash")                       # slot 1 (slot 0 holds the starting Bot farm)
+	var paid: bool = absf(float(game.intel[game.PLAYER]) - (i06 - game.BUILD_COST_INTEL)) < 0.01
+	var second_too: bool = game._start_job(n8, "intel")   # a second job in the same building, another slot
+	var two_running: bool = (game.hosts[n8].jobs as Dictionary).size() == 2
+	game._tick_jobs(game.BUILD_TIME + 0.01)           # nobody "inside": they progress anyway
+	var both_built: bool = game._built_kinds(n8) == ["bot", "cash", "intel"] and (game.hosts[n8].jobs as Dictionary).is_empty()
 	var r6 := secondR()
 	game._start_job(r6, "cash"); game._tick_jobs(game.BUILD_TIME + 0.01)
-	var ai_without: bool = game._built_kinds(r6).size() == 1   # the AI, too, must attend its build
-	game._ai[game.RIVAL].inside = r6; game._ai[game.RIVAL].enter_left = 0.0
-	game._tick_jobs(game.BUILD_TIME + 0.01)
-	check("06_jobs_need_attention", not_built and built and ai_without and game._built_kinds(r6) == ["bot", "cash"],
-		{"player_without_inside": not_built, "player_inside": built, "rival_builds": game.hosts[secondR()].builds})
+	var ai_too: bool = game._built_kinds(r6) == ["bot", "cash"]   # the AI's jobs run unattended as well
+	game.intel[game.PLAYER] = game.BUILD_COST_INTEL - 1.0
+	var broke: bool = not game._start_job(rigP(), "cash")          # no Intel, no job
+	check("06_jobs_run_unattended_cost_intel", paid and second_too and two_running and both_built and ai_too and broke,
+		{"intel_paid_up_front": paid, "two_jobs_at_once": two_running, "both_built_unattended": both_built, "ai_unattended": ai_too, "refused_without_intel": broke})
 
 	# 07 capture flips a building to the attacker's faction and cancels its orders and jobs; neutral
 	#    security never regrows past its own level, an owned building regrows to NODE_CAP
@@ -161,12 +163,14 @@ func _run() -> void:
 	game.hosts[nn].bots = 0.5
 	game._deliver({"route": [rigR(), nn], "hops": [0.0], "depart_t": 0.0, "arrive_t": 1.0, "owner": game.RIVAL, "kind": "bot", "amount": 1.0})
 	var cap_r: bool = int(game.hosts[nn].owner) == game.RIVAL
+	var empty_after: bool = game._built_kinds(nn).is_empty()      # a captured building is empty inside
+	game._set_builds(nn, ["bot"])                                   # the new owner builds a farm; only then does it regrow
 	step(60.0, 0.1)
 	var owned_regrows: bool = float(game.hosts[nn].bots) > sec_before + 1.0
 	game.hosts[nn].bots = 0.5
 	game._deliver({"route": [n8, nn], "hops": [0.0], "depart_t": 0.0, "arrive_t": 1.0, "owner": game.PLAYER, "kind": "bot", "amount": 1.0})
-	check("07_capture_and_security_caps", regrew_to_sec and cap_r and owned_regrows and int(game.hosts[nn].owner) == game.PLAYER and (game.hosts[nn].job as Dictionary).is_empty() and int(game.hosts[nn].assign) == -1,
-		{"neutral_regrew_to_security": regrew_to_sec, "after_rival": cap_r, "owned_regrows_past_security": owned_regrows, "after_player": game.hosts[nn].owner})
+	check("07_capture_and_security_caps", regrew_to_sec and cap_r and empty_after and owned_regrows and int(game.hosts[nn].owner) == game.PLAYER and (game.hosts[nn].jobs as Dictionary).is_empty() and int(game.hosts[nn].assign) == -1,
+		{"neutral_regrew_to_security": regrew_to_sec, "after_rival": cap_r, "empty_after_capture": empty_after, "owned_regrows_past_security": owned_regrows, "after_player": game.hosts[nn].owner})
 
 	# 08 an AI botnet cannot afford an attack from a cold start, so it builds an Intel harvester first, then
 	#    concentrates several sources on one soft bordering building (watched over the first 25 s of play)
@@ -200,25 +204,22 @@ func _run() -> void:
 	step(10.0, 0.1)
 	check("09_cash_travels_home", c1 >= 3.0 and c1 <= 4.0 and float(game.cash[game.PLAYER]) >= 3.0 and float(game.cash[game.PLAYER]) <= 4.0, {"via_link": c1, "on_rig": game.cash[game.PLAYER]})
 
-	# 10 auto-supply to the rally point keeps a garrison and never overfills the rally
+	# 10 a captured building is empty inside: whatever the loser had built is gone, jobs included
 	fresh()
-	game.rally = rigP()
-	game._emit_due()
-	var none_when_full: bool = game.flights.is_empty()
-	game.hosts[rigP()].bots = 20.0
-	game._emit_due()
-	var one: bool = game.flights.size() == 1 and int(game.flights[0].route[0]) == n8
-	game.hosts[n8].bots = game.RALLY_RESERVE + 0.5
-	game.flights = []; game._next_depart[n8] = game._t
-	game._emit_due()
-	check("10_rally_garrison", none_when_full and one and game.flights.is_empty(), {"held_when_rally_full": none_when_full, "sent_when_room": one, "held_at_garrison": game.flights.is_empty()})
+	var cap10 := neutral_nb(rigP())
+	game.hosts[cap10].owner = game.RIVAL; game.hosts[cap10].slots = 3; game._set_builds(cap10, ["bot", "cash", "intel"])
+	game.intel[game.RIVAL] = 100.0; game._start_job(cap10, "lab", 0)   # a replace in progress, too
+	game.hosts[cap10].bots = -2.0
+	game._capture(cap10, game.PLAYER)
+	var wiped10: bool = game._built_kinds(cap10).is_empty() and (game.hosts[cap10].jobs as Dictionary).is_empty() and int(game.hosts[cap10].owner) == game.PLAYER
+	check("10_capture_empties_the_inside", wiped10, {"builds_after_capture": game.hosts[cap10].builds, "jobs_after_capture": game.hosts[cap10].jobs})
 
 	# 11 frame-rate consistency: the same orders at 60 Hz and at 2 Hz give the same board (tolerance 1 bot)
 	var boards := []
 	var t11 := -1
 	for dt in [1.0 / 60.0, 0.5]:
 		fresh()
-		t11 = neutral_nb(rigP())
+		t11 = neutral_nb(rigP()); game.hosts[t11].sec = 28.0; game.hosts[t11].bots = 28.0   # worn down, not flipped: a flip is a discontinuity
 		game.hosts[rigP()].assign = t11; game.hosts[rigP()].live = true; game.hosts[n8].assign = t11; game.hosts[n8].live = true
 		step(20.0, dt)
 		boards.append({"dt": dt, "target_bots": game.hosts[t11].bots, "owner": game.hosts[t11].owner, "intel": game.intel[game.PLAYER], "flights": game.flights.size()})
@@ -247,12 +248,13 @@ func _run() -> void:
 	game.sel = {n8: true}; game._wire(t14)
 	var wired_dormant: bool = int(game.hosts[n8].assign) == t14 and not bool(game.hosts[n8].live) and game._inspect == t14 and game.sel.is_empty()
 	step(3.0, 0.1)
-	var nothing_moved: bool = game.flights.is_empty() and absf(float(game.intel[game.PLAYER]) - game.INTEL_START) < 0.001
+	var nothing_moved: bool = game.flights.is_empty() and float(game.intel[game.PLAYER]) >= game.INTEL_START   # nothing left, nothing spent
 	game.sel = {n8: true}; game._wire(rigR())
 	var no_path: bool = int(game.hosts[n8].assign) == t14 and game._msg.begins_with("✖ No path")
+	var i14: float = game.intel[game.PLAYER]
 	game._launch(t14)
 	step(1.5, 0.1)
-	var launched: bool = bool(game.hosts[n8].live) and game.flights.size() >= 1 and float(game.intel[game.PLAYER]) < game.INTEL_START
+	var launched: bool = bool(game.hosts[n8].live) and game.flights.size() >= 1 and float(game.intel[game.PLAYER]) < i14 + 1.5   # at least one bot paid for, against the 1.5 s trickle
 	game._halt(t14)
 	var halted: bool = not bool(game.hosts[n8].live) and int(game.hosts[n8].assign) == t14
 	game._clear_all()
@@ -296,26 +298,27 @@ func _run() -> void:
 		{"flows_became_guards": became_guards, "topping_up_below_full": still_topping, "stood_down_at_full": guards_stood_down, "lost_stands_down_kept": lost_stands_down})
 
 	# 17 slots: a card dropped on an EMPTY slot builds there in BUILD_TIME; on an OCCUPIED slot it replaces —
-	#    the old building goes offline, DEMOLISH_TIME clears the slot, BUILD_TIME builds the new one
+	#    the old building goes offline, DEMOLISH_TIME clears the slot, BUILD_TIME builds the new one.
+	#    No "entering": the board is open as soon as the building is yours; a foreign building takes no drop
 	fresh()
-	var cannot_outside: bool = not game._can_drop(n8, 1, "cash")
-	game._inside = n8; game._enter_left = 0.0
+	var cannot_foreign: bool = not game._can_drop(secondR(), 1, "cash")
 	var same_refused: bool = not game._can_drop(n8, 0, "bot")
 	game._drop_build(n8, 1, "cash")
-	var j1: Dictionary = game.hosts[n8].job
+	var j1: Dictionary = (game.hosts[n8].jobs as Dictionary).get(1, {})
 	var build_started: bool = not j1.is_empty() and str(j1.phase) == "build" and int(j1.slot) == 1 and absf(float(j1.left) - game.BUILD_TIME) < 0.01
 	game._tick_jobs(game.BUILD_TIME + 0.01)
-	var built_in_slot1: bool = str(game.hosts[n8].builds[1]) == "cash" and (game.hosts[n8].job as Dictionary).is_empty()
+	var built_in_slot1: bool = str(game.hosts[n8].builds[1]) == "cash" and (game.hosts[n8].jobs as Dictionary).is_empty()
 	game._drop_build(n8, 0, "intel")                      # replace the Bot farm in slot 1
-	var j2: Dictionary = game.hosts[n8].job
+	var j2: Dictionary = (game.hosts[n8].jobs as Dictionary).get(0, {})
 	var replace_started: bool = not j2.is_empty() and str(j2.phase) == "demolish" and absf(float(j2.left) - game.DEMOLISH_TIME) < 0.01
 	var offline_meanwhile: bool = game._count(n8, "bot") == 0
 	game._tick_jobs(game.DEMOLISH_TIME + 0.01)
-	var cleared_then_building: bool = str(game.hosts[n8].builds[0]) == "" and str(game.hosts[n8].job.phase) == "build" and absf(float(game.hosts[n8].job.left) - game.BUILD_TIME) < 0.01
+	var j2b: Dictionary = (game.hosts[n8].jobs as Dictionary).get(0, {})
+	var cleared_then_building: bool = str(game.hosts[n8].builds[0]) == "" and str(j2b.get("phase", "")) == "build" and absf(float(j2b.get("left", 0.0)) - game.BUILD_TIME) < 0.01
 	game._tick_jobs(game.BUILD_TIME + 0.01)
-	var replaced: bool = str(game.hosts[n8].builds[0]) == "intel" and (game.hosts[n8].job as Dictionary).is_empty()
-	check("17_slot_build_and_replace", cannot_outside and same_refused and build_started and built_in_slot1 and replace_started and offline_meanwhile and cleared_then_building and replaced,
-		{"cannot_drop_from_outside": cannot_outside, "same_kind_refused": same_refused, "build_started": build_started, "built_in_slot": built_in_slot1,
+	var replaced: bool = str(game.hosts[n8].builds[0]) == "intel" and (game.hosts[n8].jobs as Dictionary).is_empty()
+	check("17_slot_build_and_replace", cannot_foreign and same_refused and build_started and built_in_slot1 and replace_started and offline_meanwhile and cleared_then_building and replaced,
+		{"cannot_drop_on_foreign": cannot_foreign, "same_kind_refused": same_refused, "build_started": build_started, "built_in_slot": built_in_slot1,
 		 "replace_started": replace_started, "offline_meanwhile": offline_meanwhile, "cleared_then_building": cleared_then_building, "replaced": replaced, "builds": game.hosts[n8].builds})
 
 	# 18 building types: every building has a type whose slot count it uses; a harvester in a Database yields
@@ -327,7 +330,7 @@ func _run() -> void:
 		counts[t] = int(counts.get(t, 0)) + 1
 		if not game.NODE_TYPES.has(t) or int(h.slots) != int(game.NODE_TYPES[t].slots) or (h.builds as Array).size() != int(h.slots): types_ok = false
 	game.hosts[n8].type = "db"; game.hosts[n8].slots = 4; game._set_builds(n8, ["bot", "intel"])
-	var intel_x2: bool = absf(game._intel_rate(game.PLAYER) - 2.0) < 0.001
+	var intel_x2: bool = absf(game._intel_rate(game.PLAYER) - game.RIG_INTEL - 2.0) < 0.001   # the rig's own trickle aside
 	game.hosts[n8].type = "erp"; game.hosts[n8].slots = 5; game._set_builds(n8, ["bot"])
 	var regen_x15: bool = absf(game._regen(n8) - 1.5) < 0.001
 	game.hosts[n8].type = "iot"; game.hosts[n8].slots = 1; game._set_builds(n8, ["bot"])
@@ -335,7 +338,7 @@ func _run() -> void:
 	check("18_building_types", types_ok and intel_x2 and regen_x15 and iot_one and counts.size() >= 4,
 		{"types_consistent": types_ok, "db_intel_x2": intel_x2, "erp_regen_x15": regen_x15, "iot_single_slot": iot_one, "type_counts_seed7": counts})
 
-	# 19 scanning: a quiet SCAN consumes bots, never wounds, raises no alarm, reveals at 10 + 5 per building
+	# 19 scanning: a quiet SCAN consumes bots, never wounds, raises no alarm, reveals on the first scout to land (no quota)
 	#    and then stands down; an ATTACK on an unscanned building reveals as bots land but IS an alarm;
 	#    a changed inside invalidates the knowledge
 	fresh()
@@ -343,10 +346,10 @@ func _run() -> void:
 	var hidden_before: bool = not game._scanned(game.PLAYER, t19) and game._stage_line(t19).begins_with("unscanned")
 	game.sel = {rigP(): true}; game._wire(t19); game._launch(t19, "scan")
 	var bots0: float = game.hosts[t19].bots
-	step(2.0, 0.1)
+	step(0.5, 0.1)   # the scout is still on the street
 	var quiet: bool = not game._under_attack(t19) and game.flights.size() >= 1 and str(game.flights[0].kind) == "scan"
 	var cost: float = game._scan_cost(t19)
-	step(cost + 4.0, 0.1)
+	step(cost + 5.5, 0.1)
 	var revealed: bool = game._scanned(game.PLAYER, t19) and not bool(game.hosts[rigP()].live) and int(game.hosts[rigP()].assign) == t19
 	var unharmed: bool = absf(float(game.hosts[t19].bots) - bots0) < 0.01
 	game.hosts[t19].builds[1] = "cash"            # its inside changed → the knowledge is stale
@@ -361,7 +364,7 @@ func _run() -> void:
 		var alarmed: bool = game._under_attack(t19b)
 		step(3.0, 0.1)
 		var wounded: bool = float(game.hosts[t19b].bots) < float(game.hosts[t19b].sec) - 0.5
-		var progress_from_attack: bool = game._scan_progress(game.PLAYER, t19b) >= 2.0
+		var progress_from_attack: bool = game._scan_progress(game.PLAYER, t19b) >= 1.0
 		blind_ok = alarmed and wounded and progress_from_attack
 	check("19_scan_quiet_or_attack_loud", hidden_before and quiet and revealed and unharmed and stale and blind_ok,
 		{"hidden_before": hidden_before, "quiet_no_alarm": quiet, "revealed_and_stood_down": revealed, "unharmed": unharmed, "stale_after_change": stale, "blind_attack_alarms_wounds_reveals": blind_ok, "cost": cost})
@@ -408,51 +411,50 @@ func _run() -> void:
 	game.creds[game.PLAYER] = 50.0
 	step(25.5, 0.1)
 	var accumulates: bool = game._held(game.PLAYER, "stuff:linked") == 2
-	var any_dearer: bool = absf(float(game._card_cost("stuff:any").cash) - 80.0) < 0.01 and absf(game._card_time("stuff:any") - 50.0) < 0.01
-	check("21_research_queue", half_spent and not_yet and paused_holds and done and spent and stalled and accumulates and any_dearer,
-		{"half_spent": half_spent, "paused_consumes_nothing": paused_holds, "completed": done, "cost_spent": spent, "stalls_without_creds": stalled, "accumulates": accumulates, "any_x4_cost_x2_time": any_dearer})
+	check("21_research_queue", half_spent and not_yet and paused_holds and done and spent and stalled and accumulates,
+		{"half_spent": half_spent, "paused_consumes_nothing": paused_holds, "completed": done, "cost_spent": spent, "stalls_without_creds": stalled, "accumulates": accumulates})
 
-	# 22 single cards: the defender ladder (1-day −25 %, phishing −50 %, stuffing −100 %), reach (LINKED needs a
-	#    connection, ANY does not), resist scaling (DB resists credential ×½, PC weak to phishing ×1.5, IoT resists
-	#    phishing 90 %), no capture, reveal+alarm, and 0-day's routing cut that wears off
+	# 22 single cards: the defender ladder (1-day −25 %, phishing −50 %, stuffing −100 %), every card needs a
+	#    connection into its target and travels there as a packet; resistances scale the hit; nothing is captured
 	fresh()
 	var t22 := -1
 	for o in game.hosts[rigP()].links:
 		if int(game.hosts[o].owner) == game.NEUTRAL: t22 = int(o); break
 	game._set_builds(t22, [])   # no regeneration, so a card's effect is exact
 	game.cards[game.PLAYER] = {"stuff:linked": 1}
-	var refused: bool = not game._play_card(game.PLAYER, "stuff:linked", t22) and game._held(game.PLAYER, "stuff:linked") == 1   # no connection → LINKED refused, costs nothing
+	var refused: bool = not game._play_card(game.PLAYER, "stuff:linked", t22) and game._held(game.PLAYER, "stuff:linked") == 1   # no connection → refused, costs nothing
+	game.sel = {rigP(): true}; game._wire(t22); game._clear_all()   # now connected: every card below can travel
 	# 1-day −25 % on a Server (oneday resist 0)
-	game.hosts[t22].type = "server"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"oneday:any": 1}
-	game._play_card(game.PLAYER, "oneday:any", t22)
+	game.hosts[t22].type = "server"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"oneday:linked": 1}
+	game._play_card(game.PLAYER, "oneday:linked", t22)
 	var in_flight: bool = game.flights.size() == 1 and str(game.flights[0].kind) == "card" and absf(float(game.hosts[t22].bots) - 20.0) < 0.01
 	step(4.0, 0.1)
 	var oneday25: bool = absf(float(game.hosts[t22].bots) - 15.0) < 0.2
 	var revealed22: bool = game._scanned(game.PLAYER, t22) and game._under_attack(t22) and int(game.hosts[t22].owner) == game.NEUTRAL   # revealed, alarmed, not captured
 	# phishing −50 %, on a PC which is weak to phishing ×1.5 → −75 %
-	game.hosts[t22].type = "pc"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"phish:any": 1}
-	game._play_card(game.PLAYER, "phish:any", t22); step(4.0, 0.1)
+	game.hosts[t22].type = "pc"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"phish:linked": 1}
+	game._play_card(game.PLAYER, "phish:linked", t22); step(4.0, 0.1)
 	var pc_phish: bool = absf(float(game.hosts[t22].bots) - 5.0) < 0.2
 	# stuffing −100 % wipes a Web (cred resist 0)
-	game.hosts[t22].type = "web"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"stuff:any": 1}
-	game._play_card(game.PLAYER, "stuff:any", t22); step(4.0, 0.1)
+	game.hosts[t22].type = "web"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"stuff:linked": 1}
+	game._play_card(game.PLAYER, "stuff:linked", t22); step(4.0, 0.1)
 	var wiped: bool = float(game.hosts[t22].bots) < 0.01
 	# a DB resists credential attacks 50 % → stuffing only halves
-	game.hosts[t22].type = "db"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"stuff:any": 1}
-	game._play_card(game.PLAYER, "stuff:any", t22); step(4.0, 0.1)
+	game.hosts[t22].type = "db"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"stuff:linked": 1}
+	game._play_card(game.PLAYER, "stuff:linked", t22); step(4.0, 0.1)
 	var db_half: bool = absf(float(game.hosts[t22].bots) - 10.0) < 0.2
 	# an IoT resists phishing 90 % → barely dented
-	game.hosts[t22].type = "iot"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"phish:any": 1}
-	game._play_card(game.PLAYER, "phish:any", t22); step(4.0, 0.1)
+	game.hosts[t22].type = "iot"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"phish:linked": 1}
+	game._play_card(game.PLAYER, "phish:linked", t22); step(4.0, 0.1)
 	var iot_resist: bool = absf(float(game.hosts[t22].bots) - 19.0) < 0.3   # 20 − 20×0.5×0.1
 	# 0-day on a DB (zeroday resist 0): halves AND cuts routing; the routing cut wears off
-	game.hosts[t22].type = "db"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"zeroday:any": 1}
-	game._play_card(game.PLAYER, "zeroday:any", t22); step(4.0, 0.1)
+	game.hosts[t22].type = "db"; game.hosts[t22].bots = 20.0; game.cards[game.PLAYER] = {"zeroday:linked": 1}
+	game._play_card(game.PLAYER, "zeroday:linked", t22); step(4.0, 0.1)
 	var zday: bool = absf(float(game.hosts[t22].bots) - 10.0) < 0.2 and game._routing_down(t22) and float(game.hosts[t22].route_off) > 15.0
 	step(21.0, 0.5)
 	var zday_over: bool = not game._routing_down(t22)
 	check("22_single_cards", refused and in_flight and oneday25 and revealed22 and pc_phish and wiped and db_half and iot_resist and zday and zday_over,
-		{"linked_refused": refused, "travels_as_packet": in_flight, "oneday_minus25": oneday25, "reveal_alarm_no_capture": revealed22, "pc_phish_minus75": pc_phish, "stuff_wipes": wiped, "db_resists_half": db_half, "iot_resists_phish_90": iot_resist, "zeroday_half_and_cut": zday, "routing_wears_off": zday_over})
+		{"unconnected_refused": refused, "travels_as_packet": in_flight, "oneday_minus25": oneday25, "reveal_alarm_no_capture": revealed22, "pc_phish_minus75": pc_phish, "stuff_wipes": wiped, "db_resists_half": db_half, "iot_resists_phish_90": iot_resist, "zeroday_half_and_cut": zday, "routing_wears_off": zday_over})
 
 	# 23 worms: the chain spreads along the streets with falling odds (jump 1: 100 %, then −25 % per jump),
 	#    never onto the caster's own buildings, each building once, at most 4 jumps, captures nothing,
@@ -460,10 +462,11 @@ func _run() -> void:
 	fresh()
 	game.rng.seed = 12345
 	var t23 := neutral_nb(rigP())
-	game.cards[game.PLAYER] = {"credworm:any": 1}
+	game.cards[game.PLAYER] = {"credworm:linked": 1}
+	game.sel = {rigP(): true}; game._wire(t23); game._clear_all()
 	var before := []
 	for h in game.hosts: before.append([int(h.owner), float(h.bots)])
-	game._play_card(game.PLAYER, "credworm:any", t23)
+	game._play_card(game.PLAYER, "credworm:linked", t23)
 	step(1.5, 0.1)
 	var hit := []
 	for i in game.hosts.size():
@@ -596,12 +599,12 @@ func _run() -> void:
 				for k27 in bl.size():
 					if str(bl[k27]) == "" and not placed: bl[k27] = "intel"; placed = true
 				if not placed and bl.size() > 1: bl[1] = "cash"
-				game.hosts[i].job = {"kind": "cash", "slot": 0, "phase": "build", "left": 5.0}
+				game.hosts[i].jobs[0] = {"kind": "cash", "slot": 0, "phase": "build", "left": 5.0}
 				game.hosts[i].rate = 0.25
 		game._ai_think(game.RIVAL)
 		var d := []
 		for i in game.hosts.size():
-			if int(game.hosts[i].owner) == game.RIVAL: d.append([i, int(game.hosts[i].assign), bool(game.hosts[i].live), str(game.hosts[i].mode), str(game.hosts[i].job.get("kind", ""))])
+			if int(game.hosts[i].owner) == game.RIVAL: d.append([i, int(game.hosts[i].assign), bool(game.hosts[i].live), str(game.hosts[i].mode), str(((game.hosts[i].jobs as Dictionary).get(0, {}) as Dictionary).get("kind", ""))])
 		var ks: Array = (game._ai[game.RIVAL].ops as Dictionary).keys(); ks.sort()
 		d.append(ks); d.append(int(game.card_plays[game.RIVAL])); d.append((game.lab[game.RIVAL].queue as Array).duplicate())
 		digests.append(JSON.stringify(d))
@@ -671,6 +674,7 @@ func _run() -> void:
 	check("30_pile_on_visible_only", o0 == 0 and o1 == 1 and o2 == 0 and o3 == 1 and o4 == 0, {"none": o0, "live_wire": o1, "quiet_scan_wire": o2, "bot_packet": o3, "scan_packet": o4})
 
 	# 31 the bleeder and the hidden dial: a building visibly streaming out is softer; its rate dial is never read
+	#    (A = D: 12 bots, one farm, two streams → 12 s; a visible outflow is read as a full 1/s, never its 0.3 dial → 6 s)
 	fresh()
 	var t31 := neutral_nb(rigR())
 	game.hosts[t31].type = "pc"; game._set_builds(t31, ["bot"]); game.hosts[t31].bots = 12.0; game._mark_scanned(game.RIVAL, t31)
@@ -683,15 +687,7 @@ func _run() -> void:
 	game.hosts[t31].mode = "scan"
 	var s2: float = game._ai_fall_secs(game.RIVAL, t31, 2)
 	game.hosts[t31].assign = -1; game.hosts[t31].live = false; game._next_depart.erase(t31)
-	var p31 := secondP()   # a player building with a rally it cannot route to: nothing drawn, nothing leaves, no drain
-	game.hosts[p31].bots = 25.0; game._set_builds(p31, ["bot"]); game._mark_scanned(game.RIVAL, p31)
-	var far := -1
-	for i in game.hosts.size():
-		if int(game.hosts[i].owner) == game.NEUTRAL and game._route(p31, i).is_empty() and i != p31: far = i; break
-	game.hosts[far].owner = game.PLAYER; game.rally = far; game._next_depart[p31] = game._t
-	var no_route_drain: float = game._ai_seen_drain(p31)
-	game.rally = -1; game.hosts[far].owner = game.NEUTRAL
-	check("31_bleeder_hidden_dial", absf(s0 - 36.0) < 0.5 and absf(s1 - 9.0) < 0.5 and absf(s2 - 36.0) < 0.5 and no_route_drain == 0.0, {"idle": snapped(s0, 0.1), "visibly_streaming_out": snapped(s1, 0.1), "quiet_scan_invisible": snapped(s2, 0.1), "routeless_rally_not_a_drain": no_route_drain == 0.0})
+	check("31_bleeder_hidden_dial", absf(s0 - 12.0) < 0.5 and absf(s1 - 6.0) < 0.5 and absf(s2 - 12.0) < 0.5, {"idle": snapped(s0, 0.1), "visibly_streaming_out": snapped(s1, 0.1), "quiet_scan_invisible": snapped(s2, 0.1)})
 
 	# 32 memory: a scan remembers bots, cap and time; when the inside changes the live number goes dark and the
 	#    AI uses what it saw, regrown at a farm's rate; a witnessed capture is remembered as near-empty
@@ -797,6 +793,12 @@ func _run() -> void:
 	# 36 idle scouting: with Intel for learning but not for a strike, one source scans the richest unknown
 	#    neighbour quietly; with less Intel it keeps its reserve
 	fresh(); game.intel[game.RIVAL] = 22.0
+	fill_ai(game.RIVAL)   # no free slot, so no build first: a build now costs Intel and would eat the 22 before the scout step
+	game.hosts[int(game.rig[game.RIVAL])].prod_off = 1000.0   # its rig's Intel trickle off (as a DoS does): the AI funds sieges on expected income, so only the 22 counts here
+	for i in game.hosts.size():   # every neutral the AI borders reads as rich and hard in its public prior: a strike or a two-source scout costs more than 22
+		if int(game.hosts[i].owner) != game.NEUTRAL: continue
+		for o in game.hosts[i].links:
+			if int(game.hosts[o].owner) == game.RIVAL: game.hosts[i].value = 3; game.hosts[i].type = "erp"; break
 	game._ai_think(game.RIVAL)
 	var sc36 := []
 	for i in game.hosts.size():
@@ -915,7 +917,7 @@ func _run() -> void:
 		game.sel = {rigP(): true}; game._wire(t41); game._launch(t41, "attack")
 		step(2.0, 0.1)
 		if pass41 == 1:   # hidden facts only
-			game.hosts[t41].rate = 0.25; game.hosts[t41].job = {"kind": "cash", "slot": 1, "phase": "build", "left": 5.0}
+			game.hosts[t41].rate = 0.25; game.hosts[t41].jobs[1] = {"kind": "cash", "slot": 1, "phase": "build", "left": 5.0}
 			game.hosts[t41].assign = k41; game.hosts[t41].live = false                       # a dormant plan
 			game.hosts[k41].assign = rigP(); game.hosts[k41].live = true; game.hosts[k41].mode = "scan"; game._next_depart[k41] = game._t   # a quiet scan at you
 			game.hosts[k41].bots = 7.0
@@ -939,8 +941,9 @@ func _run() -> void:
 	game.hosts[tm43].owner = game.RIVAL; game.hosts[tm43].type = "pc"; game.hosts[tm43].bots = 20.0
 	game._set_builds(tm43, ["cash", "intel"]); game._mark_scanned(game.PLAYER, tm43)
 	var owner_rate0: float = game._intel_rate(game.RIVAL)   # RIVAL gets tm43's Intel now
-	game.cards[game.PLAYER] = {"supply:any": 1}
-	game._play_card(game.PLAYER, "supply:any", tm43); step(3.0, 0.1)
+	game.cards[game.PLAYER] = {"supply:linked": 1}
+	game.sel = {rigP(): true}; game._wire(tm43); game._clear_all()
+	game._play_card(game.PLAYER, "supply:linked", tm43); step(3.0, 0.1)
 	var stealing: bool = game._stolen(tm43) and int(game.hosts[tm43].steal_by) == game.PLAYER and game._benef(tm43) == game.PLAYER
 	var thief_rate: bool = game._intel_rate(game.PLAYER) > 0.9 and game._cash_rate(game.PLAYER) > 0.0   # tm43 now feeds the player
 	var owner_denied: bool = game._intel_rate(game.RIVAL) < owner_rate0 - 0.9   # and no longer the owner
@@ -958,41 +961,36 @@ func _run() -> void:
 	var td44 := neutral_nb(rigP())
 	game.hosts[td44].owner = game.RIVAL; game.hosts[td44].type = "pc"; game.hosts[td44].bots = 20.0
 	game._set_builds(td44, ["bot", "cash"]); game._mark_scanned(game.PLAYER, td44)
-	game.cards[game.PLAYER] = {"dos:any": 1}
-	game._play_card(game.PLAYER, "dos:any", td44); step(3.0, 0.1)
+	game.cards[game.PLAYER] = {"dos:linked": 1}
+	game.sel = {rigP(): true}; game._wire(td44); game._clear_all()
+	game._play_card(game.PLAYER, "dos:linked", td44); step(3.0, 0.1)
 	var denied: bool = game._prod_down(td44) and game._routing_down(td44) and game._regen(td44) == 0.0 and game._count(td44, "cash") == 0 and float(game.hosts[td44].route_off) > 20.0
 	step(26.0, 0.5)
 	var dos_over: bool = not game._prod_down(td44) and not game._routing_down(td44) and game._regen(td44) > 0.0
 	check("44_denial_of_service", denied and dos_over, {"production_and_routing_down": denied, "both_recover": dos_over})
 
-	# 45 the AI builds with attention: starting a build "enters" it (a connect delay gates progress), a later
-	#    think while building issues no new map command, and a building under attack pulls it off the build
+	# 45 the AI builds unattended: a job it starts progresses with nobody "inside", is paid in Intel, and it may
+	#    start another while the first still runs (one new job per think)
 	fresh(); game.intel[game.RIVAL] = 100.0
+	var i45 := float(game.intel[game.RIVAL])
 	game._ai_think(game.RIVAL)
-	var r45 := int(game._ai[game.RIVAL].inside)
-	var entered: bool = r45 >= 0 and not (game.hosts[r45].job as Dictionary).is_empty() and float(game._ai[game.RIVAL].enter_left) > 0.0
-	var before_prog: float = float(game.hosts[r45].job.left) if entered else 0.0
-	game._tick_jobs(1.0)   # still connecting (enter_left 2 s) → no progress yet
-	var connect_delay: bool = entered and absf(float(game.hosts[r45].job.left) - before_prog) < 0.01
-	game._ai[game.RIVAL].enter_left = 0.0; game._tick_jobs(1.0)
-	var then_progresses: bool = float(game.hosts[r45].job.left) < before_prog - 0.5
-	var wires0 := 0
+	var r45 := -1
 	for i in game.hosts.size():
-		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live): wires0 += 1
-	game._ai_think(game.RIVAL)   # attending the build → no new commands
-	var wires1 := 0
+		if int(game.hosts[i].owner) == game.RIVAL and not (game.hosts[i].jobs as Dictionary).is_empty(): r45 = i; break
+	var started45: bool = r45 >= 0
+	var paid45: bool = started45 and float(game.intel[game.RIVAL]) <= i45 - game.BUILD_COST_INTEL + 0.01
+	var left0: float = float((game.hosts[r45].jobs as Dictionary).values()[0].left) if started45 else 0.0
+	game._tick_jobs(1.0)
+	var progressed45: bool = started45 and float((game.hosts[r45].jobs as Dictionary).values()[0].left) < left0 - 0.5
+	var jobs0 := 0
 	for i in game.hosts.size():
-		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live): wires1 += 1
-	var locked: bool = int(game._ai[game.RIVAL].inside) == r45 and wires1 == wires0
-	var t45 := secondR()   # now one of its buildings is attacked → it drops the build to deal with it
-	var a45 := -1
-	for o in game.hosts[t45].links:
-		if int(game.hosts[o].owner) == game.NEUTRAL: a45 = int(o); break
-	game.hosts[a45].owner = game.RIVAL2; game.hosts[a45].bots = 30.0; game.hosts[a45].assign = t45; game.hosts[a45].live = true; game.hosts[a45].mode = "attack"; game._next_depart[a45] = game._t
-	game._ai_think(game.RIVAL)
-	var bailed: bool = int(game._ai[game.RIVAL].inside) < 0
-	check("45_ai_attention", entered and connect_delay and then_progresses and locked and bailed,
-		{"enters_the_build": entered, "connect_delay_gates_progress": connect_delay, "then_progresses": then_progresses, "locked_out_while_building": locked, "bails_when_attacked": bailed})
+		if int(game.hosts[i].owner) == game.RIVAL: jobs0 += (game.hosts[i].jobs as Dictionary).size()
+	game._ai_think(game.RIVAL)   # a later think may add another job while the first still runs
+	var jobs1 := 0
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL: jobs1 += (game.hosts[i].jobs as Dictionary).size()
+	check("45_ai_builds_unattended", started45 and paid45 and progressed45 and jobs1 >= jobs0,
+		{"starts_a_job": started45, "pays_intel": paid45, "progresses_with_nobody_inside": progressed45, "jobs_after_two_thinks": [jobs0, jobs1]})
 
 	# 46 your memory is as fresh as the AI's: while a building stays scanned, its remembered bots and time keep
 	#    up with the live values, so when it later goes dark you recall what it was, not a stale snapshot
@@ -1029,9 +1027,9 @@ func _run() -> void:
 		{"majority": majority, "clock_ticks": ticking, "clock_resets_on_loss": reset, "won": game.won, "cause": game._end_cause})
 
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
-	var alone := _run_match(SEED, false, 600.0)
-	var greedy7 := _run_match(SEED, true, 600.0)
-	var greedy11 := _run_match(11, true, 600.0)
+	var alone := _run_match(SEED, false, 300.0)
+	var greedy7 := _run_match(SEED, true, 300.0)
+	var greedy11 := _run_match(11, true, 300.0)
 	check("13_pacing_readings", true, {"rival_alone": alone, "greedy_seed7": greedy7, "greedy_seed11": greedy11})
 
 	var out := FileAccess.open("res://results.json", FileAccess.WRITE)
@@ -1071,13 +1069,10 @@ func _greedy_player() -> void:
 	for i in mine:   # a wire whose target is now ours has done its job (its guards stand down on their own)
 		var a := int(game.hosts[i].assign)
 		if a >= 0 and int(game.hosts[a].owner) == game.PLAYER: game.hosts[i].assign = -1; game.hosts[i].live = false
-	# attention: stay inside the building with a running job; else start one somewhere
-	if game._inside >= 0 and not (game.hosts[game._inside].job as Dictionary).is_empty(): return
-	game._inside = -1
 	var intel_n := 0; var cash_n := 0
 	for i in mine: intel_n += game._count_all(i, "intel"); cash_n += game._count_all(i, "cash")
 	for i in mine:
-		if (game.hosts[i].builds as Array).size() >= int(game.hosts[i].slots) or not (game.hosts[i].job as Dictionary).is_empty(): continue
+		if (game.hosts[i].builds as Array).size() >= int(game.hosts[i].slots) or not (game.hosts[i].jobs as Dictionary).is_empty(): continue
 		var frontier := false
 		for p in game.hosts[i].links:
 			if int(game.hosts[p].owner) != game.PLAYER: frontier = true
@@ -1088,9 +1083,7 @@ func _greedy_player() -> void:
 		elif frontier and game._count_all(i, "bot") < 2: kind = "bot"
 		elif cash_n <= intel_n: kind = "cash"
 		else: kind = "intel"
-		if game._start_job(i, kind):
-			game._inside = i; game._enter_left = game.ENTER_TIME
-			break
+		if game._start_job(i, kind): break
 	# one attack at a time, concentrated
 	var active := false
 	for i in mine:

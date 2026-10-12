@@ -99,14 +99,6 @@ func _run() -> void:
 	game._clear_all()
 	sim(0.5)
 	await shoot("captured_flows_become_guards")
-	# rally point with auto-supply flowing
-	game._cancel_to(t1)
-	game.rally = t1
-	sim(4.0)
-	game.sel = {t1: true}
-	await shoot("rally_point_auto_supply")
-	# rate dial
-	game.rally = -1
 	game.sel = {sp: true}; game._adjust_rate(-0.5)
 	await shoot("rate_dial_50_percent")
 	game.hosts[sp].rate = 1.0
@@ -123,23 +115,22 @@ func _run() -> void:
 	await shoot("cash_packets_travelling_home")
 
 	# ── the local view (micro) ──
-	game.sel = {sp: true}; game._enter(sp)
-	await shoot("enter_building_connecting")
+	game.sel = {sp: true}
 	sim(2.5)
-	await shoot("inside_building_slots")
+	await shoot("build_board_in_panel")
 	game._player_build(sp, "cash")
 	sim(4.0)
-	await shoot("inside_build_job_in_progress")
+	await shoot("build_job_in_progress")
 	sim(7.0)
 	game._set_builds(sp, ["bot", "intel", "cash"])
-	await shoot("inside_slots_full")
+	await shoot("slots_full")
 	game._drop_build(sp, 0, "cash")
 	sim(2.0)
-	await shoot("inside_replacing_slot_clearing")
+	await shoot("replacing_slot_clearing")
 	sim(4.0)
-	await shoot("inside_replacing_slot_building")
+	await shoot("replacing_slot_building")
 	sim(10.0)
-	game._leave()
+	game._clear_all()
 
 	# ── research & cards ──
 	fresh(7)
@@ -154,12 +145,12 @@ func _run() -> void:
 	game._toggle_research(game.PLAYER)
 	await shoot("research_paused")
 	game._toggle_research(game.PLAYER)
-	game.cards[game.PLAYER] = {"stuff:linked": 1, "phish:linked": 1, "credworm:any": 1, "oneday:any": 1}
+	game.cards[game.PLAYER] = {"stuff:linked": 1, "phish:linked": 1, "credworm:linked": 1, "oneday:linked": 1}
 	sim(0.5)
 	await shoot("research_hand_with_cards")
-	game._set_reach("any")
-	await shoot("research_catalogue_any_cards")
-	game._set_reach("linked"); game._set_tab("map")
+	game._set_tab("board")
+	await shoot("leaderboard_tab")
+	game._set_tab("map")
 	var tc := neutral_nb(rp, [sp])
 	game.sel = {rp: true}; game._wire(tc); game._clear_all(); game._inspect = tc
 	await shoot("target_panel_with_hand_to_drag")
@@ -174,7 +165,10 @@ func _run() -> void:
 	await shoot("card_phishing_halves_defenders")
 	var tw: int = game.hub
 	game.rng.seed = 4242
-	game._play_card(game.PLAYER, "credworm:any", tw)
+	game.sel = {sp: true}; game._wire(tw); game._clear_all()
+	if not game._linked(game.PLAYER, tw):
+		tw = neutral_nb(sp, [rp, tc]); game.sel = {sp: true}; game._wire(tw); game._clear_all()
+	game._play_card(game.PLAYER, "credworm:linked", tw)
 	game._inspect = tw
 	sim(2.5)
 	await shoot("card_worm_flying_downtown")
@@ -187,11 +181,12 @@ func _run() -> void:
 	var td := neutral_nb(rp, [sp, tc])
 	if td < 0: td = neutral_nb(sp, [rp, tc])
 	if td >= 0:
-		game.cards[game.PLAYER] = {"dos:any": 1, "supply:any": 1}
+		game.cards[game.PLAYER] = {"dos:linked": 1, "supply:linked": 1}
 		game._mark_scanned(game.PLAYER, td); game.hosts[td].owner = game.RIVAL; game._set_builds(td, ["bot", "cash"])
-		game._play_card(game.PLAYER, "dos:any", td)
+		game.sel = {rp: true}; game._wire(td); game._clear_all()
+		game._play_card(game.PLAYER, "dos:linked", td)
 		var ts := neutral_nb(sp, [rp, tc, td])
-		if ts >= 0: game.hosts[ts].owner = game.RIVAL2; game._set_builds(ts, ["cash", "intel"]); game._mark_scanned(game.PLAYER, ts); game._play_card(game.PLAYER, "supply:any", ts)
+		if ts >= 0: game.hosts[ts].owner = game.RIVAL2; game._set_builds(ts, ["cash", "intel"]); game._mark_scanned(game.PLAYER, ts); game.sel = {sp: true}; game._wire(ts); game._clear_all(); game._play_card(game.PLAYER, "supply:linked", ts)
 		game._clear_all(); game._inspect = td
 		var gd := 0
 		while gd < 40 and not game.flights.is_empty():
@@ -221,9 +216,9 @@ func _run() -> void:
 		sim(4.0)
 		game._clear_all()
 		await shoot("under_attack_red_ring")
-		game.sel = {sp: true}; game._enter(sp); sim(2.5)
-		await shoot("inside_while_under_attack")
-		game._leave()
+		game.sel = {sp: true}; sim(2.5)
+		await shoot("build_board_while_under_attack")
+		game._clear_all()
 	game.paused = true
 	await shoot("paused")
 	game.paused = false
@@ -245,8 +240,8 @@ func _run() -> void:
 	game._win_for(game.PLAYER, "You held the majority for %d s." % int(game.HOLD_SECS))
 	await shoot("victory_screen")
 	fresh(7)
-	game._win_for(game.RIVAL, "Time's up — NYX controlled the most buildings (11).")
-	await shoot("defeat_nyx_controls_most")
+	game._win_for(game.RIVAL, "NYX held the majority for 45 s.")
+	await shoot("defeat_nyx_held_majority")
 	fresh(7)
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) == game.PLAYER: game.hosts[i].owner = game.RIVAL
@@ -265,12 +260,10 @@ func _greedy_player() -> void:
 	for i in mine:
 		var a := int(game.hosts[i].assign)
 		if a >= 0 and int(game.hosts[a].owner) == game.PLAYER: game.hosts[i].assign = -1; game.hosts[i].live = false
-	if game._inside >= 0 and not (game.hosts[game._inside].job as Dictionary).is_empty(): return
-	game._inside = -1
 	var intel_n := 0; var cash_n := 0
 	for i in mine: intel_n += game._count_all(i, "intel"); cash_n += game._count_all(i, "cash")
 	for i in mine:
-		if (game.hosts[i].builds as Array).size() >= int(game.hosts[i].slots) or not (game.hosts[i].job as Dictionary).is_empty(): continue
+		if (game.hosts[i].builds as Array).size() >= int(game.hosts[i].slots) or not (game.hosts[i].jobs as Dictionary).is_empty(): continue
 		var frontier := false
 		for p in game.hosts[i].links:
 			if int(game.hosts[p].owner) != game.PLAYER: frontier = true
@@ -279,9 +272,7 @@ func _greedy_player() -> void:
 		elif frontier and game._count_all(i, "bot") < 2: kind = "bot"
 		elif cash_n <= intel_n: kind = "cash"
 		else: kind = "intel"
-		if game._start_job(i, kind):
-			game._inside = i; game._enter_left = game.ENTER_TIME
-			break
+		if game._start_job(i, kind): break
 	var active := false
 	for i in mine:
 		if int(game.hosts[i].assign) >= 0 and bool(game.hosts[i].live): active = true

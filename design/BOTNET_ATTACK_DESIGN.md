@@ -19,17 +19,17 @@ plus the decisions taken on 2026-10-11:
 | Decision | Answer |
 |---|---|
 | Who is the enemy | **Two AI botnets** (NYX, KRAKEN) in a **free-for-all** with you, over a neutral town |
-| Does time run while you are inside a local | **Yes** |
+| Does time run while you build | **Yes** — and nothing waits for you |
 | What are bots | A **stock held per building**; the more a building holds, the better it works |
-| Win condition | **Cash** |
-| Command unit (building / district / supply tree) | Undecided — the **rally point** is the experiment |
+| Win condition | **Hold the majority** (no clock) |
+| Command unit (building / district / supply tree) | Buildings (the rally-point experiment was dropped) |
 | How you command | **Two verbs:** CONNECT by drag, LAUNCH from the target's panel (quiet SCAN or loud ATTACK); guards arm themselves |
 
 ## The five experiments (what each tests)
 
-1. **A local with an attention cost.** "Enter building" takes `ENTER_TIME` to connect, builds take `BUILD_TIME`
-   (a replace `DEMOLISH_TIME` + `BUILD_TIME`) and **progress only while you stay inside**, and while you are inside the map **keeps running and cannot be
-   commanded**. *Tests:* does micro cost you buildings on the map?
+1. **A local that costs Intel, not attention.** Select a building you own and its slots open in the panel;
+   builds take `BUILD_TIME` (a replace `DEMOLISH_TIME` + `BUILD_TIME`), **run on their own**, several at once,
+   each paid `BUILD_COST_INTEL` up front. *Tests:* is Intel the right throttle on the micro?
 2. **Link capacity shared by bots and Cash.** Each link direction admits `LINK_CAP` packets per `LINK_TIME`;
    later packets queue at the building before the link; a source whose first link cannot admit its packet
    within `MAX_QUEUE` holds. *Tests:* does redirecting become a decision when two flows want one pipe?
@@ -38,9 +38,6 @@ plus the decisions taken on 2026-10-11:
    irregular map, and does territory matter?
 4. **Staged loss instead of a flip.** Fewer bots → fewer working slots. *Tests:* do players reinforce earlier?
 5. **The output-limit dial** from the basic game: 25 % steps per source. *Tests:* is a partial hold used?
-
-Plus the **rally point**: one standing order for the rear (every unwired idle building auto-supplies it above
-a garrison). *Tests:* does one order for the rear scale, or do we need districts?
 
 ## Current rules
 
@@ -83,12 +80,13 @@ targets.
 ### Factions, bots and combat
 - Four owners: NEUTRAL (city security), YOU, NYX, KRAKEN. Packets route **only through the sender's own
   faction network** (BFS to a building bordering the target, then the final hop). Every botnet plays by the
-  **same rules**: one build job at a time, 1 Intel per attack bot, Cash travels home, guards.
+  **same rules**: builds paid in Intel and left to run, 1 Intel per attack bot, Cash travels home, guards.
 - A building's bots are its health. An **owned** building regenerates `PROD_RATE` (1/s) per active Bot farm
   up to `NODE_CAP` (30). A **neutral** building regenerates only up to **its own security level** — so a
   neutral never becomes a 30-bot fortress (v1's hidden siege problem).
-- `DEFEND_POWER = 1.5 × ATTACK_POWER`: an attack arrival removes 0.667 of a defender; a reinforcement adds 1.
-  At 0 the building **flips to the attacker**, keeps its buildings and slots, loses its orders and job.
+- `DEFEND_POWER = ATTACK_POWER` (1 = 1): an attack arrival removes exactly one defender; a reinforcement adds 1.
+  At 0 the building **flips to the attacker** and is **empty inside**: whatever was built there is gone, with
+  its orders and jobs. The new owner builds from scratch.
 - Bots act only on arrival. Movement is hop by hop: `LINK_TIME` 1 s per link, `NODE_ROUTE_DELAY` 0.25 s per
   intermediate building, plus any **queue** time waiting for link room.
 
@@ -145,12 +143,11 @@ targets.
   - **🔍 SCAN quietly:** your sources release scan bots along their network (1 Intel each, like attack bots).
     They are **consumed on arrival and never wound a defender, and the owner is never alerted**: no red frame,
     no guards arming, no AI reaction, and other botnets' scan packets are invisible to you. The building's
-    **scan protection** is a fixed threshold, not regenerated and not depleted: `SCAN_BASE` (10) bots plus
-    `SCAN_PER_BUILD` (5) per building inside. One source at 1 bot/s scans an empty PC in about 10 s; a full
-    Database takes 30. When the threshold is reached the building is **revealed** (bots, slots, contents), the
+    **first scout to land reveals it** (`SCAN_BASE` 1, `SCAN_PER_BUILD` 0 — no quota, nothing scales with what
+    is inside; the old 10 + 5-per-building threshold was dropped as busywork). When it lands the building is
+    **revealed** (bots, slots, contents), the
     scan flows **stand down** (dormant, wires kept) and the panel switches to **⚔ ATTACK** — nothing auto-fires.
-  - **⚔ ATTACK blind:** attack bots wound as usual and **reveal the building as they land** (the same 10 + 5
-    threshold), but the attack **is an alarm**: the owner sees it, guards arm, the AI defends.
+  - **⚔ ATTACK blind:** attack bots wound as usual and **reveal the building as they land**, but the attack **is an alarm**: the owner sees it, guards arm, the AI defends.
 - Knowledge is per botnet and does not expire unless the inside changes (a building built, demolished or
   replaced), which requires a rescan. Partial progress is kept. A building you own needs no scan.
 - The AI botnets scan quietly before an attack and counter-attack blind.
@@ -173,18 +170,19 @@ Credentials and Research are pools like Intel (start 0, limit 50 + 50 per buildi
 it is the score. A building whose **production is switched off** by a card makes none of this and does not
 regenerate; a built harvester or lab still counts toward the limit.
 
-- Select one of your buildings → **Enter building** (`ENTER_TIME` 2 s to connect). Inside, the panel shows the
-  building's **slots** as a row of boxes: an empty slot shows **+**, a built slot shows the building's icon and
-  name (dimmed with "OFF" when the control stage has switched it off), a working slot shows a progress bar.
-  Below the slots sit **cards**, one per building kind, each with its icon and build time.
-- **Drag a card onto an empty slot** to build there: `BUILD_TIME` (10 s). **Drag a card onto an occupied
-  slot** to replace: the old building goes offline at once, `DEMOLISH_TIME` (5 s) clears the slot, then
-  `BUILD_TIME` (10 s) builds the new one — 15 s in all. Dropping the same kind on a slot does nothing.
-  Clicking a card builds it into the first empty slot. Right-clicking a built slot clears it in 5 s.
-- One job per building; it **progresses only while you stay inside**; Cancel stops it. While inside, the map
-  is veiled but **alive**; you cannot command it; alerts still arrive. If the building falls while you are
-  inside, you are thrown out.
-- Each AI botnet runs **one build job at a time** (its attention), always progressing, into its first empty
+- Select one of your buildings → its **slots** open right in the panel (no "enter", no connect delay, the map
+  stays yours to command): an empty slot shows **+**, a built slot the building's icon and name (dimmed "OFF"
+  when the control stage switched it off), a working slot a progress bar. Below the slots sit **cards**, one
+  per building kind. Clicking any other building on the map simply selects that one instead.
+- **Drag a card onto an empty slot** to build there: `BUILD_TIME` (10 s), paid `BUILD_COST_INTEL` (10 Intel)
+  up front — no Intel, no job. **Drag a card onto an occupied slot** to replace: the old building goes offline
+  at once, `DEMOLISH_TIME` (5 s) clears the slot, then `BUILD_TIME` builds the new one. Dropping the same kind
+  does nothing. Clicking a card builds into the first empty slot. Right-clicking a built slot clears it (free).
+- **Several jobs per building**, one per slot, each listed with its own Cancel (no refund). Jobs **run on their
+  own** — leave, attack, open the research tab: they finish regardless.
+- Your rig produces `RIG_INTEL` (1 Intel/s) by itself, so there is always something to build with; Intel
+  harvesters add to that.
+- Each AI botnet builds the same way: one new job per think, paid in Intel, left to run, into its first empty
   slot; it never replaces.
 
 ### Intel (settled — kept distinct from the card resources)
@@ -192,20 +190,20 @@ Each attack **and scan** bot released at a foreign building costs its owner 1 In
 are free. Every botnet starts with 50, limit 100 (+50 per Intel harvester). Departures resolve in time order
 with a rotating tie-break. Intel gates aggression; Cash, Credentials and Research fuel cards (see Economics).
 
-### The win — control the town (decision: hold the majority)
-Cash stopped being the win; **control decides**, which removed the old bank-vs-buy tension. A match resolves
-three ways, checked every tick:
-1. **Outright domination** — hold **more than `HOLD_FRACTION` (0.5) of all buildings** for `HOLD_SECS` (45 s)
-   without a break. A 31-building town needs 16. Rare, but a snowball wins fast.
+### The win — hold the majority (no clock)
+Cash stopped being the win; **control decides**. A match resolves two ways, checked every tick, and **runs
+until one of them happens** — there is no time limit:
+1. **Hold the majority** — hold **more than `HOLD_FRACTION` (0.5) of all buildings** for `HOLD_SECS` (45 s)
+   without a break. A 31-building town needs 16. The hold clock resets the moment you drop below.
 2. **Last botnet standing** — capture every rival building (elimination), detected the instant a capture
    leaves one botnet with buildings.
-3. **The bell** — at `MATCH_TIME` (300 s = 5 min) whoever controls the **most buildings** wins (ties broken by
-   total bots, then faction order). This guarantees the match ends and makes control matter throughout.
 
-Measured, a straight ">50 % of all" almost never resolves in a three-way (the two AIs hold each other near
-42 %), so the bell is what actually decides most matches. You lose immediately if you ever hold zero buildings.
-The HUD shows each botnet's control %, marks the leader with a dot, and counts the match clock down; when
-someone holds a true majority it shows the hold timer.
+You lose immediately if you ever hold zero buildings. The HUD shows **only you**: elapsed time, your control %
+and buildings against the majority line, and your four resources — each in a fixed column so a changing number
+never shifts the row. While any botnet holds a majority the time slot becomes that hold countdown (a warning).
+Rivals' standings live in the **BOARD** tab (the leaderboard), not on the HUD. The former 5-minute bell was
+dropped on the designer's call: a three-way can stall near 40 % each, and that is now a game to play out, not a
+tie to adjudicate.
 
 ### Economics — the four resources (documented for tuning)
 Everything is a rate or a packet; all the numbers live in `scripts/botnet_cfg/tuning.gd` and `cards.gd`.
@@ -234,7 +232,7 @@ the shape decides whether it hits one building or spreads. A worm hits one build
 jump 1 is certain, then the chance falls by `WORM_FALLOFF` (25 %) per jump — 75 %, 50 %, 25 %, 0 — at most four
 jumps out, never onto the caster's own buildings, each building once, stopping at one immune to the family.
 
-| Family | Effect (× the type's resist factor) | Single | Worm | Single cost (LINKED) | Single time |
+| Family | Effect (× the type's resist factor) | Single | Worm | Single cost | Single time |
 |---|---|---|---|---|---|
 | **Credential** | wipe **all** defenders (−100 %) | Credential stuffing | Credential worm | 20 $ · 35 K · 10 R | 25 s |
 | **Phishing** | **−50 %** defenders | Phishing | Phishing worm | 20 $ · 25 K · 15 R | 22 s |
@@ -252,16 +250,17 @@ rendered sheet is `review/botnet_v2_2026-10-11/all_cards.png`.
   exploits, a Database resists credential attacks 50 %, an ERP resists 0-day 50 % but is weak to supply-chain.
   A defender effect is capped at 100 %; a timed effect's duration scales too.
 - **Research, not purchase:** the RESEARCH tab shows the catalogue as Magic-style card faces grouped by family
-  (single then worm), with a LINKED / ANY switch. Clicking a card queues it; the head of the queue runs for the
+  (single then worm). Clicking a card queues it; the head of the queue runs for the
   card's time and **consumes its cost spread over that time** (stalls without a resource, Pause stops the
   consumption, Cancel loses progress). A finished card goes into your **hand**, which accumulates without limit.
   The queue lets you push a later card to the front.
-- **Two reaches:** **LINKED** needs a connection into the target (the CONNECT verb is the delivery route);
-  **ANY** works anywhere at `ANY_COST_MULT` (×4) the cost and `ANY_TIME_MULT` (×2) the time.
+- **One reach:** a card needs a **connection into its target** (the CONNECT verb is the delivery route). The
+  earlier LINKED / ANY split (ANY anywhere at ×4 cost) was dropped as a confusing second axis; single vs worm
+  is the only choice.
 - **Playing — drag and drop:** drag a card from your hand (under a foreign building's panel, or the research
   tab) onto a building. Valid targets light up; the one under the pointer previews the effect. Dropping it
-  launches the card as a **packet** that travels the links (a LINKED card from the nearest connected building,
-  an ANY card from your rig over any streets), drawn as a glowing card with its path dashed ahead. The effect
+  launches the card as a **packet** that travels the links from the nearest connected building, drawn as a
+  glowing card with its path dashed ahead. The effect
   lands **on arrival**; if the building became yours meanwhile it fizzles. Every hit **reveals** the building
   to you and **alarms** its owner for `CARD_ALARM` (8 s). The AI botnets research and play the same cards.
 - A routing cut makes a building relay nothing (flows through it pause, the wire kept). A siphon shows
@@ -273,23 +272,22 @@ rendered sheet is `review/botnet_v2_2026-10-11/all_cards.png`.
 (every hop's entry time) is fixed at departure; arrivals resolve chronologically; results do not depend on
 frame rate (checked at 60 Hz vs 2 Hz).
 
-### Rate dial (experiment 5) and rally (command-unit experiment)
-- `− rate / + rate` on any selection: 25 %…100 % of `SEND_RATE` (1 bot/s).
-- **Set rally point** on one building: every **unwired** idle building of yours sends its surplus above
-  `RALLY_RESERVE` (10) to it, never overfilling it (inbound counted), and **pauses while under attack**.
+### Rate dial (experiment 5)
+- `− rate / + rate` on any selection: 25 %…100 % of `SEND_RATE` (1 bot/s). (The rally point was dropped.)
 
 ### The AI botnets — strong, under your fog, and playing like a human
 **NYX** (red, bottom right, `aggr` 0.8: prefers botnet targets, opens a second front) and **KRAKEN** (purple,
 bottom left, `aggr` 0.45: economic) are the two AI botnets. Every `cadence` (NYX 3 s, KRAKEN 3.5 s, × `AI_SPEED`)
 an AI runs one think. They have the **same knowledge and the same limits as the player** — no cheats.
 
-**Like a human (attention and reaction).** Building costs attention exactly as it does for you: starting a build
-**enters** that building (a 2 s connect), the job progresses only while the AI is attending it, and while it is
-heads-down on a build it issues **no map commands**. A building coming under attack pulls it off the build to
-defend (the job pauses); it re-connects and resumes once safe. A **reaction delay** (`AI_REACT` 1.5 s) means it
-takes a moment to notice a loss and scramble reserves — its pre-wired guards still arm instantly, as yours do.
-So an AI, like you, cannot build and attack in the same instant; measured, this costs it a building or two of
-expansion and makes it beatable while still winning the idle match.
+**Like a human (reaction).** The AI builds exactly as you do: it pays Intel and the job runs on its own, so
+building no longer locks it out of the map (the earlier attention model went when the designer removed the
+"enter building" step for everyone). What stays human is the **reaction delay** (`AI_REACT` 1.5 s): it takes a
+moment to notice a loss and scramble reserves — its pre-wired guards still arm instantly, as yours do.
+One knock-on of the rig's Intel trickle: the AI prices a siege against **what it will earn while the siege
+runs** (`intel + rate × seconds`), so with a steady 1 Intel/s it starts more strikes and scouts from a small
+reserve than it did when income was zero. That is symmetric with the player's economy and is why idle scouting
+now shows mainly when a botnet's rig is switched off.
 
 **What an AI may know (the same as you).** Its own buildings: everything. A foreign building it has
 **scanned** (record done, contents unchanged): the live bots and what is built — exactly your badge and panel.
@@ -325,7 +323,7 @@ refreshes every tick** just like the AI's, so when it goes dark you recall what 
 6. **Cards on its current targets** — drop defenders to speed a kill: a Credential worm on the seed whose
    **public types** promise the longest chain, else stuffing, phishing or a 1-day down the ladder.
 7. **Choke the control leader** — DoS a known production building (market, harvester, lab) of the rival ahead,
-   laying a dormant wire to deliver the LINKED card.
+   laying a dormant wire to deliver the card.
 8. **Offence — scout, then strike.** Every bordering foreign building is scored by benefit over time-to-fall
    **on what the AI knows**; a known building gets +2 (trust what it learned), a visibly bleeding one +1.5, one
    someone else is visibly cracking +3 (+8 and a two-stream dash when it is nearly down: steal the kill), one it
@@ -340,36 +338,36 @@ refreshes every tick** just like the AI's, so when it goes dark you recall what 
     (`AI_EDGE_MEMORY` 60 s), else to the weakest; the guard arms itself when the next blow lands.
 
 Tuning for a human (all in `scripts/botnet_cfg/`): `AI_CASH_MULT` (0.75 ≈ a slower economy), `AI_SPEED`,
-`AI_PRIOR_BOTNET`, `AI_REACT`, then the win knobs `HOLD_FRACTION` / `HOLD_SECS` / `MATCH_TIME`. Measured, the AIs'
+`AI_PRIOR_BOTNET`, `AI_REACT`, then the win knobs `HOLD_FRACTION` / `HOLD_SECS`. Measured, the AIs'
 clock is their **expansion**, not their thinking: slowing `AI_SPEED` barely moves it, lowering their income or
 tightening the win line does.
 
 ## Where the numbers live
 Everything tunable is in `scripts/botnet_cfg/`, one file per concern, and the game script only aliases them
-(`const MATCH_TIME := CfgTuning.MATCH_TIME`), so probes and the panel keep their names:
+(`const HOLD_SECS := CfgTuning.HOLD_SECS`), so probes and the panel keep their names:
 
 | File | Holds |
 |---|---|
 | `factions.gd` | the four owners, names and colours; the AI personalities (`aggr`, `cadence`), its reserve/patience/stream limits, the **human knobs** (`AI_SPEED`, `AI_CASH_MULT`, `AI_REACT`) and the fog priors (`AI_PRIOR_BOTNET`, `AI_SCOUT_INTEL`, `AI_CHOKE_LEAD`, `AI_EDGE_MEMORY`, `AI_SIEGE_MAX`) |
 | `town.gd` | grid size, gap chance, street keep chance, diagonal chance, street names |
 | `types.gd` | `NODE_TYPES` (slots, production multipliers, security bonus), `TYPE_WEIGHTS` by district, `RESIST` (the card families each type resists or is weak to) |
-| `buildings.gd` | `BUILD_KINDS` (the five things you build inside) and the build, demolish and enter times |
-| `cards.gd` | the twelve cards (six families × single/worm: cost, time, effect, rules, flavour), family names and colours, the ANY multipliers, the worm fall-off, the steal duration and the alarm |
-| `tuning.gd` | bots and combat; the resources and their limits; Cash; scanning; links; control stages; rally; and the **win knobs** `HOLD_FRACTION` / `HOLD_SECS` / `MATCH_TIME` |
+| `buildings.gd` | `BUILD_KINDS` (the five things you build inside) the build and demolish times, and `BUILD_COST_INTEL` (10 Intel per job) |
+| `cards.gd` | the twelve cards (six families × single/worm: cost, time, effect, rules, flavour), family names and colours, the worm fall-off, the steal duration and the alarm |
+| `tuning.gd` | bots and combat; the resources and their limits; Cash; scanning; links; control stages; `RIG_INTEL`; and the **win knobs** `HOLD_FRACTION` / `HOLD_SECS` |
 
 Change a value, restart the scene. Nothing in `botnet_proto.gd` defines a number.
 
 ## Provisional values
-**Win:** `HOLD_FRACTION 0.5 · HOLD_SECS 45 · MATCH_TIME 300`
+**Win:** `HOLD_FRACTION 0.5 · HOLD_SECS 45` — no clock
 **AI (human + fog):** `AI_SPEED 1 · AI_CASH_MULT 1 · AI_REACT 1.5 · AI_PRIOR_BOTNET 0.6 · AI_SCOUT_INTEL 20 · AI_CHOKE_LEAD 2 · AI_EDGE_MEMORY 60 · AI_SIEGE_MAX 120 · AI cadence 3 / 3.5 · AI_RESERVE 6 · AI_PATIENCE 30 · AI_MAX_STREAMS 4`
 **Town:** `HIGHWAY_P 0.85 · JUNCTIONS 2 · JUNCTION_CAP_MULT 2 · EMPTY_CELL 0.15 · LINK_KEEP 0.78 · DIAG_P 0.18`
-**Bots/combat/links:** `NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 · LINK_CAP 2 · MAX_QUEUE 1`
-**Scan/build:** `SCAN_BASE 10 · SCAN_PER_BUILD 5 · BUILD_TIME 10 · DEMOLISH_TIME 5 · ENTER_TIME 2`
+**Bots/combat/links:** `NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 · LINK_CAP 2 · MAX_QUEUE 1`
+**Scan/build:** `SCAN_BASE 1 · SCAN_PER_BUILD 0 · BUILD_TIME 10 · DEMOLISH_TIME 5 · BUILD_COST_INTEL 10 · RIG_INTEL 1`
 **Resources:** `INTEL_START 50 · INTEL_CAP_BASE 100 · INTEL_CAP_PER_BUILD 50 · CASH_INTERVAL 3 · CRED_PER_BUILD 0.5 · RESEARCH_PER_BUILD 0.5 · RES_CAP_BASE 50 · RES_CAP_PER_BUILD 50 · RALLY_RESERVE 10`
-**Cards:** `ANY_COST_MULT 4 · ANY_TIME_MULT 2 · WORM_FALLOFF 0.25 · STEAL_DUR 5 · CARD_ALARM 8`
+**Cards:** `WORM_FALLOFF 0.25 · STEAL_DUR 5 · CARD_ALARM 8`
 
 ## Arithmetic that decides the game (for designers)
-- Streams needed to beat a building's regeneration: `floor(regen × 1.5) + 1` → 2 against one Bot farm, 4
+- Streams needed to beat a building's regeneration: `floor(regen × DEFEND_POWER / ATTACK_POWER) + 1` (= `floor(regen) + 1` now that A = D; the worked examples that follow were sized for the old 1.5 edge — one farm still needs 2 streams, two farms now 3 rather than 4) → 2 against one Bot farm, 4
   against the hub's two. Concentration is cheaper in Intel and time: a 20-bot building costs 120 Intel with
   two streams and 60 with three.
 - A building that is streaming out loses 1 bot/s on top: one stream drives a streaming attacker down to its
@@ -380,36 +378,37 @@ Change a value, restart the scene. Nothing in `botnet_proto.gd` defines a number
 ## Validation (2026-10-12, Godot 4.7.2 headless + rendered under Xvfb)
 Mechanics probe in `review/botnet_v2_2026-10-11/`: **46 cases**. The town and factions (connected, different per
 seed; highways bridge gaps, two junctions carry double traffic); faction routing and link-capacity queueing;
-chronological arrivals with a mid-delivery terminal freeze (elimination); control stages; the **attention rule
-for both the player and an AI** (a build progresses only while its owner attends it, after a connect delay);
+chronological arrivals with a mid-delivery terminal freeze (elimination); control stages; **unattended build jobs** (several per building, each paid in Intel, for the player and the AI alike);
 capture and the neutral security cap; scanning (quiet vs blind, the threshold, rescan on change); building types
 and their multipliers; the fog-bound AI (the twin test that perturbs only hidden fields and asserts identical
 decisions; the public prior; scout-then-strike; visibility of others' flows; scan memory; the lawful
 counter-attack; limits; retaking; idle scouting; choking the leader; learned edges; worm value) and the player's
 matching fog (a UI twin test; stale-memory display); the **card system** — the research queue (consume over time,
-pause, stall, accumulate, ANY ×4/×2), the single-card **defender ladder** (1-day −25 %, phishing −50 %, stuffing
+pause, stall, accumulate), the single-card **defender ladder** (1-day −25 %, phishing −50 %, stuffing
 −100 %) with **resist scaling** (DB resists credential ×½, PC weak to phishing ×1.5, IoT resists it 90 %), a
 **supply-chain steal** (the target's production flows to the caster, the owner denied, then recovers), a **DoS**
 (production off and routing cut together, then recover), worms (a chain at 100/75/50/25 %, never the caster's own,
 no capture), and cards travelling as packets that land on arrival; the AI card economy; the **win** (a
-domination-hold with a clock that resets on loss, an elimination freeze). The **AI attention and the symmetric
-memory** have their own cases. Rendered captures (49 shots) and the all-cards sheet are in `gallery/` and
+majority-hold with a clock that resets on loss, an elimination freeze; no match bell). **Capture emptying the
+inside, the AI building unattended, and the symmetric memory** have their own cases. Rendered captures (49 shots) and the all-cards sheet are in `gallery/` and
 `all_cards.png`.
 
-**Pacing (not verdicts), 10 Hz, two AI botnets under the player's fog and playing like a human, control win,
-5-minute match:** every match resolves at the bell by control.
+**Pacing (not verdicts), 10 Hz, two AI botnets under the player's fog, majority-hold win, no clock — each
+reading stopped at 300 s:**
 
 | Run | Outcome | Time | Buildings you / NYX / KRAKEN | Cards played NYX / KRAKEN |
 |---|---|---|---|---|
-| You idle (seed 7) | NYX controls the most | 5:00 | 2 / 9 / 5 | 2 / 2 |
-| Greedy scripted player (seed 7) | NYX controls the most | 5:00 | 3 / 9 / 5 | 2 / 2 |
-| Greedy scripted player (seed 11) | NYX controls the most | 5:00 | 3 / 10 / 6 | 5 / 3 |
+| You idle (seed 7) | no winner yet (reading stopped at 300 s) | 5:00 | 2 / 14 / 5 | 9 / 0 |
+| Greedy scripted player (seed 7) | no winner yet (reading stopped at 300 s) | 5:00 | 3 / 10 / 9 | 8 / 2 |
+| Greedy scripted player (seed 11) | no winner yet (reading stopped at 300 s) | 5:00 | 6 / 7 / 7 | 0 / 5 |
 
-In a three-way the two AIs hold each other near 30-42 % of the town, so a straight ">50 % hold" rarely fires and
-the **bell decides by control** — which is why the match clock exists. The human attention cost trimmed the AIs
-from ~9-12 buildings to ~7-10 at the bell, so they are more beatable while still beating an idle or naive player.
-**The AIs' clock is expansion, not thinking:** `AI_SPEED` barely moves it; lowering `AI_CASH_MULT` or tightening
-`HOLD_FRACTION` / `MATCH_TIME` does. Tune those after the first human runs.
+With no bell, a three-way that stalls near a third of the town each simply keeps going — that is now the game
+to play out, not a tie to adjudicate; the majority line (16 of 31) is the thing to reach. Two of this batch's
+rules slow everyone's expansion: **attack = defence** makes every building fall faster (so attacks are cheaper
+and counter-attacks too), and a **captured building is empty inside**, so each gain needs a farm before it
+regrows and a market before it pays. **The AIs' clock is expansion, not thinking:** `AI_SPEED` barely moves it;
+lowering `AI_CASH_MULT` or the majority line (`HOLD_FRACTION` / `HOLD_SECS`) does. Tune those after the first
+human runs.
 
 **Worm reach (a tuning note):** with the 100/75/50/25 % jumps on a 6×6 town (0.78 street density), a worm fired
 at the downtown hub reached ~18 of 31 buildings; if that is too much for a 60-second card, lower the first jump
@@ -457,8 +456,8 @@ global. Still open: whether a card should need the target scanned first (today a
 whether cards should be visible to the victim before they land (a research race).
 
 ## Other open questions
-- Command unit: if the rally point suffices on 6×6, buildings stay the unit; if players still drown in
-  wires, test district orders next.
+- Command unit: buildings are the unit (the rally point was dropped); if players drown in wires, test
+  district orders next.
 - Whether a neutral building's security should be visible before you scan it (Intel as information).
 - **Future hook (agreed, not built):** dormant wires could later be **detectable** by their target's owner —
   discovery risk for long-prepared strikes.
@@ -606,9 +605,22 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     unscanned building shows the same public prior the AI uses). Probe: a UI twin test (41) joins the AI twin
     test (27).
 
+25. **The designer's second playtest (2026-10-12) — eleven rule changes at once.** No "enter building": select a
+    building you own and its slots open in the panel; the map stays commandable; clicking another building
+    just selects it. Builds **run on their own**, **several per building** (one per slot), each paid
+    **10 Intel up front**; the rig makes **1 Intel/s** by itself. The AI's attention model went with the
+    enter step (its reaction delay stays). **Attack = defence** (`DEFEND_POWER` 1.5 → 1). A **captured building
+    is empty inside**. **No time limit**: hold the majority for 45 s or be the last botnet; the 5-minute bell
+    is gone. **No scan quota**: the first scout to land reveals a building. The **rally point** is gone. Cards
+    lost the **LINKED / ANY** axis (one reach: a connection into the target; single vs worm is the only choice).
+    The **HUD shows only you** (elapsed time, your control against the majority line, your resources) in
+    **fixed columns** so changing numbers never jump; a **BOARD** tab (L) is the leaderboard where the rivals'
+    standings live. The research tab lost its duplicate resource row; the panel keeps its scroll across its
+    periodic refresh and opens every tab at the top.
+
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral
 siege problem (security cap), display agreeing with simulation (drain-aware diagnostic), feasible route to
 victory (scripted wins recorded). **Pending:** human usability test (five new players, no coaching; gate 4 of
-5 complete the core tasks: wire, launch, guard, enter a building, read a stalled attack), and a pacing pass
+5 complete the core tasks: wire, launch, guard, build into a slot, read a stalled attack), and a pacing pass
 after it — now against two AIs that build and defend.

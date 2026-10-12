@@ -93,15 +93,13 @@
 			"pass": true
 		},
 		{
-			"case": "06_jobs_need_attention",
+			"case": "06_jobs_run_unattended_cost_intel",
 			"observed": {
-				"player_inside": true,
-				"player_without_inside": true,
-				"rival_builds": [
-					"bot",
-					"cash",
-					""
-				]
+				"ai_unattended": true,
+				"both_built_unattended": true,
+				"intel_paid_up_front": true,
+				"refused_without_intel": true,
+				"two_jobs_at_once": true
 			},
 			"pass": true
 		},
@@ -110,6 +108,7 @@
 			"observed": {
 				"after_player": 1,
 				"after_rival": true,
+				"empty_after_capture": true,
 				"neutral_regrew_to_security": true,
 				"owned_regrows_past_security": true
 			},
@@ -119,10 +118,10 @@
 			"case": "08_ai_builds_then_concentrates",
 			"observed": {
 				"attacked": true,
-				"captured_within_25s": false,
+				"captured_within_25s": true,
 				"harvesters": 1,
 				"max_streams_on_one_target": 2,
-				"nyx_intel": 26.5499999999999
+				"nyx_intel": 7.40000000000014
 			},
 			"pass": true
 		},
@@ -135,11 +134,14 @@
 			"pass": true
 		},
 		{
-			"case": "10_rally_garrison",
+			"case": "10_capture_empties_the_inside",
 			"observed": {
-				"held_at_garrison": true,
-				"held_when_rally_full": true,
-				"sent_when_room": true
+				"builds_after_capture": [
+					"",
+					"",
+					""
+				],
+				"jobs_after_capture": {}
 			},
 			"pass": true
 		},
@@ -150,16 +152,16 @@
 					{
 						"dt": 0.0166666666666667,
 						"flights": 2,
-						"intel": 12.0,
-						"owner": 1,
-						"target_bots": 3.98333333333339
+						"intel": 29.9999999999989,
+						"owner": 0,
+						"target_bots": 8.98333333333311
 					},
 					{
 						"dt": 0.5,
 						"flights": 2,
-						"intel": 12.0,
-						"owner": 1,
-						"target_bots": 3.5
+						"intel": 30.0,
+						"owner": 0,
+						"target_bots": 8.5
 					}
 				]
 			},
@@ -168,7 +170,7 @@
 		{
 			"case": "12_attack_the_attacker",
 			"observed": {
-				"one_stream_bots": 6.99999999999985,
+				"one_stream_bots": 5.99999999999986,
 				"owner_after_two": 1
 			},
 			"pass": true
@@ -215,7 +217,7 @@
 					""
 				],
 				"built_in_slot": true,
-				"cannot_drop_from_outside": true,
+				"cannot_drop_on_foreign": true,
 				"cleared_then_building": true,
 				"offline_meanwhile": true,
 				"replace_started": true,
@@ -247,7 +249,7 @@
 			"case": "19_scan_quiet_or_attack_loud",
 			"observed": {
 				"blind_attack_alarms_wounds_reveals": true,
-				"cost": 15.0,
+				"cost": 1.0,
 				"hidden_before": true,
 				"quiet_no_alarm": true,
 				"revealed_and_stood_down": true,
@@ -273,7 +275,6 @@
 			"case": "21_research_queue",
 			"observed": {
 				"accumulates": true,
-				"any_x4_cost_x2_time": true,
 				"completed": true,
 				"cost_spent": true,
 				"half_spent": true,
@@ -287,13 +288,13 @@
 			"observed": {
 				"db_resists_half": true,
 				"iot_resists_phish_90": true,
-				"linked_refused": true,
 				"oneday_minus25": true,
 				"pc_phish_minus75": true,
 				"reveal_alarm_no_capture": true,
 				"routing_wears_off": true,
 				"stuff_wipes": true,
 				"travels_as_packet": true,
+				"unconnected_refused": true,
 				"zeroday_half_and_cut": true
 			},
 			"pass": true
@@ -327,13 +328,13 @@
 		{
 			"case": "25_ai_uses_cards",
 			"observed": {
-				"cards_played_by_ais": 4,
+				"cards_played_by_ais": 9,
 				"economy_built": {
 					"2": true,
 					"3": true
 				},
-				"kraken_cash": 95,
-				"nyx_cash": 435,
+				"kraken_cash": 162,
+				"nyx_cash": 996,
 				"researched": {
 					"2": true,
 					"3": true
@@ -359,7 +360,7 @@
 			"case": "27_fog_twin",
 			"observed": {
 				"acts": true,
-				"digest": "[[25,29,true,\"scan\",\"\"],[30,29,true,\"scan\",\"intel\"],[29],0,[]]",
+				"digest": "[[25,24,true,\"scan\",\"\"],[30,24,true,\"scan\",\"\"],[24],0,[]]",
 				"same_decisions": true
 			},
 			"pass": true
@@ -380,7 +381,7 @@
 				"learned_live_bots": true,
 				"quiet": true,
 				"scan_sources": 2,
-				"scan_took_s": 8.1,
+				"scan_took_s": 1.1,
 				"stood_down": true,
 				"target": 24,
 				"then_attacks_known": true
@@ -401,10 +402,9 @@
 		{
 			"case": "31_bleeder_hidden_dial",
 			"observed": {
-				"idle": 36.0,
-				"quiet_scan_invisible": 36.0,
-				"routeless_rally_not_a_drain": true,
-				"visibly_streaming_out": 9.0
+				"idle": 12.0,
+				"quiet_scan_invisible": 12.0,
+				"visibly_streaming_out": 6.0
 			},
 			"pass": true
 		},
@@ -457,7 +457,7 @@
 				"scout": [
 					[
 						25,
-						24,
+						19,
 						"scan"
 					]
 				],
@@ -497,22 +497,22 @@
 			"observed": {
 				"7": {
 					"first_capture": {
-						"2": 38.6,
-						"3": 51.3
+						"2": 21.3,
+						"3": 20.5
 					},
 					"scans_done": {
-						"2": 4,
+						"2": 8,
 						"3": 3
 					}
 				},
 				"11": {
 					"first_capture": {
-						"2": 63.3,
-						"3": 51.3
+						"2": 18.4,
+						"3": 20.5
 					},
 					"scans_done": {
-						"2": 3,
-						"3": 2
+						"2": 6,
+						"3": 4
 					}
 				}
 			},
@@ -521,7 +521,7 @@
 		{
 			"case": "41_ui_twin",
 			"observed": {
-				"digest": "[\"Control the most of the town when the clock runs out.\\n5-minute match. Hold more than half the town for 45 s to win outright, or wipe out both rivals; otherwise whoever controls the most buildings a",
+				"digest": "[\"Hold more than half the town.\\nKeep a majority of all buildings for 45 s, or wipe out both rival botnets. There is no clock: the match runs until someone does. Two AI botnets play by your rules; gre",
 				"same_panel_focus_streets": true
 			},
 			"pass": true
@@ -547,13 +547,15 @@
 			"pass": true
 		},
 		{
-			"case": "45_ai_attention",
+			"case": "45_ai_builds_unattended",
 			"observed": {
-				"bails_when_attacked": true,
-				"connect_delay_gates_progress": true,
-				"enters_the_build": true,
-				"locked_out_while_building": true,
-				"then_progresses": true
+				"jobs_after_two_thinks": [
+					1,
+					2
+				],
+				"pays_intel": true,
+				"progresses_with_nobody_inside": true,
+				"starts_a_job": true
 			},
 			"pass": true
 		},
@@ -582,61 +584,61 @@
 				"greedy_seed11": {
 					"cards_played": [
 						0,
-						5,
-						3
+						0,
+						5
 					],
 					"cash": [
 						0,
-						629
+						449
 					],
-					"cash_kraken": 391,
-					"cause": "Time's up — NYX controlled the most buildings (10).",
-					"first_capture_t": 18.5,
+					"cash_kraken": 118,
+					"cause": "",
+					"first_capture_t": 8.5,
 					"intel": 0,
-					"kraken_nodes": 6,
-					"outcome": "LOSS",
-					"player_nodes": 3,
-					"rival_nodes": 10,
+					"kraken_nodes": 7,
+					"outcome": "timeout",
+					"player_nodes": 6,
+					"rival_nodes": 7,
 					"t": 300.1
 				},
 				"greedy_seed7": {
 					"cards_played": [
 						0,
-						2,
+						8,
 						2
 					],
 					"cash": [
 						0,
-						435
+						1092
 					],
-					"cash_kraken": 95,
-					"cause": "Time's up — NYX controlled the most buildings (9).",
-					"first_capture_t": 12.5,
-					"intel": 0,
-					"kraken_nodes": 5,
-					"outcome": "LOSS",
+					"cash_kraken": 143,
+					"cause": "",
+					"first_capture_t": 6.5,
+					"intel": 100,
+					"kraken_nodes": 9,
+					"outcome": "timeout",
 					"player_nodes": 3,
-					"rival_nodes": 9,
+					"rival_nodes": 10,
 					"t": 300.1
 				},
 				"rival_alone": {
 					"cards_played": [
 						0,
-						2,
-						2
+						9,
+						0
 					],
 					"cash": [
 						0,
-						435
+						996
 					],
-					"cash_kraken": 95,
-					"cause": "Time's up — NYX controlled the most buildings (9).",
+					"cash_kraken": 162,
+					"cause": "",
 					"first_capture_t": -1.0,
-					"intel": 50,
+					"intel": 100,
 					"kraken_nodes": 5,
-					"outcome": "LOSS",
+					"outcome": "timeout",
 					"player_nodes": 2,
-					"rival_nodes": 9,
+					"rival_nodes": 14,
 					"t": 300.1
 				}
 			},

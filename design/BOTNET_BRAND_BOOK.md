@@ -123,7 +123,7 @@ across systems** — that is the whole discipline.
 |---|---|---|---|
 | `C_TEXT` | 0.88, 0.92, 1.00 | `#E0EBFF` | **facts** — ordinary readable text |
 | `C_DIM` | 0.60, 0.68, 0.80 | `#99ADCC` | **secondary** — labels, kickers, the quiet clock |
-| `C_WARN` | 1.00, 0.84, 0.45 | `#FFD673` | **needs you** — a warning, a thing to act on, the clock in its last 30 s |
+| `C_WARN` | 1.00, 0.84, 0.45 | `#FFD673` | **needs you** — a warning, a thing to act on, the hold-to-win countdown |
 | `C_GOOD` | 0.60, 0.95, 0.75 | `#99F2BF` | **going your way** — you are ahead / a success |
 | `C_BAD` | 1.00, 0.55, 0.50 | `#FF8C80` | **hostile or lost** — damage, a failed state |
 
@@ -140,8 +140,8 @@ it *means*, not by taste.
 | KRAKEN (3) | 0.70, 0.40, 0.95 | `#B266F2` | violet — rival B |
 
 A building's pictogram is filled in its owner's colour; its routes are coloured by the **source** faction;
-HUD control dots and the leader dot use these. These four are owner-identity only — do not use them for text
-meaning or card families.
+the BOARD tab's rows use these (the HUD shows only you). These four are owner-identity only — do not use them
+for text meaning or card families.
 
 ### 4.3 Card-family neon — which attack (`FAMILY_COL` in `botnet_cfg/cards.gd`)
 
@@ -154,7 +154,7 @@ meaning or card families.
 | Supply-chain (`supply`) | 1.00, 0.38, 0.75 | `#FF61BF` | magenta |
 | Denial of service (`dos`) | 0.68, 0.55, 1.00 | `#AD8CFF` | periwinkle |
 
-A family's neon is the card's border, cost-bar wash, glyph, type line and reach tag; a supply-chain steal frame
+A family's neon is the card's border, cost-bar wash, glyph and type line; a supply-chain steal frame
 on the map uses the supply magenta. These six are the card system's own identity — keep them distinct from
 faction and resource colours.
 
@@ -225,22 +225,30 @@ Each entry gives the element's size, font and colour. All sizes in dp.
 
 ### 6.1 HUD bar
 
-One line, top-left, mouse-transparent, **clipped** to its width so it can never bleed under the panel. Items are
-laid left→right with a 28 dp gap; an item with an icon draws the icon (16 dp) then a 22 dp step, then its text at
-**15 dp**. Order:
+One line, top-left, mouse-transparent, **clipped** to its width so it can never bleed under the panel, and
+**about you only** — rivals live in the BOARD tab. Every item owns a **fixed column**, so a number growing from
+9 to 10 or 99 to 100 never shifts anything to its right. An item with an icon draws the icon (16 dp) then a
+22 dp step, then its text at **15 dp**. Columns, left→right:
 
-1. **Time** — the match clock `⏱ M:SS` in `C_DIM`, turning `C_WARN` in the final 30 s. When a faction is holding
-   the majority, this slot becomes the hold-to-win countdown `⏳ NYX 12/45s` in `C_WARN` instead. *Always the
-   left-most item, so it is always fully visible.*
-2. **Control race** — `you N%`, `NYX N%`, `KRAKEN N%`, each in its faction colour (lightened), with a filled dot
-   `●` prefix on the current leader. `you` turns `C_GOOD` when you already hold more than half.
-3. **Resources** — `◎ Intel/cap`, `$ Cash`, `key Creds/cap`, `flask Research/cap`, each with its resource icon
-   and `C_TEXT` (Intel turns `C_WARN` while an attack is draining it, showing `−N/s`).
+| Column | Width (dp) | Content | Colour |
+|---|---|---|---|
+| Time | 150 | elapsed match time `⏱ M:SS` (there is no time limit). While any botnet holds a majority this slot becomes the hold-to-win countdown `⏳ NYX 12/45s` | `C_DIM`; the countdown `C_WARN` |
+| You | 150 | `you N% · held/needed` — your control %, your buildings against the majority line | `C_TEXT`; `C_GOOD` once you hold more than half |
+| Intel | 150 | `◎ Intel/cap`, with `−N/s` while an attack drains it | `C_TEXT`; `C_WARN` while draining |
+| Cash | 90 | `$ Cash` | `C_TEXT` |
+| Credentials | 110 | `key Creds/cap` | `C_TEXT` |
+| Research | 110 | `flask Research/cap` | `C_TEXT` |
+
+Total 760 dp inside the 780 dp bar at the 1280 reference.
 
 ### 6.2 Right panel
 
-A `Panel` styled per §4.5 with a `ScrollContainer`. Every panel *state* leads with one 18 dp title (or an
-uppercase `SELECTED` / section kicker at 11 dp) and its primary 32 dp button, then quieter lines. Helpers:
+A `Panel` styled per §4.5 with a `ScrollContainer`. Three tabs sit at its top as a button row — **🗺 MAP**
+(context: the selected building, a target, the idle help), **🧪 RESEARCH · n** (cards; key R) and **🏆 BOARD**
+(the leaderboard; key L); the active tab is the disabled button. The scroll position is **kept across the
+panel's periodic refresh** and **reset to the top on a tab switch**, so the view never jumps under the reader.
+Every panel *state* leads with one 18 dp title (or an uppercase `SELECTED` / section kicker at 11 dp) and its
+primary 32 dp button, then quieter lines. Helpers:
 
 - `_kicker(text)` — 11 dp uppercase `C_DIM` label above a group.
 - `_plabel(text, size=14, col=C_TEXT)` — a wrapping body label, min-width `PANEL_W − 64`.
@@ -285,8 +293,7 @@ sit above the building, apart from the HUD's Cash readout.
 ### 6.5 Map — packets in flight
 
 Bots and Cash travel as small moving marks along the streets. A **card** travels as a glowing card icon with its
-path dashed ahead of it, from the nearest connected building (LINKED) or from your rig over any streets (ANY),
-landing on arrival. Own packets are drawn as ~3.5 dp circles in `#80FFB3`; a card-in-flight carries its family
+path dashed ahead of it, from the nearest connected building, landing on arrival. Own packets are drawn as ~3.5 dp circles in `#80FFB3`; a card-in-flight carries its family
 neon.
 
 ### 6.6 Cards
@@ -311,23 +318,33 @@ Anatomy (positions × k):
 | Rules text | 11·k dp `#EBF2FF`, up to 3 lines, under a 1 dp neon rule |
 | Flavour / note | big cards only, or the per-target effect note in `C_WARN` |
 | Cost bar | bottom 22·k, neon @ 14% wash; coin/key/flask icons + figures at 10·k `#FFF2CC`, then `N s` time |
-| Reach tag | `LINKED` / `ANY` (or `L`/`A` small) in the art corner — **only in the hand**, where reach is intrinsic; **off in the catalogue**, where one toggle governs the whole grid |
 | Chain marker | three linked dots by the title, on worm cards only |
 | Count badge | `×N` top-right when holding copies |
 
 The six families each have a single card and a worm; see `BOTNET_ATTACK_DESIGN.md` for their numbers.
 
-### 6.7 Inside view (slot board) & type badge
+### 6.7 Slot board (in the panel) & type badge
 
-Entering a building shows its slots as a board. A `SlotBox` is 76 × 90 dp (`+` when empty, the build glyph when
-filled; a slot being worked is offline). Draggable build cards are ~72 × 94 dp with a 48 dp icon. A `TypeBadge`
-(42 dp tall) shows the building's picture, name (13 dp) and one-line description (11 dp `#B3CCE6`).
+Selecting a building you own opens its slots **right in the panel** — there is no separate inside view and no
+connect delay; the map stays commandable. A `SlotBox` is 76 × 90 dp (`+` when empty, the build glyph when
+filled; a slot being worked is offline and shows its progress bar). Draggable build cards are ~72 × 94 dp with
+a 48 dp icon; a build costs `BUILD_COST_INTEL` and several jobs may run at once, each listed as a 12 dp row
+with its own `✖` cancel. A `TypeBadge` (42 dp tall) shows the building's picture, name (13 dp) and one-line
+description (11 dp `#B3CCE6`).
 
 ### 6.8 End overlay & flash line
 
 On a win/loss, a dim scrim over the map and **"VICTORY"** (teal `#80FFFF`) or **"DEFEATED"** (`#FF8080`) at
 46 dp, with the cause and elapsed time beneath. The transient **flash message** wraps inside the map area (never
 under the panel) at 15 dp, fading via alpha.
+
+### 6.9 Leaderboard (BOARD tab)
+
+One 18 dp title, a 12 dp `C_DIM` line stating the majority line ("Hold more than 15 of 31 buildings for 45 s"),
+then one 15 dp row per botnet ranked by buildings held — `1.  NYX — 12 buildings · 38 %  ·  majority` — in the
+faction colour (you in `C_GOOD`; a botnet with nothing left in `C_DIM`, marked "out"). Under your own row a
+12 dp `C_DIM` line gives your bots, cards played and Cash; under a rival's only its cards played — their bots
+and resources stay under the fog. A holder of the majority shows its countdown here as well.
 
 ---
 
@@ -415,9 +432,9 @@ are short and a new case is a two-minute edit.
 | `scripts/botnet_cfg/factions.gd` | the four factions and their colours; AI speed, cash handicap, reaction and personality knobs |
 | `scripts/botnet_cfg/town.gd` | grid size, street density, jitter, highways, junctions |
 | `scripts/botnet_cfg/types.gd` | the seven building types, their district spawn weights, the family `RESIST` table |
-| `scripts/botnet_cfg/buildings.gd` | the five build kinds (bot / intel / cash / cred / lab), their colours and effects |
-| `scripts/botnet_cfg/cards.gd` | the twelve cards, the six families and their neons, reach multipliers, worm fall-off, steal duration |
-| `scripts/botnet_cfg/tuning.gd` | node cap, regen, link time/capacity, scan costs, control stages, the win (`HOLD_FRACTION`, `HOLD_SECS`, `MATCH_TIME`) |
+| `scripts/botnet_cfg/buildings.gd` | the five build kinds (bot / intel / cash / cred / lab), their colours and effects; build and demolish times; `BUILD_COST_INTEL` |
+| `scripts/botnet_cfg/cards.gd` | the twelve cards, the six families and their neons, worm fall-off, steal duration |
+| `scripts/botnet_cfg/tuning.gd` | node cap, regen, combat (A = D), link time/capacity, the scan cost, `RIG_INTEL`, control stages, the win (`HOLD_FRACTION`, `HOLD_SECS`) |
 | `assets/ui_theme.tres` | the font, the type sizes, the panel and button styles |
 | `scripts/botnet_proto.gd` | the palette constants (`C_*`, `PANEL_W`), all drawing, and the glyph/effect dispatchers |
 

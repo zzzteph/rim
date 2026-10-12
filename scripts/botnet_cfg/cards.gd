@@ -5,9 +5,9 @@
 # A card never captures: it removes defenders, switches production off, cuts routing, or siphons production —
 # your bots still have to arrive. SINGLE hits one building. A WORM hits one and jumps along the streets:
 # jump 1 is certain, then −WORM_FALLOFF per jump (75 % · 50 % · 25 % · 0), never onto the caster's own
-# buildings, stopping at a building immune to the family. LINKED cards work only on a building the caster has
-# a connection into; ANY cards work anywhere at ANY_COST_MULT × the cost and ANY_TIME_MULT × the time.
-# Every hit reveals the building to the caster and alarms its owner.
+# buildings, stopping at a building immune to the family. A card is played on a building the caster has a
+# connection into and travels there along the streets. Every hit reveals the building to the caster and alarms
+# its owner.
 #
 # effect: "defenders" removes `power` × its bots · "breach" removes `power` × bots AND cuts routing `dur` s ·
 #         "steal" sends the target's production to the caster for `dur` s · "deny" switches production off AND
@@ -56,8 +56,6 @@ const FAMILY_COL := {
 	"supply":  Color(1.0, 0.38, 0.75),
 	"dos":     Color(0.68, 0.55, 1.0),
 }
-const ANY_COST_MULT := 4.0
-const ANY_TIME_MULT := 2.0
 const WORM_FALLOFF := 0.25
 const STEAL_DUR := 5.0             # seconds a supply-chain hit siphons a building's production to the caster
 const CARD_ALARM := 8.0            # seconds a hit building counts as under attack (its guards arm, its owner sees red)
