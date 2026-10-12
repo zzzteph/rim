@@ -25,7 +25,7 @@ extends Control
 ##   • FREE FOR ALL: YOU (top-left), the NYX botnet (bottom-right) and the KRAKEN botnet (bottom-left) all
 ##     start with a rig and one building; the rest of the town is NEUTRAL, guarded by its own security which
 ##     regenerates only to its own level. Every botnet plays by the same rules: it builds inside its
-##     buildings, pays 1 Intel per attack bot, routes Cash home, defends, and wins by banking CASH_GOAL first.
+##     buildings, pays 1 Intel per attack bot, routes Cash home, defends, and wins by controlling the most of the town.
 ##   • A building's bots ARE its health and its defence (cap NODE_CAP once owned). It regenerates PROD_RATE
 ##     per Bot farm it runs. The more bots it holds the more of its slots keep working (control stages).
 ##   • A live flow releases one bot per second × the source's rate dial along its own network. Bots act only
@@ -43,7 +43,7 @@ extends Control
 ## SPACE pauses everything. R opens the research tab.
 
 # ── CONFIGURATION lives in scripts/botnet_cfg/*.gd (factions, town, types, buildings, cards, tuning): play with
-# the numbers there. The aliases below keep every name usable in this file and from probes (game.CASH_GOAL …).
+# the numbers there. The aliases below keep every name usable in this file and from probes (game.MATCH_TIME …).
 const CfgFactions := preload("res://scripts/botnet_cfg/factions.gd")
 const CfgTown := preload("res://scripts/botnet_cfg/town.gd")
 const CfgTypes := preload("res://scripts/botnet_cfg/types.gd")
@@ -743,7 +743,7 @@ func _pool(fac: int, r: String) -> float:   # "cash" | "creds" | "research"
 		_: return float(research[fac])
 
 
-func _pool_add(fac: int, r: String, d: float) -> void:   # spending never triggers the Cash win check
+func _pool_add(fac: int, r: String, d: float) -> void:   # add to (or spend from) a resource pool, clamped to its cap
 	match r:
 		"cash": cash[fac] = float(cash[fac]) + d
 		"creds": creds[fac] = float(creds[fac]) + d

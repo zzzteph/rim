@@ -4,7 +4,9 @@
 every number and table lives in `scripts/botnet_cfg/*.gd` — see "Where the numbers live").
 Supersedes the v1 attrition prototype (hub capture on a fixed 5×3 grid), archived in
 `design/BOTNET_ATTACK_HISTORY.md` §14. All numbers are provisional test candidates. Engine checks establish
-mechanical correctness only; they do not establish balance or novice usability.*
+mechanical correctness only; they do not establish balance or novice usability.
+For how the game looks — fonts, sizes, colours, every graphical element, the 1366→4K scaling, and how to wire
+new cards, types and effects — see the design system in `design/BOTNET_BRAND_BOOK.md`.*
 
 ## Why v2 exists
 
