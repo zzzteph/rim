@@ -345,6 +345,167 @@ func _run() -> void:
 	check("19_scan_quiet_or_attack_loud", hidden_before and quiet and revealed and unharmed and stale and blind_ok,
 		{"hidden_before": hidden_before, "quiet_no_alarm": quiet, "revealed_and_stood_down": revealed, "unharmed": unharmed, "stale_after_change": stale, "blind_attack_alarms_wounds_reveals": blind_ok, "cost": cost})
 
+	# 20 resources: a Credential harvester and a Research lab produce (× the building type) and raise their
+	#    own limits; an Intel harvester raises the Intel limit; production switched off stops all of it
+	fresh()
+	var rp20 := rigP()
+	game._set_builds(rp20, ["bot", "cred", "lab"])          # the rig is a Server: Credentials ×1, Research ×1.5
+	var cap_c0: float = game._res_cap(game.PLAYER, "cred"); var cap_r0: float = game._res_cap(game.PLAYER, "lab")
+	step(10.0, 0.1)
+	var c10: float = game.creds[game.PLAYER]; var r10: float = game.research[game.PLAYER]
+	var rates_ok: bool = absf(c10 - 5.0) < 0.3 and absf(r10 - 7.5) < 0.3
+	var caps_ok: bool = absf(cap_c0 - 100.0) < 0.01 and absf(cap_r0 - 100.0) < 0.01
+	game._set_builds(secondP(), ["bot", "intel", "intel"])
+	var intel_cap_ok: bool = absf(float(game._intel_cap(game.PLAYER)) - 200.0) < 0.01
+	game.hosts[rp20].prod_off = 5.0
+	var off_rates: bool = game._cred_rate(game.PLAYER) == 0.0 and game._research_rate(game.PLAYER) == 0.0 and game._regen(rp20) == 0.0
+	step(5.1, 0.1)
+	var back_on: bool = game._cred_rate(game.PLAYER) > 0.0 and not game._prod_down(rp20)
+	check("20_resources_and_limits", rates_ok and caps_ok and intel_cap_ok and off_rates and back_on,
+		{"creds_10s": snapped(c10, 0.01), "research_10s": snapped(r10, 0.01), "cred_cap": cap_c0, "research_cap": cap_r0, "intel_cap_two_harvesters": game._intel_cap(game.PLAYER), "production_off_stops_all": off_rates, "wears_off": back_on})
+
+	# 21 research: the head of the queue consumes its cost spread over its time, stalls (consuming nothing)
+	#    without a resource, pauses without consuming, completes into the hand, and cards accumulate;
+	#    an ANY card costs ×4 and takes ×2
+	fresh()
+	game.cash[game.PLAYER] = 100.0; game.creds[game.PLAYER] = 50.0; game.research[game.PLAYER] = 50.0
+	game._queue_research(game.PLAYER, "stuff:linked")       # 20$ 30K 10R over 20 s
+	step(10.0, 0.1)
+	var half_spent: bool = absf(float(game.cash[game.PLAYER]) - 90.0) < 0.5 and absf(float(game.creds[game.PLAYER]) - 35.0) < 0.5 and absf(float(game.research[game.PLAYER]) - 45.0) < 0.5
+	var not_yet: bool = game._held(game.PLAYER, "stuff:linked") == 0
+	game._toggle_research(game.PLAYER)
+	step(5.0, 0.1)
+	var paused_holds: bool = absf(float(game.cash[game.PLAYER]) - 90.0) < 0.5 and absf(float(game.lab[game.PLAYER].progress) - 10.0) < 0.2
+	game._toggle_research(game.PLAYER)
+	step(10.5, 0.1)
+	var done: bool = game._held(game.PLAYER, "stuff:linked") == 1 and (game.lab[game.PLAYER].queue as Array).is_empty()
+	var spent: bool = absf(float(game.cash[game.PLAYER]) - 80.0) < 0.5 and absf(float(game.creds[game.PLAYER]) - 20.0) < 0.5
+	game.creds[game.PLAYER] = 0.0
+	game._queue_research(game.PLAYER, "stuff:linked")
+	step(3.0, 0.1)
+	var stalled: bool = str(game.lab[game.PLAYER].stall) == "creds" and float(game.lab[game.PLAYER].progress) < 0.01 and absf(float(game.cash[game.PLAYER]) - 80.0) < 0.5
+	game.creds[game.PLAYER] = 50.0
+	step(20.5, 0.1)
+	var accumulates: bool = game._held(game.PLAYER, "stuff:linked") == 2
+	var any_dearer: bool = absf(float(game._card_cost("stuff:any").cash) - 80.0) < 0.01 and absf(game._card_time("stuff:any") - 40.0) < 0.01
+	check("21_research_queue", half_spent and not_yet and paused_holds and done and spent and stalled and accumulates and any_dearer,
+		{"half_spent": half_spent, "paused_consumes_nothing": paused_holds, "completed": done, "cost_spent": spent, "stalls_without_creds": stalled, "accumulates": accumulates, "any_x4_cost_x2_time": any_dearer})
+
+	# 22 single-host cards: LINKED needs a connection into the target, ANY does not; the effect scales with
+	#    the type (DB resists credential attacks 50 % → half; PC weak to phishing → ×1.5; IoT resists phishing
+	#    90 %); it never captures (a bot still has to arrive); the hit reveals and alarms; effects wear off
+	fresh()
+	var t22 := neutral_nb(rigP())
+	game.cards[game.PLAYER] = {"stuff:linked": 1, "stuff:any": 1, "phish:linked": 2, "oneday:linked": 1}
+	var refused: bool = not game._play_card(game.PLAYER, "stuff:linked", t22) and game._held(game.PLAYER, "stuff:linked") == 1   # a refused play costs nothing
+	var b0: float = game.hosts[t22].bots
+	game.hosts[t22].type = "db"
+	var any_ok: bool = game._play_card(game.PLAYER, "stuff:any", t22)
+	var halved: bool = absf(float(game.hosts[t22].bots) - b0 * 0.5) < 0.01
+	var revealed22: bool = game._scanned(game.PLAYER, t22) and game._under_attack(t22) and int(game.hosts[t22].owner) == game.NEUTRAL
+	game.sel = {rigP(): true}; game._wire(t22)
+	game.hosts[t22].type = "pc"
+	var linked_ok: bool = game._play_card(game.PLAYER, "stuff:linked", t22)
+	var wiped: bool = float(game.hosts[t22].bots) == 0.0 and int(game.hosts[t22].owner) == game.NEUTRAL
+	game._play_card(game.PLAYER, "phish:linked", t22)
+	var phished: bool = absf(float(game.hosts[t22].prod_off) - 37.5) < 0.01 and game._regen(t22) == 0.0
+	game._launch(t22, "attack")                              # one stream now takes it: no defenders, no regeneration
+	step(4.0, 0.1)
+	var taken_by_bots: bool = int(game.hosts[t22].owner) == game.PLAYER and float(game.hosts[t22].prod_off) == 0.0
+	var t22b := neutral_nb(secondP(), rigP())
+	game.hosts[t22b].type = "iot"
+	game.sel = {secondP(): true}; game._wire(t22b)
+	game._play_card(game.PLAYER, "phish:linked", t22b)
+	var iot_resists: bool = absf(float(game.hosts[t22b].prod_off) - 2.5) < 0.01
+	game._play_card(game.PLAYER, "oneday:linked", t22b)
+	var cut: bool = absf(float(game.hosts[t22b].route_off) - 25.0) < 0.01   # IoT is weak to exploits ×1.25
+	step(3.0, 0.1)
+	var phish_over: bool = not game._prod_down(t22b) and game._routing_down(t22b)
+	step(23.0, 0.1)
+	var cut_over: bool = not game._routing_down(t22b)
+	var spent22: bool = game._hand_size(game.PLAYER) == 0
+	check("22_single_cards", refused and any_ok and halved and revealed22 and linked_ok and wiped and phished and taken_by_bots and iot_resists and cut and phish_over and cut_over and spent22,
+		{"linked_refused_without_connection": refused, "any_plays_anywhere": any_ok, "db_halves_credential": halved, "hit_reveals_alarms_no_capture": revealed22, "pc_wiped": wiped, "pc_phish_x1_5": phished, "then_one_stream_takes_it": taken_by_bots, "iot_phish_2_5s": iot_resists, "iot_routing_cut_25s": cut, "effects_wear_off": phish_over and cut_over, "hand_spent": spent22})
+
+	# 23 worms: the chain spreads along the streets with falling odds (jump 1: 100 %, then −25 % per jump),
+	#    never onto the caster's own buildings, each building once, at most 4 jumps, captures nothing,
+	#    reveals every building it hit, and draws one jump per spread
+	fresh()
+	game.rng.seed = 12345
+	var t23 := neutral_nb(rigP())
+	game.cards[game.PLAYER] = {"credworm:any": 1}
+	var before := []
+	for h in game.hosts: before.append([int(h.owner), float(h.bots)])
+	game._play_card(game.PLAYER, "credworm:any", t23)
+	var hit := []
+	for i in game.hosts.size():
+		if float(game.hosts[i].bots) < float(before[i][1]) - 0.01: hit.append(i)
+	var owners_same := true
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) != int(before[i][0]): owners_same = false
+	var mine_untouched := true
+	for i in game.hosts.size():
+		if int(before[i][0]) == game.PLAYER and float(game.hosts[i].bots) != float(before[i][1]): mine_untouched = false
+	var depth := {t23: 0}; var q := [t23]; var head := 0; var maxd := 0   # the hit set must be a chain from t23
+	while head < q.size():
+		var c: int = q[head]; head += 1
+		for o in game.hosts[c].links:
+			if hit.has(int(o)) and not depth.has(int(o)): depth[int(o)] = int(depth[c]) + 1; q.append(int(o)); maxd = maxi(maxd, int(depth[int(o)]))
+	var chain_ok: bool = hit.has(t23) and depth.size() == hit.size() and maxd <= 4
+	var revealed23 := true
+	for i in hit:
+		if not game._scanned(game.PLAYER, int(i)): revealed23 = false
+	var drawn: bool = game._worms.size() == hit.size() - 1
+	var first_jump_certain := true   # every non-own neighbour of t23 was hit
+	for o in game.hosts[t23].links:
+		if int(game.hosts[o].owner) != game.PLAYER and not hit.has(int(o)): first_jump_certain = false
+	check("23_worm_chain", hit.size() >= 2 and owners_same and mine_untouched and chain_ok and revealed23 and drawn and first_jump_certain,
+		{"hit": hit.size(), "max_jump": maxd, "no_capture": owners_same, "own_untouched": mine_untouched, "is_a_chain": chain_ok, "revealed": revealed23, "jumps_drawn": drawn, "first_jump_certain": first_jump_certain})
+
+	# 24 routing cut: a building whose routing is cut relays nothing (a flow through it pauses, its wire is
+	#    kept), emits nothing itself, still receives, and recovers when the cut wears off
+	fresh()
+	var rp24 := rigP(); var sp24 := secondP()
+	var t24 := neutral_nb(sp24, rp24)
+	game._mark_scanned(game.PLAYER, t24)
+	game.sel = {rp24: true}; game._wire(t24); game._launch(t24, "attack")
+	var via_sp: bool = game._route(rp24, t24).size() == 3 and int(game._route(rp24, t24)[1]) == sp24
+	step(2.0, 0.1)
+	game.hosts[sp24].route_off = 10.0
+	var no_relay: bool = game._route(rp24, t24).is_empty()
+	step(0.5, 0.1)
+	var flow_paused_wire_kept: bool = not bool(game.hosts[rp24].live) and int(game.hosts[rp24].assign) == t24
+	game.sel = {sp24: true}; game._wire(t24); game._launch(t24, "attack")
+	var n0 := 0
+	for fl in game.flights:
+		if int((fl.route as Array)[0]) == sp24: n0 += 1
+	step(3.0, 0.1)
+	var n1 := 0
+	for fl in game.flights:
+		if int((fl.route as Array)[0]) == sp24: n1 += 1
+	var no_emit: bool = n1 == n0 and game._src_state(sp24) == "routing cut"
+	game.hosts[sp24].bots = 20.0
+	game.sel = {rp24: true}; game._wire(sp24)   # a guard into it: it still RECEIVES
+	step(3.0, 0.1)
+	var receives: bool = float(game.hosts[sp24].bots) > 20.5 or game._incoming(sp24, game.PLAYER) > 0.0
+	step(5.0, 0.1)
+	var recovered: bool = not game._routing_down(sp24) and game._route(rp24, t24).size() == 3
+	check("24_routing_cut", via_sp and no_relay and flow_paused_wire_kept and no_emit and receives and recovered,
+		{"route_via_second": via_sp, "relays_nothing": no_relay, "flow_paused_wire_kept": flow_paused_wire_kept, "emits_nothing": no_emit, "still_receives": receives, "recovers": recovered})
+
+	# 25 the AI botnets run the card economy: on seed 7 with both AIs on, within 300 s each builds a
+	#    Credential harvester and a Research lab, researches, and at least one plays a card
+	fresh(); game.ai_enabled = true
+	var econ := {2: false, 3: false}; var researched := {2: false, 3: false}; var played := 0; var t25 := 0.0
+	while t25 < 300.0 and not game.won and not game.lost:
+		game._process(0.1); t25 += 0.1
+		for fac in game.AIS:
+			if game._kind_total(fac, "cred") > 0 and game._kind_total(fac, "lab") > 0: econ[fac] = true
+			if game._hand_size(fac) > 0 or not (game.lab[fac].queue as Array).is_empty(): researched[fac] = true
+		played = int(game.card_plays[2]) + int(game.card_plays[3])
+	check("25_ai_uses_cards", econ[2] and econ[3] and (researched[2] or researched[3]) and played >= 1,
+		{"economy_built": econ, "researched": researched, "cards_played_by_ais": played, "t": snapped(t25, 0.1), "nyx_cash": int(game.cash[2]), "kraken_cash": int(game.cash[3])})
+
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)
 	var greedy7 := _run_match(SEED, true, 600.0)
@@ -377,7 +538,8 @@ func _run_match(seed_v: int, scripted: bool, max_s: float) -> Dictionary:
 	print("match seed %d scripted=%s took %d ms wall for %.0f s of game" % [seed_v, str(scripted), Time.get_ticks_msec() - wall0, t])
 	return {"outcome": ("WIN" if game.won else ("LOSS" if game.lost else "timeout")), "cause": game._end_cause, "t": snapped(t, 0.1),
 		"player_nodes": game._player_nodes(), "rival_nodes": game._faction_nodes(game.RIVAL),
-		"cash": [int(game.cash[game.PLAYER]), int(game.cash[game.RIVAL])], "first_capture_t": snapped(first_capture, 0.1), "intel": int(game.intel[game.PLAYER]), "kraken_nodes": game._faction_nodes(game.RIVAL2), "cash_kraken": int(game.cash[game.RIVAL2])}
+		"cash": [int(game.cash[game.PLAYER]), int(game.cash[game.RIVAL])], "first_capture_t": snapped(first_capture, 0.1), "intel": int(game.intel[game.PLAYER]), "kraken_nodes": game._faction_nodes(game.RIVAL2), "cash_kraken": int(game.cash[game.RIVAL2]),
+		"cards_played": [int(game.card_plays[1]), int(game.card_plays[2]), int(game.card_plays[3])]}
 
 
 func _greedy_player() -> void:

@@ -257,52 +257,154 @@
 			"pass": true
 		},
 		{
+			"case": "20_resources_and_limits",
+			"observed": {
+				"cred_cap": 100.0,
+				"creds_10s": 5.0,
+				"intel_cap_two_harvesters": 200.0,
+				"production_off_stops_all": true,
+				"research_10s": 7.5,
+				"research_cap": 100.0,
+				"wears_off": true
+			},
+			"pass": true
+		},
+		{
+			"case": "21_research_queue",
+			"observed": {
+				"accumulates": true,
+				"any_x4_cost_x2_time": true,
+				"completed": true,
+				"cost_spent": true,
+				"half_spent": true,
+				"paused_consumes_nothing": true,
+				"stalls_without_creds": true
+			},
+			"pass": true
+		},
+		{
+			"case": "22_single_cards",
+			"observed": {
+				"any_plays_anywhere": true,
+				"db_halves_credential": true,
+				"effects_wear_off": true,
+				"hand_spent": true,
+				"hit_reveals_alarms_no_capture": true,
+				"iot_phish_2_5s": true,
+				"iot_routing_cut_25s": true,
+				"linked_refused_without_connection": true,
+				"pc_phish_x1_5": true,
+				"pc_wiped": true,
+				"then_one_stream_takes_it": true
+			},
+			"pass": true
+		},
+		{
+			"case": "23_worm_chain",
+			"observed": {
+				"first_jump_certain": true,
+				"hit": 4,
+				"is_a_chain": true,
+				"jumps_drawn": true,
+				"max_jump": 3,
+				"no_capture": true,
+				"own_untouched": true,
+				"revealed": true
+			},
+			"pass": true
+		},
+		{
+			"case": "24_routing_cut",
+			"observed": {
+				"emits_nothing": true,
+				"flow_paused_wire_kept": true,
+				"recovers": true,
+				"relays_nothing": true,
+				"route_via_second": true,
+				"still_receives": true
+			},
+			"pass": true
+		},
+		{
+			"case": "25_ai_uses_cards",
+			"observed": {
+				"cards_played_by_ais": 8,
+				"economy_built": {
+					"2": true,
+					"3": true
+				},
+				"kraken_cash": 231,
+				"nyx_cash": 592,
+				"researched": {
+					"2": true,
+					"3": true
+				},
+				"t": 300.1
+			},
+			"pass": true
+		},
+		{
 			"case": "13_pacing_readings",
 			"observed": {
 				"greedy_seed11": {
+					"cards_played": [
+						0,
+						4,
+						4
+					],
 					"cash": [
 						0,
-						600
+						518
 					],
-					"cash_kraken": 526,
-					"cause": "NYX banked 600 Cash first.",
+					"cash_kraken": 601,
+					"cause": "KRAKEN banked 600 Cash first.",
 					"first_capture_t": 18.5,
 					"intel": 0,
-					"kraken_nodes": 6,
+					"kraken_nodes": 8,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 7,
-					"t": 266.2
+					"rival_nodes": 10,
+					"t": 292.9
 				},
 				"greedy_seed7": {
+					"cards_played": [
+						0,
+						4,
+						3
+					],
 					"cash": [
 						0,
 						600
 					],
-					"cash_kraken": 354,
+					"cash_kraken": 219,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": 12.5,
 					"intel": 0,
-					"kraken_nodes": 6,
+					"kraken_nodes": 8,
 					"outcome": "LOSS",
-					"player_nodes": 2,
-					"rival_nodes": 8,
-					"t": 262.0
+					"player_nodes": 1,
+					"rival_nodes": 10,
+					"t": 301.2
 				},
 				"rival_alone": {
+					"cards_played": [
+						0,
+						4,
+						4
+					],
 					"cash": [
 						0,
-						601
+						600
 					],
-					"cash_kraken": 360,
+					"cash_kraken": 231,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": -1.0,
 					"intel": 50,
-					"kraken_nodes": 6,
+					"kraken_nodes": 9,
 					"outcome": "LOSS",
-					"player_nodes": 2,
-					"rival_nodes": 8,
-					"t": 265.0
+					"player_nodes": 1,
+					"rival_nodes": 10,
+					"t": 301.2
 				}
 			},
 			"pass": true

@@ -141,7 +141,56 @@ func _run() -> void:
 	sim(10.0)
 	game._leave()
 
+	# ── research & cards ──
+	fresh(7)
+	rp = rigP(); sp = secondP()
+	game._set_builds(rp, ["bot", "cred", "lab"]); game._set_builds(sp, ["bot", "intel", "cash"])
+	game.cash[game.PLAYER] = 60.0; game.creds[game.PLAYER] = 40.0; game.research[game.PLAYER] = 40.0
+	game._set_tab("research")
+	await shoot("research_tab_catalogue")
+	game._queue_research(game.PLAYER, "stuff:linked"); game._queue_research(game.PLAYER, "phish:linked")
+	sim(8.0)
+	await shoot("research_in_progress_with_queue")
+	game._toggle_research(game.PLAYER)
+	await shoot("research_paused")
+	game._toggle_research(game.PLAYER)
+	game.cards[game.PLAYER] = {"stuff:linked": 1, "phish:linked": 1, "credworm:any": 1, "oneday:any": 1}
+	sim(0.5)
+	await shoot("research_hand_with_cards")
+	game._set_tab("map")
+	var tc := neutral_nb(rp, [sp])
+	game.sel = {rp: true}; game._wire(tc); game._clear_all(); game._inspect = tc
+	await shoot("target_panel_play_cards")
+	game._play_card(game.PLAYER, "stuff:linked", tc)
+	sim(0.3)
+	await shoot("card_credential_stuffing_wiped_defenders")
+	game._play_card(game.PLAYER, "phish:linked", tc)
+	sim(0.3)
+	await shoot("card_phishing_production_off")
+	var tw: int = game.hub
+	game.rng.seed = 4242
+	game._play_card(game.PLAYER, "credworm:any", tw)
+	game._inspect = tw
+	sim(0.4)
+	await shoot("card_worm_chain_from_downtown")
+	var tr := neutral_nb(sp, [rp, tc])
+	if tr < 0: tr = neutral_nb(tc, [rp, sp])
+	if tr >= 0: game._play_card(game.PLAYER, "oneday:any", tr)
+	game._clear_all()
+	sim(1.0)
+	await shoot("card_effects_labels_on_map")
+
 	# ── threats ──
+	fresh(7)
+	rp = rigP(); sp = secondP()
+	game._set_builds(rp, ["bot", "bot", "intel"]); game.intel[game.PLAYER] = 100.0
+	t1 = neutral_nb(rp, [sp])
+	game._mark_scanned(game.PLAYER, t1)
+	game.sel = {sp: true, rp: true}; game._wire(t1); game._launch(t1, "attack")
+	var guard2 := 0
+	while int(game.hosts[t1].owner) != game.PLAYER and guard2 < 400:
+		sim(0.5); guard2 += 1
+	game._cancel_to(t1); game._clear_all()
 	var rn := neutral_nb(sp, [rp, t1])
 	if rn < 0: rn = neutral_nb(t1, [rp, sp])
 	if rn >= 0:
