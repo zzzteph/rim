@@ -200,8 +200,8 @@ until one of them happens** — there is no time limit:
 
 You lose immediately if you ever hold zero buildings. The HUD shows **only you**: elapsed time, your control %
 and buildings against the majority line, and your four resources — each in a fixed column so a changing number
-never shifts the row. While any botnet holds a majority the time slot becomes that hold countdown (a warning).
-Rivals' standings live in the **BOARD** tab (the leaderboard), not on the HUD. The former 5-minute bell was
+never shifts the row. While **you** hold a majority the time slot becomes your own countdown; a rival's hold, like
+every other rival standing, shows only in the **BOARD** tab (the leaderboard), never on the HUD. The former 5-minute bell was
 dropped on the designer's call: a three-way can stall near 40 % each, and that is now a game to play out, not a
 tie to adjudicate.
 

@@ -2477,12 +2477,9 @@ func _hud_items() -> Array:   # the HUD, one glance, YOU only: the clock, your c
 	var need := _control_need()
 	var mine_n := _faction_nodes(PLAYER)
 	var pc: Color = C_GOOD if mine_n > need else C_TEXT
-	var hold_fac := -1
-	for fac in BOTNETS:
-		if float(_hold[fac]) > 0.5: hold_fac = fac; break
-	var clock_item: Array
-	if hold_fac >= 0:   # somebody is on the clock to win — a warning, not a standing
-		clock_item = ["", "⏳ %s %d/%ds" % [("you" if hold_fac == PLAYER else fname(hold_fac)), int(_hold[hold_fac]), int(HOLD_SECS)], C_WARN, 150.0]
+	var clock_item: Array   # the time slot: the elapsed clock, or YOUR OWN hold-to-win countdown; a rival's hold is on the BOARD tab only
+	if float(_hold[PLAYER]) > 0.5:
+		clock_item = ["", "⏳ you %d/%ds" % [int(_hold[PLAYER]), int(HOLD_SECS)], C_GOOD, 150.0]
 	else:
 		clock_item = ["", "⏱ %s" % _fmt_time(_t), C_DIM, 150.0]
 	return [

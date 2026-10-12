@@ -123,8 +123,8 @@ across systems** — that is the whole discipline.
 |---|---|---|---|
 | `C_TEXT` | 0.88, 0.92, 1.00 | `#E0EBFF` | **facts** — ordinary readable text |
 | `C_DIM` | 0.60, 0.68, 0.80 | `#99ADCC` | **secondary** — labels, kickers, the quiet clock |
-| `C_WARN` | 1.00, 0.84, 0.45 | `#FFD673` | **needs you** — a warning, a thing to act on, the hold-to-win countdown |
-| `C_GOOD` | 0.60, 0.95, 0.75 | `#99F2BF` | **going your way** — you are ahead / a success |
+| `C_WARN` | 1.00, 0.84, 0.45 | `#FFD673` | **needs you** — a warning, a thing to act on |
+| `C_GOOD` | 0.60, 0.95, 0.75 | `#99F2BF` | **going your way** — you are ahead, a success, your own hold-to-win countdown |
 | `C_BAD` | 1.00, 0.55, 0.50 | `#FF8C80` | **hostile or lost** — damage, a failed state |
 
 Five colours carry every piece of text meaning. If a new line needs a colour, it is one of these five by what
@@ -232,7 +232,7 @@ One line, top-left, mouse-transparent, **clipped** to its width so it can never 
 
 | Column | Width (dp) | Content | Colour |
 |---|---|---|---|
-| Time | 150 | elapsed match time `⏱ M:SS` (there is no time limit). While any botnet holds a majority this slot becomes the hold-to-win countdown `⏳ NYX 12/45s` | `C_DIM`; the countdown `C_WARN` |
+| Time | 150 | elapsed match time `⏱ M:SS` (there is no time limit). While **you** hold a majority this slot becomes your own countdown `⏳ you 12/45s`; a rival's hold shows only on the BOARD tab | `C_DIM`; your countdown `C_GOOD` |
 | You | 150 | `you N% · held/needed` — your control %, your buildings against the majority line | `C_TEXT`; `C_GOOD` once you hold more than half |
 | Intel | 150 | `◎ Intel/cap`, with `−N/s` while an attack drains it | `C_TEXT`; `C_WARN` while draining |
 | Cash | 90 | `$ Cash` | `C_TEXT` |
