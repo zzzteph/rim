@@ -385,7 +385,11 @@ func _mark_scanned(fac: int, t: int) -> void:   # scripts/probes and the moment 
 func _scan_land(fac: int, t: int) -> void:   # one scan bot arrived: progress, and completion stands wires down
 	var key := _contents_key(t)
 	var rec: Dictionary = (scans[fac] as Dictionary).get(t, {})
-	if rec.is_empty() or str(rec.key) != key: rec = {"key": key, "done": false, "progress": 0.0}
+	if rec.is_empty() or str(rec.key) != key:   # a fresh scan; what was seen before stays as memory
+		var fresh := {"key": key, "done": false, "progress": 0.0}
+		for mk in ["bots", "cap", "at"]:
+			if rec.has(mk): fresh[mk] = rec[mk]
+		rec = fresh
 	if bool(rec.done): return                       # already revealed — a late scan bot is simply spent
 	rec.progress = float(rec.progress) + 1.0
 	if float(rec.progress) >= _scan_cost(t): rec.done = true; rec.bots = float(hosts[t].bots); rec.cap = _cap_of(t); rec.at = _t   # what was seen, when
@@ -1083,10 +1087,11 @@ func _capture(t: int, fac: int) -> void:
 	var prev := int(hosts[t].owner)
 	var nm := str(hosts[t].name)
 	if AIS.has(prev): _ai[prev].lost[t] = {"to": fac, "at": _t}   # an AI remembers what it lost
-	for f in AIS:   # the capture is announced to everyone: a just-taken building is known to be near empty
-		if f == fac or _scanned(f, t): continue
-		scans[f][t] = {"key": _contents_key(t), "done": false, "progress": 0.0, "bots": 0.0, "cap": NODE_CAP, "at": _t}
 	hosts[t].owner = fac
+	for f in BOTNETS:   # the capture is announced to everyone: a just-taken building is known to be near empty
+		if f == fac or _scanned(f, t): continue
+		var old: Dictionary = (scans[f] as Dictionary).get(t, {})
+		scans[f][t] = {"key": str(old.get("key", "")), "done": bool(old.get("done", false)), "progress": 0.0, "bots": 0.0, "cap": NODE_CAP, "at": _t}
 	hosts[t].bots = minf(NODE_CAP, -float(hosts[t].bots))
 	hosts[t].assign = -1; hosts[t].live = false; hosts[t].job = {}; hosts[t].rate = 1.0
 	hosts[t].prod_off = 0.0; hosts[t].route_off = 0.0; hosts[t].hit_t = -100.0   # a new owner, a clean slate
@@ -1407,7 +1412,7 @@ func _ai_known_bots(fac: int, i: int) -> float:   # THE bots gate: live when own
 func _ai_known_builds(fac: int, i: int) -> Array:   # THE builds gate: live when own or scanned; else the last-seen key; else the prior
 	if int(hosts[i].owner) == fac or _scanned(fac, i): return _built_kinds(i)
 	var rec := _ai_record(fac, i)
-	if rec.has("key") and bool(rec.get("done", false)):
+	if rec.has("key") and bool(rec.get("done", false)) and str(rec.key) != "":
 		var out := []
 		for k in str(rec.key).split(","):
 			if str(k) != "": out.append(str(k))
@@ -1430,7 +1435,7 @@ func _ai_known_regen(fac: int, i: int) -> float:   # bots/s it believes i regene
 
 func _ai_seen_drain(i: int) -> float:   # bots/s visibly leaving i: a drawn live flow (never a quiet scan), or its bot packets in flight
 	var d := _bot_target(i)
-	if d >= 0 and _next_depart.has(i):   # mirrors the draw path: a live non-scan route is drawn solid, a rally route thin
+	if d >= 0 and _next_depart.has(i) and _route(i, d).size() >= 2:   # mirrors the draw path: a live non-scan route is drawn solid, a rally route thin
 		if not (int(hosts[i].assign) >= 0 and str(hosts[i].get("mode", "attack")) == "scan"): return SEND_RATE
 	for fl in flights:
 		if str(fl.kind) == "bot" and int((fl.route as Array)[0]) == i and int(fl.owner) == int(hosts[i].owner): return SEND_RATE
@@ -1475,14 +1480,14 @@ func _ai_remember(fac: int) -> void:   # refresh the memory of every building it
 	for i in hosts.size():
 		if int(hosts[i].owner) == fac or not _scanned(fac, i): continue
 		var rec := _ai_record(fac, i)
-		rec.bots = float(hosts[i].bots); rec.cap = _cap_of(i); rec.at = _t
+		rec.bots = float(hosts[i].bots); rec.cap = NODE_CAP if int(hosts[i].owner) != NEUTRAL else float(rec.get("cap", NODE_CAP)); rec.at = _t
 		scans[fac][i] = rec
 
 
 func _ai_leader(fac: int) -> int:   # the other botnet ahead in the public Cash race, or -1
 	var best := -1
 	for f in BOTNETS:
-		if f == fac: continue
+		if f == fac or _faction_nodes(f) == 0: continue
 		if best < 0 or float(cash[f]) > float(cash[best]): best = f
 	return best
 
@@ -1494,12 +1499,20 @@ func _ai_think(fac: int) -> void:
 	var aggr := float(AI_PROFILE[fac].aggr)
 	_ai_remember(fac)
 	# ── 0. housekeeping: finished / unreachable wires, stalled attacks (patience on what it can SEE) ──
+	var nr: Dictionary = st.get("noroute", {})
 	for e in mine:
 		var a := int(hosts[e].assign)
-		if a < 0: continue
+		if a < 0: nr.erase(e); continue
 		if int(hosts[a].owner) == fac:
 			if float(hosts[a].bots) >= NODE_CAP - 0.5 and not _under_attack(a) and not _ai_frontier(a): _ai_release(e)
-		elif _route(e, a).is_empty(): _ai_release(e)
+		elif _route(e, a).is_empty():   # a cut route (a card, a lost relay) pauses the flow; give it patience, then let go
+			if not nr.has(e): nr[e] = _t
+			elif _t - float(nr[e]) > AI_PATIENCE: _ai_release(e); nr.erase(e)
+		else: nr.erase(e)
+	st.noroute = nr
+	var avoid := -1   # a stalled target is shunned for a while, and only while it keeps its owner
+	var av: Dictionary = st.get("avoid_rec", {})
+	if not av.is_empty() and _t - float(av.at) <= 2.0 * AI_PATIENCE and int(hosts[int(av.t)].owner) == int(av.owner): avoid = int(av.t)
 	var ops := {}   # attack / scan target -> [sources]
 	for e in mine:
 		var a := int(hosts[e].assign)
@@ -1516,7 +1529,7 @@ func _ai_think(fac: int) -> void:
 		elif kb < float(recs[t].bots) - 0.5 or pr > float(recs[t].get("prog", 0.0)) + 0.5: recs[t].bots = kb; recs[t].prog = pr; recs[t].since = _t
 		elif _t - float(recs[t].since) > AI_PATIENCE:
 			for e in ops[t]: _ai_release(e)
-			st.avoid = t; recs.erase(t); ops.erase(t)
+			st.avoid_rec = {"t": t, "owner": int(hosts[t].owner), "at": _t}; avoid = t; recs.erase(t); ops.erase(t)
 	# ── 1. defence: guard a threatened building, remember the edge, counter a visible attacker it can take ──
 	for t in mine:
 		if not _under_attack(t): continue
@@ -1531,18 +1544,20 @@ func _ai_think(fac: int) -> void:
 			var needed := mini(3, int(ceil(deficit / SEND_RATE)))
 			var helpers := []
 			for e in mine:
-				if e == t or int(hosts[e].assign) >= 0 or _under_attack(e) or float(hosts[e].bots) < AI_RESERVE + 4.0: continue
+				if e == t or _under_attack(e) or float(hosts[e].bots) < AI_RESERVE + 4.0: continue
+				var ea := int(hosts[e].assign)
+				if ea >= 0 and (bool(hosts[e].live) or (int(hosts[ea].owner) == fac and _under_attack(ea))): continue   # busy, or guarding a building that burns too
 				var rt := _route(e, t)
 				if not rt.is_empty(): helpers.append([rt.size(), e])
 			helpers.sort_custom(func(a, b): return a[0] < b[0])
 			for h in helpers.slice(0, mini(needed, helpers.size())):
-				hosts[int(h[1])].assign = t; hosts[int(h[1])].live = true; _next_depart[int(h[1])] = _t
+				hosts[int(h[1])].assign = t; hosts[int(h[1])].live = true; hosts[int(h[1])].mode = "attack"; _next_depart[int(h[1])] = _t
 		# counter-attack: a VISIBLE attacker (a drawn live flow, never a quiet scan) streaming out is net-zero at home — two streams take it
 		for i in hosts.size():
 			if int(hosts[i].owner) == fac or int(hosts[i].owner) == NEUTRAL or not bool(hosts[i].live) or int(hosts[i].assign) != t: continue
 			if str(hosts[i].get("mode", "attack")) == "scan": continue
 			var cs := _ai_fall_secs(fac, i, 2)
-			if ops.has(i) or float(intel[fac]) < 20.0 or cs > AI_PATIENCE or 2.0 * cs > float(intel[fac]) + _intel_rate(fac) * cs: continue
+			if ops.has(i) or float(intel[fac]) < 20.0 or cs > AI_PATIENCE or 2.0 * SEND_RATE * cs > float(intel[fac]) + _intel_rate(fac) * cs: continue
 			var free := []
 			for e in mine:
 				if int(hosts[e].assign) >= 0 or _under_attack(e) or float(hosts[e].bots) < AI_RESERVE + 4.0: continue
@@ -1604,7 +1619,7 @@ func _ai_think(fac: int) -> void:
 	for tk in ops.keys():
 		var t2 := int(tk)
 		if not _scanned(fac, t2): continue
-		if _held(fac, "phish:linked") > 0 and _ai_known_regen(fac, t2) > 0.0 and not _prod_down(t2) and _card_scale("phish", t2) >= 0.5:
+		if _held(fac, "phish:linked") > 0 and _ai_known_bots(fac, t2) >= 6.0 and _ai_known_regen(fac, t2) > 0.0 and not _prod_down(t2) and _card_scale("phish", t2) >= 0.5:
 			_play_card(fac, "phish:linked", t2); break
 		if _ai_known_bots(fac, t2) < 6.0 or _card_scale("cred", t2) <= 0.0: continue
 		if _held(fac, "credworm:linked") > 0 and int(hosts[t2].owner) != NEUTRAL:
@@ -1619,6 +1634,7 @@ func _ai_think(fac: int) -> void:
 			var t3 := int(tk)
 			if int(hosts[t3].owner) != leader or not _scanned(fac, t3) or _prod_down(t3) or _card_scale("phish", t3) < 0.5: continue
 			if not _ai_known_builds(fac, t3).has("cash"): continue
+			var laid := -1
 			if not _linked(fac, t3):   # a dormant wire is free and silent: the LINKED delivery route
 				var bsrc := -1; var bl := 999
 				for e in mine:
@@ -1626,15 +1642,17 @@ func _ai_think(fac: int) -> void:
 					var rt := _route(e, t3)
 					if not rt.is_empty() and rt.size() < bl: bl = rt.size(); bsrc = e
 				if bsrc < 0: continue
-				hosts[bsrc].assign = t3; hosts[bsrc].live = false; _next_depart.erase(bsrc)
-			if _play_card(fac, "phish:linked", t3): break
+				hosts[bsrc].assign = t3; hosts[bsrc].live = false; _next_depart.erase(bsrc); laid = bsrc
+			var played := _play_card(fac, "phish:linked", t3)
+			if laid >= 0: _ai_release(laid)   # the card is in the air; the source is free again
+			if played: break
 	# ── 3. offence: scout what it does not know, strike what it knows it can take ──
 	var max_ops := 1 + (1 if aggr > 0.6 and mine.size() >= 5 else 0)
 	var cands := []
 	for e in mine:
 		for p in hosts[e].links:
 			if int(hosts[p].owner) != fac and not cands.has(p) and not ops.has(p): cands.append(p)
-	if cands.size() > 1 and cands.has(int(st.avoid)): cands.erase(int(st.avoid))
+	if cands.size() > 1 and avoid >= 0 and cands.has(avoid): cands.erase(avoid)
 	var free := []
 	for e in mine:
 		if int(hosts[e].assign) >= 0 and bool(hosts[e].live): continue
@@ -1656,9 +1674,11 @@ func _ai_think(fac: int) -> void:
 			var need := clampi(int(ceil((maxf(regen_net, 0.0) + 0.5) / (SEND_RATE * ATTACK_POWER / DEFEND_POWER))), 2, AI_MAX_STREAMS)
 			if known and _ai_known_bots(fac, c) <= 6.0 and pressure > 0: need = 2   # steal the kill: it is nearly down already
 			var n := mini(need, srcs.size())
-			var secs := _ai_fall_secs(fac, c, n) + float(srcs[0][0])
+			var travel := float(int(srcs[0][0]) - 1) * (LINK_TIME + NODE_ROUTE_DELAY)
+			var secs := _ai_fall_secs(fac, c, n) + travel
 			if secs > AI_SIEGE_MAX: continue                       # know your limits: a siege it cannot finish in its budget is not started
-			var cost := secs * float(n) if known else SCAN_BASE + SCAN_PER_BUILD * float(kinds.size()) + 0.5 * secs * float(n)
+			var quiet_c: bool = not known and pressure == 0
+			var cost := secs * float(n) * SEND_RATE if not quiet_c else SCAN_BASE + SCAN_PER_BUILD * float(kinds.size()) + 0.5 * secs * float(n) * SEND_RATE
 			if cost > float(intel[fac]) + _intel_rate(fac) * secs: continue
 			var o := int(hosts[c].owner)
 			var benefit := float(hosts[c].value) * 3.0 + float(hosts[c].slots) + float(kinds.size()) + 2.0 * (_tmult(c, "intel") + _tmult(c, "cash") + _tmult(c, "bot") - 3.0)
@@ -1677,16 +1697,16 @@ func _ai_think(fac: int) -> void:
 	if pick >= 0:
 		var quiet: bool = not pick_known and _ai_others_on(fac, pick) == 0   # an alarmed target has nothing left to keep quiet for
 		var launch: Array = pick_srcs.slice(0, 2) if quiet else pick_srcs
-		if pick_known and _held(fac, "phish:linked") > 0 and _linked(fac, pick) and _ai_known_regen(fac, pick) > 0.0 and not _prod_down(pick) and _card_scale("phish", pick) >= 0.5:
-			_play_card(fac, "phish:linked", pick)                 # prepare the ground: the card lands as the streams arrive
 		for s in launch:
 			hosts[int(s[1])].assign = pick; hosts[int(s[1])].live = true; hosts[int(s[1])].mode = "scan" if quiet else "attack"; _next_depart[int(s[1])] = _t
+		if pick_known and _held(fac, "phish:linked") > 0 and _ai_known_bots(fac, pick) >= 6.0 and _ai_known_regen(fac, pick) > 0.0 and not _prod_down(pick) and _card_scale("phish", pick) >= 0.5:
+			_play_card(fac, "phish:linked", pick)                 # prepare the ground: the card lands as the streams arrive
 		recs[pick] = {"since": _t, "bots": _ai_known_bots(fac, pick), "prog": _scan_progress(fac, pick)}
 		if _mine(pick) and not quiet: _flash("⚔ %s is attacking %s with %d source(s) — defend it!" % [fname(fac), str(hosts[pick].name), launch.size()])
 	elif ops.is_empty() and float(intel[fac]) >= AI_SCOUT_INTEL:   # ── 3b. idle scouting: learn the richest unknown neighbour ──
 		var sc_pick := -1; var sc_v := -1.0; var sc_src := -1
 		for c in cands:
-			if _scanned(fac, c) or _scan_progress(fac, c) > 0.0: continue
+			if _scanned(fac, c): continue
 			var v := float(hosts[c].value) + (1.0 if bool(hosts[c].hub) else 0.0)
 			if v <= sc_v: continue
 			for e in free:
@@ -1696,7 +1716,7 @@ func _ai_think(fac: int) -> void:
 			recs[sc_pick] = {"since": _t, "bots": _ai_known_bots(fac, sc_pick), "prog": _scan_progress(fac, sc_pick)}
 	# ── 4. supply: full rear buildings pre-wire dormant guards where the last blow landed, else to the weakest front ──
 	for e in mine:
-		if int(hosts[e].assign) >= 0 or _ai_frontier(e) or float(hosts[e].bots) < NODE_CAP - 2.0: continue
+		if (int(hosts[e].assign) >= 0 and bool(hosts[e].live)) or _ai_frontier(e) or float(hosts[e].bots) < NODE_CAP - 2.0: continue
 		var worst := -1; var wb := INF; var hot := -1; var ht := -INF
 		for f in mine:
 			if f == e or not _ai_frontier(f) or _route(e, f).is_empty(): continue
@@ -1704,7 +1724,7 @@ func _ai_think(fac: int) -> void:
 			if _t - last <= AI_EDGE_MEMORY and last > ht: ht = last; hot = f
 			if float(hosts[f].bots) < wb: worst = f; wb = float(hosts[f].bots)
 		var dest := hot if hot >= 0 else worst
-		if dest >= 0: hosts[e].assign = dest; hosts[e].live = false; _next_depart.erase(e)
+		if dest >= 0 and dest != int(hosts[e].assign): hosts[e].assign = dest; hosts[e].live = false; hosts[e].mode = "attack"; _next_depart.erase(e)
 
 
 # ============================================================ INPUT
@@ -2056,6 +2076,18 @@ func _set_tab(t: String) -> void:
 	_tab = t; _refresh_panel(); queue_redraw()
 
 
+func _panel_text() -> String:   # probes: every label and button of the panel, in order
+	_refresh_panel()
+	var out := []
+	var stack: Array = panel_box.get_children()
+	while not stack.is_empty():
+		var c: Node = stack.pop_front()
+		if c is Label: out.append(str((c as Label).text))
+		elif c is Button: out.append("[%s]" % str((c as Button).text))
+		for ch in c.get_children(): stack.append(ch)
+	return "\n".join(out)
+
+
 func _panel_tabs() -> void:   # MAP (context) · RESEARCH (cards); the active tab is the disabled button
 	var n := _hand_size(PLAYER)
 	var q: Array = lab[PLAYER].queue
@@ -2152,7 +2184,11 @@ func _stage_line(i: int) -> String:   # one line that says what the building is 
 	var tname := str(NODE_TYPES[str(h.get("type", "pc"))].name)
 	if bool(h.get("junction", false)): tname += " · junction (streets carry ×%d)" % JUNCTION_CAP_MULT
 	if not _mine(i) and not _scanned(PLAYER, i):
-		return "unscanned · %s · unknown inside" % tname
+		var rec: Dictionary = (scans[PLAYER] as Dictionary).get(i, {})
+		if rec.has("bots"):   # what you last saw there, regrown since, and what was inside — rescan to refresh
+			var ago := int(_t - float(rec.get("at", _t)))
+			return "last seen %d s ago · ≈%d bots now · %s inside then · %s" % [ago, int(round(_ai_known_bots(PLAYER, i))), _build_names(_ai_known_builds(PLAYER, i)), tname]
+		return "unscanned · likely ≈%d defenders (%s, value ×%d) · unknown inside" % [int(round(_ai_prior_bots(i))), tname, int(h.value)]
 	if int(h.owner) == NEUTRAL:
 		return "Security %d/%d · %s inside" % [int(h.bots), int(h.sec), _build_names(h.builds)]
 	if not _mine(i):
@@ -2244,7 +2280,7 @@ func _assault_preview(t: int, conns: Array) -> void:   # what launching every co
 	for i in conns:
 		if not _route(int(i), t).is_empty(): dmg += SEND_RATE * float(hosts[int(i)].rate) * (ATTACK_POWER / DEFEND_POWER); n += 1
 	if n == 0: return
-	var regen := _regen(t) - _drain(t)
+	var regen := _ai_known_regen(PLAYER, t) - _ai_seen_drain(t)   # what you can know: its scanned inside, its visible outflow
 	var net := dmg - regen
 	if net <= 0.001:
 		_plabel("−%.1f/s vs +%.1f/s regen — not enough. Wire more or raise rates." % [dmg, regen], 14, C_WARN)
@@ -2282,7 +2318,7 @@ func _panel_node_in(t: int) -> void:   # building t as a DESTINATION: guards int
 		if bool(hosts[int(i)].live): livec += 1
 	var dormant := conns.size() - livec
 	if not _scanned(PLAYER, t):   # unknown building: the launch is a SCAN
-		if livec > 0: _plabel("Scanning… %d/%d bots landed" % [int(_scan_progress(PLAYER, t)), int(_scan_cost(t))], 14, C_TEXT)
+		if livec > 0: _plabel("Scanning… %d bots landed (≈%d needed if nothing new is inside)" % [int(_scan_progress(PLAYER, t)), int(SCAN_BASE + SCAN_PER_BUILD * float(_ai_known_builds(PLAYER, t).size()))], 14, C_TEXT)
 		else: _plabel("%d wired · dormant — nothing fires yet" % conns.size(), 14, C_WARN)
 		_gap(4.0)
 		if dormant > 0: _btn("🔍 SCAN quietly · launch %d" % dormant, _launch.bind(t, "scan"), true, null, "Needs ≈%d bots (+%d per building inside) · 1 Intel per bot · alerts nobody" % [int(SCAN_BASE), int(SCAN_PER_BUILD)], 36.0)
@@ -2353,8 +2389,8 @@ func _panel_attack_diag(t: int, feeders: Array, sending: Array) -> void:   # one
 			"routing cut": _plabel("⛔ A card cut the source's routing — nothing leaves it until that wears off.", 14, C_BAD)
 			_: _plabel("⛔ Supply is paused.", 14, C_WARN)
 		return
-	var regen := _regen(t)
-	var drain := _drain(t)
+	var regen := _ai_known_regen(PLAYER, t)   # the same readers the AI uses: scanned inside, visible outflow, no dials
+	var drain := _ai_seen_drain(t)
 	var dmg := 0.0
 	for s in sending: dmg += SEND_RATE * float(hosts[int(s)].rate) * (ATTACK_POWER / DEFEND_POWER)
 	var net := dmg - (regen - drain)
@@ -2427,8 +2463,21 @@ func _aim_sources() -> Array:
 func _lk(a: int, b: int) -> String: return "%d_%d" % [mini(a, b), maxi(a, b)]
 
 
-func _wire_visible(i: int) -> bool:   # a foreign wire is public only while it flows and is not a quiet scan
-	return bool(hosts[i].live) and str(hosts[i].get("mode", "attack")) != "scan"
+func _wire_visible(i: int) -> bool:   # a foreign wire is public only while it flows and is not a quiet scan (a guard is never a scan)
+	if not bool(hosts[i].live): return false
+	var a := int(hosts[i].assign)
+	if a >= 0 and int(hosts[a].owner) == int(hosts[i].owner): return true
+	return str(hosts[i].get("mode", "attack")) != "scan"
+
+
+func _link_busy_visible(a: int, b: int) -> bool:   # a street at capacity, judged from the traffic you can see
+	var n := 0
+	for fl in flights:
+		if str(fl.kind) == "scan" and int(fl.owner) != PLAYER: continue
+		var rt: Array = fl.route; var hops: Array = fl.hops
+		for k in hops.size():
+			if float(hops[k]) <= _t and _t < float(hops[k]) + LINK_TIME and ((int(rt[k]) == a and int(rt[k + 1]) == b) or (int(rt[k]) == b and int(rt[k + 1]) == a)): n += 1
+	return n >= _link_cap(a, b)
 
 
 func _focus_route(rt: Array, flinks: Dictionary) -> void:
@@ -2445,8 +2494,8 @@ func _build_focus(aim: int, fnodes: Dictionary, flinks: Dictionary) -> void:
 		if int(hosts[i].assign) == aim and (_mine(i) or _wire_visible(i)):
 			fnodes[i] = true
 			_focus_route(_route(i, aim), flinks)
-	var aout := int(hosts[aim].assign)          # outgoing: whom this building itself is wired to
-	if aout >= 0:
+	var aout := int(hosts[aim].assign)          # outgoing: whom this building itself is wired to — a foreign plan only while it visibly flows
+	if aout >= 0 and (_mine(aim) or _wire_visible(aim)):
 		fnodes[aout] = true
 		_focus_route(_route(aim, aout), flinks)
 	for s in _aim_sources():                    # the drag group while a wire is being aimed
@@ -2474,7 +2523,7 @@ func _draw() -> void:
 			var lcol := Color(0.35, 0.5, 0.7, 0.18); var w := 1.0
 			if _highways.has(_lk(i, int(j))): lcol = Color(0.55, 0.7, 0.85, 0.3); w = 2.2   # a highway across a gap
 			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.35; w = (2.4 if _highways.has(_lk(i, int(j))) else 1.3)
-			if _link_busy(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8
+			if _link_busy_visible(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8
 			if focus_on and not flinks.has(_lk(i, int(j))): lcol.a *= 0.22
 			draw_line(hosts[i].pos, hosts[int(j)].pos, lcol, w, true)
 	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent);
@@ -2495,7 +2544,7 @@ func _draw() -> void:
 			if dimmed: kcol.a *= 0.25
 			var rt := _route(i, a)
 			if rt.size() >= 2: _draw_dashed(rt, kcol, 1.2)
-			elif _mine(i): _draw_dashed([i, a], Color(0.8, 0.5, 0.5, (0.15 if dimmed else 0.55)), 1.0)   # unrouted plan
+			else: _draw_dashed([i, a], Color(0.8, 0.5, 0.5, (0.15 if dimmed else 0.55)), 1.0)   # your unrouted plan (only yours reach here)
 	for fl in flights:   # packets: yours = circle, other botnets = square in their colour, Cash = diamond
 		var pp := _packet_pos(fl, _t)
 		var endn := int((fl.route as Array)[(fl.route as Array).size() - 1])
@@ -2549,7 +2598,7 @@ func _draw() -> void:
 			if i != aim and int(hosts[i].assign) == aim and (_mine(i) or _wire_visible(i)):
 				_frame(hosts[i].pos, _r(i) + 11.0, gold if _mine(i) else red, 1.8)   # gold = yours, red = another botnet's
 		var aout := int(hosts[aim].assign)
-		if aout >= 0: _frame(hosts[aout].pos, _r(aout) + 11.0, gold, 1.8)
+		if aout >= 0 and (_mine(aim) or _wire_visible(aim)): _frame(hosts[aout].pos, _r(aout) + 11.0, gold, 1.8)
 		var reach := 0
 		for s in _aim_sources():
 			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 1.6); reach += 1
@@ -2634,7 +2683,9 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if i == _inspect: _frame(p, rr + 8.0, Color(1, 0.9, 0.3, a), 1.5)
 	if is_aim: _frame(p, rr + 9.0, Color(1, 0.9, 0.3), 2.0)
 	var nb_txt := "%d" % int(round(float(hosts[i].bots)))   # the strength badge: bots, or "?" until scanned
-	if not _mine(i) and not _scanned(PLAYER, i): nb_txt = "?"
+	if not _mine(i) and not _scanned(PLAYER, i):
+		var rec: Dictionary = (scans[PLAYER] as Dictionary).get(i, {})
+		nb_txt = ("≈%d" % int(round(_ai_known_bots(PLAYER, i)))) if rec.has("bots") else "?"   # memory of a scan or a witnessed capture, else unknown
 	var bw := 8.0 + 7.0 * float(nb_txt.length())
 	draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 13.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
 	draw_string(f, Vector2(p.x - 3.6 * float(nb_txt.length()), p.y + rr * 0.42 + 10.5), nb_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.95, 0.97, 1.0, a))

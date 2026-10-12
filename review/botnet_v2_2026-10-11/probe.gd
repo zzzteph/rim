@@ -661,7 +661,16 @@ func _run() -> void:
 	var s1: float = game._ai_fall_secs(game.RIVAL, t31, 2)
 	game.hosts[t31].mode = "scan"
 	var s2: float = game._ai_fall_secs(game.RIVAL, t31, 2)
-	check("31_bleeder_hidden_dial", absf(s0 - 36.0) < 0.5 and absf(s1 - 9.0) < 0.5 and absf(s2 - 36.0) < 0.5, {"idle": snapped(s0, 0.1), "visibly_streaming_out": snapped(s1, 0.1), "quiet_scan_invisible": snapped(s2, 0.1)})
+	game.hosts[t31].assign = -1; game.hosts[t31].live = false; game._next_depart.erase(t31)
+	var p31 := secondP()   # a player building with a rally it cannot route to: nothing drawn, nothing leaves, no drain
+	game.hosts[p31].bots = 25.0; game._set_builds(p31, ["bot"]); game._mark_scanned(game.RIVAL, p31)
+	var far := -1
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.NEUTRAL and game._route(p31, i).is_empty() and i != p31: far = i; break
+	game.hosts[far].owner = game.PLAYER; game.rally = far; game._next_depart[p31] = game._t
+	var no_route_drain: float = game._ai_seen_drain(p31)
+	game.rally = -1; game.hosts[far].owner = game.NEUTRAL
+	check("31_bleeder_hidden_dial", absf(s0 - 36.0) < 0.5 and absf(s1 - 9.0) < 0.5 and absf(s2 - 36.0) < 0.5 and no_route_drain == 0.0, {"idle": snapped(s0, 0.1), "visibly_streaming_out": snapped(s1, 0.1), "quiet_scan_invisible": snapped(s2, 0.1), "routeless_rally_not_a_drain": no_route_drain == 0.0})
 
 	# 32 memory: a scan remembers bots, cap and time; when the inside changes the live number goes dark and the
 	#    AI uses what it saw, regrown at a farm's rate; a witnessed capture is remembered as near-empty
@@ -681,8 +690,13 @@ func _run() -> void:
 	var t32b := neutral_nb(secondR(), rigR())
 	game._capture(t32b, game.PLAYER)
 	var flip: bool = absf(game._ai_known_bots(game.RIVAL, t32b)) < 0.01
-	check("32_scan_memory", remembered and dark and remembered_kinds and regrown and flip,
-		{"remembers_on_scan": remembered, "dark_after_change_uses_memory": dark, "remembered_kinds": kinds32, "regrows": regrown, "capture_known_empty": flip})
+	var l32 := secondR()
+	game._capture(l32, game.PLAYER)   # RIVAL loses its second building: it witnessed that, so it knows the place is near empty
+	var loser_knows: bool = absf(game._ai_known_bots(game.RIVAL, l32)) < 0.01 and not game._scanned(game.RIVAL, l32)
+	var player_knows: bool = (game.scans[game.PLAYER] as Dictionary).has(t32b) == false and absf(game._ai_known_bots(game.PLAYER, l32) - float(game.hosts[l32].bots)) < 0.01   # the captor owns it: exact
+	var no_hidden_key: bool = str((game.scans[game.RIVAL][l32] as Dictionary).get("key", "")) == ""
+	check("32_scan_memory", remembered and dark and remembered_kinds and regrown and flip and loser_knows and no_hidden_key,
+		{"remembers_on_scan": remembered, "dark_after_change_uses_memory": dark, "remembered_kinds": kinds32, "regrows": regrown, "capture_known_empty": flip, "loser_remembers_near_empty": loser_knows, "memory_carries_no_hidden_key": no_hidden_key})
 
 	# 33 counter-attack is lawful: a VISIBLE attacker gets two streams sized on the public prior; a quiet scan
 	#    into its building is not even noticed; hidden bots of the attacker do not change the decision
@@ -857,6 +871,39 @@ func _run() -> void:
 	var active: bool = float(pacing[7].first_capture[2]) > 0.0 and float(pacing[7].first_capture[3]) > 0.0 and float(pacing[11].first_capture[2]) > 0.0 and float(pacing[11].first_capture[3]) > 0.0
 	var learns: bool = int(pacing[7].scans_done[2]) > 0 and int(pacing[7].scans_done[3]) > 0
 	check("40_ai_acts_under_fog", active and learns, pacing)
+
+	# 41 the UI twin: the player's panel for a foreign target, its focus set and the amber streets are the same
+	#    whether or not the target's owner has a hidden rate dial, a job, a quiet scan or a dormant plan running
+	var ui := []
+	for pass41 in 2:
+		fresh()
+		var t41 := neutral_nb(rigP())
+		game.hosts[t41].owner = game.RIVAL2; game.hosts[t41].bots = 20.0; game._set_builds(t41, ["bot"])
+		var k41 := -1
+		for o in game.hosts[t41].links:
+			if int(game.hosts[o].owner) == game.NEUTRAL and int(o) != t41: k41 = int(o); break
+		game.hosts[k41].owner = game.RIVAL2; game.hosts[k41].bots = 20.0
+		game._mark_scanned(game.PLAYER, t41)
+		game.sel = {rigP(): true}; game._wire(t41); game._launch(t41, "attack")
+		step(2.0, 0.1)
+		if pass41 == 1:   # hidden facts only
+			game.hosts[t41].rate = 0.25; game.hosts[t41].job = {"kind": "cash", "slot": 1, "phase": "build", "left": 5.0}
+			game.hosts[t41].assign = k41; game.hosts[t41].live = false                       # a dormant plan
+			game.hosts[k41].assign = rigP(); game.hosts[k41].live = true; game.hosts[k41].mode = "scan"; game._next_depart[k41] = game._t   # a quiet scan at you
+			game.hosts[k41].bots = 7.0
+		game._clear_all(); game._inspect = t41
+		var txt: String = game._panel_text()
+		var fn := {}; var fl := {}
+		game._build_focus(t41, fn, fl)
+		var fk: Array = fn.keys(); fk.sort(); var lk: Array = fl.keys(); lk.sort()
+		var amber := []
+		for i in game.hosts.size():
+			for j in game.hosts[i].links:
+				if int(j) > i and game._link_busy_visible(i, int(j)): amber.append([i, int(j)])
+		var badge := "%d" % int(round(float(game.hosts[k41].bots)))
+		if not game._scanned(game.PLAYER, k41): badge = "?"
+		ui.append(JSON.stringify([txt, fk, lk, amber, badge]))
+	check("41_ui_twin", ui[0] == ui[1], {"same_panel_focus_streets": ui[0] == ui[1], "digest": str(ui[0]).left(200)})
 
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)

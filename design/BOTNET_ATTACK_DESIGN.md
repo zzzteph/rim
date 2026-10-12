@@ -566,6 +566,21 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     scanned buildings. A twin test (probe 27) perturbs only hidden fields and asserts identical AI decisions;
     thirteen more cases cover the gates, memory and every trick; a pacing guard asserts both AIs still capture
     within 150 s on two seeds. `AI_SPEED` is the human handicap knob.
+24. **Verification pass on the fog (2026-10-12):** three independent skeptics (hidden reads, decision logic,
+    UI symmetry) reviewed the rewrite. Fixed: the capture memory was written before the owner flipped (the
+    loser never got it) and carried the hidden contents key (now blank; a fresh scan keeps the old memory);
+    the visible-outflow reader counted an undrawn, routeless rally; the pre-strike phish was checked before the
+    strike was wired; the choke-the-leader delivery wire was never released; dormant guards could never be
+    re-targeted; a stalled target was shunned forever (now 2 × patience, and only while it keeps its owner);
+    a cut route released a wire at once (now paused for patience, as the engine does for everyone); Intel
+    budgets assumed `SEND_RATE` 1 and counted route nodes as seconds; a phish was wasted on a target about to
+    fall; a dead botnet could be "the leader". On the player's side: opening a foreign building's panel lit the
+    target of its hidden wire (the one real leak); the launch pad's preview and the attack line used the
+    target's hidden job and rate dial (now the same readers as the AI); the scan line revealed the inside
+    count; streets glowed amber from invisible scan packets (now visible traffic only); and the player got less
+    memory than the AI (now a stale scan shows "last seen … ≈N bots now", a witnessed capture shows "≈0", and an
+    unscanned building shows the same public prior the AI uses). Probe: a UI twin test (41) joins the AI twin
+    test (27).
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral

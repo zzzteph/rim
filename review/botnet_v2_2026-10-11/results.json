@@ -334,7 +334,7 @@
 					"2": true,
 					"3": true
 				},
-				"kraken_cash": 24,
+				"kraken_cash": 4,
 				"nyx_cash": 600,
 				"researched": {
 					"2": true,
@@ -405,6 +405,7 @@
 			"observed": {
 				"idle": 36.0,
 				"quiet_scan_invisible": 36.0,
+				"routeless_rally_not_a_drain": true,
 				"visibly_streaming_out": 9.0
 			},
 			"pass": true
@@ -414,6 +415,8 @@
 			"observed": {
 				"capture_known_empty": true,
 				"dark_after_change_uses_memory": true,
+				"loser_remembers_near_empty": true,
+				"memory_carries_no_hidden_key": true,
 				"regrows": true,
 				"remembered_kinds": [
 					"bot"
@@ -518,6 +521,14 @@
 			"pass": true
 		},
 		{
+			"case": "41_ui_twin",
+			"observed": {
+				"digest": "[\"Bank 600 Cash before NYX or KRAKEN.\\nNYX (red, bottom right) and KRAKEN (purple, bottom left) are the two AI botnets racing you. Grey buildings are neutral city security.\\n①  Drag a line from your b",
+				"same_panel_focus_streets": true
+			},
+			"pass": true
+		},
+		{
 			"case": "13_pacing_readings",
 			"observed": {
 				"greedy_seed11": {
@@ -528,37 +539,37 @@
 					],
 					"cash": [
 						0,
-						600
+						601
 					],
-					"cash_kraken": 411,
+					"cash_kraken": 430,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": 18.5,
 					"intel": 0,
-					"kraken_nodes": 7,
+					"kraken_nodes": 6,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 12,
-					"t": 315.9
+					"rival_nodes": 10,
+					"t": 321.9
 				},
 				"greedy_seed7": {
 					"cards_played": [
 						0,
-						5,
-						5
+						4,
+						4
 					],
 					"cash": [
 						0,
 						600
 					],
-					"cash_kraken": 4,
+					"cash_kraken": 48,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": 12.5,
 					"intel": 0,
-					"kraken_nodes": 4,
+					"kraken_nodes": 5,
 					"outcome": "LOSS",
-					"player_nodes": 2,
-					"rival_nodes": 11,
-					"t": 332.2
+					"player_nodes": 3,
+					"rival_nodes": 9,
+					"t": 322.4
 				},
 				"rival_alone": {
 					"cards_played": [
@@ -570,14 +581,14 @@
 						0,
 						600
 					],
-					"cash_kraken": 24,
+					"cash_kraken": 4,
 					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": -1.0,
 					"intel": 50,
-					"kraken_nodes": 7,
+					"kraken_nodes": 6,
 					"outcome": "LOSS",
 					"player_nodes": 1,
-					"rival_nodes": 10,
+					"rival_nodes": 11,
 					"t": 297.7
 				}
 			},
