@@ -69,6 +69,7 @@ const AI_CHOKE_LEAD := CfgFactions.AI_CHOKE_LEAD
 const AI_EDGE_MEMORY := CfgFactions.AI_EDGE_MEMORY
 const AI_SIEGE_MAX := CfgFactions.AI_SIEGE_MAX
 const AI_CASH_MULT := CfgFactions.AI_CASH_MULT
+const AI_REACT := CfgFactions.AI_REACT
 
 const GRID_COLS := CfgTown.GRID_COLS
 const GRID_ROWS := CfgTown.GRID_ROWS
@@ -233,7 +234,7 @@ func _gen() -> void:
 	for fac in BOTNETS:
 		intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}; creds[fac] = 0.0; research[fac] = 0.0
 		cards[fac] = {}; lab[fac] = {"queue": [], "progress": 0.0, "paused": false, "stall": ""}; card_plays[fac] = 0; _hold[fac] = 0.0
-	for fac in AIS: _ai[fac] = {"timer": float(AI_PROFILE[fac].cadence) * (0.5 + 0.3 * float(fac)), "ops": {}, "avoid": -1, "dead": false, "lost": {}, "edges": {}}
+	for fac in AIS: _ai[fac] = {"timer": float(AI_PROFILE[fac].cadence) * (0.5 + 0.3 * float(fac)), "ops": {}, "avoid": -1, "dead": false, "lost": {}, "edges": {}, "inside": -1, "enter_left": 0.0, "threat_seen": {}}
 	var ax := 60.0; var ay := 100.0
 	var aw := sz.x - PANEL_W - 130.0; var ah := sz.y - ay - 104.0
 	var sx := aw / float(GRID_COLS - 1); var sy := ah / float(GRID_ROWS - 1)
@@ -830,7 +831,9 @@ func _tick_jobs(dt: float) -> void:
 		var job: Dictionary = hosts[i].job
 		if job.is_empty(): continue
 		var fac := int(hosts[i].owner)
-		var progress: bool = (fac != PLAYER) or (_inside == i and _enter_left <= 0.0)
+		var progress: bool
+		if fac == PLAYER: progress = _inside == i and _enter_left <= 0.0
+		else: progress = int(_ai[fac].get("inside", -1)) == i and float(_ai[fac].get("enter_left", 0.0)) <= 0.0
 		if not progress: continue
 		job.left = float(job.left) - dt
 		if float(job.left) > 0.0: continue
@@ -972,6 +975,9 @@ func _process(dt: float) -> void:
 		_fx = _fx.filter(func(x): return float(x.until) > _t)
 		_worms = _worms.filter(func(x): return float(x.until) > _t)
 		if _inside >= 0 and _enter_left > 0.0: _enter_left = maxf(0.0, _enter_left - dt)
+		_ai_remember(PLAYER)   # your memory of a scanned building stays as fresh as the AI's
+		for fac in AIS:
+			if float(_ai[fac].get("enter_left", 0.0)) > 0.0: _ai[fac].enter_left = maxf(0.0, float(_ai[fac].enter_left) - dt)
 		_tick_jobs(dt)
 		_prune_res()
 		_auto_guards()      # guard wires arm themselves while their building is threatened, stand down after
@@ -1566,6 +1572,17 @@ func _ai_think(fac: int) -> void:
 	if mine.is_empty(): return
 	var aggr := float(AI_PROFILE[fac].aggr)
 	_ai_remember(fac)
+	var threatened := false   # a building of ours under attack pulls attention off a build
+	for t in mine:
+		if _under_attack(t): threatened = true; break
+	var atn := int(st.get("inside", -1))   # attention: like the player, a build only progresses while "inside" it
+	if atn >= 0:
+		if (hosts[atn].job as Dictionary).is_empty() or int(hosts[atn].owner) != fac: st.inside = -1
+		elif threatened: st.inside = -1       # bail to defend; the build pauses
+		else: return                          # heads-down on the build — no map commands this think
+	if int(st.inside) < 0 and not threatened:   # a build was paused by a bail: re-connect and resume it
+		for e in mine:
+			if not (hosts[e].job as Dictionary).is_empty(): st.inside = e; st.enter_left = ENTER_TIME; return
 	# ── 0. housekeeping: finished / unreachable wires, stalled attacks (patience on what it can SEE) ──
 	var nr: Dictionary = st.get("noroute", {})
 	for e in mine:
@@ -1599,16 +1616,21 @@ func _ai_think(fac: int) -> void:
 			for e in ops[t]: _ai_release(e)
 			st.avoid_rec = {"t": t, "owner": int(hosts[t].owner), "at": _t}; avoid = t; recs.erase(t); ops.erase(t)
 	# ── 1. defence: guard a threatened building, remember the edge, counter a visible attacker it can take ──
+	var seen: Dictionary = st.get("threat_seen", {})
+	for sk in seen.keys():
+		if not _under_attack(int(sk)): seen.erase(sk)
 	for t in mine:
 		if not _under_attack(t): continue
 		st.edges[t] = _t
+		if not seen.has(t): seen[t] = _t                 # first noticed now
+		var reacted: bool = _t - float(seen[t]) >= AI_REACT   # a human takes a moment to pull reserves
 		var threat := _threat_rate(t)
 		var regen := _regen(t) - _drain(t)
 		var help := 0.0
 		for e in mine:
 			if int(hosts[e].assign) == t and bool(hosts[e].live): help += SEND_RATE * float(hosts[e].rate)
 		var deficit := threat - regen - help + 0.3
-		if deficit > 0.0:
+		if deficit > 0.0 and reacted:
 			var needed := mini(3, int(ceil(deficit / SEND_RATE)))
 			var helpers := []
 			for e in mine:
@@ -1638,6 +1660,7 @@ func _ai_think(fac: int) -> void:
 			ops[i] = [int(free[0][1]), int(free[1][1])]
 			recs[i] = {"since": _t, "bots": _ai_known_bots(fac, i), "prog": _scan_progress(fac, i)}
 			if _mine(i): _flash("⚔ %s counter-attacks %s" % [fname(fac), str(hosts[i].name)])
+	st.threat_seen = seen
 	# ── 2. build: one job at a time (its attention), chosen by need ──
 	var busy := false
 	for e in mine:
@@ -1669,7 +1692,7 @@ func _ai_think(fac: int) -> void:
 				for e in free_slot:
 					var v := float(hosts[e].value) * 2.0 * _tmult(e, "cash") + float(int(hosts[e].slots) - _built_kinds(e).size()) * 0.3 - (1.0 if _ai_borders_botnet(e) else 0.0)
 					if v > bestv: bestv = v; site = e; kind = "cash"
-			if site >= 0: _start_job(site, kind)
+			if site >= 0 and _start_job(site, kind): st.inside = site; st.enter_left = ENTER_TIME   # enter it, like a player
 	# ── 2b. research: a cheap card of each useful kind; phishing first when a rival leads the Cash race ──
 	var L: Dictionary = lab[fac]
 	var leader := _ai_leader(fac)

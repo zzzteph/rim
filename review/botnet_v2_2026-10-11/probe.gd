@@ -29,6 +29,13 @@ func rigR() -> int: return int(game.rig[game.RIVAL])
 func secondP() -> int: return game.cell_at(0, 1)
 func secondR() -> int: return game.cell_at(game.GRID_COLS - 1, game.GRID_ROWS - 2)
 func secondR2() -> int: return game.cell_at(0, game.GRID_ROWS - 2)
+func fill_ai(fac: int) -> void:   # fill every slot so the AI never stops to build — isolates its map decisions
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == fac:
+			var full := []
+			for k in int(game.hosts[i].slots): full.append("bot")
+			game._set_builds(i, full)
+	game._ai[fac].inside = -1; game._ai[fac].enter_left = 0.0
 
 func neutral_nb(i: int, avoid_nb_of: int = -1) -> int:   # a neutral neighbour of i (not adjacent to avoid_nb_of if possible)
 	var fallback := -1
@@ -127,16 +134,20 @@ func _run() -> void:
 		st.append([game._stage(n8), game._active_slots(n8), game._count(n8, "bot"), game._count(n8, "intel"), game._count(n8, "cash")])
 	check("05_control_stages", st == [[0, 3, 1, 1, 1], [1, 2, 1, 1, 0], [2, 1, 1, 0, 0]], {"stages": st})
 
-	# 06 a build job only progresses while you are INSIDE; the rival's always does
+	# 06 a build job progresses only while its owner is ATTENDING it — the player inside it, an AI "inside" it
 	fresh()
 	game._start_job(n8, "cash")
 	game._tick_jobs(100.0)
-	var not_built: bool = game._built_kinds(n8).size() == 1
+	var not_built: bool = game._built_kinds(n8).size() == 1   # no progress without being inside
 	game._inside = n8; game._enter_left = 0.0
 	game._tick_jobs(game.BUILD_TIME + 0.01)
 	var built: bool = game._built_kinds(n8) == ["bot", "cash"]
-	game._start_job(secondR(), "cash"); game._tick_jobs(game.BUILD_TIME + 0.01)
-	check("06_jobs_need_attention", not_built and built and game._built_kinds(secondR()) == ["bot", "cash"],
+	var r6 := secondR()
+	game._start_job(r6, "cash"); game._tick_jobs(game.BUILD_TIME + 0.01)
+	var ai_without: bool = game._built_kinds(r6).size() == 1   # the AI, too, must attend its build
+	game._ai[game.RIVAL].inside = r6; game._ai[game.RIVAL].enter_left = 0.0
+	game._tick_jobs(game.BUILD_TIME + 0.01)
+	check("06_jobs_need_attention", not_built and built and ai_without and game._built_kinds(r6) == ["bot", "cash"],
 		{"player_without_inside": not_built, "player_inside": built, "rival_builds": game.hosts[secondR()].builds})
 
 	# 07 capture flips a building to the attacker's faction and cancels its orders and jobs; neutral
@@ -613,7 +624,7 @@ func _run() -> void:
 
 	# 29 scout then strike: the first move on an unknown neighbour is a quiet two-source scan that never
 	#    alarms it; once the scan lands the AI knows the live numbers and attacks with a sized force
-	fresh(); game.intel[game.RIVAL] = 100.0
+	fresh(); game.intel[game.RIVAL] = 100.0; fill_ai(game.RIVAL)
 	game._ai_think(game.RIVAL)
 	var tgt29 := -1; var n29 := 0; var all_scan := true
 	for i in game.hosts.size():
@@ -743,7 +754,7 @@ func _run() -> void:
 
 	# 34 know your limits, then learn: a target the prior says it cannot take within its patience is not
 	#    attacked (a quiet scan is allowed); once scanned and found weak, it is attacked
-	fresh(); game.intel[game.RIVAL] = 100.0
+	fresh(); game.intel[game.RIVAL] = 100.0; fill_ai(game.RIVAL)
 	var c34 := neutral_nb(rigR())
 	game.hosts[c34].type = "db"; game.hosts[c34].value = 2; game.hosts[c34].slots = 4; game.hosts[c34].sec = 24.0; game.hosts[c34].bots = 24.0; game._set_builds(c34, ["bot"])
 	game._ai_think(game.RIVAL)
@@ -831,6 +842,7 @@ func _run() -> void:
 	for fr38 in fronts:
 		for o in game.hosts[int(fr38)].links:
 			if int(game.hosts[o].owner) == game.NEUTRAL: game.hosts[int(o)].owner = game.RIVAL; game.hosts[int(o)].bots = 20.0; game._set_builds(int(o), ["bot"])
+	fill_ai(game.RIVAL)   # no build to distract it from pre-wiring a guard
 	var rear_ok: bool = not game._ai_frontier(rr38)
 	var f1 := -1; var att := -1
 	for i in game.hosts.size():   # a frontier building of RIVAL's with a neutral neighbour to play the attacker
@@ -952,6 +964,48 @@ func _run() -> void:
 	step(26.0, 0.5)
 	var dos_over: bool = not game._prod_down(td44) and not game._routing_down(td44) and game._regen(td44) > 0.0
 	check("44_denial_of_service", denied and dos_over, {"production_and_routing_down": denied, "both_recover": dos_over})
+
+	# 45 the AI builds with attention: starting a build "enters" it (a connect delay gates progress), a later
+	#    think while building issues no new map command, and a building under attack pulls it off the build
+	fresh(); game.intel[game.RIVAL] = 100.0
+	game._ai_think(game.RIVAL)
+	var r45 := int(game._ai[game.RIVAL].inside)
+	var entered: bool = r45 >= 0 and not (game.hosts[r45].job as Dictionary).is_empty() and float(game._ai[game.RIVAL].enter_left) > 0.0
+	var before_prog: float = float(game.hosts[r45].job.left) if entered else 0.0
+	game._tick_jobs(1.0)   # still connecting (enter_left 2 s) → no progress yet
+	var connect_delay: bool = entered and absf(float(game.hosts[r45].job.left) - before_prog) < 0.01
+	game._ai[game.RIVAL].enter_left = 0.0; game._tick_jobs(1.0)
+	var then_progresses: bool = float(game.hosts[r45].job.left) < before_prog - 0.5
+	var wires0 := 0
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live): wires0 += 1
+	game._ai_think(game.RIVAL)   # attending the build → no new commands
+	var wires1 := 0
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == game.RIVAL and bool(game.hosts[i].live): wires1 += 1
+	var locked: bool = int(game._ai[game.RIVAL].inside) == r45 and wires1 == wires0
+	var t45 := secondR()   # now one of its buildings is attacked → it drops the build to deal with it
+	var a45 := -1
+	for o in game.hosts[t45].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL: a45 = int(o); break
+	game.hosts[a45].owner = game.RIVAL2; game.hosts[a45].bots = 30.0; game.hosts[a45].assign = t45; game.hosts[a45].live = true; game.hosts[a45].mode = "attack"; game._next_depart[a45] = game._t
+	game._ai_think(game.RIVAL)
+	var bailed: bool = int(game._ai[game.RIVAL].inside) < 0
+	check("45_ai_attention", entered and connect_delay and then_progresses and locked and bailed,
+		{"enters_the_build": entered, "connect_delay_gates_progress": connect_delay, "then_progresses": then_progresses, "locked_out_while_building": locked, "bails_when_attacked": bailed})
+
+	# 46 your memory is as fresh as the AI's: while a building stays scanned, its remembered bots and time keep
+	#    up with the live values, so when it later goes dark you recall what it was, not a stale snapshot
+	fresh()
+	var t46 := neutral_nb(rigP())
+	game.hosts[t46].sec = 28.0; game.hosts[t46].bots = 20.0; game._set_builds(t46, [])   # sec above bots so the cap does not bind
+	game._mark_scanned(game.PLAYER, t46)
+	step(5.0, 0.1)
+	var rec46: Dictionary = game.scans[game.PLAYER][t46]
+	var kept_fresh: bool = absf(float(rec46.at) - game._t) < 0.3 and absf(float(rec46.bots) - 20.0) < 0.5   # refreshed to ~now, not the mark time
+	game.hosts[t46].builds = ["cash"]   # the inside changes → it goes dark
+	var dark_uses_memory: bool = not game._scanned(game.PLAYER, t46) and absf(game._ai_known_bots(game.PLAYER, t46) - 20.0) < 0.6
+	check("46_player_memory_symmetry", kept_fresh and dark_uses_memory, {"memory_refreshes_while_scanned": kept_fresh, "recalls_last_seen_when_dark": dark_uses_memory})
 
 	# 42 domination: holding more than half the town for HOLD_SECS wins; losing the majority resets the clock
 	fresh()

@@ -21,6 +21,7 @@ const AI_RESERVE := 6.0            # garrison an AI building keeps
 const AI_PATIENCE := 30.0          # seconds WITHOUT PROGRESS before an AI gives up an attack
 const AI_SPEED := 1.0              # multiplies every AI's think cadence (measured: it barely moves the clock — the AIs' clock is their Cash income)
 const AI_CASH_MULT := 1.0          # multiplies the AI botnets' Cash income: measured idle clock 1.0 → ~5 min, 0.75 → ~5¾, 0.5 → ~7 (they expand to compensate)
+const AI_REACT := 1.5              # seconds an AI takes to notice a loss and scramble reserves (auto-guards still arm at once)
 # ── what an AI may assume about what it has not scanned (it plays under the player's fog) ──
 const AI_PRIOR_BOTNET := 0.6       # an unscanned building of another botnet is assumed to hold this × NODE_CAP bots
 const AI_SCOUT_INTEL := 20.0       # Intel it keeps before spending a quiet scan on learning alone

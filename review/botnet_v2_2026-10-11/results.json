@@ -122,7 +122,7 @@
 				"captured_within_25s": false,
 				"harvesters": 1,
 				"max_streams_on_one_target": 2,
-				"nyx_intel": 36.3999999999998
+				"nyx_intel": 26.5499999999999
 			},
 			"pass": true
 		},
@@ -327,13 +327,13 @@
 		{
 			"case": "25_ai_uses_cards",
 			"observed": {
-				"cards_played_by_ais": 9,
+				"cards_played_by_ais": 4,
 				"economy_built": {
 					"2": true,
 					"3": true
 				},
-				"kraken_cash": 3,
-				"nyx_cash": 458,
+				"kraken_cash": 95,
+				"nyx_cash": 435,
 				"researched": {
 					"2": true,
 					"3": true
@@ -497,22 +497,22 @@
 			"observed": {
 				"7": {
 					"first_capture": {
-						"2": 50.6,
-						"3": 47.8
+						"2": 38.6,
+						"3": 51.3
 					},
 					"scans_done": {
-						"2": 6,
-						"3": 4
+						"2": 4,
+						"3": 3
 					}
 				},
 				"11": {
 					"first_capture": {
 						"2": 63.3,
-						"3": 47.8
+						"3": 51.3
 					},
 					"scans_done": {
-						"2": 4,
-						"3": 3
+						"2": 3,
+						"3": 2
 					}
 				}
 			},
@@ -547,6 +547,25 @@
 			"pass": true
 		},
 		{
+			"case": "45_ai_attention",
+			"observed": {
+				"bails_when_attacked": true,
+				"connect_delay_gates_progress": true,
+				"enters_the_build": true,
+				"locked_out_while_building": true,
+				"then_progresses": true
+			},
+			"pass": true
+		},
+		{
+			"case": "46_player_memory_symmetry",
+			"observed": {
+				"memory_refreshes_while_scanned": true,
+				"recalls_last_seen_when_dark": true
+			},
+			"pass": true
+		},
+		{
 			"case": "42_domination_hold",
 			"observed": {
 				"cause": "You held the majority for 45 s.",
@@ -564,60 +583,60 @@
 					"cards_played": [
 						0,
 						5,
-						5
+						3
 					],
 					"cash": [
 						0,
-						445
+						629
 					],
-					"cash_kraken": 396,
-					"cause": "Time's up — NYX controlled the most buildings (12).",
+					"cash_kraken": 391,
+					"cause": "Time's up — NYX controlled the most buildings (10).",
 					"first_capture_t": 18.5,
 					"intel": 0,
 					"kraken_nodes": 6,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 12,
+					"rival_nodes": 10,
 					"t": 300.1
 				},
 				"greedy_seed7": {
 					"cards_played": [
 						0,
-						4,
+						2,
 						2
 					],
 					"cash": [
 						0,
-						298
+						435
 					],
-					"cash_kraken": 23,
-					"cause": "Time's up — NYX controlled the most buildings (10).",
+					"cash_kraken": 95,
+					"cause": "Time's up — NYX controlled the most buildings (9).",
 					"first_capture_t": 12.5,
 					"intel": 0,
-					"kraken_nodes": 3,
+					"kraken_nodes": 5,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 10,
+					"rival_nodes": 9,
 					"t": 300.1
 				},
 				"rival_alone": {
 					"cards_played": [
 						0,
-						5,
-						4
+						2,
+						2
 					],
 					"cash": [
 						0,
-						458
+						435
 					],
-					"cash_kraken": 3,
-					"cause": "Time's up — NYX controlled the most buildings (10).",
+					"cash_kraken": 95,
+					"cause": "Time's up — NYX controlled the most buildings (9).",
 					"first_capture_t": -1.0,
 					"intel": 50,
-					"kraken_nodes": 6,
+					"kraken_nodes": 5,
 					"outcome": "LOSS",
-					"player_nodes": 1,
-					"rival_nodes": 10,
+					"player_nodes": 2,
+					"rival_nodes": 9,
 					"t": 300.1
 				}
 			},
