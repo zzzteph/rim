@@ -102,6 +102,16 @@ const CASH_INTERVAL := 3.0         # seconds between Cash packets per active Dar
 const CASH_GOAL := 600.0           # bank this first → win (another botnet banking it first → defeat)
 
 # ── the bot-flow dials ──
+# ── scanning: a foreign building must be SCANNED before it can be attacked. Scan bots travel like attack
+# bots, cost the same, and are consumed on arrival without hurting a defender; they reveal the target's bots
+# and slots once SCAN_BASE + SCAN_PER_BUILD × (buildings inside) of them have landed. The protection is a
+# fixed threshold: not regenerated, not depleted. A changed inside (built, demolished, replaced) needs a rescan.
+const SCAN_BASE := 10.0
+const SCAN_PER_BUILD := 5.0
+const SCAN_COSTS_INTEL := true     # scan bots are attack bots: 1 Intel each
+# Any ATTACK on an unscanned building reveals it as its bots land — but it raises the alarm (red frame,
+# guards arm, the owner's AI reacts). The SCAN launch is the quiet route: nothing alerts the owner.
+
 const SEND_RATE := 1.0             # bots/sec a live flow releases at rate dial 100%
 const LINK_TIME := 1.0             # seconds to cross one link (hop)
 const NODE_ROUTE_DELAY := 0.25     # pause (s) at each intermediate building
@@ -147,6 +157,7 @@ var rally := -1        # your rally point, or -1
 var _inside := -1      # the building whose LOCAL view is open, or -1
 var _enter_left := 0.0 # seconds until the local view is usable
 var _ai := {}          # faction -> {timer, ops:{target:{since,bots}}, avoid, dead}
+var scans := {}        # faction -> {host: {"key": contents when scanned, "done": bool, "progress": bots landed}}
 
 # selection / command
 var sel := {}          # selected buildings of yours (the ones a drag would wire)
@@ -200,7 +211,7 @@ func _gen() -> void:
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}
 	intel = {}; cash = {}; _ai = {}
-	for fac in BOTNETS: intel[fac] = INTEL_START; cash[fac] = 0.0
+	for fac in BOTNETS: intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}
 	for fac in AIS: _ai[fac] = {"timer": float(AI_PROFILE[fac].cadence) * (0.5 + 0.3 * float(fac)), "ops": {}, "avoid": -1, "dead": false}
 	var ax := 70.0; var ay := 112.0
 	var aw := sz.x - PANEL_W - 150.0; var ah := sz.y - ay - 120.0
@@ -232,7 +243,7 @@ func _gen() -> void:
 			hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
 				"name": "DOWNTOWN HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
 				"links": [], "owner": NEUTRAL, "bots": sec, "sec": sec, "value": value, "slots": slots,
-				"builds": _slot_array(["bot", "bot"] if is_hub else ["bot"], slots), "job": {}, "assign": -1, "live": false, "rate": 1.0})
+				"builds": _slot_array(["bot", "bot"] if is_hub else ["bot"], slots), "job": {}, "assign": -1, "live": false, "mode": "attack", "rate": 1.0})
 	for c in _cell.keys():   # streets: grid neighbours (some missing), a few diagonals (never crossing)
 		for d in [Vector2i(1, 0), Vector2i(0, 1)]:
 			var nb: Vector2i = c + d
@@ -311,6 +322,50 @@ func _tmult(i: int, what: String) -> float:   # the building type's multiplier f
 
 func _regen(i: int) -> float:   # bots/s the building regenerates (its working Bot farms × its type)
 	return float(_count(i, "bot")) * PROD_RATE * _tmult(i, "bot")
+
+
+# ---- scanning ----
+func _contents_key(i: int) -> String:   # what a scan learned; any change inside invalidates it
+	return ",".join(PackedStringArray(hosts[i].builds))
+
+
+func _scan_cost(i: int) -> float:   # scan bots needed: a fixed protection plus more per building inside
+	return SCAN_BASE + SCAN_PER_BUILD * float(_built_kinds(i).size())
+
+
+func _scanned(fac: int, t: int) -> bool:   # you always know your own buildings
+	if t < 0 or fac == NEUTRAL: return false
+	if int(hosts[t].owner) == fac: return true
+	var rec: Dictionary = (scans[fac] as Dictionary).get(t, {})
+	return not rec.is_empty() and bool(rec.done) and str(rec.key) == _contents_key(t)
+
+
+func _scan_progress(fac: int, t: int) -> float:
+	var rec: Dictionary = (scans[fac] as Dictionary).get(t, {})
+	if rec.is_empty() or str(rec.key) != _contents_key(t): return 0.0
+	return float(rec.progress)
+
+
+func _mark_scanned(fac: int, t: int) -> void:   # scripts/probes and the moment a scan completes
+	scans[fac][t] = {"key": _contents_key(t), "done": true, "progress": _scan_cost(t)}
+
+
+func _scan_land(fac: int, t: int) -> void:   # one scan bot arrived: progress, and completion stands wires down
+	var key := _contents_key(t)
+	var rec: Dictionary = (scans[fac] as Dictionary).get(t, {})
+	if rec.is_empty() or str(rec.key) != key: rec = {"key": key, "done": false, "progress": 0.0}
+	rec.progress = float(rec.progress) + 1.0
+	if float(rec.progress) >= _scan_cost(t): rec.done = true
+	scans[fac][t] = rec
+	if not bool(rec.done): return
+	var stood := 0
+	for i in hosts.size():   # a secret scan is done: its flows stand down; attacking is a separate, explicit launch
+		if int(hosts[i].owner) == fac and int(hosts[i].assign) == t and bool(hosts[i].live) and str(hosts[i].get("mode", "attack")) == "scan":
+			hosts[i].live = false; _next_depart.erase(i); stood += 1
+	if fac == PLAYER:
+		if stood > 0: _flash("🔍 Scanned %s quietly — %d bots, inside: %s. Press ATTACK to launch." % [str(hosts[t].name), int(round(float(hosts[t].bots))), _build_names(hosts[t].builds)])
+		else: _flash("🔍 Your attack revealed %s — %d bots, inside: %s" % [str(hosts[t].name), int(round(float(hosts[t].bots))), _build_names(hosts[t].builds)])
+		_refresh_panel()
 
 
 func _slot_array(kinds: Array, n: int) -> Array:   # positional slots, "" = empty
@@ -489,17 +544,17 @@ func _hostile_incoming(t: int) -> float:   # bots of ANY other faction flying to
 	return s
 
 
-func _under_attack(t: int) -> bool:   # hostile bots inbound, or a hostile LIVE wire aimed at it
+func _under_attack(t: int) -> bool:   # hostile attack bots inbound, or a hostile LIVE attack wire aimed at it
 	if _hostile_incoming(t) > 0.0: return true
 	for i in hosts.size():
-		if int(hosts[i].owner) != int(hosts[t].owner) and bool(hosts[i].live) and int(hosts[i].assign) == t: return true
-	return false
+		if int(hosts[i].owner) != int(hosts[t].owner) and bool(hosts[i].live) and int(hosts[i].assign) == t and str(hosts[i].get("mode", "attack")) != "scan": return true
+	return false   # a secret scan raises no alarm
 
 
 func _threat_rate(t: int) -> float:   # defenders/s the hostile LIVE wires into t remove
 	var r := 0.0
 	for i in hosts.size():
-		if int(hosts[i].owner) != int(hosts[t].owner) and bool(hosts[i].live) and int(hosts[i].assign) == t:
+		if int(hosts[i].owner) != int(hosts[t].owner) and bool(hosts[i].live) and int(hosts[i].assign) == t and str(hosts[i].get("mode", "attack")) != "scan":
 			r += SEND_RATE * float(hosts[i].rate) * (ATTACK_POWER / DEFEND_POWER)
 	return r
 
@@ -712,9 +767,9 @@ func _src_state(s: int) -> String:
 			return "defending" if float(hosts[s].bots) - 1.0 >= _reserve_of(s) else "defending · no bots"
 		if not bool(hosts[s].live): return "wired (not launched)"
 		if float(hosts[s].bots) - 1.0 < _reserve_of(s): return "no bots"
-		if float(intel[fac]) < 1.0: return "no Intel"
+		if float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or _scanned(fac, a)): return "no Intel"
 		if _first_wait(rt) > MAX_QUEUE: return "link busy"
-		return "sending"
+		return "scanning" if str(hosts[s].get("mode", "attack")) == "scan" else "sending"
 	var tgt := _bot_target(s)
 	if tgt < 0: return "idle"
 	var rt2 := _route(s, tgt)
@@ -778,7 +833,8 @@ func _can_emit(i: int) -> bool:
 	if float(hosts[i].bots) - 1.0 < _reserve_of(i): return false
 	var fac := int(hosts[i].owner)
 	var hostile: bool = int(hosts[tgt].owner) != fac
-	if hostile and float(intel[fac]) < 1.0: return false
+	if hostile and str(hosts[i].get("mode", "attack")) == "scan" and _scanned(fac, tgt): return false   # scan done
+	if hostile and float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or _scanned(fac, tgt)): return false
 	if not hostile and int(hosts[i].assign) < 0:   # auto-supply never overfills its rally
 		if float(hosts[tgt].bots) + _incoming(tgt, fac) >= NODE_CAP - 0.001: return false
 	var rt := _route(i, tgt)
@@ -834,8 +890,10 @@ func _emit_due() -> void:
 		if best_kind == "bot":
 			var tgt := _bot_target(best)
 			hosts[best].bots = float(hosts[best].bots) - 1.0
-			if int(hosts[tgt].owner) != fac: intel[fac] = float(intel[fac]) - 1.0   # an attack bot spends Intel
-			flights.append(_schedule(_route(best, tgt), best_t, fac, "bot"))
+			var hostile: bool = int(hosts[tgt].owner) != fac
+			var pk := "scan" if (hostile and str(hosts[best].get("mode", "attack")) == "scan" and not _scanned(fac, tgt)) else "bot"
+			if hostile and (pk == "bot" or SCAN_COSTS_INTEL): intel[fac] = float(intel[fac]) - 1.0   # spends Intel
+			flights.append(_schedule(_route(best, tgt), best_t, fac, pk))
 			_next_depart[best] = best_t + 1.0 / (SEND_RATE * float(hosts[best].rate))
 			if float(_next_depart[best]) > _t: due.erase(best)
 		else:
@@ -886,9 +944,13 @@ func _deliver(f: Dictionary) -> void:
 	if str(f.kind) == "cash":
 		if int(hosts[t].owner) != NEUTRAL: _bank(int(hosts[t].owner), float(f.get("amount", 1.0)))
 		return
+	if str(f.kind) == "scan":   # consumed on arrival; reveals, never wounds
+		if int(hosts[t].owner) != fac: _scan_land(fac, t)
+		return
 	if int(hosts[t].owner) == fac:
 		hosts[t].bots = minf(NODE_CAP, float(hosts[t].bots) + 1.0)
 		return
+	if not _scanned(fac, t): _scan_land(fac, t)   # any attack scans as it goes — loudly
 	hosts[t].bots = float(hosts[t].bots) - (ATTACK_POWER / DEFEND_POWER)
 	if float(hosts[t].bots) <= 0.0: _capture(t, fac)
 
@@ -1023,7 +1085,7 @@ func _ai_think(fac: int) -> void:
 			if free.size() < 2: continue
 			free.sort_custom(func(a, b): return a[0] < b[0])
 			for h in free.slice(0, 2):
-				hosts[int(h[1])].assign = i; hosts[int(h[1])].live = true; _next_depart[int(h[1])] = _t
+				hosts[int(h[1])].assign = i; hosts[int(h[1])].live = true; hosts[int(h[1])].mode = "attack"; _next_depart[int(h[1])] = _t
 			ops[i] = [int(free[0][1]), int(free[1][1])]
 			recs[i] = {"since": _t, "bots": float(hosts[i].bots)}
 			if _mine(i): _flash("⚔ %s counter-attacks %s" % [fname(fac), str(hosts[i].name)])
@@ -1095,10 +1157,11 @@ func _ai_think(fac: int) -> void:
 			var score := benefit / (secs + 8.0)
 			if score > best: best = score; pick = c; pick_srcs = srcs.slice(0, n)
 		if pick >= 0:
+			var quiet: bool = not _scanned(fac, pick)   # unknown building: scan it quietly first
 			for s in pick_srcs:
-				hosts[int(s[1])].assign = pick; hosts[int(s[1])].live = true; _next_depart[int(s[1])] = _t
+				hosts[int(s[1])].assign = pick; hosts[int(s[1])].live = true; hosts[int(s[1])].mode = "scan" if quiet else "attack"; _next_depart[int(s[1])] = _t
 			recs[pick] = {"since": _t, "bots": float(hosts[pick].bots)}
-			if _mine(pick): _flash("⚔ %s is attacking %s with %d source(s) — defend it!" % [fname(fac), str(hosts[pick].name), pick_srcs.size()])
+			if _mine(pick) and not quiet: _flash("⚔ %s is attacking %s with %d source(s) — defend it!" % [fname(fac), str(hosts[pick].name), pick_srcs.size()])
 	# ── 4. supply: full rear buildings wire dormant guards to the weakest frontier building ──
 	for e in mine:
 		if int(hosts[e].assign) >= 0 or _ai_frontier(e) or float(hosts[e].bots) < NODE_CAP - 2.0: continue
@@ -1226,7 +1289,7 @@ func _wire(dest: int) -> void:
 		if not _mine(i) or i == dest: continue
 		if _route(i, dest).is_empty(): nopath += 1; continue
 		if int(hosts[i].assign) != dest:
-			hosts[i].assign = dest; hosts[i].live = false; _next_depart.erase(i)
+			hosts[i].assign = dest; hosts[i].live = false; hosts[i].mode = "attack"; _next_depart.erase(i)
 		done += 1
 	if done > 0:
 		var extra := ("  ·  %d had no path" % nopath) if nopath > 0 else ""
@@ -1242,13 +1305,15 @@ func _wire(dest: int) -> void:
 
 # LAUNCH: the button on the TARGET's panel — turns every dormant connection into `t` live, together.
 # Connections wired after this stay dormant until the button is pressed again. Unrouted wires stay dormant.
-func _launch(t: int) -> void:
+func _launch(t: int, mode := "attack") -> void:   # "scan" = quiet reveal; "attack" = alarms, wounds, reveals as it lands
+	if mode == "scan" and _scanned(PLAYER, t): mode = "attack"
 	var started := 0; var unrouted := 0
 	for i in hosts.size():
 		if not _mine(i) or int(hosts[i].assign) != t or bool(hosts[i].live): continue
 		if _route(i, t).is_empty(): unrouted += 1; continue
-		hosts[i].live = true; _next_depart[i] = _t; started += 1
-	if started > 0: _flash("⚔ Attacking %s — %d flow(s) launched%s" % [str(hosts[t].name), started, ("  ·  %d held (no route)" % unrouted) if unrouted > 0 else ""])
+		hosts[i].live = true; hosts[i].mode = mode; _next_depart[i] = _t; started += 1
+	var verb := "🔍 Scanning quietly" if mode == "scan" else ("⚔ Attacking blind (alarm raised)" if not _scanned(PLAYER, t) else "⚔ Attacking")
+	if started > 0: _flash("%s %s — %d flow(s) launched%s" % [verb, str(hosts[t].name), started, ("  ·  %d held (no route)" % unrouted) if unrouted > 0 else ""])
 	elif unrouted > 0: _flash("Cannot launch on %s — no routes (capture a bordering building first)" % str(hosts[t].name))
 	else: _flash("Nothing to launch — no dormant connections into %s" % str(hosts[t].name))
 	_refresh_panel(); queue_redraw()
@@ -1410,6 +1475,8 @@ func _type_line(i: int) -> String:   # "Database · 4 slots · Intel ×2"
 
 func _stage_line(i: int) -> String:
 	var h: Dictionary = hosts[i]
+	if not _mine(i) and not _scanned(PLAYER, i):
+		return "unscanned · bots ? · slots ? · value ×%d · %s" % [int(h.value), str(NODE_TYPES[str(h.get("type", "pc"))].name)]
 	if int(h.owner) == NEUTRAL:
 		return "security %d/%d · value ×%d · %s" % [int(h.bots), int(h.sec), int(h.value), _type_line(i)]
 	return "%s · %d/%d bots · %d of %d slots working · value ×%d · %s" % [STAGE_NAME[_stage(i)], int(h.bots), int(NODE_CAP), mini(_active_slots(i), _built(i).size()), int(h.slots), int(h.value), _type_line(i)]
@@ -1524,14 +1591,22 @@ func _panel_node_in(t: int) -> void:
 	var conns := _owned_feeders(t)
 	if conns.is_empty():
 		if not _mine(t):
+			if not _scanned(PLAYER, t): _plabel("🔍 Not scanned — wire your building(s) into it, then SCAN quietly or ATTACK blind. Progress so far: %d bots." % int(_scan_progress(PLAYER, t)), 13, Color(0.8, 0.92, 1.0))
 			_plabel("No connections of yours into it yet — select your building(s), then DRAG a line here to connect.", 13, Color(0.7, 0.8, 0.9))
 		return
 	var livec := 0
 	for i in conns:
 		if bool(hosts[int(i)].live): livec += 1
 	var dormant := conns.size() - livec
-	if not _mine(t):
-		_plabel("Connected to %s: %d building(s) — %d flowing · %d dormant" % [str(hosts[t].name), conns.size(), livec, dormant], 14, Color(0.85, 0.95, 0.9))
+	if not _mine(t) and not _scanned(PLAYER, t):   # unknown building: the launch is a SCAN
+		_plabel("Connected to %s: %d building(s) — %d scanning · %d dormant" % [str(hosts[t].name), conns.size(), livec, dormant], 14, Color(0.85, 0.95, 0.9))
+		_plabel("🔍 Not scanned — its bots and slots are unknown. A quiet SCAN sends bots that are consumed without wounding it and never alert its owner: %d bots plus %d per building inside. Progress: %d landed. Attacking blind also reveals it as bots land — but raises the alarm." % [int(SCAN_BASE), int(SCAN_PER_BUILD), int(_scan_progress(PLAYER, t))], 12, Color(0.8, 0.92, 1.0))
+		_plabel("Either costs 1 Intel per bot  (reserve %d · +%d/s)" % [int(intel[PLAYER]), int(_intel_rate(PLAYER))], 12, Color(0.82, 0.9, 1.0))
+		if dormant > 0: _btn("🔍  SCAN %s quietly  (launch %d)" % [str(hosts[t].name), dormant], _launch.bind(t, "scan"))
+		if dormant > 0: _btn("⚔  ATTACK %s blind  (launch %d · alarms)" % [str(hosts[t].name), dormant], _launch.bind(t, "attack"))
+		if livec > 0: _btn("■ Stop %d flow(s) (keep connections)" % livec, _halt.bind(t))
+	elif not _mine(t):
+		_plabel("Connected to %s: %d building(s) — %d flowing · %d dormant   ✓ scanned" % [str(hosts[t].name), conns.size(), livec, dormant], 14, Color(0.85, 0.95, 0.9))
 		_assault_preview(t, conns)
 		if livec > 0:
 			var sending := []
@@ -1539,7 +1614,7 @@ func _panel_node_in(t: int) -> void:
 				if _src_state(int(i)) == "sending": sending.append(int(i))
 			_panel_attack_diag(t, conns, sending)
 		_plabel("Launching costs 1 Intel per bot  (reserve %d · +%d/s · −%.1f/s)" % [int(intel[PLAYER]), int(_intel_rate(PLAYER)), _attack_demand(PLAYER)], 12, Color(0.82, 0.9, 1.0))
-		if dormant > 0: _btn("⚔  ATTACK %s  (launch %d)" % [str(hosts[t].name), dormant], _launch.bind(t))
+		if dormant > 0: _btn("⚔  ATTACK %s  (launch %d)" % [str(hosts[t].name), dormant], _launch.bind(t, "attack"))
 		if livec > 0: _btn("■ Stop %d flow(s) (keep connections)" % livec, _halt.bind(t))
 	else:
 		_plabel("🛡 %d guard(s) connected — %d defending now · %d on standby" % [conns.size(), livec, dormant], 14, Color(0.85, 0.95, 0.9))
@@ -1557,7 +1632,8 @@ func _panel_inspect() -> void:   # a building's own panel (for a foreign one: th
 	var fac := int(h.owner)
 	_plabel("%s  ·  %s" % [str(h.name), fname(fac).to_upper()], 17, fcol(fac).lightened(0.35) if fac != NEUTRAL else Color(0.8, 0.88, 1.0))
 	_plabel(_stage_line(_inspect), 13, Color(0.82, 0.9, 1.0))
-	_plabel("Inside: %s" % _build_names(h.builds), 12, Color(0.75, 0.9, 0.8))
+	if _mine(_inspect) or _scanned(PLAYER, _inspect): _plabel("Inside: %s" % _build_names(h.builds), 12, Color(0.75, 0.9, 0.8))
+	else: _plabel("Inside: unknown until scanned", 12, Color(0.7, 0.75, 0.85))
 	var yin := int(_incoming(_inspect, PLAYER)); var hin := int(_hostile_incoming(_inspect)) if _mine(_inspect) else int(_incoming(_inspect, RIVAL) + _incoming(_inspect, RIVAL2))
 	_plabel("In transit toward it: %d yours · %d from other botnets" % [yin, hin], 13, Color(0.7, 0.85, 1.0))
 	if _mine(_inspect) and _under_attack(_inspect): _plabel("⚠ Under attack.", 13, Color(1, 0.72, 0.5))
@@ -1579,7 +1655,8 @@ func _panel_attack_diag(t: int, feeders: Array, sending: Array) -> void:
 			var st := _src_state(int(i))
 			if st != "idle" and st != "sending": reason = st; break
 		match reason:
-			"wired (not launched)": _plabel("⛔ Not launched — press ATTACK to start these flows.", 12, Color(1, 0.82, 0.4))
+			"wired (not launched)": _plabel("⛔ Not launched — press SCAN or ATTACK to start these flows.", 12, Color(1, 0.82, 0.4))
+			"scanning": _plabel("🔍 Scanning — these bots reveal the building, they do not wound it.", 12, Color(0.8, 0.95, 1.0))
 			"no Intel": _plabel("⛔ Waiting for Intel — build an Intel harvester or stop another attack.", 12, Color(1, 0.82, 0.4))
 			"no bots": _plabel("⛔ Waiting for bots — let the source regenerate or guard it.", 12, Color(1, 0.82, 0.4))
 			"no route": _plabel("⛔ No route — capture a building bordering it, then launch again.", 12, Color(1, 0.82, 0.4))
@@ -1600,7 +1677,7 @@ func _panel_idle() -> void:
 	_plabel("OBJECTIVE: bank %d Cash before NYX or KRAKEN does." % int(CASH_GOAL), 15, Color(0.92, 0.96, 1.0))
 	_plabel("Three botnets, one town. Capture buildings, build inside them, and route their Cash home to YOUR RIG. Downtown is rich but well defended; the rim is poor and soft. Lose every building and you are out.", 12, Color(0.85, 0.9, 1.0))
 	_plabel("① CONNECT — DRAG a line from your building onto a target (Shift / box-drag selects a group; dragging from the group wires them all). Links need a path through YOUR buildings. Dashed = dormant: nothing fires yet.", 13)
-	_plabel("② LAUNCH — click the target building itself: its panel lists who's connected; press ⚔ ATTACK to start those flows together. Wires into YOUR OWN buildings are GUARDS — they defend automatically when that building is attacked or damaged.", 13, Color(0.8, 0.86, 0.96))
+	_plabel("② SCAN or ATTACK — click the target building itself: its panel lists who's connected. An unscanned building shows '?'. 🔍 SCAN quietly reveals its bots and slots without wounding it or alerting anyone (10 bots + 5 per building inside). ⚔ ATTACK starts the flows; on an unscanned building it reveals as bots land but raises the alarm. Wires into YOUR OWN buildings are GUARDS — they defend automatically.", 13, Color(0.8, 0.86, 0.96))
 	_plabel("Clicking only selects / opens a building's panel — it never wires. Rewire any time; bots act only when they ARRIVE.", 13, Color(0.8, 0.86, 0.96))
 	_plabel("🏢 Enter a building you own to build inside it: Bot farms defend, Intel harvesters fuel attacks, Darknet markets make Cash (× the building's value). Time keeps running in there. The AI botnets build the same way.", 12, Color(0.8, 0.9, 0.85))
 	_plabel("⚑ A rally point turns every unwired idle building into a supplier. Links carry %d packets/s each — bots and Cash share them." % LINK_CAP, 12, Color(0.8, 0.9, 0.85))
@@ -1687,8 +1764,8 @@ func _draw() -> void:
 			if j < i: continue
 			var oi := int(hosts[i].owner); var oj := int(hosts[j].owner)
 			var lcol := Color(0.35, 0.5, 0.7, 0.18); var w := 1.0
-			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.4; w = 2.0
-			if _link_busy(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.7); w = 3.0
+			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.35; w = 1.3
+			if _link_busy(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8
 			if focus_on and not flinks.has(_lk(i, int(j))): lcol.a *= 0.22
 			draw_line(hosts[i].pos, hosts[int(j)].pos, lcol, w, true)
 	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent);
@@ -1700,6 +1777,7 @@ func _draw() -> void:
 			if d >= 0 and _next_depart.has(i): _draw_route_line(_route(i, d), i, d, true)
 			continue
 		var dimmed: bool = focus_on and not (fnodes.has(i) and fnodes.has(a))
+		if bool(hosts[i].live) and not _mine(i) and str(hosts[i].get("mode", "attack")) == "scan": continue   # their quiet scans are invisible
 		if bool(hosts[i].live):
 			_draw_route_line(_route(i, a), i, a, dimmed)
 		else:
@@ -1707,14 +1785,17 @@ func _draw() -> void:
 			if not _mine(i): kcol = fcol(int(hosts[i].owner)); kcol.a = 0.45
 			if dimmed: kcol.a *= 0.25
 			var rt := _route(i, a)
-			if rt.size() >= 2: _draw_dashed(rt, kcol, 2.0)
-			elif _mine(i): _draw_dashed([i, a], Color(0.8, 0.5, 0.5, (0.15 if dimmed else 0.55)), 1.5)   # unrouted plan
+			if rt.size() >= 2: _draw_dashed(rt, kcol, 1.2)
+			elif _mine(i): _draw_dashed([i, a], Color(0.8, 0.5, 0.5, (0.15 if dimmed else 0.55)), 1.0)   # unrouted plan
 	for fl in flights:   # packets: yours = circle, other botnets = square in their colour, Cash = diamond
 		var pp := _packet_pos(fl, _t)
 		var endn := int((fl.route as Array)[(fl.route as Array).size() - 1])
 		var threat: bool = int(fl.owner) != PLAYER and _mine(endn)
 		var ba: float = 1.0 if (not focus_on or fnodes.has(endn) or threat) else 0.3
 		var fc := fcol(int(fl.owner))
+		if str(fl.kind) == "scan":
+			if int(fl.owner) == PLAYER: draw_arc(pp, 3.5, 0.0, TAU, 12, Color(0.6, 0.95, 1.0, ba), 1.5, true)   # a quiet scan: only you see it
+			continue
 		if str(fl.kind) == "cash":
 			var c := Color(1, 0.9, 0.3, ba) if int(fl.owner) == PLAYER else Color(fc.r, fc.g, fc.b, ba).lightened(0.3)
 			draw_colored_polygon(PackedVector2Array([pp + Vector2(0, -4), pp + Vector2(4, 0), pp + Vector2(0, 4), pp + Vector2(-4, 0)]), c)
@@ -1727,12 +1808,12 @@ func _draw() -> void:
 		var red := Color(1, 0.35, 0.3, 0.95)
 		for i in hosts.size():
 			if i != aim and int(hosts[i].assign) == aim:
-				_frame(hosts[i].pos, _r(i) + 11.0, gold if _mine(i) else red, 2.5)   # gold = yours, red = another botnet's
+				_frame(hosts[i].pos, _r(i) + 11.0, gold if _mine(i) else red, 1.8)   # gold = yours, red = another botnet's
 		var aout := int(hosts[aim].assign)
-		if aout >= 0: _frame(hosts[aout].pos, _r(aout) + 11.0, gold, 2.5)
+		if aout >= 0: _frame(hosts[aout].pos, _r(aout) + 11.0, gold, 1.8)
 		var reach := 0
 		for s in _aim_sources():
-			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 3.0); reach += 1
+			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 1.6); reach += 1
 		if _dragging and reach == 0:
 			draw_string(f, (hosts[aim].pos as Vector2) + Vector2(-_r(aim), -_r(aim) - 24.0), "✖ no path to %s" % str(hosts[aim].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.45, 0.4))
 		else:
@@ -1762,8 +1843,8 @@ func _draw() -> void:
 			for s in _aim_sources():
 				if _link_kind(int(s), hv) != "": ok = true; break
 			if not ok: lcol2 = Color(1, 0.4, 0.35, 0.95)
-		draw_line(hosts[_drag_from].pos, to, lcol2, 3.0, true)
-		draw_circle(to, 4.0, lcol2)
+		draw_line(hosts[_drag_from].pos, to, lcol2, 1.8, true)
+		draw_circle(to, 3.0, lcol2)
 	if _boxing:
 		var r := Rect2(_box_start, get_local_mouse_position() - _box_start).abs()
 		draw_rect(r, Color(0.6, 1, 1, 0.08), true)
@@ -1791,15 +1872,16 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if bool(hosts[i].rig): _frame(p, rr + 1.0, Color(1, 1, 1, 0.8 * a), 2.0)   # a rig = Cash sink
 	if _mine(i) and _under_attack(i):   # under attack → red frame, always full brightness (never fogged)
 		_frame(p, rr + 3.0, Color(1, 0.4, 0.35, 0.95), 2.5)
-	if sel.has(i): _frame(p, rr + 6.0, Color(1, 1, 1, 0.95 * a), 3.0)
-	if i == _inspect: _frame(p, rr + 8.0, Color(1, 0.9, 0.3, a), 2.0)
-	if is_aim: _frame(p, rr + 9.0, Color(1, 0.9, 0.3), 3.0)
+	if sel.has(i): _frame(p, rr + 6.0, Color(1, 1, 1, 0.95 * a), 2.0)
+	if i == _inspect: _frame(p, rr + 8.0, Color(1, 0.9, 0.3, a), 1.5)
+	if is_aim: _frame(p, rr + 9.0, Color(1, 0.9, 0.3), 2.0)
 	if i == rally: draw_string(f, p + Vector2(rr + 4.0, 5.0), "⚑ RALLY", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 0.9, 0.5, a))
 	var fr: float = clampf(float(hosts[i].bots) / NODE_CAP, 0.0, 1.0)
 	draw_rect(Rect2(p.x - rr, p.y + rr + 5.0, rr * 2.0, 5.0), Color(0.1, 0.12, 0.16, a), true)
 	var bar := fcol(int(hosts[i].owner)).lightened(0.25); bar.a = a
 	draw_rect(Rect2(p.x - rr, p.y + rr + 5.0, rr * 2.0 * fr, 5.0), bar, true)
 	var nb_txt := "%d" % int(round(float(hosts[i].bots)))   # the bot counter: a small dark badge at the foot
+	if not _mine(i) and not _scanned(PLAYER, i): nb_txt = "?"   # unscanned: its strength is unknown to you
 	var bw := 8.0 + 7.0 * float(nb_txt.length())
 	draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 13.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
 	draw_string(f, Vector2(p.x - 3.6 * float(nb_txt.length()), p.y + rr * 0.42 + 10.5), nb_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.95, 0.97, 1.0, a))
@@ -1822,7 +1904,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if sub != "": draw_string(f, p + Vector2(rr + 3.0, rr + 10.0), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 0.85, 0.4, a))
 
 
-func _draw_dashed(rt: Array, col := Color(1, 0.9, 0.5, 0.9), w := 2.0) -> void:   # dashed = a dormant plan
+func _draw_dashed(rt: Array, col := Color(1, 0.9, 0.5, 0.9), w := 1.2) -> void:   # dashed = a dormant plan
 	for k in range(rt.size() - 1):
 		var a: Vector2 = hosts[int(rt[k])].pos
 		var b: Vector2 = hosts[int(rt[k + 1])].pos
@@ -1848,8 +1930,8 @@ func _draw_route_line(rt: Array, src: int, tgt: int, dim := false) -> void:
 	var fade := 0.3 if dim else 1.0
 	var pts := PackedVector2Array()
 	for idx in rt: pts.append(hosts[int(idx)].pos)
-	draw_polyline(pts, Color(col.r, col.g, col.b, 0.28 * fade), 6.0, true)
-	draw_polyline(pts, Color(col.r, col.g, col.b, 0.9 * fade), 2.5, true)
+	draw_polyline(pts, Color(col.r, col.g, col.b, 0.16 * fade), 3.2, true)
+	draw_polyline(pts, Color(col.r, col.g, col.b, 0.9 * fade), 1.4, true)
 	var a: Vector2 = hosts[int(rt[rt.size() - 2])].pos
 	var b: Vector2 = hosts[int(rt[rt.size() - 1])].pos
 	var dir: Vector2 = (b - a).normalized()
@@ -1857,10 +1939,10 @@ func _draw_route_line(rt: Array, src: int, tgt: int, dim := false) -> void:
 	var perp := Vector2(-dir.y, dir.x)
 	var c := Color(col.r, col.g, col.b, 0.95 * fade)
 	if reinforce:
-		var ctr := tip - dir * 7.0
-		draw_colored_polygon(PackedVector2Array([ctr + dir * 7.0, ctr + perp * 6.0, ctr - dir * 7.0, ctr - perp * 6.0]), c)
+		var ctr := tip - dir * 5.0
+		draw_colored_polygon(PackedVector2Array([ctr + dir * 5.0, ctr + perp * 4.0, ctr - dir * 5.0, ctr - perp * 4.0]), c)
 	else:
-		draw_colored_polygon(PackedVector2Array([tip, tip - dir * 14.0 + perp * 8.0, tip - dir * 14.0 - perp * 8.0]), c)
+		draw_colored_polygon(PackedVector2Array([tip, tip - dir * 9.0 + perp * 5.0, tip - dir * 9.0 - perp * 5.0]), c)
 
 
 # ============================================================ LOCAL VIEW WIDGETS (slots & cards)

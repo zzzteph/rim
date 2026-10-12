@@ -20,7 +20,7 @@ plus the decisions taken on 2026-10-11:
 | What are bots | A **stock held per building**; the more a building holds, the better it works |
 | Win condition | **Cash** |
 | Command unit (building / district / supply tree) | Undecided — the **rally point** is the experiment |
-| How you command | **Two verbs:** CONNECT by drag, LAUNCH from the target's panel; guards arm themselves |
+| How you command | **Two verbs:** CONNECT by drag, LAUNCH from the target's panel (quiet SCAN or loud ATTACK); guards arm themselves |
 
 ## The five experiments (what each tests)
 
@@ -113,6 +113,23 @@ Intel-rich types for harvesters and Cash-rich ones for markets, and value richer
   defence = green diamond, an AI's flow = its colour, brighter when aimed at you. Packets: yours = circle,
   AI = square in its colour, Cash = diamond. Amber street = link at capacity.
 
+### Scanning — quiet reveal, or attack blind and raise the alarm
+- A foreign building you have not scanned shows **?** for its bots; its slots and what is inside are unknown.
+  Its type (the pictogram) and district value are visible.
+- **Flow: CONNECT → SCAN or ATTACK.** Wire into the building; its panel offers two launches.
+  - **🔍 SCAN quietly:** your sources release scan bots along their network (1 Intel each, like attack bots).
+    They are **consumed on arrival and never wound a defender, and the owner is never alerted**: no red frame,
+    no guards arming, no AI reaction, and other botnets' scan packets are invisible to you. The building's
+    **scan protection** is a fixed threshold, not regenerated and not depleted: `SCAN_BASE` (10) bots plus
+    `SCAN_PER_BUILD` (5) per building inside. One source at 1 bot/s scans an empty PC in about 10 s; a full
+    Database takes 30. When the threshold is reached the building is **revealed** (bots, slots, contents), the
+    scan flows **stand down** (dormant, wires kept) and the panel switches to **⚔ ATTACK** — nothing auto-fires.
+  - **⚔ ATTACK blind:** attack bots wound as usual and **reveal the building as they land** (the same 10 + 5
+    threshold), but the attack **is an alarm**: the owner sees it, guards arm, the AI defends.
+- Knowledge is per botnet and does not expire unless the inside changes (a building built, demolished or
+  replaced), which requires a rescan. Partial progress is kept. A building you own needs no scan.
+- The AI botnets scan quietly before an attack and counter-attack blind.
+
 ### Control stages (experiment 4)
 `FULL` ≥ 2/3 cap: all slots work · `SHAKY` ≥ 1/3: the last slot is offline · `CRITICAL`: the last two are
 offline (the first slot always works). A freshly captured building starts near 0 bots: only its first slot
@@ -182,7 +199,7 @@ NYX is aggressive (`aggr` 0.8: prefers botnet targets, opens a second front); KR
 
 ## Provisional values
 `NODE_CAP 30 · PROD_RATE 1 · ATTACK 1 / DEFEND 1.5 · SEND_RATE 1 · LINK_TIME 1 · NODE_ROUTE_DELAY 0.25 ·
-LINK_CAP 2 · MAX_QUEUE 1 · BUILD_TIME 10 · DEMOLISH_TIME 5 · ENTER_TIME 2 · CASH_INTERVAL 3 · CASH_GOAL 600 · INTEL_START 50 ·
+LINK_CAP 2 · MAX_QUEUE 1 · SCAN_BASE 10 · SCAN_PER_BUILD 5 · BUILD_TIME 10 · DEMOLISH_TIME 5 · ENTER_TIME 2 · CASH_INTERVAL 3 · CASH_GOAL 600 · INTEL_START 50 ·
 INTEL_CAP_BASE 100 · RALLY_RESERVE 10 · AI cadence 3 / 3.5 · AI_RESERVE 6 · AI_PATIENCE 30 ·
 AI_MAX_STREAMS 4 · EMPTY_CELL 0.15 · LINK_KEEP 0.78 · DIAG_P 0.18`
 
@@ -196,50 +213,30 @@ AI_MAX_STREAMS 4 · EMPTY_CELL 0.15 · LINK_KEEP 0.78 · DIAG_P 0.18`
   not for downtown. Building an Intel harvester early is mandatory; the idle panel says so.
 
 ## Validation (2026-10-11, Godot 4.7.2 headless + rendered under Xvfb)
-Mechanics probe in `review/botnet_v2_2026-10-11/`: 18 cases — generation (three botnets, connected,
+Mechanics probe in `review/botnet_v2_2026-10-11/`: 19 cases — generation (three botnets, connected,
 different per seed), faction routing, link capacity queueing, chronological arrivals with terminal freeze,
 control stages, attention-gated jobs, capture and the neutral security cap, AI concentration and building,
 Cash travel and banking, rally garrison and overfill, frame-rate consistency, attack-the-attacker, the two
 verbs (dormant wiring, path constraint, launch, stop, Esc), guards arming and standing down, and ownership
 changes (flows become guards, loss stands wires down), and the slot board (build into a chosen slot, replace in
 5 + 10 s with the slot offline meanwhile), and building types (slots, Intel ×2 in a Database, bots ×1.5 in an ERP,
-the single IoT slot). Rendered captures of the panel states and scripted
+the single IoT slot), and scanning (a quiet scan raises no alarm, consumes bots, reveals at the threshold and stands
+down; a blind attack alarms, wounds and reveals; a changed inside needs a rescan). Rendered captures of the panel states and scripted
 matches are in `gallery/`.
 
-**Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active, 10 s builds, typed buildings:**
+**Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active, 10 s builds, typed buildings,
+scanning before attacks:**
 
 | Run | Outcome | Time | Buildings you / NYX / KRAKEN |
 |---|---|---|---|
-| You idle (seed 7) | NYX banks 600 | 3:50 | 2 / 11 / 7 |
-| Greedy scripted player, perfect attention (seed 7) | NYX banks 600 | 3:50 | 3 / 11 / 3 |
-| Greedy scripted player (seed 11) | NYX banks 600 | 4:08 | 3 / 8 / 6 |
+| You idle (seed 7) | NYX banks 600 | 4:25 | 2 / 8 / 6 |
+| Greedy scripted player, perfect attention (seed 7) | NYX banks 600 | 4:22 | 2 / 8 / 6 |
+| Greedy scripted player (seed 11) | NYX banks 600 | 4:26 | 3 / 7 / 6 |
 
-Typed buildings shortened the clock again: soft IoT devices on the rim are quick first captures and Intel-rich
-Databases and Servers fund attacks faster. The AIs set a ~4-minute clock and beat the greedy script on both
-seeds, so as asked they are strong. A first human run will need a handicap: raise `CASH_GOAL`, slow the AI
-`cadence`, or lower `aggr`. Tune one value at a time after watching play; the AI only attacks what it can
-afford and beat, so the honest first knob is its Intel start or cadence, not its combat numbers.
-
-## Open question: Intel (explore before changing)
-Today bots regenerate for free and **attacking** spends Intel. That reads as a duplicate: Intel is only an
-attack tax. Options explored on 2026-10-11:
-
-- **A. Intel pays for bots, attacking is free.** A Bot farm consumes 1 Intel per bot it produces and stops
-  consuming at the cap. One currency, one budget: growing, defending (regenerating after damage) and attacking
-  all draw on it. Needs a floor so a broke botnet can still regenerate slowly (no permanent lockout). The AIs
-  already pay Intel like you, so the change applies to everyone. Thematically Intel-for-bots is a stretch;
-  the basic game would call this fuel Cycles.
-- **B. Intel pays for cards, bots are free.** Intel becomes a burst resource for **ultimate cards**:
-  credential stuffing, a CVE exploit, phishing, a DDoS that freezes regeneration. Matches the basic game's
-  resource-funded attack cards. Attack *types* then exist because each card is strong against a building
-  **type** (offices/PCs for credentials, server farms for CVEs, residential for phishing) — the town already
-  varies buildings, so types are cheap to add.
-- **C. A + B.** Bots cost Intel to produce *and* cards cost Intel: the choice becomes "thirty bots or one
-  exploit". Cards are additive and can be tested after A.
-
-**Recommendation:** test **A** first (it changes the core loop; small code change: move the Intel charge from
-`_emit_due` to regeneration and add the floor), keep attack types out of the bot flow, and bring them back as
-**cards** against building types. Not implemented yet.
+Scanning before every attack slowed the AIs by about half a minute. They still set a ~4½-minute clock and beat
+the greedy script, so as asked they are strong. A first human run will need a handicap: raise `CASH_GOAL`,
+slow the AI `cadence`, or lower `aggr`. Tune one value at a time after watching play; the AI only attacks what
+it can afford and beat, so the honest first knob is its Intel start or cadence, not its combat numbers.
 
 ## Next: Cash buys attack cards (designer's direction, 2026-10-12 — not built yet)
 
@@ -340,6 +337,10 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
     picture, slot count (1…5), production multipliers and security bonus, spawned by district; rigs are
     Servers, the hub is an ERP. Buildings are no longer circles: the pictogram itself is the building on the
     map (filled in the owner's colour, square frames for selection, focus and threat).
+17. **Scanning (2026-10-12):** a foreign building is unknown ("?") until scanned. A quiet SCAN launch sends
+    bots that are consumed without wounding and never alert the owner; the protection is a fixed 10 + 5 per
+    building inside; a completed scan stands its flows down. Any ATTACK reveals the building as bots land
+    but raises the alarm. A changed inside needs a rescan; the AIs scan quietly before attacking.
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral

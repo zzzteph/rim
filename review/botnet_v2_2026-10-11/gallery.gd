@@ -68,21 +68,30 @@ func _run() -> void:
 	game.sel = {sp: true, rp: true}
 	await shoot("select_group")
 	game._wire(t1)
-	await shoot("wired_dormant_launch_pad")
+	await shoot("wired_dormant_scan_or_attack")
 	game.sel = {sp: true}; game._wire(rp)
 	await shoot("guard_wire_standby")
-	game.sel = {sp: true, rp: true}; game._wire(t1); game._launch(t1)
+	game.sel = {sp: true, rp: true}; game._wire(t1); game._launch(t1, "scan")
+	sim(3.0)
+	await shoot("quiet_scan_in_progress")
+	var guard19 := 0
+	while not game._scanned(game.PLAYER, t1) and guard19 < 120:
+		sim(0.5); guard19 += 1
+	sim(0.5)
+	await shoot("scanned_launch_pad_attack")
+	game._launch(t1, "attack")
 	sim(6.0)
 	await shoot("attack_launched_two_streams_link_busy")
 	game._clear_all(); game._inspect = t1
 	await shoot("inspect_target_reducing_defenders")
 	# a single stream that cannot overcome regeneration, on a second target
 	if t2 >= 0:
-		game.hosts[sp].assign = t2; game.hosts[sp].live = true
+		game._mark_scanned(game.PLAYER, t2)
+		game.hosts[sp].assign = t2; game.hosts[sp].live = true; game.hosts[sp].mode = "attack"
 		sim(4.0)
 		game._clear_all(); game._inspect = t2
 		await shoot("inspect_not_overcoming_regeneration")
-		game.hosts[sp].assign = t1; game.hosts[sp].live = true
+		game.hosts[sp].assign = t1; game.hosts[sp].live = true; game.hosts[sp].mode = "attack"
 	# run until the first target falls
 	var guard := 0
 	while int(game.hosts[t1].owner) != game.PLAYER and guard < 400:
@@ -136,7 +145,7 @@ func _run() -> void:
 	var rn := neutral_nb(sp, [rp, t1])
 	if rn < 0: rn = neutral_nb(t1, [rp, sp])
 	if rn >= 0:
-		game.hosts[rn].owner = game.RIVAL; game.hosts[rn].bots = 30.0; game.hosts[rn].assign = sp; game.hosts[rn].live = true
+		game.hosts[rn].owner = game.RIVAL; game.hosts[rn].bots = 30.0; game.hosts[rn].assign = sp; game.hosts[rn].live = true; game.hosts[rn].mode = "attack"
 		game._flash("⚔ NYX is attacking %s with 1 source(s) — defend it!" % str(game.hosts[sp].name))
 		sim(4.0)
 		game._clear_all()
@@ -227,4 +236,4 @@ func _greedy_player() -> void:
 	srcs.sort_custom(func(a, b): return a[0] < b[0])
 	if srcs.size() < 2: return
 	for s in srcs.slice(0, mini(need, srcs.size())):
-		game.hosts[int(s[1])].assign = pick; game.hosts[int(s[1])].live = true
+		game.hosts[int(s[1])].assign = pick; game.hosts[int(s[1])].live = true; game.hosts[int(s[1])].mode = "scan" if not game._scanned(game.PLAYER, pick) else "attack"

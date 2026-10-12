@@ -314,6 +314,37 @@ func _run() -> void:
 	check("18_building_types", types_ok and intel_x2 and regen_x15 and iot_one and counts.size() >= 4,
 		{"types_consistent": types_ok, "db_intel_x2": intel_x2, "erp_regen_x15": regen_x15, "iot_single_slot": iot_one, "type_counts_seed7": counts})
 
+	# 19 scanning: a quiet SCAN consumes bots, never wounds, raises no alarm, reveals at 10 + 5 per building
+	#    and then stands down; an ATTACK on an unscanned building reveals as bots land but IS an alarm;
+	#    a changed inside invalidates the knowledge
+	fresh()
+	var t19 := neutral_nb(rigP())
+	var hidden_before: bool = not game._scanned(game.PLAYER, t19) and game._stage_line(t19).begins_with("unscanned")
+	game.sel = {rigP(): true}; game._wire(t19); game._launch(t19, "scan")
+	var bots0: float = game.hosts[t19].bots
+	step(2.0, 0.1)
+	var quiet: bool = not game._under_attack(t19) and game.flights.size() >= 1 and str(game.flights[0].kind) == "scan"
+	var cost: float = game._scan_cost(t19)
+	step(cost + 4.0, 0.1)
+	var revealed: bool = game._scanned(game.PLAYER, t19) and not bool(game.hosts[rigP()].live) and int(game.hosts[rigP()].assign) == t19
+	var unharmed: bool = absf(float(game.hosts[t19].bots) - bots0) < 0.01
+	game.hosts[t19].builds[1] = "cash"            # its inside changed → the knowledge is stale
+	var stale: bool = not game._scanned(game.PLAYER, t19)
+	var t19b := neutral_nb(rigP(), -1)
+	for o in game.hosts[rigP()].links:
+		if int(game.hosts[o].owner) == game.NEUTRAL and int(o) != t19: t19b = int(o)
+	var blind_ok := true
+	if t19b >= 0 and t19b != t19:
+		game.sel = {rigP(): true}; game._wire(t19b); game._launch(t19b, "attack")
+		step(1.5, 0.1)
+		var alarmed: bool = game._under_attack(t19b)
+		step(3.0, 0.1)
+		var wounded: bool = float(game.hosts[t19b].bots) < float(game.hosts[t19b].sec) - 0.5
+		var progress_from_attack: bool = game._scan_progress(game.PLAYER, t19b) >= 2.0
+		blind_ok = alarmed and wounded and progress_from_attack
+	check("19_scan_quiet_or_attack_loud", hidden_before and quiet and revealed and unharmed and stale and blind_ok,
+		{"hidden_before": hidden_before, "quiet_no_alarm": quiet, "revealed_and_stood_down": revealed, "unharmed": unharmed, "stale_after_change": stale, "blind_attack_alarms_wounds_reveals": blind_ok, "cost": cost})
+
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)
 	var greedy7 := _run_match(SEED, true, 600.0)
