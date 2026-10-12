@@ -62,7 +62,7 @@ func _run() -> void:
 		and int(game.rig[game.RIVAL2]) == game.cell_at(0, 5)
 		and rigP() == game.cell_at(0, 0) and rigR() == game.cell_at(5, 5) and game.hub >= 0
 		and int(game.hosts[game.hub].owner) == game.NEUTRAL and game._built_kinds(game.hub).size() == 2
-		and int(game.hosts[game.hub].slots) == 4 and all_connected and all_linked and distinct.size() > 1,
+		and int(game.hosts[game.hub].slots) == int(game.NODE_TYPES["erp"].slots) and str(game.hosts[game.hub].type) == "erp" and all_connected and all_linked and distinct.size() > 1,
 		{"hosts": game.hosts.size(), "owners": own, "hub": game.hub, "sizes_by_seed": sizes, "all_connected": all_connected})
 
 	# 02 routing stays inside the sender's own faction network
@@ -148,18 +148,26 @@ func _run() -> void:
 		{"neutral_regrew_to_security": regrew_to_sec, "after_rival": cap_r, "owned_regrows_past_security": owned_regrows, "after_player": game.hosts[nn].owner})
 
 	# 08 an AI botnet cannot afford an attack from a cold start, so it builds an Intel harvester first, then
-	#    concentrates several sources on one soft bordering building (checked after 22 s of play)
+	#    concentrates several sources on one soft bordering building (watched over the first 25 s of play)
 	fresh()
 	game.ai_enabled = true
-	step(22.0, 0.1)
-	var assigned := []
-	for i in game.hosts.size():
-		if int(game.hosts[i].owner) == game.RIVAL and int(game.hosts[i].assign) >= 0 and bool(game.hosts[i].live) and int(game.hosts[game.hosts[i].assign].owner) != game.RIVAL: assigned.append([i, game.hosts[i].assign])
+	var attacked_ever := false; var max_streams := 0
+	for tick50 in 50:
+		step(0.5, 0.1)
+		var live_now := {}
+		for i in game.hosts.size():
+			var a := int(game.hosts[i].assign)
+			if int(game.hosts[i].owner) == game.RIVAL and a >= 0 and bool(game.hosts[i].live) and int(game.hosts[a].owner) != game.RIVAL:
+				live_now[a] = int(live_now.get(a, 0)) + 1
+		for t in live_now.keys():
+			attacked_ever = true
+			max_streams = maxi(max_streams, int(live_now[t]))
 	var built_intel := 0
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) == game.RIVAL: built_intel += game._count_all(i, "intel")
-	var same_target: bool = assigned.size() >= 2 and int(assigned[0][1]) == int(assigned[1][1])
-	check("08_ai_builds_then_concentrates", same_target and built_intel >= 1, {"assigned": assigned, "harvesters": built_intel, "nyx_intel": game.intel[game.RIVAL]})
+	var captured: bool = game._faction_nodes(game.RIVAL) > 2
+	check("08_ai_builds_then_concentrates", built_intel >= 1 and attacked_ever and max_streams >= 2,
+		{"harvesters": built_intel, "attacked": attacked_ever, "max_streams_on_one_target": max_streams, "captured_within_25s": captured, "nyx_intel": game.intel[game.RIVAL]})
 
 	# 09 Cash packets travel home and bank at the rig; a market ON the rig banks directly
 	fresh()
@@ -288,6 +296,23 @@ func _run() -> void:
 	check("17_slot_build_and_replace", cannot_outside and same_refused and build_started and built_in_slot1 and replace_started and offline_meanwhile and cleared_then_building and replaced,
 		{"cannot_drop_from_outside": cannot_outside, "same_kind_refused": same_refused, "build_started": build_started, "built_in_slot": built_in_slot1,
 		 "replace_started": replace_started, "offline_meanwhile": offline_meanwhile, "cleared_then_building": cleared_then_building, "replaced": replaced, "builds": game.hosts[n8].builds})
+
+	# 18 building types: every building has a type whose slot count it uses; a harvester in a Database yields
+	#    Intel ×2; a Bot farm in an ERP regenerates ×1.5; an IoT device has exactly one slot
+	fresh()
+	var types_ok := true; var counts := {}
+	for h in game.hosts:
+		var t: String = str(h.type)
+		counts[t] = int(counts.get(t, 0)) + 1
+		if not game.NODE_TYPES.has(t) or int(h.slots) != int(game.NODE_TYPES[t].slots) or (h.builds as Array).size() != int(h.slots): types_ok = false
+	game.hosts[n8].type = "db"; game.hosts[n8].slots = 4; game._set_builds(n8, ["bot", "intel"])
+	var intel_x2: bool = absf(game._intel_rate(game.PLAYER) - 2.0) < 0.001
+	game.hosts[n8].type = "erp"; game.hosts[n8].slots = 5; game._set_builds(n8, ["bot"])
+	var regen_x15: bool = absf(game._regen(n8) - 1.5) < 0.001
+	game.hosts[n8].type = "iot"; game.hosts[n8].slots = 1; game._set_builds(n8, ["bot"])
+	var iot_one: bool = game._free_slot(n8) == -1 and int(game.hosts[n8].slots) == 1
+	check("18_building_types", types_ok and intel_x2 and regen_x15 and iot_one and counts.size() >= 4,
+		{"types_consistent": types_ok, "db_intel_x2": intel_x2, "erp_regen_x15": regen_x15, "iot_single_slot": iot_one, "type_counts_seed7": counts})
 
 	# 13 pacing readings (NOT balance verdicts): the rival alone, and a scripted greedy player vs the rival
 	var alone := _run_match(SEED, false, 600.0)

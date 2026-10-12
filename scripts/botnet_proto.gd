@@ -60,6 +60,23 @@ const LINK_KEEP := 0.78            # chance a street between two neighbouring bu
 const DIAG_P := 0.18               # chance of a diagonal shortcut street
 const TOWN_WORDS := ["Block", "Yard", "Row", "Plaza", "Depot", "Tower", "Mill", "Court", "Lane", "Pier", "Works", "Arcade"]
 
+# ── building TYPES: slots and production multipliers; the picture on the map is the type's icon ──
+const NODE_TYPES := {
+	"pc":     {"name": "PC",          "short": "PC",   "slots": 3, "bot": 1.0, "intel": 1.0, "cash": 1.0, "sec": 0,  "desc": "an office workstation — 3 slots"},
+	"iot":    {"name": "IoT device",  "short": "IoT",  "slots": 1, "bot": 1.0, "intel": 1.0, "cash": 1.0, "sec": -3, "desc": "a camera or a router — 1 slot, soft"},
+	"server": {"name": "Server",      "short": "Srv",  "slots": 3, "bot": 1.0, "intel": 1.5, "cash": 1.0, "sec": 2,  "desc": "a rack server — 3 slots, Intel ×1.5"},
+	"web":    {"name": "Web server",  "short": "Web",  "slots": 3, "bot": 1.0, "intel": 1.5, "cash": 1.0, "sec": 2,  "desc": "a public web host — 3 slots, Intel ×1.5"},
+	"db":     {"name": "Database",    "short": "DB",   "slots": 4, "bot": 1.0, "intel": 2.0, "cash": 1.0, "sec": 3,  "desc": "a database cluster — 4 slots, Intel ×2"},
+	"file":   {"name": "File server", "short": "Files","slots": 4, "bot": 1.0, "intel": 2.0, "cash": 1.0, "sec": 3,  "desc": "a file server — 4 slots, Intel ×2"},
+	"erp":    {"name": "ERP system",  "short": "ERP",  "slots": 5, "bot": 1.5, "intel": 1.5, "cash": 1.5, "sec": 6,  "desc": "an enterprise core — 5 slots, everything ×1.5"},
+}
+# spawn weights by district value (rim 1 … downtown 3)
+const TYPE_WEIGHTS := {
+	1: {"iot": 0.35, "pc": 0.40, "web": 0.10, "server": 0.10, "file": 0.05},
+	2: {"pc": 0.30, "server": 0.20, "web": 0.20, "db": 0.15, "file": 0.15},
+	3: {"db": 0.25, "file": 0.20, "server": 0.20, "web": 0.15, "erp": 0.20},
+}
+
 const NODE_CAP := 30.0             # bots limit per OWNED building
 const PROD_RATE := 1.0             # bots/sec PER active Bot farm
 
@@ -68,7 +85,6 @@ const ATTACK_POWER := 1.0
 const DEFEND_POWER := 1.5
 
 # ── the LOCAL layer: buildings inside a building (slots), built on a timer while you are INSIDE ──
-const HUB_SLOTS := 4
 const BUILD_TIME := 10.0           # seconds a build job needs; YOUR jobs progress only while you are inside
 const DEMOLISH_TIME := 5.0         # seconds to clear an occupied slot first (replace = DEMOLISH_TIME + BUILD_TIME)
 const ENTER_TIME := 2.0            # seconds to connect into a building before its local view is usable
@@ -186,7 +202,7 @@ func _gen() -> void:
 	intel = {}; cash = {}; _ai = {}
 	for fac in BOTNETS: intel[fac] = INTEL_START; cash[fac] = 0.0
 	for fac in AIS: _ai[fac] = {"timer": float(AI_PROFILE[fac].cadence) * (0.5 + 0.3 * float(fac)), "ops": {}, "avoid": -1, "dead": false}
-	var ax := 70.0; var ay := 104.0
+	var ax := 70.0; var ay := 112.0
 	var aw := sz.x - PANEL_W - 150.0; var ah := sz.y - ay - 120.0
 	var sx := aw / float(GRID_COLS - 1); var sy := ah / float(GRID_ROWS - 1)
 	var centre := Vector2(float(GRID_COLS - 1) * 0.5, float(GRID_ROWS - 1) * 0.5)
@@ -206,13 +222,15 @@ func _gen() -> void:
 			var dist: float = Vector2(gx, gy).distance_to(centre) / centre.length()   # 0 downtown … 1 corner
 			var value := 3 if (is_hub or dist < 0.38) else (2 if dist < 0.72 else 1)
 			if not is_hub and rng.randf() < 0.2: value = clampi(value + (1 if rng.randf() < 0.5 else -1), 1, 3)
-			var sec := 30.0 if is_hub else float(2 + value * 5 + int(rng.randi() % 6))   # 7…22 defenders
-			var slots := HUB_SLOTS if is_hub else clampi(1 + value + (1 if rng.randf() < 0.4 else 0), 2, 4)
+			var ntype := "erp" if is_hub else _pick_type(value)
+			var tp: Dictionary = NODE_TYPES[ntype]
+			var sec := 30.0 if is_hub else clampf(float(2 + value * 5 + int(rng.randi() % 6) + int(tp.sec)), 4.0, 28.0)   # 4…28 defenders
+			var slots := int(tp.slots)
 			var p := Vector2(ax + sx * float(gx), ay + sy * float(gy)) + Vector2(rng.randf_range(-0.26, 0.26) * sx, rng.randf_range(-0.26, 0.26) * sy)
 			_cell[c] = hosts.size()
 			if is_hub: hub = hosts.size()
 			hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
-				"name": "DOWNTOWN HUB" if is_hub else "%s %d" % [TOWN_WORDS[rng.randi() % TOWN_WORDS.size()], hosts.size() + 1],
+				"name": "DOWNTOWN HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
 				"links": [], "owner": NEUTRAL, "bots": sec, "sec": sec, "value": value, "slots": slots,
 				"builds": _slot_array(["bot", "bot"] if is_hub else ["bot"], slots), "job": {}, "assign": -1, "live": false, "rate": 1.0})
 	for c in _cell.keys():   # streets: grid neighbours (some missing), a few diagonals (never crossing)
@@ -267,13 +285,32 @@ func _components() -> Array:   # connected groups of buildings over the street n
 	return out
 
 
-func _claim(i: int, fac: int, is_rig: bool, nm: String) -> void:
-	hosts[i].owner = fac; hosts[i].bots = NODE_CAP; hosts[i].value = 1; hosts[i].slots = maxi(3, int(hosts[i].slots))
+func _claim(i: int, fac: int, is_rig: bool, nm: String) -> void:   # every botnet starts with a Server rig + a PC
+	hosts[i].owner = fac; hosts[i].bots = NODE_CAP; hosts[i].value = 1
+	hosts[i].type = "server" if is_rig else "pc"; hosts[i].slots = int(NODE_TYPES[hosts[i].type].slots)
 	if is_rig:
 		hosts[i].rig = true; rig[fac] = i; hosts[i].builds = _slot_array(["bot", "bot"], int(hosts[i].slots))
 	else:
 		hosts[i].builds = _slot_array(_built_kinds(i), int(hosts[i].slots))
+		hosts[i].name = "PC %d" % (i + 1)
 	if nm != "": hosts[i].name = nm
+
+
+func _pick_type(value: int) -> String:   # weighted by district: soft IoT and PCs on the rim, data and ERP downtown
+	var w: Dictionary = TYPE_WEIGHTS[clampi(value, 1, 3)]
+	var r := rng.randf(); var acc := 0.0
+	for k in w.keys():
+		acc += float(w[k])
+		if r <= acc: return str(k)
+	return str(w.keys()[w.size() - 1])
+
+
+func _tmult(i: int, what: String) -> float:   # the building type's multiplier for "bot", "intel" or "cash"
+	return float(NODE_TYPES[str(hosts[i].get("type", "pc"))].get(what, 1.0))
+
+
+func _regen(i: int) -> float:   # bots/s the building regenerates (its working Bot farms × its type)
+	return float(_count(i, "bot")) * PROD_RATE * _tmult(i, "bot")
 
 
 func _slot_array(kinds: Array, n: int) -> Array:   # positional slots, "" = empty
@@ -536,14 +573,14 @@ func _intel_cap(fac: int) -> float:
 func _intel_rate(fac: int) -> float:
 	var r := 0.0
 	for i in hosts.size():
-		if int(hosts[i].owner) == fac: r += float(_count(i, "intel")) * INTEL_PER_BUILD
+		if int(hosts[i].owner) == fac: r += float(_count(i, "intel")) * INTEL_PER_BUILD * _tmult(i, "intel")
 	return r
 
 
 func _cash_rate(fac: int) -> float:   # Cash/s a faction's active markets emit (before travel)
 	var r := 0.0
 	for i in hosts.size():
-		if int(hosts[i].owner) == fac: r += float(_count(i, "cash")) * float(hosts[i].value) / CASH_INTERVAL
+		if int(hosts[i].owner) == fac: r += float(_count(i, "cash")) * float(hosts[i].value) * _tmult(i, "cash") / CASH_INTERVAL
 	return r
 
 
@@ -695,7 +732,7 @@ func _process(dt: float) -> void:
 		for i in hosts.size():
 			var nb := _count(i, "bot")
 			if nb > 0 and float(hosts[i].bots) < _cap_of(i):
-				hosts[i].bots = minf(_cap_of(i), float(hosts[i].bots) + PROD_RATE * float(nb) * dt)
+				hosts[i].bots = minf(_cap_of(i), float(hosts[i].bots) + _regen(i) * dt)
 		for fac in BOTNETS: intel[fac] = minf(_intel_cap(fac), float(intel[fac]) + _intel_rate(fac) * dt)
 		if _inside >= 0 and _enter_left > 0.0: _enter_left = maxf(0.0, _enter_left - dt)
 		_tick_jobs(dt)
@@ -803,7 +840,7 @@ func _emit_due() -> void:
 			if float(_next_depart[best]) > _t: due.erase(best)
 		else:
 			var rg := int(rig[fac])
-			var amount := float(hosts[best].value)
+			var amount := float(hosts[best].value) * _tmult(best, "cash")
 			if best == rg: _bank(fac, amount)        # the rig banks its own market directly
 			else: flights.append(_schedule(_route(best, rg), best_t, fac, "cash", amount))
 			_next_cash[best] = best_t + CASH_INTERVAL / float(_count(best, "cash"))
@@ -959,7 +996,7 @@ func _ai_think(fac: int) -> void:
 	for t in mine:
 		if not _under_attack(t): continue
 		var threat := _threat_rate(t)
-		var regen := float(_count(t, "bot")) * PROD_RATE - _drain(t)
+		var regen := _regen(t) - _drain(t)
 		var help := 0.0
 		for e in mine:
 			if int(hosts[e].assign) == t and bool(hosts[e].live): help += SEND_RATE * float(hosts[e].rate)
@@ -1004,7 +1041,7 @@ func _ai_think(fac: int) -> void:
 			if want_intel:   # harvester in the safest building (rear first, then fewest hostile neighbours)
 				kind = "intel"; var best := INF
 				for e in free_slot:
-					var sc := (0.0 if not _ai_frontier(e) else 5.0) + (5.0 if _ai_borders_botnet(e) else 0.0)
+					var sc := (0.0 if not _ai_frontier(e) else 5.0) + (5.0 if _ai_borders_botnet(e) else 0.0) - 4.0 * (_tmult(e, "intel") - 1.0)
 					if sc < best: best = sc; site = e
 			if site < 0:   # a frontier building facing a botnet with a single farm gets a second
 				for e in free_slot:
@@ -1012,7 +1049,7 @@ func _ai_think(fac: int) -> void:
 			if site < 0:   # otherwise the richest building gets a market
 				var bestv := -1.0
 				for e in free_slot:
-					var v := float(hosts[e].value) * 2.0 + float(int(hosts[e].slots) - _built_kinds(e).size()) * 0.3 - (1.0 if _ai_borders_botnet(e) else 0.0)
+					var v := float(hosts[e].value) * 2.0 * _tmult(e, "cash") + float(int(hosts[e].slots) - _built_kinds(e).size()) * 0.3 - (1.0 if _ai_borders_botnet(e) else 0.0)
 					if v > bestv: bestv = v; site = e; kind = "cash"
 			if site >= 0: _start_job(site, kind)
 	# ── 3. offence: a cost-aware target, enough streams to beat its regeneration, affordable in Intel ──
@@ -1036,7 +1073,7 @@ func _ai_think(fac: int) -> void:
 				if not rt.is_empty(): srcs.append([rt.size(), e])
 			if srcs.size() < 2: continue
 			srcs.sort_custom(func(a, b): return a[0] < b[0])
-			var regen_net := float(_count(c, "bot")) * PROD_RATE - _drain(c)
+			var regen_net := _regen(c) - _drain(c)
 			var need := clampi(int(ceil((maxf(regen_net, 0.0) + 0.5) / (SEND_RATE * ATTACK_POWER / DEFEND_POWER))), 2, AI_MAX_STREAMS)
 			var n := mini(need, srcs.size())
 			var dmg := float(n) * SEND_RATE * (ATTACK_POWER / DEFEND_POWER)
@@ -1046,7 +1083,7 @@ func _ai_think(fac: int) -> void:
 			var cost := secs * float(n)
 			if cost > float(intel[fac]) + _intel_rate(fac) * secs: continue
 			var o := int(hosts[c].owner)
-			var benefit := float(hosts[c].value) * 3.0 + float(hosts[c].slots) + float(_built_kinds(c).size())
+			var benefit := float(hosts[c].value) * 3.0 + float(hosts[c].slots) + float(_built_kinds(c).size()) + 2.0 * (_tmult(c, "intel") + _tmult(c, "cash") + _tmult(c, "bot") - 3.0)
 			if o != NEUTRAL: benefit += 4.0 + 6.0 * aggr          # taking a rival's building also hurts its income
 			if o == PLAYER: benefit += 2.0 * aggr
 			var others := 0
@@ -1363,17 +1400,27 @@ func _panel_result() -> void:
 	_btn("↻ Restart in a new town", _reset)
 
 
+func _type_line(i: int) -> String:   # "Database · 4 slots · Intel ×2"
+	var tp: Dictionary = NODE_TYPES[str(hosts[i].get("type", "pc"))]
+	var mults := ""
+	for what in ["bot", "intel", "cash"]:
+		if float(tp[what]) != 1.0: mults += " · %s ×%.1f" % [{"bot": "bots", "intel": "Intel", "cash": "Cash"}[what], float(tp[what])]
+	return "%s · %d slots%s" % [str(tp.name), int(tp.slots), mults]
+
+
 func _stage_line(i: int) -> String:
 	var h: Dictionary = hosts[i]
 	if int(h.owner) == NEUTRAL:
-		return "security %d/%d · value ×%d · %d slots" % [int(h.bots), int(h.sec), int(h.value), int(h.slots)]
-	return "%s · %d/%d bots · %d of %d slots working · value ×%d" % [STAGE_NAME[_stage(i)], int(h.bots), int(NODE_CAP), mini(_active_slots(i), _built(i).size()), int(h.slots), int(h.value)]
+		return "security %d/%d · value ×%d · %s" % [int(h.bots), int(h.sec), int(h.value), _type_line(i)]
+	return "%s · %d/%d bots · %d of %d slots working · value ×%d · %s" % [STAGE_NAME[_stage(i)], int(h.bots), int(NODE_CAP), mini(_active_slots(i), _built(i).size()), int(h.slots), int(h.value), _type_line(i)]
 
 
 func _panel_inside() -> void:   # MICRO — the local view of one building of yours: slots and building cards
 	var i := _inside
 	var h: Dictionary = hosts[i]
 	_plabel("INSIDE  %s" % str(h.name), 18, Color(1, 0.9, 0.5))
+	var badge := TypeBadge.new(); badge.game = self; badge.host = i
+	panel_box.add_child(badge)
 	_plabel("⚠ The map keeps running. You can't command it from in here.", 12, Color(1, 0.82, 0.4))
 	if _enter_left > 0.0:
 		_plabel("Connecting… %.1f s" % _enter_left, 15, Color(0.8, 0.9, 1.0))
@@ -1386,8 +1433,10 @@ func _panel_inside() -> void:   # MICRO — the local view of one building of yo
 	row.add_theme_constant_override("separation", 8)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sw := minf(76.0, (PANEL_W - 60.0 - 8.0 * float(int(h.slots) - 1)) / float(int(h.slots)))
 	for sl in int(h.slots):
 		var sb := SlotBox.new(); sb.game = self; sb.host = i; sb.slot = sl
+		sb.custom_minimum_size = Vector2(sw, 90)
 		row.add_child(sb)
 	panel_box.add_child(row)
 	var job: Dictionary = h.job
@@ -1453,7 +1502,7 @@ func _assault_preview(t: int, conns: Array) -> void:
 	for i in conns:
 		if not _route(int(i), t).is_empty(): dmg += SEND_RATE * float(hosts[int(i)].rate) * (ATTACK_POWER / DEFEND_POWER); n += 1
 	if n == 0: return
-	var regen := float(_count(t, "bot")) * PROD_RATE - _drain(t)
+	var regen := _regen(t) - _drain(t)
 	var net := dmg - regen
 	if net <= 0.001:
 		_plabel("If all %d flow: −%.1f/s vs +%.1f/s regeneration — not enough; wire more or raise rates." % [n, dmg, regen], 12, Color(1, 0.85, 0.5))
@@ -1537,7 +1586,7 @@ func _panel_attack_diag(t: int, feeders: Array, sending: Array) -> void:
 			"link busy": _plabel("⛔ Link at capacity — lower rates, route elsewhere, or wait.", 12, Color(1, 0.82, 0.4))
 			_: _plabel("⛔ Supply is paused.", 12, Color(1, 0.82, 0.4))
 		return
-	var regen := float(_count(t, "bot")) * PROD_RATE
+	var regen := _regen(t)
 	var drain := _drain(t)
 	var dmg := 0.0
 	for s in sending: dmg += SEND_RATE * float(hosts[int(s)].rate) * (ATTACK_POWER / DEFEND_POWER)
@@ -1678,9 +1727,9 @@ func _draw() -> void:
 		var red := Color(1, 0.35, 0.3, 0.95)
 		for i in hosts.size():
 			if i != aim and int(hosts[i].assign) == aim:
-				draw_arc(hosts[i].pos, _r(i) + 11.0, 0.0, TAU, 32, gold if _mine(i) else red, 2.5, true)   # gold = yours, red = another botnet's
+				_frame(hosts[i].pos, _r(i) + 11.0, gold if _mine(i) else red, 2.5)   # gold = yours, red = another botnet's
 		var aout := int(hosts[aim].assign)
-		if aout >= 0: draw_arc(hosts[aout].pos, _r(aout) + 11.0, 0.0, TAU, 32, gold, 2.5, true)
+		if aout >= 0: _frame(hosts[aout].pos, _r(aout) + 11.0, gold, 2.5)
 		var reach := 0
 		for s in _aim_sources():
 			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 3.0); reach += 1
@@ -1695,7 +1744,7 @@ func _draw() -> void:
 			var ok := false
 			for s in src_keys:
 				if _link_kind(int(s), i) != "": ok = true; break
-			if ok: draw_arc(hosts[i].pos, _r(i) + 7.0, 0.0, TAU, 32, Color(1, 0.8, 0.4, 0.55), 2.0, true)
+			if ok: _frame(hosts[i].pos, _r(i) + 7.0, Color(1, 0.8, 0.4, 0.55), 2.0)
 		var hov := _host_at(get_local_mouse_position())
 		if hov >= 0 and not sel.has(hov):
 			var elig := 0
@@ -1723,7 +1772,7 @@ func _draw() -> void:
 	if _inside >= 0:   # MICRO: the map stays visible and alive behind a veil, but it is not yours to command
 		draw_rect(Rect2(Vector2.ZERO, Vector2(sz.x - PANEL_W - 24.0, sz.y)), Color(0, 0, 0, 0.35), true)
 		var p: Vector2 = hosts[_inside].pos
-		draw_arc(p, _r(_inside) + 12.0, 0.0, TAU, 40, Color(1, 0.9, 0.5, 0.95), 3.0, true)
+		_frame(p, _r(_inside) + 12.0, Color(1, 0.9, 0.5, 0.95), 3.0)
 		draw_string(f, Vector2(20, sz.y - 44.0), "INSIDE %s — the map keeps running. Esc / right-click leaves." % str(hosts[_inside].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 0.92, 0.5))
 	if _msg_t > 0.0:
 		draw_string(f, Vector2(20, sz.y - 20.0), _msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.7, 1, 1, clampf(_msg_t, 0, 1)))
@@ -1737,19 +1786,23 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	var rr := _r(i)
 	var fill := _fill_of(i)
 	fill.a = a
-	draw_circle(p, rr, fill)
-	if bool(hosts[i].rig): draw_arc(p, rr - 4.0, 0.0, TAU, 28, Color(1, 1, 1, 0.8 * a), 2.0, true)   # a rig = Cash sink
-	if _mine(i) and _under_attack(i):   # under attack → red ring, always full brightness (never fogged)
-		draw_arc(p, rr + 3.0, 0.0, TAU, 28, Color(1, 0.4, 0.35, 0.95), 2.5, true)
-	if sel.has(i): draw_arc(p, rr + 6.0, 0.0, TAU, 32, Color(1, 1, 1, 0.95 * a), 3.0, true)
-	if i == _inspect: draw_arc(p, rr + 8.0, 0.0, TAU, 32, Color(1, 0.9, 0.3, a), 2.0, true)
-	if is_aim: draw_arc(p, rr + 9.0, 0.0, TAU, 32, Color(1, 0.9, 0.3), 3.0, true)
+	var ink := Color(0.04, 0.06, 0.1, 0.9 * a)
+	_draw_type_glyph(self, str(hosts[i].get("type", "pc")), p, rr * 1.9, fill, ink)   # the building IS its pictogram
+	if bool(hosts[i].rig): _frame(p, rr + 1.0, Color(1, 1, 1, 0.8 * a), 2.0)   # a rig = Cash sink
+	if _mine(i) and _under_attack(i):   # under attack → red frame, always full brightness (never fogged)
+		_frame(p, rr + 3.0, Color(1, 0.4, 0.35, 0.95), 2.5)
+	if sel.has(i): _frame(p, rr + 6.0, Color(1, 1, 1, 0.95 * a), 3.0)
+	if i == _inspect: _frame(p, rr + 8.0, Color(1, 0.9, 0.3, a), 2.0)
+	if is_aim: _frame(p, rr + 9.0, Color(1, 0.9, 0.3), 3.0)
 	if i == rally: draw_string(f, p + Vector2(rr + 4.0, 5.0), "⚑ RALLY", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 0.9, 0.5, a))
 	var fr: float = clampf(float(hosts[i].bots) / NODE_CAP, 0.0, 1.0)
 	draw_rect(Rect2(p.x - rr, p.y + rr + 5.0, rr * 2.0, 5.0), Color(0.1, 0.12, 0.16, a), true)
 	var bar := fcol(int(hosts[i].owner)).lightened(0.25); bar.a = a
 	draw_rect(Rect2(p.x - rr, p.y + rr + 5.0, rr * 2.0 * fr, 5.0), bar, true)
-	draw_string(f, p + Vector2(-9, 5), "%d" % int(round(float(hosts[i].bots))), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.05, 0.08, 0.1, a))
+	var nb_txt := "%d" % int(round(float(hosts[i].bots)))   # the bot counter: a small dark badge at the foot
+	var bw := 8.0 + 7.0 * float(nb_txt.length())
+	draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 13.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
+	draw_string(f, Vector2(p.x - 3.6 * float(nb_txt.length()), p.y + rr * 0.42 + 10.5), nb_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.95, 0.97, 1.0, a))
 	var vmarks := ""
 	for k in int(hosts[i].value): vmarks += "$"
 	draw_string(f, p + Vector2(-rr - 2.0, -rr - 7.0), str(hosts[i].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.85, 0.92, 1.0, a))
@@ -1834,6 +1887,103 @@ func _draw_kind_icon(c: CanvasItem, kind: String, centre: Vector2, sz: float, co
 			c.draw_line(centre, centre + Vector2(sz * 0.17, 0), ink, sz * 0.06, true)
 		_:
 			c.draw_rect(Rect2(centre - Vector2(sz * 0.4, sz * 0.4), Vector2(sz * 0.8, sz * 0.8)), col, false, 2.0)
+
+
+func _frame(p: Vector2, half: float, col: Color, w: float) -> void:   # a square frame around a pictogram
+	draw_rect(Rect2(p - Vector2(half, half), Vector2(half * 2.0, half * 2.0)), col, false, w)
+
+
+func _ellipse(centre: Vector2, rx: float, ry: float, n := 24) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for k in n: pts.append(centre + Vector2(cos(TAU * float(k) / float(n)) * rx, sin(TAU * float(k) / float(n)) * ry))
+	return pts
+
+
+# the seven building types as filled pictograms in `fill` with details in `ink`, inside a square of side `sz`
+func _draw_type_glyph(c: CanvasItem, t: String, centre: Vector2, sz: float, fill: Color, ink: Color) -> void:
+	var w := maxf(1.2, sz * 0.05)
+	var dim := Color(ink.r, ink.g, ink.b, ink.a * 0.35)
+	match t:
+		"pc":      # a monitor on a stand
+			var body := Rect2(centre + Vector2(-sz * 0.46, -sz * 0.46), Vector2(sz * 0.92, sz * 0.6))
+			c.draw_rect(body, fill, true); c.draw_rect(body, ink, false, w)
+			c.draw_rect(Rect2(centre + Vector2(-sz * 0.38, -sz * 0.38), Vector2(sz * 0.76, sz * 0.44)), dim, true)
+			c.draw_line(centre + Vector2(0, sz * 0.14), centre + Vector2(0, sz * 0.3), ink, w * 1.6, true)
+			var base := Rect2(centre + Vector2(-sz * 0.26, sz * 0.3), Vector2(sz * 0.52, sz * 0.12))
+			c.draw_rect(base, fill, true); c.draw_rect(base, ink, false, w)
+		"iot":     # a chip with legs and an antenna
+			var chip := Rect2(centre + Vector2(-sz * 0.3, -sz * 0.22), Vector2(sz * 0.6, sz * 0.52))
+			for k in 3:
+				var x := centre.x - sz * 0.18 + float(k) * sz * 0.18
+				c.draw_line(Vector2(x, centre.y + sz * 0.3), Vector2(x, centre.y + sz * 0.46), ink, w * 1.3, true)
+				c.draw_line(Vector2(x, centre.y - sz * 0.22), Vector2(x, centre.y - sz * 0.34), ink, w * 1.3, true)
+			c.draw_rect(chip, fill, true); c.draw_rect(chip, ink, false, w)
+			c.draw_rect(Rect2(centre + Vector2(-sz * 0.14, -sz * 0.08), Vector2(sz * 0.28, sz * 0.26)), dim, true)
+			c.draw_arc(centre + Vector2(sz * 0.28, -sz * 0.3), sz * 0.2, -2.9, -1.2, 10, ink, w, true)
+		"server":  # a rack: three units with a light each
+			for r in 3:
+				var slab := Rect2(centre.x - sz * 0.44, centre.y - sz * 0.46 + float(r) * sz * 0.31, sz * 0.88, sz * 0.26)
+				c.draw_rect(slab, fill, true); c.draw_rect(slab, ink, false, w)
+				c.draw_circle(Vector2(slab.position.x + sz * 0.76, slab.position.y + sz * 0.13), sz * 0.045, ink)
+				c.draw_line(slab.position + Vector2(sz * 0.08, sz * 0.13), slab.position + Vector2(sz * 0.5, sz * 0.13), dim, w * 1.4, true)
+		"web":     # a globe
+			c.draw_circle(centre, sz * 0.46, fill)
+			c.draw_arc(centre, sz * 0.46, 0.0, TAU, 40, ink, w, true)
+			c.draw_line(centre + Vector2(-sz * 0.46, 0), centre + Vector2(sz * 0.46, 0), ink, w, true)
+			c.draw_line(centre + Vector2(0, -sz * 0.46), centre + Vector2(0, sz * 0.46), ink, w, true)
+			c.draw_polyline(_ellipse(centre, sz * 0.2, sz * 0.46, 32), ink, w, true)
+			c.draw_line(centre + Vector2(-sz * 0.4, -sz * 0.22), centre + Vector2(sz * 0.4, -sz * 0.22), dim, w, true)
+			c.draw_line(centre + Vector2(-sz * 0.4, sz * 0.22), centre + Vector2(sz * 0.4, sz * 0.22), dim, w, true)
+		"db":      # a cylinder
+			var body := Rect2(centre + Vector2(-sz * 0.38, -sz * 0.3), Vector2(sz * 0.76, sz * 0.62))
+			c.draw_rect(body, fill, true)
+			c.draw_colored_polygon(_ellipse(centre + Vector2(0, sz * 0.32), sz * 0.38, sz * 0.14), fill)
+			c.draw_polyline(_ellipse(centre + Vector2(0, sz * 0.32), sz * 0.38, sz * 0.14, 32), ink, w, true)
+			c.draw_line(centre + Vector2(-sz * 0.38, -sz * 0.3), centre + Vector2(-sz * 0.38, sz * 0.32), ink, w, true)
+			c.draw_line(centre + Vector2(sz * 0.38, -sz * 0.3), centre + Vector2(sz * 0.38, sz * 0.32), ink, w, true)
+			c.draw_polyline(_ellipse(centre + Vector2(0, 0), sz * 0.38, sz * 0.14, 32), dim, w, true)
+			c.draw_colored_polygon(_ellipse(centre + Vector2(0, -sz * 0.3), sz * 0.38, sz * 0.14), fill.lightened(0.15))
+			c.draw_polyline(_ellipse(centre + Vector2(0, -sz * 0.3), sz * 0.38, sz * 0.14, 32), ink, w, true)
+		"file":    # a filing cabinet with two drawers
+			var cab := Rect2(centre + Vector2(-sz * 0.36, -sz * 0.46), Vector2(sz * 0.72, sz * 0.92))
+			c.draw_rect(cab, fill, true); c.draw_rect(cab, ink, false, w)
+			c.draw_line(centre + Vector2(-sz * 0.36, 0), centre + Vector2(sz * 0.36, 0), ink, w, true)
+			c.draw_rect(Rect2(centre + Vector2(-sz * 0.12, -sz * 0.27), Vector2(sz * 0.24, sz * 0.07)), ink, true)
+			c.draw_rect(Rect2(centre + Vector2(-sz * 0.12, sz * 0.2), Vector2(sz * 0.24, sz * 0.07)), ink, true)
+		"erp":     # a factory with a gear
+			var pts := PackedVector2Array([centre + Vector2(-sz * 0.46, sz * 0.46), centre + Vector2(-sz * 0.46, -sz * 0.4), centre + Vector2(-sz * 0.16, -sz * 0.16), centre + Vector2(-sz * 0.16, -sz * 0.4), centre + Vector2(sz * 0.14, -sz * 0.16), centre + Vector2(sz * 0.14, -sz * 0.4), centre + Vector2(sz * 0.46, -sz * 0.16), centre + Vector2(sz * 0.46, sz * 0.46)])
+			c.draw_colored_polygon(pts, fill)
+			var outline := PackedVector2Array(pts); outline.append(pts[0])
+			c.draw_polyline(outline, ink, w, true)
+			var g := centre + Vector2(sz * 0.2, sz * 0.2)
+			c.draw_circle(g, sz * 0.16, dim)
+			c.draw_arc(g, sz * 0.16, 0.0, TAU, 16, ink, w, true)
+			for k in 6:
+				var ang := float(k) * TAU / 6.0
+				c.draw_line(g + Vector2(cos(ang), sin(ang)) * sz * 0.16, g + Vector2(cos(ang), sin(ang)) * sz * 0.24, ink, w * 1.3, true)
+			c.draw_rect(Rect2(centre + Vector2(-sz * 0.36, sz * 0.12), Vector2(sz * 0.1, sz * 0.14)), dim, true)
+			c.draw_rect(Rect2(centre + Vector2(-sz * 0.18, sz * 0.12), Vector2(sz * 0.1, sz * 0.14)), dim, true)
+		_:
+			c.draw_rect(Rect2(centre - Vector2(sz * 0.4, sz * 0.4), Vector2(sz * 0.8, sz * 0.8)), fill, true)
+			c.draw_rect(Rect2(centre - Vector2(sz * 0.4, sz * 0.4), Vector2(sz * 0.8, sz * 0.8)), ink, false, w)
+
+
+class TypeBadge extends Control:   # "what this building is": its picture, name, slots and multipliers
+	var game
+	var host := -1
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(0, 42)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var t: String = str(game.hosts[host].get("type", "pc"))
+		var tp: Dictionary = game.NODE_TYPES[t]
+		draw_rect(Rect2(Vector2.ZERO, Vector2(size.x, 40)), Color(0.12, 0.14, 0.19), true)
+		game._draw_type_glyph(self, t, Vector2(22, 20), 32.0, Color(0.75, 0.85, 1.0), Color(0.08, 0.1, 0.16))
+		draw_string(f, Vector2(46, 17), str(tp.name), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.95, 0.97, 1.0))
+		draw_string(f, Vector2(46, 33), str(tp.desc), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.8, 0.9))
 
 
 class SlotBox extends Control:   # one slot of the building you are inside: "+" when empty, the icon when built

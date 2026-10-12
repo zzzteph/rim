@@ -45,12 +45,27 @@ a garrison). *Tests:* does one order for the rear scale, or do we need districts
 - 6×6 cells; each non-forced cell is a gap with probability `EMPTY_CELL` (0.15). Positions jitter ±26 %.
   Grid streets exist with probability `LINK_KEEP` (0.78); diagonal shortcuts with `DIAG_P` (0.18), never
   crossing. Islands are joined by their shortest gap, so the town is always connected.
-- A building has **security** (neutral defenders, 7…22; the DOWNTOWN HUB 30), **value** (1…3: Cash per
-  market packet; downtown 3, mid-town 2, rim 1), and **slots** (2…4; the hub 4). Drawn radius grows with slots;
-  `$` marks show value.
-- **Three botnets, one town.** You start top-left (YOUR RIG + one neighbour), **NYX** bottom-right, **KRAKEN**
-  bottom-left, each with a rig (2 Bot farms) and one more building. Start buildings have value 1 and 3 slots.
-  Everything else is **neutral**.
+- A building has a **type** (below), **security** (neutral defenders: 2 + 5 × value + 0…5 + the type's
+  bonus, clamped 4…28; the DOWNTOWN HUB 30), **value** (1…3: Cash per market packet; downtown 3, mid-town 2,
+  rim 1). A building is drawn **as its type's pictogram**, filled in its owner's colour, sized by its slots, with a
+  bot counter at its foot and a square frame for selection, focus and threat; `$` marks show value.
+- **Three botnets, one town.** You start top-left, **NYX** bottom-right, **KRAKEN** bottom-left, each with a
+  **Server** rig (2 Bot farms) and a **PC**. Everything else is **neutral**.
+
+### Building types (random per town; the building is drawn as the type's pictogram)
+| Type | Picture | Slots | Multipliers | Security bonus | Where it spawns |
+|---|---|---|---|---|---|
+| PC | monitor | 3 | — | 0 | rim 40 %, mid 30 % |
+| IoT device | chip with antenna | 1 | — | −3 (soft) | rim 35 % |
+| Server | rack | 3 | Intel ×1.5 | +2 | everywhere |
+| Web server | globe | 3 | Intel ×1.5 | +2 | everywhere |
+| Database | cylinder | 4 | Intel ×2 | +3 | mid 15 %, downtown 25 % |
+| File server | cabinet | 4 | Intel ×2 | +3 | mid 15 %, downtown 20 % |
+| ERP system | factory with gear | 5 | bots, Intel, Cash ×1.5 | +6 | downtown 20 %; the hub is always one |
+
+Multipliers apply to what is built inside: a Bot farm in an ERP regenerates 1.5 bots/s, an Intel harvester
+in a Database yields 2 Intel/s, a market in an ERP pays 1.5× its value per packet. The AI botnets prefer
+Intel-rich types for harvesters and Cash-rich ones for markets, and value richer types as targets.
 
 ### Factions, bots and combat
 - Four owners: NEUTRAL (city security), YOU, NYX, KRAKEN. Packets route **only through the sender's own
@@ -181,27 +196,29 @@ AI_MAX_STREAMS 4 · EMPTY_CELL 0.15 · LINK_KEEP 0.78 · DIAG_P 0.18`
   not for downtown. Building an Intel harvester early is mandatory; the idle panel says so.
 
 ## Validation (2026-10-11, Godot 4.7.2 headless + rendered under Xvfb)
-Mechanics probe in `review/botnet_v2_2026-10-11/`: 17 cases — generation (three botnets, connected,
+Mechanics probe in `review/botnet_v2_2026-10-11/`: 18 cases — generation (three botnets, connected,
 different per seed), faction routing, link capacity queueing, chronological arrivals with terminal freeze,
 control stages, attention-gated jobs, capture and the neutral security cap, AI concentration and building,
 Cash travel and banking, rally garrison and overfill, frame-rate consistency, attack-the-attacker, the two
 verbs (dormant wiring, path constraint, launch, stop, Esc), guards arming and standing down, and ownership
 changes (flows become guards, loss stands wires down), and the slot board (build into a chosen slot, replace in
-5 + 10 s with the slot offline meanwhile). Rendered captures of the panel states and scripted
+5 + 10 s with the slot offline meanwhile), and building types (slots, Intel ×2 in a Database, bots ×1.5 in an ERP,
+the single IoT slot). Rendered captures of the panel states and scripted
 matches are in `gallery/`.
 
-**Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active, 10 s builds:**
+**Pacing readings (not verdicts), goal 600, 10 Hz, two AI botnets active, 10 s builds, typed buildings:**
 
 | Run | Outcome | Time | Buildings you / NYX / KRAKEN |
 |---|---|---|---|
-| You idle (seed 7) | KRAKEN banks 600 | 4:21 | 2 / 9 / 8 |
-| Greedy scripted player, perfect attention (seed 7) | KRAKEN banks 600 | 4:29 | 1 / 10 / 7 |
-| Greedy scripted player (seed 11) | NYX banks 600 | 4:17 | 3 / 9 / 6 |
+| You idle (seed 7) | NYX banks 600 | 3:50 | 2 / 11 / 7 |
+| Greedy scripted player, perfect attention (seed 7) | NYX banks 600 | 3:50 | 3 / 11 / 3 |
+| Greedy scripted player (seed 11) | NYX banks 600 | 4:08 | 3 / 8 / 6 |
 
-The AIs set a ~4½-minute clock and now also take the greedy script's buildings, so as asked they are strong.
-A first human run will need a handicap: raise `CASH_GOAL`, slow the AI `cadence`, or lower `aggr`. Tune one
-value at a time after watching play; the AI only attacks what it can afford and beat, so the honest first
-knob is its Intel start or cadence, not its combat numbers.
+Typed buildings shortened the clock again: soft IoT devices on the rim are quick first captures and Intel-rich
+Databases and Servers fund attacks faster. The AIs set a ~4-minute clock and beat the greedy script on both
+seeds, so as asked they are strong. A first human run will need a handicap: raise `CASH_GOAL`, slow the AI
+`cadence`, or lower `aggr`. Tune one value at a time after watching play; the AI only attacks what it can
+afford and beat, so the honest first knob is its Intel start or cadence, not its combat numbers.
 
 ## Open question: Intel (explore before changing)
 Today bots regenerate for free and **attacking** spends Intel. That reads as a duplicate: Intel is only an
@@ -223,6 +240,42 @@ attack tax. Options explored on 2026-10-11:
 **Recommendation:** test **A** first (it changes the core loop; small code change: move the Intel charge from
 `_emit_due` to regeneration and add the floor), keep attack types out of the bot flow, and bring them back as
 **cards** against building types. Not implemented yet.
+
+## Next: Cash buys attack cards (designer's direction, 2026-10-12 — not built yet)
+
+Cash is only the win condition today. The direction: **Cash also buys attack cards**, so banking for the win
+competes with buying weapons, and building **types** gain a second role — each type is **vulnerable** to some
+cards and resistant to others, on top of its production affinity.
+
+**Two shapes of card.** A **single-host** card hits one building. A **worm** hits one building, then tries to
+jump along the streets to every connected building: the first jump is certain, then the chance falls by 25 %
+per jump (jump 2: 75 %, jump 3: 50 %, jump 4: 25 %, jump 5: 0 %). A worm does not care whose buildings it
+crosses — your own, if adjacent and vulnerable, are at risk, which is the price of the chain.
+
+| Card | Shape | Effect on a vulnerable host | Vulnerable types | Cost (provisional) |
+|---|---|---|---|---|
+| Credential stuffing | single host | defenders −12 | PC, IoT (soft), Web | 40 |
+| 1day | single host | defenders −10; nothing on a patched type | Server, Web, DB, File | 60 |
+| 0day | single host | defenders −20, works on any type | all | 150 |
+| Supply chain | single host → every connected host of the **same type** | defenders −8 and production off for 20 s | File, ERP (strong), Server | 120 |
+| Credentials worm | worm | defenders to **0** on each infected host | PC, IoT, Web | 200 |
+| 0day worm | worm | defenders −20 on each infected host | all | 400 |
+
+Rules to keep the cards inside the existing model:
+- A card never captures: it only removes defenders (or switches production off). Capture still needs an
+  arriving bot, so a worm that zeroes a chain of PCs is followed by one stream per building — the card
+  prepares, the bots take.
+- Cards are bought in a **shop** panel with Cash and sit as cards in your hand; you **drag a card onto a
+  target building** on the map (the same gesture as wiring and building) and its panel previews the effect,
+  including the worm's expected reach and which of your own buildings are in the blast.
+- The AI botnets buy the same cards under the same rules (a credentials worm against a rim of PCs is exactly
+  the opening an aggressive NYX would take).
+- Because Cash is spent, `CASH_GOAL` and card costs are tuned together; the first test is whether players
+  ever prefer a card to banking.
+
+Open before building it: whether a worm respects faction ownership or not (the risk is the fun, but a novice
+will wipe their own PCs once), whether a card has a cooldown or an inventory cap, and whether the shop is in
+the rig only (you must go home to buy) — which would make the rig a real base.
 
 ## Other open questions
 - Command unit: if the rally point suffices on 6×6, buildings stay the unit; if players still drown in
@@ -283,6 +336,10 @@ anything older. Historical pre-attrition designs live in `BOTNET_ATTACK_HISTORY.
 15. **Slots as a drag-and-drop board (2026-10-12):** the local view shows positional slots (empty = +, built =
     icon) and draggable building cards; drop on an empty slot to build in 10 s, on an occupied slot to replace
     in 5 s clear + 10 s build; a slot being worked on is offline; icons are drawn procedurally.
+16. **Building types (2026-10-12):** PC, IoT, Server, Web, Database, File server, ERP — each with its own
+    picture, slot count (1…5), production multipliers and security bonus, spawned by district; rigs are
+    Servers, the hub is an ERP. Buildings are no longer circles: the pictogram itself is the building on the
+    map (filled in the owner's colour, square frames for selection, focus and threat).
 
 ## Stoppers and status
 Addressed in code: explicit launch, live panel, no map overlap, no Intel lockout (demolish/rebuild), neutral

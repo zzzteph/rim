@@ -4,20 +4,20 @@
 			"case": "01_generation",
 			"observed": {
 				"all_connected": true,
-				"hosts": 28,
-				"hub": 16,
+				"hosts": 31,
+				"hub": 17,
 				"owners": {
-					"0": 22,
+					"0": 25,
 					"1": 2,
 					"2": 2,
 					"3": 2
 				},
 				"sizes_by_seed": [
+					33,
+					33,
+					33,
 					31,
-					31,
-					32,
-					32,
-					34
+					32
 				]
 			},
 			"pass": true
@@ -27,9 +27,9 @@
 			"observed": {
 				"player_route": [
 					5,
-					6
+					1
 				],
-				"target": 6,
+				"target": 1,
 				"unreachable_rival_rig": []
 			},
 			"pass": true
@@ -118,18 +118,11 @@
 		{
 			"case": "08_ai_builds_then_concentrates",
 			"observed": {
-				"assigned": [
-					[
-						21,
-						26
-					],
-					[
-						27,
-						26
-					]
-				],
+				"attacked": true,
+				"captured_within_25s": true,
 				"harvesters": 1,
-				"nyx_intel": 44.6000000000001
+				"max_streams_on_one_target": 2,
+				"nyx_intel": 37.3999999999998
 			},
 			"pass": true
 		},
@@ -157,16 +150,16 @@
 					{
 						"dt": 0.0166666666666667,
 						"flights": 2,
-						"intel": 10.0,
-						"owner": 0,
-						"target_bots": 7.6500000000008
+						"intel": 12.0,
+						"owner": 1,
+						"target_bots": 3.98333333333339
 					},
 					{
 						"dt": 0.5,
 						"flights": 2,
-						"intel": 10.0,
-						"owner": 0,
-						"target_bots": 7.16666666666669
+						"intel": 12.0,
+						"owner": 1,
+						"target_bots": 3.5
 					}
 				]
 			},
@@ -232,52 +225,71 @@
 			"pass": true
 		},
 		{
+			"case": "18_building_types",
+			"observed": {
+				"db_intel_x2": true,
+				"erp_regen_x15": true,
+				"iot_single_slot": true,
+				"type_counts_seed7": {
+					"db": 2,
+					"erp": 1,
+					"file": 1,
+					"iot": 3,
+					"pc": 12,
+					"server": 6,
+					"web": 6
+				},
+				"types_consistent": true
+			},
+			"pass": true
+		},
+		{
 			"case": "13_pacing_readings",
 			"observed": {
 				"greedy_seed11": {
 					"cash": [
 						0,
-						602
+						601
 					],
-					"cash_kraken": 354,
+					"cash_kraken": 553,
 					"cause": "NYX banked 600 Cash first.",
-					"first_capture_t": 21.5,
+					"first_capture_t": 18.5,
 					"intel": 0,
 					"kraken_nodes": 6,
 					"outcome": "LOSS",
 					"player_nodes": 3,
-					"rival_nodes": 9,
-					"t": 257.0
+					"rival_nodes": 8,
+					"t": 248.0
 				},
 				"greedy_seed7": {
 					"cash": [
 						0,
-						383
+						600
 					],
-					"cash_kraken": 600,
-					"cause": "KRAKEN banked 600 Cash first.",
-					"first_capture_t": -1.0,
+					"cash_kraken": 65,
+					"cause": "NYX banked 600 Cash first.",
+					"first_capture_t": 12.5,
 					"intel": 0,
-					"kraken_nodes": 7,
+					"kraken_nodes": 3,
 					"outcome": "LOSS",
-					"player_nodes": 1,
-					"rival_nodes": 10,
-					"t": 268.7
+					"player_nodes": 3,
+					"rival_nodes": 11,
+					"t": 230.2
 				},
 				"rival_alone": {
 					"cash": [
 						0,
-						358
+						600
 					],
-					"cash_kraken": 601,
-					"cause": "KRAKEN banked 600 Cash first.",
+					"cash_kraken": 380,
+					"cause": "NYX banked 600 Cash first.",
 					"first_capture_t": -1.0,
 					"intel": 50,
-					"kraken_nodes": 8,
+					"kraken_nodes": 7,
 					"outcome": "LOSS",
 					"player_nodes": 2,
-					"rival_nodes": 9,
-					"t": 260.7
+					"rival_nodes": 11,
+					"t": 230.2
 				}
 			},
 			"pass": true
