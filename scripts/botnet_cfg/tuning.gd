@@ -20,12 +20,13 @@ const RES_CAP_PER_BUILD := 50.0    # … and each harvester / lab raises its own
 const CASH_INTERVAL := 3.0         # seconds between Cash packets per active Darknet market
 
 # ── the win: two ways, no clock. (1) hold a true majority (> HOLD_FRACTION of ALL buildings) for HOLD_SECS
-# without a break → win. (2) be the last botnet with buildings. The match runs until one of these happens.
+# without a break → win. (2) be the last botnet with its rig. Losing a rig eliminates any faction.
 const HOLD_FRACTION := 0.5         # a true-majority win needs more than half of ALL buildings (16 of 31)
 const HOLD_SECS := 45.0            # seconds of continuous majority for the win
 
 # ── the bot-flow dials ──
-# ── scanning: a foreign building must be SCANNED before it can be attacked. A scan bot travels like an
+# ── scanning: optional quiet scouting, separate from a blind attack. One pending scout per faction/target.
+# A scan bot travels like an
 # attack bot, costs the same, and is consumed on arrival without hurting a defender; the FIRST one to land
 # reveals the target's bots and slots (no quota). A changed inside (built, demolished, replaced) needs a rescan.
 const SCAN_BASE := 1.0
@@ -40,8 +41,9 @@ const NODE_ROUTE_DELAY := 0.25     # pause (s) at each intermediate building
 const LINK_CAP := 8                # packets a link DIRECTION admits per LINK_TIME (throughput 8/s) — bots flow freely, little queuing
 const MAX_QUEUE := 1.0             # a source holds its packet if the first link can't admit it within this
 
-# ── control stages: fewer bots → fewer working slots (first slot always works) ──
+# ── control stages use the BASE 30-bot capacity, regardless of added storage.
+# 20+ bots: stable; 10–19: shaky; below 10: critical. First slot always works.
 const STAGE_FULL := 2.0 / 3.0
 const STAGE_SHAKY := 1.0 / 3.0
-const STAGE_NAME := ["FULL", "SHAKY", "CRITICAL"]
+const STAGE_NAME := ["STABLE", "SHAKY", "CRITICAL"]
 

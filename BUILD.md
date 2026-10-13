@@ -71,6 +71,17 @@ godot --headless --path . res://scenes/botnet_proto.tscn
 The shutdown lines about leaked RIDs / "Unreferenced static string" / VariantPools are normal
 engine-exit noise, **not** script errors. Only `SCRIPT ERROR` / `Parse Error` matter.
 
+Run the automated mechanics, pointer-input, and layout checks before exporting:
+```bash
+godot --headless --path . --script tests/botnet_usability_test.gd
+godot --headless --path . --script tests/botnet_ui_edge_test.gd
+godot --headless --path . --script tests/card_balance_probe.gd
+```
+Use the console executable above on Windows. Each check exits nonzero on failure.
+To capture the usability suite's rendered fixtures, omit `--headless` and append
+`-- --capture`; results and screenshots are written to `review/implemented_ui/`.
+These checks cover scripted behavior and layout; human usability testing is still pending.
+
 To run a one-off test or render, add a tiny scene whose script instantiates the game and inspects
 it, e.g.:
 ```gdscript
@@ -92,6 +103,7 @@ Run with `godot --path . res://that_scene.tscn` (omit `--headless` when you need
 ## 4. Export a build
 
 Both presets live in `export_presets.cfg`.
+They exclude design notes, review artifacts, tests, scratch files, and previous builds.
 
 ### Desktop (Windows)
 ```bash

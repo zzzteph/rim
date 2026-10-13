@@ -1,49 +1,12 @@
 extends Control
-## PROTOTYPE v2 — macro/micro botnet race, free for all (spec: design/BOTNET_ATTACK_DESIGN.md).
-##
-## GLOBAL map (this screen) = MACRO: you wire where bots go and redirect Cash traffic between buildings.
-## LOCAL view ("Enter building") = MICRO: you build inside one building. Entering takes time, a build
-## only progresses while you stay inside, and while you are inside the map KEEPS RUNNING and cannot be
-## commanded — attention is the cost of micro.
-##
-## TWO SEPARATE VERBS — the user's control scheme (do not merge them):
-##   1. CONNECT — DRAG a line from your building (or a selected group member) onto a target. Drag-and-drop
-##      is the ONLY wiring gesture; clicking never wires (it selects / opens a panel). A link can only be
-##      made where a path runs through YOUR OWN buildings — never through foreign territory. Wiring makes
-##      a dashed, DORMANT connection: it never fires, never spends Intel, and can be rewired forever. One
-##      connection per building; rewiring replaces it (a rewired connection is dormant until launched again).
-##   2. LAUNCH / GUARD — "attack and defend is the STATUS" of a wire. Wire → a FOREIGN building = an ATTACK:
-##      click that building and press ⚔ ATTACK on its panel (the only trigger); each target launches
-##      independently and later wires stay dormant until the button is pressed again. Wire → YOUR OWN
-##      building = a GUARD: it arms ITSELF the moment that building is under attack (or below full) and
-##      stands down after — no button, never hand-stopped, only disconnected. "Stop" pauses attack flows but
-##      keeps wires; "Disconnect" removes them. Esc / right-click clears selection — never your wires.
-##
-##   • A generated TOWN, different every run: a 6×6 cell grid with gaps, jittered positions, missing and
-##     diagonal streets, a rich DOWNTOWN in the middle and a poor rim. Buildings differ in security
-##     (neutral defenders), slots (how much you can build inside) and value (Cash per market packet).
-##   • FREE FOR ALL: YOU (top-left), the NYX botnet (bottom-right) and the KRAKEN botnet (bottom-left) all
-##     start with a rig and one building; the rest of the town is NEUTRAL, guarded by its own security which
-##     regenerates only to its own level. Every botnet plays by the same rules: it builds inside its
-##     buildings, pays 1 Intel per attack bot, routes Cash home, defends, and wins by controlling the most of the town.
-##   • A building's bots ARE its health and its defence (cap NODE_CAP once owned). It regenerates PROD_RATE
-##     per Bot farm it runs. The more bots it holds the more of its slots keep working (control stages).
-##   • A live flow releases one bot per second × the source's rate dial along its own network. Bots act only
-##     on ARRIVAL: an attack arrival removes ATTACK/DEFEND (≈0.667) of a defender; a reinforcement adds a
-##     full bot. At 0 the building flips.
-##   • Links have CAPACITY (LINK_CAP packets per LINK_TIME per direction). Bots and Cash packets share
-##     it: a busy link queues packets at the building before it and holds a source whose queue is long.
-##   • Rally point (one): every UNWIRED idle building of yours sends its surplus above a garrison to it —
-##     the command-unit experiment (does one standing order for the rear scale to a town?).
-##   • CARDS (ultimate weapons): the RESEARCH tab turns Cash, Credentials and Research points — made by
-##     Darknet markets, Credential harvesters and Research labs — into cards over time. A card never
-##     captures: it wipes defenders, switches production off or cuts routing, on one building or along a
-##     chain (a worm). LINKED cards need a connection into the target; ANY cards work anywhere, dearer.
-##     Every building TYPE resists some card families and is weak to others.
-## SPACE pauses everything. R opens the research tab.
+## Building-level botnet prototype. Rules and visual guidance are in design/.
+## Drag to connect. Explicit Scan / Attack starts an inactive target operation.
+## New contributors join an existing attack. Friendly connections guard automatically.
+## Bots and cards take effect on arrival; Stop keeps links, Disconnect removes them.
+## Construction shares remaining Intel after attack departures. Research uses Cash,
+## Credentials and Research. A captured rig eliminates any faction. Hold a majority
+## for HOLD_SECS or eliminate the rivals to win. Menu pause is independent of Space.
 
-# ── CONFIGURATION lives in scripts/botnet_cfg/*.gd (factions, town, types, buildings, cards, tuning): play with
-# the numbers there. The aliases below keep every name usable in this file and from probes (game.HOLD_SECS …).
 const CfgFactions := preload("res://scripts/botnet_cfg/factions.gd")
 const CfgTown := preload("res://scripts/botnet_cfg/town.gd")
 const CfgTypes := preload("res://scripts/botnet_cfg/types.gd")
@@ -129,7 +92,7 @@ const STAGE_FULL := CfgTuning.STAGE_FULL
 const STAGE_SHAKY := CfgTuning.STAGE_SHAKY
 const STAGE_NAME := CfgTuning.STAGE_NAME
 
-const PANEL_W := 440.0
+const PANEL_W := 620.0
 const MENU_W := 384.0           # menu panel width
 const GAME_VERSION := "0.1.0"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
@@ -156,6 +119,7 @@ var menu_seed_edit: LineEdit
 var _fb_rating := 0
 var _fb_type := "general"
 var _fb_status := ""
+var _fb_draft := {"details": "", "version": GAME_VERSION, "name": ""}
 var fb_details: TextEdit
 var fb_version: LineEdit
 var fb_name: LineEdit
@@ -173,6 +137,26 @@ var _end_shown := false
 var _end_cause := ""
 var _msg := ""
 var _msg_t := 0.0
+var _msg_priority := 0
+var _departures: Array = []
+var _resource_samples: Array = []
+var _defender_samples: Dictionary = {}
+var _eliminated: Dictionary = {}
+var _panel_context := ""
+var hand_scroll: ScrollContainer
+var pending_research: HBoxContainer
+var objective_label: Label
+var feedback_label: Label
+var _selected_card := ""
+var _catalogue_card := "phish:linked"
+const RESEARCH_QUEUE_LIMIT := 4
+var _tut_target := -1
+var _tut_second := -1
+var _tut_connected := false
+var _tut_attacked := false
+var _tut_combined := false
+var _tut_captured := false
+var _seed_draft := ""
 
 var hosts := []        # {pos,grid,name,links,owner,bots,sec,value,slots,builds,job,assign,live,rate,hub,rig}
 var hub := -1
@@ -219,7 +203,7 @@ var hud: Control
 var panel: Panel
 var panel_box: VBoxContainer
 var hand_panel: Control          # the persistent hand of cards along the bottom (no background — just the cards)
-var hand_bar: HBoxContainer
+var hand_bar: GridContainer
 var _hand_sig := ""              # rebuild the hand only when its composition changes (keeps it cheap)
 var menu_panel: Panel            # the Esc menu: Start / Resume / Restart (pauses while open)
 var menu_box: VBoxContainer
@@ -250,22 +234,32 @@ func _ready() -> void:
 	var sc := ScrollContainer.new(); panel_scroll = sc
 	sc.position = Vector2(14, 12); sc.size = panel.size - Vector2(28, 24)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(sc)
 	panel_box = VBoxContainer.new()
-	panel_box.add_theme_constant_override("separation", 10)
+	panel_box.add_theme_constant_override("separation", 4)
 	panel_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel_box.custom_minimum_size = Vector2(PANEL_W - 44.0, 0)
+	panel_box.custom_minimum_size = Vector2(_panel_width() - 28.0, 0)
 	sc.add_child(panel_box)
 	hand_panel = Control.new()                                 # your hand, along the bottom — NO background, just cards
 	hand_panel.size = Vector2(sz.x - 60.0, 96.0)
 	hand_panel.position = Vector2(24.0, sz.y - 104.0)
 	hand_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE      # empty hand space never blocks the map
 	add_child(hand_panel)
-	hand_bar = HBoxContainer.new()
-	hand_bar.add_theme_constant_override("separation", 6)
+	hand_bar = GridContainer.new(); hand_bar.columns = 4
+	hand_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hand_bar.add_theme_constant_override("h_separation", 6); hand_bar.add_theme_constant_override("v_separation", 6)
 	hand_bar.position = Vector2(10.0, 6.0)
 	hand_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hand_panel.add_child(hand_bar)
+	hand_scroll = ScrollContainer.new()
+	hand_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	hand_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	hand_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hand_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	hand_panel.add_child(hand_scroll)
+	hand_scroll.add_child(hand_bar)
+	pending_research = HBoxContainer.new(); pending_research.add_theme_constant_override("separation", 6)
+	pending_research.mouse_filter = Control.MOUSE_FILTER_IGNORE; add_child(pending_research)
 	_refresh_hand()
 	top_tabs = HBoxContainer.new()                             # RESEARCH / BOARD buttons on the top dashboard
 	top_tabs.add_theme_constant_override("separation", 6)
@@ -295,6 +289,13 @@ func _ready() -> void:
 	tut_box.position = Vector2(22.0, 14.0); tut_box.custom_minimum_size = Vector2(736.0, 0)
 	tut_box.add_theme_constant_override("separation", 8); tut_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tut_panel.add_child(tut_box)
+	objective_label = Label.new(); objective_label.add_theme_font_size_override("font_size", 14)
+	objective_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; add_child(objective_label)
+	feedback_label = Label.new(); feedback_label.add_theme_font_size_override("font_size", 14)
+	feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feedback_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; add_child(feedback_label)
+	resized.connect(_layout_ui)
+	_layout_ui()
 	_refresh_panel()
 	_fit_view()                                                # fit the opening town in view
 	_open_menu(true)                                           # the game opens on the start menu
@@ -494,7 +495,7 @@ func _scan_land(fac: int, t: int) -> void:   # one scan bot arrived: progress, a
 			hosts[i].live = false; _next_depart.erase(i); stood += 1
 	if fac == PLAYER:
 		if stood > 0: _flash("🔍 Scanned %s quietly — %d bots, inside: %s. Press ATTACK to launch." % [str(hosts[t].name), int(round(float(hosts[t].bots))), _build_names(hosts[t].builds)])
-		else: _flash("🔍 Your attack revealed %s — %d bots, inside: %s" % [str(hosts[t].name), int(round(float(hosts[t].bots))), _build_names(hosts[t].builds)])
+		else: _flash("Attack revealed %s · %d defenders" % [str(hosts[t].name), int(round(float(hosts[t].bots)))], 0)
 		_refresh_panel()
 
 
@@ -532,7 +533,7 @@ func _mine(i: int) -> bool: return i >= 0 and int(hosts[i].owner) == PLAYER
 func _routing_down(i: int) -> bool: return float(hosts[i].get("route_off", 0.0)) > 0.0   # a card cut its routing
 
 
-func _stolen(i: int) -> bool: return float(hosts[i].get("steal_until", -100.0)) > _t and int(hosts[i].get("steal_by", -1)) in botnets
+func _stolen(i: int) -> bool: return float(hosts[i].get("steal_until", -100.0)) > _t and int(hosts[i].get("steal_by", -1)) in botnets and not _eliminated.has(int(hosts[i].get("steal_by", -1)))
 
 
 func _benef(i: int) -> int:   # who gets i's production right now: the supply-chain thief, else the owner
@@ -731,7 +732,8 @@ func _drain(t: int) -> float:   # bots/s the building itself is streaming out ri
 
 # ---- control stages, buildings & the economy ----
 func _stage(i: int) -> int:
-	var fr: float = float(hosts[i].bots) / maxf(1.0, _cap_of(i))
+	# More storage must never switch off a working building.
+	var fr := float(hosts[i].bots) / NODE_CAP
 	if fr >= STAGE_FULL: return 0
 	if fr >= STAGE_SHAKY: return 1
 	return 2
@@ -855,7 +857,7 @@ func _cash_of_host(i: int) -> float:   # Cash/s this one market produces
 
 # one job per building. Into an EMPTY slot: build (BUILD_TIME). Onto an OCCUPIED slot: replace — the old
 # building goes offline at once, the slot is cleared (DEMOLISH_TIME), then the new one is built (BUILD_TIME).
-func _start_job(i: int, kind: String, slot := -1) -> bool:   # several jobs may run in one building; each is paid in Intel up front
+func _start_job(i: int, kind: String, slot := -1) -> bool:   # several jobs may run in one building; funding is shared over time, after attack packets
 	if i < 0 or int(hosts[i].owner) == NEUTRAL or not BUILD_KINDS.has(kind): return false
 	if slot < 0: slot = _free_slot(i)
 	if slot < 0 or slot >= (hosts[i].builds as Array).size() or _slot_busy(i, slot): return false
@@ -895,13 +897,20 @@ func _card_click(kind: String) -> void:   # clicking a card (no drag) builds int
 
 
 func _build_site() -> int:   # the one building of yours whose slot board is open: a single own selection
-	if sel.size() != 1: return -1
+	if sel.size() != 1: return _inspect if _mine(_inspect) else -1
 	var i := int(sel.keys()[0])
 	return i if _mine(i) else -1
 
 
 func _player_build(i: int, kind: String) -> void:   # script helper: first empty slot of the building you are in
 	_drop_build(i, _free_slot(i), kind)
+
+
+func _toggle_job(i: int, slot: int) -> void:
+	if not _mine(i) or not (hosts[i].jobs as Dictionary).has(slot): return
+	var job: Dictionary = hosts[i].jobs[slot]
+	job["paused"] = not bool(job.get("paused", false))
+	_refresh_panel(); queue_redraw()
 
 
 func _cancel_job(i: int, slot: int) -> void:   # a cancelled job refunds nothing
@@ -919,35 +928,99 @@ func _demolish(i: int, slot: int) -> void:   # clear a slot (DEMOLISH_TIME); the
 
 # build jobs run on their own: several per building, nobody has to stay and watch them
 func _tick_jobs(dt: float) -> void:
+	# Attacks have first use of Intel. Keep the next packet's fractional funding
+	# between frames, then share the remainder proportionally across all jobs.
+	var demand := {}
+	var budget := {}
+	for fac in botnets:
+		demand[fac] = 0.0
+		budget[fac] = maxf(0.0, float(intel[fac]) - _attack_reserve(fac))
+	for h in hosts:
+		var fac := int(h.owner)
+		if fac == NEUTRAL: continue
+		for job in (h.jobs as Dictionary).values():
+			if str(job.phase) == "build" and not bool(job.get("paused", false)): demand[fac] += minf(float(job.cost_left), BUILD_COST_INTEL / BUILD_TIME * dt)
 	for i in hosts.size():
 		var jobs: Dictionary = hosts[i].jobs
-		if jobs.is_empty(): continue
 		var fac := int(hosts[i].owner)
+		if fac == NEUTRAL: continue
 		for slot_key in jobs.keys():
 			var job: Dictionary = jobs[slot_key]
-			if str(job.phase) == "build" and float(job.get("cost_left", 0.0)) > 0.0:
-				# pay the Intel evenly over the build; if the faction can't cover this slice, the build STALLS
-				var slice := BUILD_COST_INTEL / BUILD_TIME * dt
-				var pay := minf(minf(slice, float(job.cost_left)), float(intel[fac]))
-				intel[fac] = float(intel[fac]) - pay
-				job.cost_left = float(job.cost_left) - pay
-				if pay < slice - 0.0001: continue   # couldn't pay in full → no progress this tick
-			job.left = float(job.left) - dt
-			if float(job.left) > 0.0: continue
+			if bool(job.get("paused", false)): continue
+			var work := dt
+			if str(job.phase) == "build":
+				var requested := minf(float(job.cost_left), BUILD_COST_INTEL / BUILD_TIME * dt)
+				var fraction := minf(1.0, float(budget[fac]) / maxf(0.000001, float(demand[fac])))
+				var pay := requested * fraction
+				intel[fac] = maxf(0.0, float(intel[fac]) - pay)
+				job.cost_left = maxf(0.0, float(job.cost_left) - pay)
+				work = pay / (BUILD_COST_INTEL / BUILD_TIME)
+				job["funding"] = fraction
+			job.left = maxf(0.0, float(job.left) - work)
+			if float(job.left) > 0.00001: continue
 			var slot := int(job.slot)
 			if str(job.phase) == "demolish":
 				hosts[i].builds[slot] = ""
-				if str(job.kind) == "":
-					jobs.erase(slot_key)
-					if fac == PLAYER: _flash("Slot %d of %s cleared" % [slot + 1, str(hosts[i].name)]); _refresh_panel()
-				else:
+				if str(job.kind) != "":
 					job.phase = "build"; job.left = BUILD_TIME
-			else:
-				hosts[i].builds[slot] = str(job.kind)
-				jobs.erase(slot_key)
-				if fac == PLAYER:
-					_flash("Built %s in slot %d of %s" % [BUILD_KINDS[str(job.kind)].name, slot + 1, str(hosts[i].name)])
-					_refresh_panel()
+					continue
+			else: hosts[i].builds[slot] = str(job.kind)
+			jobs.erase(slot_key)
+			if fac == PLAYER: _flash("%s · slot %d ready" % [str(hosts[i].name), slot + 1], 0)
+
+
+func _attack_reserve(fac: int) -> float:
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac or not bool(hosts[i].live) or _routing_down(i): continue
+		var t := _bot_target(i)
+		if t < 0 or int(hosts[t].owner) == fac or _route(i, t).is_empty(): continue
+		if float(hosts[i].bots) - 1.0 < _reserve_of(i): continue
+		if str(hosts[i].mode) == "scan" and (_scanned(fac, t) or _scan_pending(fac, t)): continue
+		return 1.0
+	return 0.0
+
+
+func _scan_pending(fac: int, target: int) -> bool:
+	for flight in flights:
+		if int(flight.owner) == fac and str(flight.kind) == "scan" and int(flight.route.back()) == target: return true
+	return false
+
+
+func _check_rigs() -> void:
+	# A rig is the same elimination condition for every faction. Resolve it
+	# before majority checks, including captures within an arrival batch.
+	for fac in botnets:
+		if _eliminated.has(fac) or int(hosts[int(rig[fac])].owner) == fac: continue
+		_eliminated[fac] = true
+		if fac == PLAYER:
+			lost = true; won = false; _end_cause = "Your rig was captured. Protect it to stay in the game."
+		else: _ai[fac].dead = true
+		lab[fac].queue = []; lab[fac].progress = 0.0
+		for i in hosts.size():
+			if int(hosts[i].owner) != fac: continue
+			hosts[i].owner = NEUTRAL; hosts[i].sec = maxf(1.0, float(hosts[i].bots))
+			hosts[i].jobs = {}; hosts[i].assign = -1; hosts[i].live = false
+			_next_depart.erase(i); _next_cash.erase(i)
+		if fac != PLAYER: _flash("%s eliminated · its remaining buildings are neutral" % fname(fac), 0)
+
+
+func _record_observations() -> void:
+	_departures = _departures.filter(func(d): return float(d.at) > _t - 4.0)
+	_resource_samples.append({"at": _t, "intel": float(intel[PLAYER]), "cash": float(cash[PLAYER]), "creds": float(creds[PLAYER]), "research": float(research[PLAYER])})
+	while _resource_samples.size() > 1 and float(_resource_samples[1].at) < _t - 4.0: _resource_samples.pop_front()
+	for i in hosts.size():
+		if not _scanned(PLAYER, i): _defender_samples.erase(i); continue
+		var samples: Array = _defender_samples.get(i, [])
+		samples.append({"at": _t, "bots": float(hosts[i].bots)})
+		while samples.size() > 1 and float(samples[1].at) < _t - 4.0: samples.pop_front()
+		_defender_samples[i] = samples
+
+
+func _observed_net(res: String) -> float:
+	if _resource_samples.size() < 2: return 0.0
+	var first: Dictionary = _resource_samples.front()
+	var last: Dictionary = _resource_samples.back()
+	return (float(last[res]) - float(first[res])) / maxf(0.001, float(last.at) - float(first.at))
 
 
 func _bank(fac: int, amount: float) -> void:   # Cash only fuels cards now; capturing ground is the win
@@ -1030,7 +1103,8 @@ func _src_state(s: int) -> String:
 			return "defending" if float(hosts[s].bots) - 1.0 >= _reserve_of(s) else "defending · no bots"
 		if not bool(hosts[s].live): return "wired (not launched)"
 		if float(hosts[s].bots) - 1.0 < _reserve_of(s): return "no bots"
-		if float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or _scanned(fac, a)): return "no Intel"
+		if str(hosts[s].mode) == "scan" and _scan_pending(fac, a): return "scan in transit"
+		if float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or str(hosts[s].mode) != "scan"): return "no Intel"
 		if _first_wait(rt) > MAX_QUEUE: return "link busy"
 		return "scanning" if str(hosts[s].get("mode", "attack")) == "scan" else "sending"
 	var tgt := _bot_target(s)
@@ -1045,7 +1119,7 @@ func _src_state(s: int) -> String:
 # ============================================================ LOOP
 func _process(dt: float) -> void:
 	if _msg_t > 0.0: _msg_t -= dt
-	if not paused and not won and not lost:
+	if not paused and not menu_open and not won and not lost:
 		_t += dt                        # the shared clock only advances while playing → pause freezes everything
 		for i in hosts.size():
 			var nb := _count(i, "bot")
@@ -1065,12 +1139,13 @@ func _process(dt: float) -> void:
 		_fx = _fx.filter(func(x): return float(x.until) > _t)
 		_worms = _worms.filter(func(x): return float(x.until) > _t)
 		_ai_remember(PLAYER)   # your memory of a scanned building stays as fresh as the AI's
-		_tick_jobs(dt)
 		_prune_res()
 		_auto_guards()      # guard wires arm themselves while their building is threatened, stand down after
 		_emit_due()
+		_tick_jobs(dt)
 		if not won and not lost: _deliver_due()      # chronological; may set won/lost and then stops
 		if not won and not lost and not _ai_paused: _ai_tick(dt)   # the tutorial freezes the AI early on
+		_check_rigs()
 		if not won and not lost: _tick_domination(dt)
 		if not won and not lost and int(hosts[int(rig[PLAYER])].owner) != PLAYER: lost = true; _end_cause = "Your rig was captured — the botnet is finished."
 		if not won and not lost and _player_nodes() == 0: lost = true; _end_cause = "You lost your last building."
@@ -1078,10 +1153,11 @@ func _process(dt: float) -> void:
 			if not bool(_ai[fac].dead) and _faction_nodes(fac) == 0:
 				_ai[fac].dead = true; _flash("%s is out of the game" % fname(fac))
 		_panel_t += dt
-		if _panel_t >= 0.5 and not _pointer_over_panel() and not menu_open:
-			_panel_t = 0.0; _refresh_panel()
+		if _panel_t >= 0.25:
+			_panel_t = 0.0; _record_observations(); _tick_tutorial(); _refresh_panel()
 	if (won or lost) and not _end_shown:
 		_end_shown = true; _refresh_panel()
+	_update_chrome()
 	var hs := _hand_signature()
 	if hs != _hand_sig: _hand_sig = hs; _refresh_hand()   # rebuild the bottom hand only when it changes
 	if menu_open:
@@ -1120,8 +1196,8 @@ func _can_emit(i: int) -> bool:
 	if float(hosts[i].bots) - 1.0 < _reserve_of(i): return false
 	var fac := int(hosts[i].owner)
 	var hostile: bool = int(hosts[tgt].owner) != fac
-	if hostile and str(hosts[i].get("mode", "attack")) == "scan" and _scanned(fac, tgt): return false   # scan done
-	if hostile and float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or _scanned(fac, tgt)): return false
+	if hostile and str(hosts[i].get("mode", "attack")) == "scan" and (_scanned(fac, tgt) or _scan_pending(fac, tgt)): return false   # scan done
+	if hostile and float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or str(hosts[i].mode) != "scan"): return false
 	if not hostile and int(hosts[i].assign) < 0:   # an unwired building sends nothing; kept as a guard
 		if float(hosts[tgt].bots) + _incoming(tgt, fac) >= NODE_CAP - 0.001: return false
 	var rt := _route(i, tgt)
@@ -1182,6 +1258,7 @@ func _emit_due() -> void:
 			var pk := "scan" if (hostile and str(hosts[best].get("mode", "attack")) == "scan" and not _scanned(fac, tgt)) else "bot"
 			if hostile and (pk == "bot" or SCAN_COSTS_INTEL): intel[fac] = float(intel[fac]) - 1.0   # spends Intel
 			flights.append(_schedule(_route(best, tgt), best_t, fac, pk))
+			if fac == PLAYER: _departures.append({"at": _t, "source": best, "target": tgt, "kind": pk})
 			_next_depart[best] = best_t + 1.0 / (SEND_RATE * float(hosts[best].rate))
 			if float(_next_depart[best]) > _t: due.erase(best)
 		else:
@@ -1229,6 +1306,7 @@ func _deliver(f: Dictionary) -> void:
 	if rt.is_empty(): return
 	var t: int = int(rt[rt.size() - 1])
 	var fac := int(f.owner)
+	if _eliminated.has(fac): return # packets remain visible but cannot resurrect an eliminated botnet
 	if str(f.kind) == "cash":
 		if int(hosts[t].owner) != NEUTRAL: _bank(int(hosts[t].owner), float(f.get("amount", 1.0)))
 		return
@@ -1280,7 +1358,9 @@ func _capture(t: int, fac: int) -> void:
 		if stood > 0: _flash("Lost %s to %s — %d connection(s) stand down (press ATTACK there to retake)" % [nm, fname(fac), stood])
 		else: _flash("Lost %s to %s" % [nm, fname(fac)])
 	else:
-		_flash("%s took %s%s" % [fname(fac), nm, ("" if prev == NEUTRAL else " from %s" % fname(prev))])
+		_flash("%s took %s%s" % [fname(fac), nm, ("" if prev == NEUTRAL else " from %s" % fname(prev))], 0)
+	if _tut and t == _tut_target and fac == PLAYER: _tut_captured = true
+	_check_rigs()
 	if prev != NEUTRAL and not won and not lost:   # did that capture leave one botnet standing?
 		var alive := []
 		for f in botnets:
@@ -1308,7 +1388,7 @@ func _card_time(key: String) -> float:
 
 func _cost_text(key: String) -> String:
 	var c := _card_cost(key)
-	return "%d$ %dK %dR" % [int(c.cash), int(c.creds), int(c.research)]
+	return "%d Cash · %d Credentials · %d Research" % [int(c.cash), int(c.creds), int(c.research)]
 
 
 func _held(fac: int, key: String) -> int: return int((cards[fac] as Dictionary).get(key, 0))
@@ -1344,7 +1424,7 @@ func _card_scale(fam: String, i: int) -> float:   # 1 = full effect · 0 = immun
 func _resist_line(i: int) -> String:   # "weak to phishing ×1.5 · resists credential attacks 25 %"
 	var rs: Dictionary = RESIST[str(hosts[i].get("type", "pc"))]
 	var weak := []; var strong := []
-	for fam in ["cred", "phish", "supply", "exploit"]:
+	for fam in FAMILY_NAME.keys():
 		var v := float(rs.get(fam, 0.0))
 		if v < 0.0: weak.append("%s %s" % [FAMILY_NAME[fam], _xmult(1.0 - v)])
 		elif v > 0.0: strong.append("%s %d %%" % [FAMILY_NAME[fam], int(round(v * 100.0))])
@@ -1355,7 +1435,10 @@ func _resist_line(i: int) -> String:   # "weak to phishing ×1.5 · resists cred
 
 
 func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, else why not
-	if t < 0 or int(hosts[t].owner) == fac: return "not a foreign building"
+	if won or lost: return "match finished"
+	if not rig.has(fac) or _eliminated.has(fac) or int(hosts[int(rig[fac])].owner) != fac: return "your rig is not under your control"
+	if _routing_down(int(rig[fac])): return "your rig's routing is cut"
+	if t < 0 or t >= hosts.size() or int(hosts[t].owner) == fac: return "not a foreign building"
 	if _held(fac, key) <= 0: return "none held"
 	if _route(int(rig[fac]), t).is_empty(): return "no route from your rig — capture a path toward it first"   # no wire needed, just reach
 	return ""
@@ -1364,35 +1447,56 @@ func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, els
 func _effect_text(cd: Dictionary, i: int, s: float) -> String:
 	var mult := "" if absf(s - 1.0) < 0.01 else " (%s %s)" % [str(NODE_TYPES[str(hosts[i].get("type", "pc"))].name), _xmult(s)]
 	match str(cd.effect):
-		"defenders": return "defenders −%d %%%s" % [int(round(float(cd.power) * s * 100.0)), mult]
+		"defenders": return "defenders −%d %%%s" % [int(round(clampf(float(cd.power) * s, 0.0, 1.0) * 100.0)), mult]
 		"deny": return "production off + routing cut %.0f s%s" % [float(cd.dur) * s, mult]
 		"steal": return "production stolen %.0f s%s" % [float(cd.dur) * s, mult]
-		_: return "defenders −%d %% + routing cut %.0f s%s" % [int(round(float(cd.power) * s * 100.0)), float(cd.dur) * s, mult]
+		_: return "defenders −%d %% + routing cut %.0f s%s" % [int(round(clampf(float(cd.power) * s, 0.0, 1.0) * 100.0)), float(cd.dur) * s, mult]
 
 
 # ---- research: a queue per botnet; the head item consumes its cost spread over its time ----
 func _queue_research(fac: int, key: String) -> void:
+	if not CARD_ORDER.has(_card_of(key)) or _eliminated.has(fac): return
+	if (lab[fac].queue as Array).size() >= RESEARCH_QUEUE_LIMIT:
+		if fac == PLAYER: _flash("Research queue full · finish or cancel a card", 1)
+		return
+	_research_items(fac)
 	(lab[fac].queue as Array).append(key)
-	if fac == PLAYER:
-		_flash("Researching %s — %.0f s; %s are consumed while it runs" % [str(CARDS[_card_of(key)].name), _card_time(key), _cost_text(key)])
-		_refresh_panel()
+	(lab[fac].items as Array).append({"progress": 0.0, "paused": false})
+	if fac == PLAYER: _refresh_panel(); _refresh_hand()
 
 
-func _requeue_first(fac: int, idx: int) -> void:   # a queued card jumps to the front; the running one pauses with its progress kept
-	var q: Array = lab[fac].queue
-	if idx <= 0 or idx >= q.size(): return
-	var key := str(q[idx]); q.remove_at(idx); q.insert(0, key)
-	lab[fac].saved = {"key": str(q[1]), "progress": float(lab[fac].progress)}
-	lab[fac].progress = 0.0
-	if fac == PLAYER: _flash("Researching %s first" % str(CARDS[_card_of(key)].name)); _refresh_panel()
+func _research_items(fac: int) -> Array:
+	var state: Dictionary = lab[fac]
+	if not state.has("items"): state.items = []
+	var items: Array = state.items
+	while items.size() < (state.queue as Array).size(): items.append({"progress": float(state.progress) if items.is_empty() else 0.0, "paused": false})
+	while items.size() > (state.queue as Array).size(): items.pop_back()
+	return items
 
 
-func _dequeue_research(fac: int, idx: int) -> void:
-	var q: Array = lab[fac].queue
-	if idx < 0 or idx >= q.size(): return
-	q.remove_at(idx)
-	if idx == 0: lab[fac].progress = 0.0   # what was consumed is lost
-	if fac == PLAYER: _flash("Research removed from the queue"); _refresh_panel()
+func _toggle_research_item(fac: int, index: int) -> void:
+	var items := _research_items(fac)
+	if index < 0 or index >= items.size(): return
+	items[index].paused = not bool(items[index].paused)
+	if fac == PLAYER: _refresh_panel(); _refresh_hand()
+
+
+func _requeue_first(fac: int, index: int) -> void:
+	var items := _research_items(fac)
+	var queue: Array = lab[fac].queue
+	if index < 0 or index >= queue.size(): return
+	var key: String = queue[index]; var item: Dictionary = items[index]
+	queue.remove_at(index); items.remove_at(index)
+	queue.push_front(key); items.push_front(item)
+	if fac == PLAYER: _refresh_panel(); _refresh_hand()
+
+
+func _dequeue_research(fac: int, index: int) -> void:
+	var items := _research_items(fac)
+	if index < 0 or index >= items.size(): return
+	(lab[fac].queue as Array).remove_at(index); items.remove_at(index)
+	lab[fac].progress = 0.0; lab[fac].stall = ""
+	if fac == PLAYER: _refresh_panel(); _refresh_hand()
 
 
 func _toggle_research(fac: int) -> void:
@@ -1404,31 +1508,40 @@ func _toggle_research(fac: int) -> void:
 
 func _tick_research(dt: float) -> void:
 	for fac in botnets:
-		var L: Dictionary = lab[fac]
-		var q: Array = L.queue
-		if q.is_empty() or bool(L.paused): L.stall = ""; continue
-		var key := str(q[0])
-		var tm := _card_time(key)
-		var cost := _card_cost(key)
-		var frac := dt / tm
-		var short := ""
-		for r in cost.keys():
-			if _pool(fac, str(r)) < float(cost[r]) * frac - 0.0001: short = str(r); break
-		if short != "": L.stall = short; continue   # stalls (and consumes nothing) until the resource is there
-		L.stall = ""
-		for r in cost.keys(): _pool_add(fac, str(r), -float(cost[r]) * frac)
-		L.progress = float(L.progress) + dt
-		if float(L.progress) >= tm - 0.0001:
+		var state: Dictionary = lab[fac]
+		var items := _research_items(fac)
+		var queue: Array = state.queue
+		state["active"] = -1
+		if queue.is_empty() or bool(state.paused): state.stall = ""; continue
+		var index := -1
+		for k in items.size():
+			if not bool(items[k].paused): index = k; break
+		if index < 0: state.stall = ""; continue
+		state.active = index
+		var key := str(queue[index]); var duration := _card_time(key)
+		var work := minf(dt, duration - float(items[index].progress))
+		var cost := _card_cost(key); var fraction := work / duration
+		state.stall = ""
+		for resource in cost:
+			if _pool(fac, resource) < float(cost[resource]) * fraction - 0.000001: state.stall = resource; break
+		state.progress = float(items[index].progress)
+		if str(state.stall) != "":
+			items[index]["waiting_for"] = str(state.stall); items[index]["funded_time"] = 0.0
+			continue
+		items[index]["funded_time"] = float(items[index].get("funded_time", 0)) + dt
+		if float(items[index].funded_time) >= 0.75: items[index]["waiting_for"] = ""
+		for resource in cost: _pool_add(fac, resource, -float(cost[resource]) * fraction)
+		items[index].progress = float(items[index].progress) + work
+		state.progress = float(items[index].progress)
+		if float(items[index].progress) >= duration - 0.00001:
 			cards[fac][key] = _held(fac, key) + 1
-			q.remove_at(0); L.progress = 0.0
-			var saved: Dictionary = L.get("saved", {})
-			if not q.is_empty() and not saved.is_empty() and str(saved.key) == str(q[0]): L.progress = float(saved.progress); L.saved = {}
+			queue.remove_at(index); items.remove_at(index)
+			state.progress = 0.0
 			if fac == PLAYER:
-				_flash("🃏 Card ready: %s — holding %d" % [str(CARDS[_card_of(key)].name), _held(fac, key)])
-				_refresh_panel()
+				_flash("Ready: %s" % str(CARDS[_card_of(key)].name), 0)
+				_refresh_panel(); _refresh_hand()
 
 
-# ---- playing: the effect lands on the target (× its type's weakness); a worm then jumps along the streets ----
 func _play_card(fac: int, key: String, t: int) -> bool:   # the card leaves your network as a packet and lands on arrival
 	var why := _can_play(fac, key, t)
 	if why != "":
@@ -1620,14 +1733,14 @@ func _ai_others_on(fac: int, c: int) -> int:   # visible third-party pressure on
 
 func _ai_worm_value(fac: int, seed: int) -> float:   # expected reach of a credential worm from seed, by public types only
 	var p := [1.0, 0.75, 0.5, 0.25]
-	var seen := {seed: true}; var frontier := [seed]; var total := _card_scale("cred", seed)
+	var seen := {seed: true}; var frontier := [seed]; var total := _card_scale("phish", seed)
 	for depth in 4:
 		var nxt := []
 		for h in frontier:
 			for o in hosts[int(h)].links:
 				if seen.has(int(o)) or int(hosts[int(o)].owner) == fac: continue
 				seen[int(o)] = true
-				var sc := _card_scale("cred", int(o))
+				var sc := _card_scale("phish", int(o))
 				total += float(p[depth]) * sc
 				if sc > 0.0: nxt.append(int(o))
 		frontier = nxt
@@ -1775,22 +1888,22 @@ func _ai_think(fac: int) -> void:
 		if chased and _held(fac, "dos:linked") < 1: want = "dos:linked"            # deny the control leader
 		elif _held(fac, "oneday:linked") < 1: want = "oneday:linked"               # a cheap defender-dropper
 		elif _held(fac, "stuff:linked") < 1: want = "stuff:linked"                 # the full wipe
-		elif aggr > 0.6 and _held(fac, "credworm:linked") < 1: want = "credworm:linked"
+		elif aggr > 0.6 and _held(fac, "phishworm:linked") < 1: want = "phishworm:linked"
 		elif _held(fac, "oneday:linked") < 2: want = "oneday:linked"
-		if want != "": (L.queue as Array).append(want)
+		if want != "": _queue_research(fac, want)
 	# ── 2c. cards on a target it is streaming at (scanned, so the numbers are real): phish its regeneration off, then wipe it ──
 	var worm_seed := -1; var worm_best := 0.0
 	for tk in ops.keys():
 		var t2 := int(tk)
 		if not _scanned(fac, t2) or _ai_known_bots(fac, t2) < 4.0: continue       # about to fall anyway
-		if _held(fac, "credworm:linked") > 0 and int(hosts[t2].owner) != NEUTRAL and _card_scale("cred", t2) > 0.0:
+		if _held(fac, "phishworm:linked") > 0 and int(hosts[t2].owner) != NEUTRAL and _card_scale("phish", t2) > 0.0:
 			var wv := _ai_worm_value(fac, t2)
 			if wv > worm_best: worm_best = wv; worm_seed = t2
 			continue
 		if _held(fac, "stuff:linked") > 0 and _card_scale("cred", t2) >= 0.5: _play_card(fac, "stuff:linked", t2); break
 		if _held(fac, "phish:linked") > 0 and _card_scale("phish", t2) >= 0.5: _play_card(fac, "phish:linked", t2); break
 		if _held(fac, "oneday:linked") > 0 and _card_scale("oneday", t2) >= 0.5: _play_card(fac, "oneday:linked", t2); break
-	if worm_seed >= 0: _play_card(fac, "credworm:linked", worm_seed)   # the seed whose public types promise the longest chain
+	if worm_seed >= 0: _play_card(fac, "phishworm:linked", worm_seed)   # the seed whose public types promise the longest chain
 	# ── 2d. choke the control leader: DoS one of its production buildings (markets, harvesters, labs) ──
 	if chased and _held(fac, "dos:linked") > 0:
 		for tk in (scans[fac] as Dictionary).keys():
@@ -1894,16 +2007,37 @@ func _ai_think(fac: int) -> void:
 
 
 # ============================================================ INPUT
+var _research_dismiss_click := false
+
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_SPACE: paused = not paused; _refresh_panel(); queue_redraw()
-		elif event.keycode == KEY_R: _set_tab("research")
-		elif event.keycode == KEY_L: _set_tab("board")
-		elif event.keycode == KEY_0: _reset_view()   # recenter the map at 100 %
-		elif event.keycode == KEY_ESCAPE:
-			if menu_open: _open_menu(false)
-			elif not sel.is_empty() or _inspect >= 0: _clear_all(); _refresh_panel(); queue_redraw()   # first clear selection
-			else: _open_menu(true)                                                                     # then open the menu
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if _research_dismiss_click and not event.pressed:
+			_research_dismiss_click = false
+			get_viewport().set_input_as_handled(); return
+		if event.pressed and _tab == "research" and not menu_open and not get_viewport().gui_is_dragging():
+			var point: Vector2 = event.position
+			var over_control := point.y < 60 or panel.get_global_rect().has_point(point)
+			for card in hand_bar.get_children() + pending_research.get_children():
+				if (card is CardTile or card is ResearchTile) and card.get_global_rect().has_point(point): over_control = true
+			if not over_control:
+				_research_dismiss_click = true
+				_clear_all(); _refresh_panel(); queue_redraw()
+				get_viewport().set_input_as_handled(); return
+	if not (event is InputEventKey) or not event.pressed or event.echo: return
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is TextEdit: return
+	if event.keycode == KEY_ESCAPE:
+		if menu_open: _open_menu(false)
+		elif _panel_shown(): _clear_all(); _refresh_panel(); queue_redraw()
+		else: _open_menu(true)
+		get_viewport().set_input_as_handled(); return
+	if menu_open or won or lost: return
+	if event.keycode == KEY_SPACE:
+		paused = not paused; _refresh_panel(); queue_redraw()
+		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_R: _set_tab("research")
+	elif event.keycode == KEY_L: _set_tab("board")
+	elif event.keycode == KEY_0: _reset_view()
 
 
 func _can_drop_data(pos: Vector2, data: Variant) -> bool:   # a hand card held over the map
@@ -1931,20 +2065,33 @@ func _pointer_over_panel() -> bool:
 # the hand along the bottom: draggable cards. Drag one onto a reachable enemy building (highlighted) to play it.
 func _refresh_hand() -> void:
 	if hand_bar == null: return
-	for c in hand_bar.get_children(): c.queue_free()
+	# Preserve pending buttons through refreshes, including mouse press/release.
+	var signature := _hand_signature()
+	if hand_bar.get_meta("signature", "") == signature: return
+	hand_bar.set_meta("signature", signature)
+	for c in hand_bar.get_children(): hand_bar.remove_child(c); c.queue_free()
+	for c in pending_research.get_children(): pending_research.remove_child(c); c.queue_free()
 	if won or lost: return
-	for key in _hand(PLAYER):
-		var c := CardFace.new()
-		c.game = self; c.card = _card_of(str(key)); c.reach = _reach_of(str(key))
-		c.count = _held(PLAYER, str(key)); c.draggable = true
-		c.custom_minimum_size = Vector2(76, 104)
-		c.tooltip_text = "%s — %s. Drag onto a reachable enemy building (they light up)." % [str(CARDS[c.card].name), str(CARDS[c.card].rules)]
-		hand_bar.add_child(c)
+	var held := _hand(PLAYER)
+	var pending: Array = lab[PLAYER].queue
+	var gallery := _tab == "research"
+	var available := get_viewport_rect().size.x - PANEL_W - 72
+	var width := floorf((available - 18) / 4)
+	var ready_width := floorf((get_viewport_rect().size.x - 112) / 8) if gallery else width - 6
+	for key in held:
+		var c := CardTile.new(); c.game = self; c.key = str(key)
+		c.custom_minimum_size = Vector2(ready_width, 104); hand_bar.add_child(c)
+	for index in pending.size():
+		var c := ResearchTile.new(); c.game = self; c.key = str(pending[index])
+		c.catalogue = false; c.queue_index = index
+		c.custom_minimum_size = Vector2(width, 104); pending_research.add_child(c)
+	hand_bar.reset_size()
+
 
 
 func _hand_signature() -> String:
 	if won or lost: return "END"
-	var parts := []
+	var parts := [str(get_viewport_rect().size.x), str(_tab == "research"), str(lab[PLAYER].queue)]
 	for key in _hand(PLAYER): parts.append("%s:%d" % [str(key), _held(PLAYER, str(key))])
 	return ",".join(parts)
 
@@ -1997,8 +2144,8 @@ func _gui_input(event: InputEvent) -> void:
 	if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var src := _connection_at(_s2w(event.position))   # right-click ON a connection removes it
 		if src >= 0:
-			hosts[src].assign = -1; hosts[src].live = false; _next_depart.erase(src)
-			_flash("Disconnected %s" % str(hosts[src].name))
+			sel = {src: true}; _inspect = -1; _tab = ""
+			_flash("Route: %s → %s. Use Disconnect in its panel to remove it." % [str(hosts[src].name), str(hosts[int(hosts[src].assign)].name)])
 		else:
 			_clear_all()                   # right-click empty = clear selection / panel
 		_refresh_panel(); queue_redraw()
@@ -2045,7 +2192,7 @@ func _mouse_world() -> Vector2: return _s2w(get_local_mouse_position())
 
 func _zoom_at(screen_pos: Vector2, factor: float) -> void:   # zoom toward the cursor, keeping that point fixed
 	var w := _s2w(screen_pos)
-	_zoom = clampf(_zoom * factor, 0.45, 3.0)
+	_zoom = clampf(_zoom * factor, 0.08, 3.0)
 	_pan = screen_pos - w * _zoom
 	queue_redraw()
 
@@ -2053,29 +2200,27 @@ func _zoom_at(screen_pos: Vector2, factor: float) -> void:   # zoom toward the c
 func _reset_view() -> void: _fit_view()   # "recenter" = fit the whole map in view
 
 
-func _fit_view() -> void:   # zoom/pan so the entire town fits between the HUD and the hand bar
-	if hosts.is_empty(): _zoom = 1.0; _pan = Vector2.ZERO; queue_redraw(); return
+func _fit_view() -> void:
+	if hosts.is_empty(): return
 	var mn: Vector2 = hosts[0].pos; var mx: Vector2 = hosts[0].pos
-	for h in hosts:
-		mn = mn.min(h.pos); mx = mx.max(h.pos)
-	mn -= Vector2(70, 60); mx += Vector2(70, 60)
-	var world := mx - mn
-	var sz := get_viewport_rect().size
-	var vx := 30.0; var vy := 58.0
-	var vw := sz.x - 60.0; var vh := sz.y - vy - 118.0   # leave room for the top HUD and the bottom hand
-	_zoom = clampf(minf(vw / maxf(world.x, 1.0), vh / maxf(world.y, 1.0)), 0.3, 1.4)
-	_pan = Vector2(vx + vw * 0.5, vy + vh * 0.5) - (mn + mx) * 0.5 * _zoom
+	for h in hosts: mn = mn.min(h.pos); mx = mx.max(h.pos)
+	var view := _map_rect().grow(-42)
+	var world := (mx - mn).max(Vector2.ONE)
+	_zoom = minf(view.size.x / world.x, view.size.y / world.y)
+	_pan = view.get_center() - (mn + mx) * 0.5 * _zoom
 	queue_redraw()
 
 
 func _host_at(p: Vector2) -> int:
-	var w := _s2w(p)
+	if not _map_rect().has_point(p): return -1
+	var hit := -1; var nearest := INF
 	for i in hosts.size():
-		if (hosts[i].pos as Vector2).distance_to(w) <= _r(i) + 5.0: return i
-	return -1
+		var distance := p.distance_to(_w2s(hosts[i].pos))
+		if distance <= maxf(22, _r(i) * _zoom + 5) and distance < nearest:
+			hit = i; nearest = distance
+	return hit
 
 
-# your own connection (source building) whose route passes under world point w, or -1 (for right-click removal)
 func _connection_at(w: Vector2) -> int:
 	var best := -1; var bestd := 9.0 / maxf(_zoom, 0.1)
 	for i in hosts.size():
@@ -2095,18 +2240,23 @@ func _connection_at(w: Vector2) -> int:
 # building's current target changes nothing (it never interrupts a live flow).
 func _wire(dest: int) -> void:
 	if dest < 0 or sel.is_empty(): return
+	var join_attack := false
+	for source in _owned_feeders(dest):
+		if bool(hosts[source].live) and str(hosts[source].mode) == "attack": join_attack = true
 	var done := 0; var nopath := 0
 	for s in sel.keys():
 		var i := int(s)
 		if not _mine(i) or i == dest: continue
 		if _route(i, dest).is_empty(): nopath += 1; continue
 		if int(hosts[i].assign) != dest:
-			hosts[i].assign = dest; hosts[i].live = false; hosts[i].mode = "attack"; _next_depart.erase(i)
+			hosts[i].assign = dest; hosts[i].live = join_attack; hosts[i].mode = "attack"; _next_depart.erase(i)
 		done += 1
 	if done > 0:
 		var extra := ("  ·  %d had no path" % nopath) if nopath > 0 else ""
 		if _mine(dest):
 			_flash("Connected %d guard(s) → %s%s  (auto-defend when it's attacked or damaged)" % [done, str(hosts[dest].name), extra])
+		elif join_attack:
+			_flash("%d building(s) joined the attack on %s" % [done, str(hosts[dest].name)])
 		else:
 			_flash("Connected %d building(s) → %s%s  (dormant — press SCAN or ATTACK on its panel)" % [done, str(hosts[dest].name), extra])
 		sel = {}; _inspect = dest            # wired: move to the target's panel
@@ -2116,9 +2266,10 @@ func _wire(dest: int) -> void:
 
 
 # LAUNCH: the button on the TARGET's panel — turns every dormant connection into `t` live, together.
-# Connections wired after this stay dormant until the button is pressed again. Unrouted wires stay dormant.
+# Added contributors join an existing attack; new inactive targets need explicit launch.
 func _launch(t: int, mode := "attack") -> void:   # "scan" = quiet reveal; "attack" = alarms, wounds, reveals as it lands
-	if mode == "scan" and _scanned(PLAYER, t): mode = "attack"
+	if mode == "scan" and _scanned(PLAYER, t):
+		_flash("Already scanned. Choose Attack to send combat bots."); return
 	var started := 0; var unrouted := 0
 	for i in hosts.size():
 		if not _mine(i) or int(hosts[i].assign) != t or bool(hosts[i].live): continue
@@ -2202,6 +2353,8 @@ func _apply_options() -> void:   # turn the menu choices into the live grid + fa
 func _reset() -> void:   # a NEW town every restart, with the current options
 	won = false; lost = false; _end_shown = false; _end_cause = ""; paused = false; _t = 0.0
 	_emit_cursor = 0; _panel_t = 0.0
+	_departures.clear(); _resource_samples.clear(); _defender_samples.clear(); _eliminated.clear()
+	_panel_context = ""; _msg_t = 0.0; _msg_priority = 0
 	_tab = ""; _hold = {}
 	_tut = false; _ai_paused = false
 	if tut_panel != null: tut_panel.visible = false
@@ -2217,17 +2370,18 @@ func _build_names(builds: Array) -> String:
 	return ", ".join(out) if not out.is_empty() else "none"
 
 
-func _flash(m: String) -> void: _msg = m; _msg_t = 4.0
+func _flash(m: String, priority := 2) -> void:
+	if _msg_t > 0.0 and priority < _msg_priority: return
+	_msg = m; _msg_t = 5.0; _msg_priority = priority
 
 
-# ============================================================ UI PANEL
 func _plabel(txt: String, sz := 14, col := C_TEXT) -> void:
 	_lbl(panel_box, txt, sz, col, PANEL_W - 64.0)
 
 
 func _lbl(parent: Control, txt: String, sz: int, col: Color, minw: float) -> Label:
 	var l := Label.new(); l.text = txt
-	l.add_theme_font_size_override("font_size", sz); l.add_theme_color_override("font_color", col)
+	l.add_theme_font_size_override("font_size", maxi(14, sz)); l.add_theme_color_override("font_color", col)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; l.custom_minimum_size = Vector2(minw, 0)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(l)
@@ -2245,18 +2399,37 @@ func _card_grid(keys: Array, big: bool, counts: bool, enabled_fn: Callable, note
 		c.note = str(note_fn.call(str(key))) if note_fn.is_valid() else ""
 		if click_fn.is_valid(): c.on_click = click_fn.bind(str(key))
 		c.draggable = draggable
-		c.tooltip_text = "%s — %s%s" % [str(CARDS[c.card].name), str(CARDS[c.card].rules), " Drag it onto a building." if draggable else ""]
 		grid.add_child(c)
 	panel_box.add_child(grid)
 
 
 func _btn(txt: String, cb: Callable, enabled := true, parent: Control = null, tip := "", height := 32.0) -> void:
 	var b := Button.new(); b.text = txt; b.focus_mode = Control.FOCUS_ALL
+	b.add_theme_font_size_override("font_size", 16)
 	b.disabled = not enabled; b.custom_minimum_size = Vector2(0, height)
 	b.clip_text = true; b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if tip != "": b.tooltip_text = tip
 	b.pressed.connect(cb); (parent if parent != null else panel_box).add_child(b)
+
+
+func _action_button(action: String, callback: Callable, parent: Control = null, enabled := true) -> void:
+	var column := VBoxContainer.new(); column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	(parent if parent != null else panel_box).add_child(column)
+	var button := Button.new(); button.name = action
+	button.text = {"Attack": "⚔", "Scan": "⌕", "Disconnect": "⛓ ×", "Stop": "■"}[action]
+	button.custom_minimum_size = Vector2(96, 44)
+	button.disabled = not enabled
+	button.add_theme_font_size_override("font_size", 20)
+	button.clip_text = true
+	button.add_theme_color_override("font_color", C_BAD if action in ["Disconnect", "Stop"] else (C_WARN if action == "Attack" else C_GOOD))
+	if action in ["Disconnect", "Stop"]:
+		for state in ["normal", "hover", "pressed"]:
+			var style := StyleBoxFlat.new()
+			style.bg_color = Color(0.3, 0.08, 0.1) if state == "normal" else Color(0.45, 0.1, 0.13)
+			style.border_color = C_BAD; style.set_border_width_all(1); style.set_corner_radius_all(4)
+			button.add_theme_stylebox_override(state, style)
+	button.pressed.connect(callback); column.add_child(button)
+	_lbl(column, action, 12, C_TEXT, 0).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
 func _btn_row(items: Array) -> void:   # [[text, callable, enabled, tooltip], ...] side by side
@@ -2267,8 +2440,8 @@ func _btn_row(items: Array) -> void:   # [[text, callable, enabled, tooltip], ..
 		var b := Button.new(); b.text = str(it[0]); b.focus_mode = Control.FOCUS_ALL
 		b.clip_text = true; b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		b.disabled = not bool(it[2]) if it.size() > 2 else false
-		if it.size() > 3 and str(it[3]) != "": b.tooltip_text = str(it[3])
-		b.custom_minimum_size = Vector2(0, 30); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 14)
+		b.custom_minimum_size = Vector2(0, 36); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(it[1]); row.add_child(b)
 	panel_box.add_child(row)
 
@@ -2304,7 +2477,6 @@ func _esc_btn() -> void: _clear_all(); _refresh_panel(); queue_redraw()
 
 func _open_menu(open: bool) -> void:   # the menu pauses the game while it's up
 	menu_open = open
-	paused = open
 	if menu_panel != null: menu_panel.visible = open
 	if hud != null: hud.visible = not open                 # only the menu + its drifting backdrop while it's up
 	if hand_panel != null: hand_panel.visible = not open
@@ -2347,12 +2519,18 @@ func _size_menu(w: float, h: float) -> void:   # fit the panel to the view so no
 
 func _refresh_menu() -> void:
 	if menu_box == null: return
+	if is_instance_valid(fb_details): _fb_draft.details = fb_details.text
+	if is_instance_valid(fb_version): _fb_draft.version = fb_version.text
+	if is_instance_valid(fb_name): _fb_draft.name = fb_name.text
+	fb_details = null; fb_version = null; fb_name = null
 	for c in menu_box.get_children(): c.queue_free()
+	if is_instance_valid(menu_seed_edit): _seed_draft = menu_seed_edit.text
 	menu_seed_edit = null
+	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED if _menu_view == "feedback" else ScrollContainer.SCROLL_MODE_AUTO
 	match _menu_view:
 		"help": _size_menu(680.0, 640.0); _menu_help()
 		"newgame": _size_menu(MENU_W, 452.0); _menu_newgame()
-		"feedback": _size_menu(MENU_W, 628.0); _menu_feedback()
+		"feedback": _size_menu(480.0, 590.0); _menu_feedback()
 		_:
 			var nb := 6 if (_t >= 0.01 and not won and not lost) else 5
 			_size_menu(MENU_W, 96.0 + float(nb) * 52.0); _menu_main()
@@ -2393,7 +2571,7 @@ func _menu_newgame() -> void:
 	_menu_label("Seed (blank = random)")
 	menu_seed_edit = LineEdit.new(); menu_seed_edit.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 34)
 	menu_seed_edit.placeholder_text = "random"
-	if _opt_seed > 0: menu_seed_edit.text = str(_opt_seed)
+	menu_seed_edit.text = _seed_draft
 	menu_box.add_child(menu_seed_edit)
 	_menu_gap(4)
 	_mbtn("▶ Start", _start_new_game)
@@ -2438,18 +2616,18 @@ func _menu_help() -> void:   # big paginated help with Prev / Next
 	match HELP_PAGES[_help_page]:
 		"goal":
 			_help_head("Goal")
-			_help_text("Take over the city network. You win by holding MORE THAN HALF the buildings. There is no clock — a match runs until someone dominates.", C_TEXT)
+			_help_text("Hold MORE THAN HALF the buildings continuously for 45 seconds, or eliminate every rival by capturing their rigs. Lose your rig and you lose. No match timer.", C_TEXT)
 			_help_head("The buildings")
 			_help_text("Every building has a TYPE (PC, Server, Web, Database, IoT, ERP) that sets how many build slots it has and which production it's best at. A building's BOTS are both its health and its soldiers. Grey buildings are neutral city hosts; coloured ones belong to a botnet.")
 			_help_text("Your RIG is your home base — if you lose it, you lose. Capture the central HUB and the big ERP cores for the most slots.")
 		"network":
 			_help_head("Grow your network")
-			_help_text("DRAG a line from a building you own onto a target to CONNECT it (a dashed wire — nothing fires yet). Then CLICK the target and press ⚔ ATTACK: your bots stream over and grind its defenders to zero to capture it.", C_TEXT)
-			_help_text("Connect SEVERAL of your buildings into one target to pile on. A line into one of YOUR OWN buildings is a GUARD — it reinforces that building automatically whenever it comes under attack, then stands down.")
+			_help_text("DRAG a line from a building you own onto a target to CONNECT it (a dashed wire — nothing fires yet). Its panel opens automatically: choose Scan quietly or Attack: your bots stream over and grind its defenders to zero to capture it.", C_TEXT)
+			_help_text("Drag another source into a running attack to join it immediately. Stop keeps links; Disconnect removes them. Packets already travelling still arrive. A line into one of YOUR OWN buildings is a GUARD — it reinforces that building automatically whenever it comes under attack, then stands down.")
 			_help_text("Bots travel along the streets; far targets take longer and you can lose a building before help arrives.")
 		"build":
 			_help_head("Build inside the slots")
-			_help_text("Click a building you own, then drop a build card on an empty slot. Each build is paid in Intel over a few seconds.", C_TEXT)
+			_help_text("Click a building you own, then drop a build card on an empty slot. Each build consumes 10 Intel over 10 seconds of funded work. Attack packets take priority; remaining Intel is shared across jobs. Limited funding slows progress proportionally.", C_TEXT)
 			_help_row("bot", "", "Bot farm", "+1 bot/s regeneration, and each farm RAISES this building's cap by 30 (two farms → 60, three → 90). Stack them to make a fortress.")
 			_help_row("intel", "", "Intel harvester", "+1 Intel/s and +50 Intel cap.")
 			_help_row("cash", "", "Darknet market", "A Cash packet every few seconds, flowing home to your rig.")
@@ -2461,11 +2639,11 @@ func _menu_help() -> void:   # big paginated help with Prev / Next
 			_help_row("cash", "", "Cash", "Earned by Darknet markets (packets flow home to your rig). Cash is the first of the three card-research inputs.")
 			_help_row("cred", "", "Credentials", "Harvested by Credential harvesters. The second research input.")
 			_help_row("lab", "", "Research", "Produced by Research labs. The third research input. Cash + Credentials + Research together pay for cards over time.")
-			_help_text("All four are shown top-left, each with a +/− per-second rate so you can see what's rising or falling.")
+			_help_text("The resource rates measure actual reserve changes over the last four seconds, including spending and caps. They are not promised production rates.")
 		"cards":
 			_help_head("Ultimate weapons — cards")
 			_help_text("Open the RESEARCH tab (top-right), queue a card, and it's paid for from Cash, Credentials and Research over time. Then drag the finished card from your hand onto any reachable enemy — it flies from your rig and lands a big hit. Worm cards spread along the streets. Each family hits some building types harder than others.", C_TEXT)
-			_help_row("", "stuff", "Credential attacks", "Wipe a building's defenders outright.")
+			_help_row("", "stuff", "Credential attacks", "Remove up to all defenders; the building type can resist it. Bots must arrive to capture.")
 			_help_row("", "phish", "Phishing", "Cheap — removes half the defenders.")
 			_help_row("", "zeroday", "0-day exploits", "Breach: defenders down and routing cut.")
 			_help_row("", "supply", "Supply-chain", "Steal a building's production for a while.")
@@ -2491,7 +2669,6 @@ func _menu_feedback() -> void:
 		_help_text(_fb_status, C_GOOD)
 		_mbtn("← Back to menu", func(): _menu_view = "main"; _refresh_menu())
 		return
-	_menu_label("Rating")
 	var rr := HBoxContainer.new(); rr.add_theme_constant_override("separation", 6)
 	for n in [1, 2, 3, 4, 5]:
 		var b := Button.new(); b.text = "★ %d" % n; b.custom_minimum_size = Vector2(0, 36); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
@@ -2499,7 +2676,6 @@ func _menu_feedback() -> void:
 		b.pressed.connect(func(k = n): _fb_rating = k; _refresh_menu())
 		rr.add_child(b)
 	menu_box.add_child(rr)
-	_menu_label("Type")
 	var tr := HBoxContainer.new(); tr.add_theme_constant_override("separation", 6)
 	for t in ["bug", "suggestion", "general"]:
 		var b := Button.new(); b.text = str(t).capitalize(); b.custom_minimum_size = Vector2(0, 36); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
@@ -2509,13 +2685,12 @@ func _menu_feedback() -> void:
 	menu_box.add_child(tr)
 	_menu_label("Details")
 	fb_details = TextEdit.new(); fb_details.placeholder_text = "What happened, or your idea…"
+	fb_details.text = str(_fb_draft.details)
 	fb_details.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 100)
 	menu_box.add_child(fb_details)
-	_menu_label("Version")
-	fb_version = LineEdit.new(); fb_version.text = GAME_VERSION; fb_version.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 32)
-	menu_box.add_child(fb_version)
 	_menu_label("Name (optional)")
 	fb_name = LineEdit.new(); fb_name.placeholder_text = "anonymous"; fb_name.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 32)
+	fb_name.text = str(_fb_draft.name)
 	menu_box.add_child(fb_name)
 	_menu_gap(4)
 	_mbtn("✓ Submit", _submit_feedback)
@@ -2526,7 +2701,7 @@ func _submit_feedback() -> void:
 	var data := {
 		"rating": _fb_rating, "type": _fb_type,
 		"details": (fb_details.text if fb_details != null else ""),
-		"version": (fb_version.text if fb_version != null else GAME_VERSION),
+		"version": GAME_VERSION,
 		"name": (fb_name.text if fb_name != null else ""),
 		"when": Time.get_datetime_string_from_system(),
 		"town": town_seed, "outcome": ("win" if won else ("loss" if lost else "in-progress")),
@@ -2539,68 +2714,121 @@ func _submit_feedback() -> void:
 		fb_http.request(FEEDBACK_ENDPOINT, ["Content-Type: application/json"], HTTPClient.METHOD_POST, JSON.stringify(data))
 	_fb_status = "Thanks! Saved" + (" and sent." if FEEDBACK_ENDPOINT != "" else " to user://feedback.jsonl.")
 	_fb_rating = 0; _fb_type = "general"
+	_fb_draft = {"details": "", "version": GAME_VERSION, "name": ""}
+	fb_details = null; fb_version = null; fb_name = null
 	_refresh_menu()
 
 
 # ---------------------------------------------------------------- TUTORIAL
 func _tut_stages() -> Array:
+	var target := str(hosts[_tut_target].name) if _tut_target >= 0 else "Training target"
 	return [
-		{"title": "Welcome", "text": "You run a botnet. FOUR resources (top-left) fuel it — each shows a +/− per-second rate:\n▣ INTEL — spent 1 per attack bot. Out of Intel, attacks pause.\n$ CASH — made by Darknet markets; the 1st card-research input.\n⚷ CREDENTIALS and ⚗ RESEARCH — the other two card inputs."},
-		{"title": "Take your first host", "text": "DRAG a line from YOUR RIG (green, top-left) onto a neighbouring grey building. Then CLICK that building and press ⚔ ATTACK on its panel. Your bots stream over and capture it once its defenders reach zero."},
-		{"title": "Attack & defend", "text": "Capture one more building to grow. To DEFEND, drag a line INTO one of YOUR buildings — that's a GUARD: it auto-reinforces whenever that building is attacked, then stands down. Build a Bot farm in a slot to raise a building's cap."},
-		{"title": "Research & play a card", "text": "Click a building you own and drop a Credential harvester + a Research lab into its slots. Open RESEARCH (top-right), research a card, then drag it from your hand at the bottom onto a reachable enemy — it flies from your rig and lands a big hit."},
-		{"title": "Beat the AI", "text": "The enemy botnet is now awake — and it's taking it easy on you. Capture MORE THAN HALF the buildings to win. Good luck, operator."},
+		{"title": "Connect", "text": "Drag from YOUR RIG to TARGET. A dashed connection is a plan; it spends nothing."},
+		{"title": "Scan, then attack", "text": "Press Scan on %s's panel. When it finishes, the same button becomes Attack. Press it to capture." % target},
+		{"title": "Combine", "text": "Drag SUPPORT to the same target. It immediately joins the running attack."},
+		{"title": "Capture", "text": "Watch the target's defenders fall. Your connected sources become automatic guards when it turns green."},
+		{"title": "Build", "text": "Select your captured building. Click Intel harvester below its slots. Wait for construction to finish."},
+		{"title": "Research", "text": "Open Research and click Phishing. Training support supplies all three inputs; wait for the card in your tray."},
+		{"title": "Play a card", "text": "Drag the Phishing card from the bottom tray onto a highlighted enemy. Cards weaken; bots capture."},
+		{"title": "Ready", "text": "Hold the building count shown above for 45 seconds, or capture the rival rig. Losing your rig ends the match."},
 	]
 
 
 func _start_tutorial() -> void:
-	_opt_size = SIZE_PRESETS[0]; _opt_enemies = 1; _opt_seed = 0   # a small, 1-enemy town
+	_opt_size = SIZE_PRESETS[0]; _opt_enemies = 1; _opt_seed = 7
 	_reset()
-	_tut = true; _tut_stage = 0; _ai_paused = true                # freeze the AI until the last stage
-	_open_menu(false)
-	_show_tut()
+	_tut = true; _tut_stage = 0; _ai_paused = true
+	_tut_connected = false; _tut_attacked = false; _tut_combined = false; _tut_captured = false
+	var source := int(rig[PLAYER])
+	_tut_second = -1; _tut_target = -1
+	for i in hosts.size():
+		if _mine(i) and i != source: _tut_second = i; break
+	for i in hosts[source].links:
+		if int(hosts[i].owner) == NEUTRAL: _tut_target = i; break
+	if _tut_target < 0:
+		for i in hosts.size():
+			if int(hosts[i].owner) == NEUTRAL: _tut_target = i; break
+	# This is a repeatable teaching fixture, not the random competitive setup.
+	hosts[_tut_target].name = "TRAINING TARGET"
+	hosts[_tut_target].sec = 40.0; hosts[_tut_target].bots = 40.0
+	_set_builds(_tut_target, [])
+	hosts[_tut_second].name = "TRAINING SUPPORT"
+	hosts[_tut_second].slots = 4
+	_set_builds(_tut_second, ["bot", "cash", "cred", "lab"])
+	hosts[_tut_second].bots = 30.0
+	_link(source, _tut_target); _link(_tut_second, _tut_target)
+	cash[PLAYER] = 50.0; creds[PLAYER] = 50.0; research[PLAYER] = 50.0
+	_catalogue_card = "phish:linked"
+	_open_menu(false); _show_tut(); _fit_view()
+
+
+func _tick_tutorial() -> void:
+	if not _tut or _tut_target < 0: return
+	var contributors := _owned_feeders(_tut_target)
+	if not contributors.is_empty(): _tut_connected = true
+	var attacks := 0
+	for source in contributors:
+		if bool(hosts[source].live) and str(hosts[source].mode) == "attack": attacks += 1
+	if attacks > 0 and not _mine(_tut_target): _tut_attacked = true
+	if attacks >= 2 and not _mine(_tut_target): _tut_combined = true
+	var done := false
+	match _tut_stage:
+		0: done = _tut_connected
+		1: done = _tut_attacked
+		2: done = _tut_combined or (_tut_captured and contributors.size() >= 2)
+		3: done = _tut_captured
+		4: done = _mine(_tut_target) and _count_all(_tut_target, "intel") > 0
+		5: done = _held(PLAYER, "phish:linked") > 0 or int(card_plays.get(PLAYER, 0)) > 0
+		6: done = int(card_plays.get(PLAYER, 0)) > 0
+	if done: _tut_next()
 
 
 func _show_tut() -> void:
 	if tut_box == null: return
-	for c in tut_box.get_children(): c.queue_free()
+	for c in tut_box.get_children(): tut_box.remove_child(c); c.queue_free()
 	var stages := _tut_stages()
-	_tut_stage = clampi(_tut_stage, 0, stages.size() - 1)
-	var s: Dictionary = stages[_tut_stage]
-	var head := Label.new(); head.text = "🎓  Tutorial %d/%d  ·  %s" % [_tut_stage + 1, stages.size(), str(s.title)]
-	head.add_theme_font_size_override("font_size", 15); head.add_theme_color_override("font_color", C_WARN)
-	head.mouse_filter = Control.MOUSE_FILTER_IGNORE; tut_box.add_child(head)
-	var body := Label.new(); body.text = str(s.text); body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.custom_minimum_size = Vector2(736.0, 0); body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_theme_font_size_override("font_size", 13); body.add_theme_color_override("font_color", C_TEXT); tut_box.add_child(body)
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 8)
-	var skip := Button.new(); skip.text = "Skip"; skip.custom_minimum_size = Vector2(120, 32); skip.focus_mode = Control.FOCUS_ALL
-	skip.pressed.connect(_tut_finish); row.add_child(skip)
-	var sp := Control.new(); sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL; sp.mouse_filter = Control.MOUSE_FILTER_IGNORE; row.add_child(sp)
-	var nxt := Button.new(); nxt.custom_minimum_size = Vector2(170, 32); nxt.focus_mode = Control.FOCUS_ALL
-	nxt.text = ("Start playing ✓" if _tut_stage >= stages.size() - 1 else "Next ▸")
-	nxt.pressed.connect(_tut_next); row.add_child(nxt)
-	tut_box.add_child(row)
+	var step: Dictionary = stages[_tut_stage]
+	var row := HBoxContainer.new(); tut_box.add_child(row)
+	_lbl(row, "%d/%d · %s" % [_tut_stage + 1, stages.size(), step.title], 16, C_WARN, 0)
+	var button := Button.new(); button.custom_minimum_size = Vector2(126, 32); button.add_theme_font_size_override("font_size", 14)
+	button.text = "Start match" if _tut_stage == stages.size() - 1 else "Skip tutorial"
+	button.pressed.connect(_tut_finish); row.add_child(button)
+	var body := _lbl(tut_box, str(step.text), 14, C_TEXT, 0)
+	body.custom_minimum_size.x = maxf(200, get_viewport_rect().size.x - PANEL_W - 104)
 	tut_panel.visible = _tut and not menu_open
+	_layout_ui()
+
+
+func _tutorial_target() -> int:
+	if not _tut: return -1
+	if _tut_stage == 0: return int(rig[PLAYER])
+	if _tut_stage == 2: return _tut_second
+	if _tut_stage in [1, 3, 4]: return _tut_target
+	return -1
 
 
 func _tut_next() -> void:
-	_tut_stage += 1
-	var stages := _tut_stages()
-	if _tut_stage >= stages.size(): _tut_finish(); return
-	if _tut_stage == stages.size() - 1: _ai_paused = false; _flash("The AI is awake — take the majority!")
+	_tut_stage = mini(_tut_stage + 1, _tut_stages().size() - 1)
+	if _tut_stage == 4:
+		sel = {_tut_target: true}; _inspect = -1; _tab = ""; _refresh_panel()
 	_show_tut()
 
 
 func _tut_finish() -> void:
 	_tut = false; _ai_paused = false
 	if tut_panel != null: tut_panel.visible = false
+	_flash("Rival active. Capture territory and protect your rig.")
+	_layout_ui(); _fit_view()
 
 
 func _start_new_game() -> void:
 	if menu_seed_edit != null:
 		var s := menu_seed_edit.text.strip_edges()
-		_opt_seed = int(s) if s.is_valid_int() else 0
+		if s != "" and (not s.is_valid_int() or int(s) <= 0):
+			menu_seed_edit.placeholder_text = "Use a positive whole number"
+			menu_seed_edit.add_theme_color_override("font_color", C_BAD)
+			return
+		_opt_seed = int(s) if s != "" else 0
 	_reset()
 	_open_menu(false)
 
@@ -2608,35 +2836,170 @@ func _start_new_game() -> void:
 # Panel is organised around the two verbs: CONNECT (selection panel) and LAUNCH (a building's own panel
 # carries its ⚔ ATTACK button). States: RESULT · INSIDE (micro) · SELECTING · NODE (launch pad) · IDLE.
 func _panel_shown() -> bool:   # the sidebar is HIDDEN by default — only a building or a top tab opens it
-	return won or lost or _tab == "research" or _tab == "board" or not sel.is_empty() or _inspect >= 0
+	return won or lost or _tab == "research" or _tab == "board" or _tab == "card" or not sel.is_empty() or _inspect >= 0
 
 
 func _refresh_panel() -> void:
-	if is_inside_tree() and get_viewport() != null and get_viewport().gui_is_dragging(): return   # a card is in the air
+	if panel_box == null: return
+	if is_inside_tree() and get_viewport().gui_is_dragging(): return
 	_refresh_top_tabs()
 	var shown := _panel_shown()
-	if panel != null: panel.visible = shown
-	for c in panel_box.get_children(): c.queue_free()
-	if not shown: return
-	var keep := _scroll_pos()                 # a periodic refresh must not jump the scroll
-	if won or lost: _panel_result(); _restore_scroll(keep); return
-	if _tab == "research": _panel_research()
-	elif _tab == "board": _panel_board()
-	elif not sel.is_empty(): _panel_selecting()
-	elif _inspect >= 0: _panel_inspect()
-	if paused: _plabel("— PAUSED (Space · Esc for menu) —", 14, C_WARN)
+	panel.visible = shown and not menu_open
+	var context := "%s|%s|%d|%s|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost), _selected_card]
+	var changed := context != _panel_context
+	var keep := 0 if changed else _scroll_pos()
+	var previous := panel_box
+	panel_box = VBoxContainer.new()
+	panel_box.add_theme_constant_override("separation", 4)
+	panel_box.custom_minimum_size = Vector2(_panel_width() - 28.0, 0)
+	panel_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if shown:
+		if won or lost: _panel_result()
+		elif _tab == "research": _panel_research()
+		elif _tab == "board": _panel_board()
+		elif _tab == "card": _panel_card()
+		elif not sel.is_empty(): _panel_selecting()
+		elif _inspect >= 0: _panel_inspect()
+
+	# Reconcile text and state into existing controls. Pointer hover never
+	# freezes values, and heartbeat refreshes never destroy a pressed button.
+	if not changed and _same_ui_shape(previous, panel_box):
+		_sync_ui(previous, panel_box)
+		panel_box.free(); panel_box = previous
+	else:
+		panel_scroll.remove_child(previous); previous.queue_free()
+		panel_scroll.add_child(panel_box)
+	_panel_context = context
 	_restore_scroll(keep)
+	_layout_ui()
+	if changed: _keep_target_visible()
+
+
+func _same_ui_shape(a: Node, b: Node) -> bool:
+	if a is SlotBox and b is SlotBox: return a.host == b.host and a.slot == b.slot
+	if a is ResearchTile and b is ResearchTile: return a.key == b.key and a.queue_index == b.queue_index and a.catalogue == b.catalogue
+	if a.get_class() != b.get_class() or a.get_script() != b.get_script() or a.get_child_count() != b.get_child_count(): return false
+	if a is OptionButton and a.selected != b.selected: return false
+	if a is ResearchTile and (a.key != b.key or a.queue_index != b.queue_index): return false
+	if a is Button:
+		var ac := a.get_signal_connection_list("pressed")
+		var bc := b.get_signal_connection_list("pressed")
+		if ac.size() != bc.size(): return false
+		for i in ac.size():
+			if ac[i].callable != bc[i].callable: return false
+	for i in a.get_child_count():
+		if not _same_ui_shape(a.get_child(i), b.get_child(i)): return false
+	return true
+
+
+func _sync_ui(a: Node, b: Node) -> void:
+	if a is SlotBox or a is ResearchTile: a.queue_redraw(); return
+	if a is Label or a is Button: a.text = b.text
+	if a is Button: a.disabled = b.disabled
+	if a is Control:
+		for key in ["font_color", "font_disabled_color"]:
+			if b.has_theme_color_override(key): a.add_theme_color_override(key, b.get_theme_color(key))
+		a.queue_redraw()
+	for i in a.get_child_count(): _sync_ui(a.get_child(i), b.get_child(i))
+
+
+func _panel_width() -> float:
+	if _tab == "research": return get_viewport_rect().size.x - 48
+	return PANEL_W
+
+
+func _layout_ui() -> void:
+	if hud == null or feedback_label == null: return
+	var sz := get_viewport_rect().size
+	hud.position = Vector2(24, 8); hud.size = Vector2(sz.x - 440, 46)
+	top_tabs.position = Vector2(sz.x - 396, 14)
+	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
+	var gallery := _tab == "research"
+	panel.position = Vector2(24 if gallery else sz.x - _panel_width() - 24, 100 if gallery else 64)
+	panel.size = Vector2(_panel_width(), sz.y - 356 if gallery else maxf(180, sz.y - 88))
+	panel_scroll.size = panel.size - Vector2(28, 24)
+	panel_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel_scroll.scroll_vertical = 0
+	var rows := 1 if gallery else maxi(1, ceili(float(_hand(PLAYER).size()) / 4))
+	var tray_height := rows * 104 + (rows - 1) * 6 + 8
+	hand_bar.columns = 8 if gallery else 4
+	hand_panel.position = Vector2(24, sz.y - tray_height - 12)
+	hand_panel.size = Vector2(sz.x - 48 if gallery else sz.x - PANEL_W - 72, tray_height)
+	hand_panel.visible = not menu_open
+	pending_research.position = Vector2(24, hand_panel.position.y - 116)
+	pending_research.size = Vector2(sz.x - PANEL_W - 72, 104)
+	pending_research.visible = not menu_open and not won and not lost
+	_refresh_hand()
+	feedback_label.position = Vector2(24, pending_research.position.y - 46 if not lab[PLAYER].queue.is_empty() else hand_panel.position.y - 46)
+	feedback_label.size = Vector2(sz.x - PANEL_W - 72, 42)
+	if gallery: feedback_label.visible = false
+	tut_panel.position = Vector2(24, 98); tut_panel.size = Vector2(sz.x - PANEL_W - 72, 120)
+	tut_box.position = Vector2(16, 10); tut_box.custom_minimum_size = Vector2(tut_panel.size.x - 32, 0)
+	tut_box.size.x = tut_panel.size.x - 32
+	tut_panel.visible = _tut and not menu_open and not gallery
+	for c in tut_box.get_children():
+		if c is Label: c.custom_minimum_size.x = tut_panel.size.x - 32
+	queue_redraw()
+
+
+func _map_rect() -> Rect2:
+	var sz := get_viewport_rect().size
+	var right := sz.x - _panel_width() - 48 if _panel_shown() else sz.x - 24
+	var top := 234.0 if _tut else 100.0
+	return Rect2(24, top, maxf(200, right - 24), maxf(100, sz.y - 24 - top))
+
+
+func _keep_target_visible() -> void:
+	var target := _inspect
+	if target < 0 and sel.size() == 1: target = int(sel.keys()[0])
+	if target < 0: return
+	var point := _w2s(hosts[target].pos)
+	var safe := _map_rect().grow(-42)
+	_pan += Vector2(clampf(point.x, safe.position.x, safe.end.x), clampf(point.y, safe.position.y, safe.end.y)) - point
+
+
+func _update_chrome() -> void:
+	if objective_label == null: return
+	objective_label.visible = false
+	feedback_label.visible = not menu_open and _tab != "research" and _msg_t > 0
+	feedback_label.text = _msg
+	if _dragging and _drag_from >= 0:
+		feedback_label.visible = true
+		var old := int(hosts[_drag_from].assign)
+		feedback_label.text = "Connect %s · release over a target" % str(hosts[_drag_from].name)
+		if old >= 0: feedback_label.text += " · replaces route to %s; travelling packets still arrive" % str(hosts[old].name)
+	var dragged := _dragged_card()
+	if dragged != "":
+		feedback_label.visible = true
+		var target := _host_at(get_local_mouse_position())
+		feedback_label.text = "Release over a highlighted enemy to play this card."
+		if target >= 0:
+			var reason := _can_play(PLAYER, dragged, target)
+			var cd: Dictionary = CARDS[_card_of(dragged)]
+			var scale := _card_scale(str(cd.fam), target)
+			if reason == "" and scale <= 0: reason = "immune to this card family"
+			feedback_label.text = "%s · %s" % [str(hosts[target].name), reason if reason != "" else _effect_text(cd, target, scale)]
+	var need := _control_need() + 1
+	var warning := ""
+	for fac in ais:
+		if float(_hold.get(fac, 0.0)) > 0: warning = "  ·  %s wins in %.0fs" % [fname(fac), maxf(0, HOLD_SECS - float(_hold[fac]))]
+	if _under_attack(int(rig[PLAYER])): warning = "  ·  YOUR RIG IS UNDER ATTACK"
+	objective_label.text = "%sHold %d buildings for %ds  ·  Yours %d/%d  ·  Hold %.0f/%ds  ·  Protect your rig%s" % ["PAUSED  ·  " if paused else "", need, int(HOLD_SECS), _player_nodes(), need, float(_hold.get(PLAYER, 0.0)), int(HOLD_SECS), warning]
+	objective_label.add_theme_color_override("font_color", C_WARN if warning != "" or paused else C_TEXT)
 
 
 func _refresh_top_tabs() -> void:
 	if top_tabs == null: return
 	var n := _hand_size(PLAYER)
-	var sig := "%s|%d" % [_tab, n]
+	var sig := _tab
 	if sig == _toptab_sig: return   # only rebuild when it actually changes — a periodic rebuild would eat clicks
 	_toptab_sig = sig
 	for c in top_tabs.get_children(): c.queue_free()
-	_mk_top_tab("🧪 RESEARCH" + ((" ·%d" % n) if n > 0 else ""), "research", 160.0)
+	_mk_top_tab("🧪 RESEARCH", "research", 160.0)
 	_mk_top_tab("🏆 BOARD", "board", 120.0)
+	var menu_button := Button.new(); menu_button.text = "Menu"
+	menu_button.custom_minimum_size = Vector2(88, 36)
+	menu_button.pressed.connect(_open_menu.bind(true)); top_tabs.add_child(menu_button)
 
 
 func _mk_top_tab(txt: String, tab: String, w: float) -> void:
@@ -2683,37 +3046,84 @@ func _panel_tabs() -> void:   # MAP (context) · RESEARCH (cards); the active ta
 	_btn_row([["🗺 MAP", _set_tab.bind("map"), _tab != "map", "The map: connect, scan, attack, build"], [rl, _set_tab.bind("research"), _tab != "research", "Cards weaken a building; your bots take it. Researched from Cash, Credentials and Research."], ["🏆 BOARD", _set_tab.bind("board"), _tab != "board", "The leaderboard: who holds what (L)"]])
 
 
-func _panel_research() -> void:   # the research tab: resources, what is researching, the hand, the catalogue
-	_plabel("RESEARCH", 18, C_TEXT)
-	var L: Dictionary = lab[PLAYER]
-	var q: Array = L.queue
-	if q.is_empty():
-		if _kind_total(PLAYER, "cred") == 0 or _kind_total(PLAYER, "lab") == 0: _plabel("Build a Credential harvester and a Research lab first.", 12, C_WARN)
+func _panel_research() -> void:
+	_plabel("Research · %d/4 queued" % (lab[PLAYER].queue as Array).size(), 22, C_TEXT)
+	var grid := GridContainer.new(); grid.columns = 8
+	grid.add_theme_constant_override("h_separation", 12); grid.add_theme_constant_override("v_separation", 12)
+	var width := (_panel_width() - 28 - 84) / 8
+	for card in CARD_ORDER:
+		var tile := ResearchTile.new(); tile.game = self; tile.key = _card_key(card, "linked")
+		tile.custom_minimum_size = Vector2(width, 300); grid.add_child(tile)
+	panel_box.add_child(grid)
+
+
+func _leave_research_for_drag() -> void:
+	_tab = ""; sel.clear(); _inspect = -1
+	panel.hide()
+	_layout_ui(); _refresh_top_tabs(); queue_redraw()
+
+
+func _research_selected(index: int) -> void:
+	_choose_research(_card_key(str(CARD_ORDER[index]), "linked"))
+
+
+func _choose_research(key: String) -> void:
+	_catalogue_card = key; _panel_context = ""; _refresh_panel()
+
+
+func _inspect_card(key: String) -> void:
+	_selected_card = key; _tab = "card"; sel.clear(); _inspect = -1; _refresh_panel()
+
+
+func _panel_card() -> void:
+	if _selected_card == "": return
+	var card: Dictionary = CARDS[_card_of(_selected_card)]
+	_plabel(str(card.name), 20, FAMILY_COL[str(card.fam)])
+	var art := HelpGlyph.new(); art.game = self; art.card = _card_of(_selected_card)
+	art.custom_minimum_size = Vector2(110, 110); panel_box.add_child(art)
+	_plabel(_card_description(_selected_card).split("\n")[1], 16, C_TEXT)
+	_plabel("%d ready" % _held(PLAYER, _selected_card), 14, C_GOOD)
+
+
+func _research_effect(key: String) -> String:
+	var cd: Dictionary = CARDS[_card_of(key)]
+	var text := ""
+	match str(cd.effect):
+		"defenders": text = "Remove %d%% of defenders." % int(float(cd.power) * 100)
+		"breach": text = "Remove %d%% of defenders. Cut routes for %.0fs." % [int(float(cd.power) * 100), float(cd.dur)]
+		"deny": text = "Stop production and routes for %.0fs." % float(cd.dur)
+		"steal": text = "Steal resource production for %.0fs." % float(cd.dur)
+	if bool(cd.chain): text += " Spreads along streets."
+	return text
+
+
+func _card_description(key: String) -> String:
+	var cd: Dictionary = CARDS[_card_of(key)]
+	var effect := ""
+	match str(cd.effect):
+		"defenders": effect = "Base effect: remove %d%% of current defenders." % int(float(cd.power) * 100)
+		"breach": effect = "Remove %d%% of defenders and cut routing for %.0fs." % [int(float(cd.power) * 100), float(cd.dur)]
+		"steal": effect = "Siphon resource production for %.0fs." % float(cd.dur)
+		"deny": effect = "Stop production and routing for %.0fs." % float(cd.dur)
+	return "%s\n%s Type resistance or weakness changes the effect.%s" % [str(cd.name), effect, " Spreads along streets; each later jump is less likely." if bool(cd.chain) else " Affects one building."]
+
+
+func _card_detail(key: String, for_research: bool) -> void:
+	var cd: Dictionary = CARDS[_card_of(key)]
+	_plabel(str(cd.name), 20, FAMILY_COL[str(cd.fam)])
+	var glyph := HelpGlyph.new(); glyph.game = self; glyph.card = _card_of(key)
+	glyph.custom_minimum_size = Vector2(110, 110); panel_box.add_child(glyph)
+	_plabel(("WORM · spreads" if bool(cd.chain) else "SINGLE · one building"), 12, C_DIM)
+	_plabel(_card_description(key).split("\n")[1], 16, C_TEXT)
+	if for_research:
+		_plabel("Research: %s · %.0fs" % [_cost_text(key), _card_time(key)], 14, C_WARN)
+		_btn("Queue research", _queue_research.bind(PLAYER, key), true, null, "Payments are spread across research time. Pauses if any input runs out.", 40)
 	else:
-		var key := str(q[0]); var tm := _card_time(key)
-		var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 10); row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var c := CardFace.new(); c.game = self; c.card = _card_of(key); c.reach = _reach_of(key); c.custom_minimum_size = Vector2(124, 174)
-		row.add_child(c)
-		var col := VBoxContainer.new(); col.size_flags_horizontal = Control.SIZE_EXPAND_FILL; col.add_theme_constant_override("separation", 6)
-		row.add_child(col)
-		_lbl(col, "Researching", 12, C_DIM, 0)
-		_lbl(col, "%d %%  ·  %.0f s left" % [int(100.0 * float(L.progress) / tm), tm - float(L.progress)], 16, C_WARN, 0)
-		if bool(L.paused): _lbl(col, "Paused — nothing is consumed", 12, C_TEXT, 0)
-		elif str(L.stall) != "": _lbl(col, "Waiting for %s" % {"cash": "Cash", "creds": "Credentials", "research": "Research"}[str(L.stall)], 12, C_WARN, 0)
-		else: _lbl(col, "Consuming %s" % _cost_text(key), 12, C_TEXT, 0)
-		_btn("▶ Resume" if bool(L.paused) else "⏸ Pause", _toggle_research.bind(PLAYER), true, col)
-		_btn("✖ Cancel", _dequeue_research.bind(PLAYER, 0), true, col)
-		panel_box.add_child(row)
-		if q.size() > 1:
-			_kicker("queued next")
-			for k in range(1, q.size()):
-				var qk := str(q[k])
-				_btn_row([["%d · %s" % [k, str(CARDS[_card_of(qk)].name)], _requeue_first.bind(PLAYER, k), false],
-					["▲ research first", _requeue_first.bind(PLAYER, k), true, "Moves it ahead of the one running (that one keeps its progress)"], ["✖", _dequeue_research.bind(PLAYER, k)]])
-	_kicker("click a card to research it")
-	var keys := []
-	for c2 in CARD_ORDER: keys.append(_card_key(c2, "linked"))
-	_card_grid(keys, true, true, Callable(), Callable(), func(k): _queue_research(PLAYER, k))
+		_plabel("%d held · no additional cost to play" % _held(PLAYER, key), 14, C_GOOD)
+		var reachable := false
+		for i in hosts.size():
+			if _can_play(PLAYER, key, i) == "" and _card_scale(str(cd.fam), i) > 0: reachable = true; break
+		_plabel("Ready · drag onto a reachable enemy" if reachable else "No valid target · capture a path from your rig", 14, C_GOOD if reachable else C_WARN)
 
 
 func _family_line(fam: String) -> String:   # which types a card family hurts most / least
@@ -2731,11 +3141,8 @@ func _family_line(fam: String) -> String:   # which types a card family hurts mo
 # read-only slot view for a building you do NOT own: shows its TYPE and the buildings already inside it,
 # FOGGED until you scan it (scan is launched from the launch-pad above). Never a build palette.
 func _panel_enemy_slots(i: int) -> void:
-	_gap(6.0)
-	var badge := TypeBadge.new(); badge.game = self; badge.host = i
-	panel_box.add_child(badge)
 	var scanned := _scanned(PLAYER, i)
-	_plabel("Inside" + ("" if scanned else "  🔒 hidden — scan it to reveal"), 12, C_DIM if scanned else C_WARN)
+	_plabel("Node buildings · %d/%d slots · bot capacity %d" % [_built(i).size(), int(hosts[i].slots), int(_cap_of(i))] if scanned else " ", 14, C_DIM)
 	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER; row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for sl in int(hosts[i].slots):
@@ -2744,11 +3151,8 @@ func _panel_enemy_slots(i: int) -> void:
 	panel_box.add_child(row)
 
 
-func _panel_hand() -> void:   # your cards, draggable onto a building on the map
-	var hand := _hand(PLAYER)
-	if hand.is_empty(): return
-	_kicker("your hand · drag a card onto the building")
-	_card_grid(hand, false, true, Callable(), Callable(), Callable(), true)
+func _panel_hand() -> void:
+	pass
 
 
 func _panel_result() -> void:
@@ -2775,213 +3179,166 @@ func _stage_line(i: int) -> String:   # one line that says what the building is 
 	var tname := str(NODE_TYPES[str(h.get("type", "pc"))].name)
 	if bool(h.get("junction", false)): tname += " · junction (streets carry ×%d)" % JUNCTION_CAP_MULT
 	if not _mine(i) and not _scanned(PLAYER, i):
-		var rec: Dictionary = (scans[PLAYER] as Dictionary).get(i, {})
-		if rec.has("bots"):   # what you last saw there, regrown since, and what was inside — rescan to refresh
-			var ago := int(_t - float(rec.get("at", _t)))
-			return "last seen %d s ago · ≈%d bots now · %s inside then · %s" % [ago, int(round(_ai_known_bots(PLAYER, i))), _build_names(_ai_known_builds(PLAYER, i)), tname]
-		return "unscanned · likely ≈%d defenders (%s, value ×%d) · unknown inside" % [int(round(_ai_prior_bots(i))), tname, int(h.value)]
+		return " "
 	if int(h.owner) == NEUTRAL:
-		return "Security %d/%d · %s inside" % [int(h.bots), int(h.sec), _build_names(h.builds)]
+		return "Security %d/%d · %s" % [int(h.bots), int(h.sec), tname]
 	if not _mine(i):
-		return "%d/%d bots · %s inside" % [int(h.bots), int(_cap_of(i)), _build_names(h.builds)]
-	return "%d/%d bots · %d/%d slots · %s" % [int(h.bots), int(_cap_of(i)), mini(_active_slots(i), _built(i).size()), int(h.slots), _build_names(h.builds)]
+		return "%d/%d bots · %s" % [int(h.bots), int(_cap_of(i)), tname]
+	return "%d/%d bots · %s · %d/%d working slots" % [int(h.bots), int(_cap_of(i)), ["Stable", "Shaky", "Critical"][_stage(i)], mini(_active_slots(i), _built(i).size()), int(h.slots)]
 
 
-func _panel_build(i: int) -> void:   # the slot board of a building you own: drop a building card on a slot to build there
+func _panel_build(i: int) -> void:
 	var h: Dictionary = hosts[i]
-	var badge := TypeBadge.new(); badge.game = self; badge.host = i
-	panel_box.add_child(badge)
-	var hin := int(_hostile_incoming(i))
-	if hin > 0: _plabel("⚠ Under attack — %d bots inbound" % hin, 14, C_BAD)
-	var row := HBoxContainer.new()   # the SLOTS: drop a card on one to build there; on an occupied one to replace
-	row.add_theme_constant_override("separation", 8)
+	_plabel("Node buildings", 16, C_TEXT)
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 8)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var sw := minf(76.0, (PANEL_W - 70.0 - 8.0 * float(int(h.slots) - 1)) / float(int(h.slots)))
-	for sl in int(h.slots):
-		var sb := SlotBox.new(); sb.game = self; sb.host = i; sb.slot = sl
-		sb.custom_minimum_size = Vector2(sw, 90)
-		row.add_child(sb)
+	for slot in int(h.slots):
+		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
+		box.custom_minimum_size = Vector2(112, 140); row.add_child(box)
 	panel_box.add_child(row)
-	var jobs: Dictionary = h.jobs
-	var jk: Array = jobs.keys(); jk.sort()
-	for sk in jk:
-		var job: Dictionary = jobs[sk]
-		var kn: String = str(BUILD_KINDS[str(job.kind)].name) if str(job.kind) != "" else ""
-		var line := ""
-		if str(job.phase) == "demolish" and kn == "": line = "Clearing slot %d · %.0f s" % [int(job.slot) + 1, float(job.left)]
-		elif str(job.phase) == "demolish": line = "Clearing slot %d · %.0f s, then %.0f s to build %s" % [int(job.slot) + 1, float(job.left), BUILD_TIME, kn]
-		else: line = "Building %s · slot %d · %.0f s" % [kn, int(job.slot) + 1, float(job.left)]
-		_btn_row([[line, _cancel_job.bind(i, int(sk)), false], ["✖", _cancel_job.bind(i, int(sk)), true, "Cancel (no refund)"]])
-	var cards := HBoxContainer.new()   # the CARDS: one per building kind, draggable; a build costs Intel
-	cards.add_theme_constant_override("separation", 5)
-	cards.alignment = BoxContainer.ALIGNMENT_CENTER
-	cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	for k in BUILD_KINDS.keys():
-		var c := BuildCard.new(); c.game = self; c.kind = str(k)
-		cards.add_child(c)
-	panel_box.add_child(cards)
-	_plabel("Drag a card onto a slot · %d Intel per build · %.0f s" % [int(BUILD_COST_INTEL), BUILD_TIME], 11, C_DIM)
+	_plabel("Available buildings", 16, C_TEXT)
+	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", 8)
+	for kind in BUILD_KINDS:
+		var card := BuildCard.new(); card.game = self; card.kind = kind
+		card.custom_minimum_size = Vector2(112, 140); palette.add_child(card)
+	panel_box.add_child(palette)
 
 
-func _panel_selecting() -> void:   # CONNECT step: what this building is doing, then the actions
-	var stock := 0.0; var wired := 0
-	for s in sel.keys():
-		stock += float(hosts[int(s)].bots)
-		if int(hosts[int(s)].assign) >= 0: wired += 1
-	if sel.size() == 1:
-		var s0: int = int(sel.keys()[0])
-		_kicker("selected")
-		_plabel(str(hosts[s0].name), 18, C_TEXT)
-		_plabel(_stage_line(s0), 14, C_TEXT)
-		var a := int(hosts[s0].assign)
-		if a >= 0:
-			var verb := "guarding" if _mine(a) else "→"
-			_plabel("%s %s · %s" % [verb, str(hosts[a].name), _src_state(s0)], 14, C_GOOD if bool(hosts[s0].live) else C_WARN)
-		else: _plabel("Not connected — drag a line onto a target.", 14, C_WARN)
-	else:
-		_kicker("selected")
-		_plabel("%d buildings · %d bots" % [sel.size(), int(stock)], 18, C_TEXT)
-		if wired > 0: _plabel("%d already connected — wiring replaces it." % wired, 12, C_TEXT)
-		else: _plabel("Drag a line from any of them onto a target.", 14, C_WARN)
-	_gap(6.0)
-	if sel.size() == 1:
-		var s1: int = int(sel.keys()[0])
-		_panel_build(s1)   # its slots, right here: build straight into them
-	if wired > 0: _btn("✖ Disconnect (%d)" % wired, _disconnect_selected)
-	if sel.size() == 1: _panel_node_in(int(sel.keys()[0]))   # this building as a target: its guards
-	_flat("Clear selection (Esc)", _esc_btn)
+
+func _panel_selecting() -> void:
+	if sel.size() != 1:
+		_plabel("%d buildings selected" % sel.size(), 20, C_TEXT)
+		_connection_list(sel.keys())
+		return
+	var source := int(sel.keys()[0])
+	var heading := HBoxContainer.new(); panel_box.add_child(heading)
+	_lbl(heading, str(hosts[source].name), 20, C_TEXT, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_plabel(_stage_line(source), 14, C_TEXT)
+	var target := int(hosts[source].assign)
+	_panel_build(source)
+	var guards := _owned_feeders(source)
+	var connections: Array = guards.duplicate()
+	if target >= 0: connections.push_front(source)
+	if not connections.is_empty(): _connection_list(connections)
 
 
-# what launching every connection into `t` would do, before the button is pressed
-func _assault_preview(t: int, conns: Array) -> void:   # what launching every connection into t would do
-	var dmg := 0.0; var n := 0
-	for i in conns:
-		if not _route(int(i), t).is_empty(): dmg += SEND_RATE * float(hosts[int(i)].rate) * (ATTACK_POWER / DEFEND_POWER); n += 1
-	if n == 0: return
-	var regen := _ai_known_regen(PLAYER, t) - _ai_seen_drain(t)   # what you can know: its scanned inside, its visible outflow
-	var net := dmg - regen
-	if net <= 0.001:
-		_plabel("−%.1f/s vs +%.1f/s regen — not enough. Wire more or raise rates." % [dmg, regen], 14, C_WARN)
-	else:
-		var secs := float(hosts[t].bots) / net
-		var need := secs * dmg * DEFEND_POWER / ATTACK_POWER
-		_plabel("If all %d flow: −%.1f/s vs +%.1f/s regen → falls in ≈%d s · ≈%d Intel" % [n, dmg, regen, int(ceil(secs)), int(ceil(need))], 15, C_GOOD)
-		if float(intel[PLAYER]) < need: _plabel("⚠ Intel %d — needs ≈%d (+%d/s)" % [int(intel[PLAYER]), int(ceil(need)), int(_intel_rate(PLAYER))], 14, C_WARN)
+func _disconnect_source(source: int) -> void:
+	if not _mine(source): return
+	hosts[source].assign = -1; hosts[source].live = false; _next_depart.erase(source)
+	_refresh_panel(); queue_redraw()
 
 
-# the LAUNCH PAD: everything about building `t` as a destination — who is wired into it, who is
-# flowing, and the ⚔ ATTACK button that is the ONLY thing that starts attack flows
-func _panel_node_in(t: int) -> void:   # building t as a DESTINATION: guards into it, or your launch pad against it
-	var efeed := []                      # other botnets' buildings VISIBLY flowing into t (dormant plans and quiet scans are theirs to keep)
-	for i in hosts.size():
-		var o := int(hosts[i].owner)
-		if o != NEUTRAL and o != PLAYER and int(hosts[i].assign) == t and _wire_visible(i): efeed.append(i)
+func _fixed_button_style(button: Button, red := false) -> void:
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.3, 0.08, 0.1) if red else Color(0.09, 0.12, 0.17)
+		if state == "hover": style.bg_color = style.bg_color.lightened(0.08)
+		style.border_color = C_BAD if red else C_DIM
+		style.set_border_width_all(1); style.set_corner_radius_all(4)
+		style.content_margin_left = 2; style.content_margin_right = 2
+		style.content_margin_top = 0; style.content_margin_bottom = 0
+		button.add_theme_stylebox_override(state, style)
+
+
+func _connection_chip(source: int, label: String, parent: Control) -> void:
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
+	row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	parent.add_child(row)
+	var name_label := _lbl(row, label, 13, C_DIM, 0)
+	name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	name_label.custom_minimum_size.x = 146
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var button := Button.new(); button.text = "×"; button.name = "Disconnect_%d" % source
+	button.custom_minimum_size = Vector2(28, 28); button.add_theme_font_size_override("font_size", 16)
+	button.add_theme_color_override("font_color", C_BAD)
+	var style := StyleBoxFlat.new(); style.bg_color = Color(0.3, 0.08, 0.1)
+	style.border_color = C_BAD; style.set_border_width_all(1); style.set_corner_radius_all(4)
+	_fixed_button_style(button, true)
+	button.pressed.connect(_disconnect_source.bind(source)); row.add_child(button)
+
+
+func _connection_list(sources: Array) -> void:
+	var grid := GridContainer.new(); grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12); grid.add_theme_constant_override("v_separation", 0)
+	panel_box.add_child(grid)
+	for header in ["Source", "Target", "Disconnect"]:
+		_lbl(grid, header, 12, C_DIM, 220 if header != "Disconnect" else 90)
+	for source in sources:
+		var target := int(hosts[int(source)].assign)
+		_lbl(grid, str(hosts[int(source)].name), 13, C_TEXT, 220)
+		_lbl(grid, str(hosts[target].name) if target >= 0 else "—", 13, C_TEXT, 220)
+		var button := Button.new(); button.text = "×"; button.name = "Disconnect_%d" % source
+		button.custom_minimum_size = Vector2(28, 24); button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		button.add_theme_font_size_override("font_size", 14); button.add_theme_color_override("font_color", C_BAD)
+		_fixed_button_style(button, true)
+		button.pressed.connect(_disconnect_source.bind(int(source))); grid.add_child(button)
+
+
+func _assault_preview(t: int, conns: Array) -> void:
+	var potential := 0.0
+	for source in conns:
+		if not _route(source, t).is_empty(): potential += SEND_RATE * float(hosts[source].rate)
+	_plabel("Potential: %.1f bots/s, using up to %.1f Intel/s. Actual flow depends on bots, Intel and route capacity." % [potential, potential], 14, C_DIM)
+
+
+func _panel_node_in(t: int) -> void:
 	var conns := _owned_feeders(t)
+	if conns.is_empty(): return
 	if _mine(t):
-		if not efeed.is_empty(): _plabel("⚠ Under attack from %s — %d bots inbound" % [_names(efeed), int(_hostile_incoming(t))], 14, C_BAD)
-		elif _under_attack(t): _plabel("⚠ Under attack — %d bots inbound" % int(_hostile_incoming(t)), 14, C_BAD)
-		if conns.is_empty(): return
-		var livec0 := 0
-		for i in conns:
-			if bool(hosts[int(i)].live): livec0 += 1
-		_plabel("🛡 %d guard(s) — %d defending · %d standby" % [conns.size(), livec0, conns.size() - livec0], 14, C_GOOD)
-		_btn_row([["✖ Disconnect guards (%d)" % conns.size(), _cancel_to.bind(t)], ["Select them", _select_contributors.bind(conns)]])
+		_connection_list(conns)
 		return
-	if not efeed.is_empty(): _plabel("⚠ %d other botnet building(s) aimed at it: %s" % [efeed.size(), _names(efeed)], 12, C_BAD)
-	if conns.is_empty():
-		_plabel("Not connected — drag a line here from your building.", 14, C_WARN)
-		return
-	var livec := 0
-	for i in conns:
-		if bool(hosts[int(i)].live): livec += 1
-	var dormant := conns.size() - livec
-	if not _scanned(PLAYER, t):   # unknown building: the launch is a SCAN
-		if livec > 0: _plabel("Scanning… a scout is on its way", 14, C_TEXT)
-		else: _plabel("%d wired · dormant — nothing fires yet" % conns.size(), 14, C_WARN)
-		_gap(4.0)
-		if dormant > 0: _btn("🔍 SCAN quietly · launch %d" % dormant, _launch.bind(t, "scan"), true, null, "One scout reveals the building · 1 Intel · alerts nobody", 36.0)
-		if dormant > 0: _btn("⚔ ATTACK blind · launch %d" % dormant, _launch.bind(t, "attack"), true, null, "Attacks without knowing the defenders · raises the alarm · 1 Intel per bot")
-		if livec > 0: _btn("■ Stop %d flow(s) · keep wires" % livec, _halt.bind(t))
+	var live := 0; var attacks := 0
+	var waiting := {}
+	for source in conns:
+		if bool(hosts[source].live):
+			live += 1
+			if str(hosts[source].mode) == "attack": attacks += 1
+		var state := _src_state(source)
+		if state in ["no Intel", "no bots", "no route", "routing cut", "link busy"]: waiting[state] = true
+	var dormant := conns.size() - live
+	var title := "Connected"
+	if attacks > 0: title = "Attacking" if _scanned(PLAYER, t) else "Attacking blind"
+	elif live > 0: title = "Scanning · no damage"
+	_plabel(title, 18, C_TEXT)
+	var actions := HBoxContainer.new(); actions.add_theme_constant_override("separation", 12); panel_box.add_child(actions)
+	if live > 0:
+		_action_button("Stop", _halt.bind(t), actions)
+	elif _scanned(PLAYER, t):
+		_action_button("Attack", _launch.bind(t, "attack"), actions)
 	else:
-		if livec > 0:
-			var sending := []
-			for i in conns:
-				if _src_state(int(i)) == "sending": sending.append(int(i))
-			_panel_attack_diag(t, conns, sending)
-		else:
-			_plabel("%d wired · dormant" % conns.size(), 14, C_WARN)
-			_assault_preview(t, conns)
-		_gap(4.0)
-		if dormant > 0: _btn("⚔ ATTACK · launch %d" % dormant, _launch.bind(t, "attack"), true, null, "Every dormant wire into it starts flowing · 1 Intel per bot", 36.0)
-		if livec > 0: _btn("■ Stop %d flow(s) · keep wires" % livec, _halt.bind(t), true, null, "Pauses the flows; the wires stay", 36.0 if dormant == 0 else 32.0)
-	var faults := []
-	for i in conns:
-		var st := _src_state(int(i))
-		if st in ["no bots", "no Intel", "no route", "link busy", "routing cut"]: faults.append("%s: %s" % [str(hosts[int(i)].name), st])
-	if not faults.is_empty(): _plabel("⛔ " + " · ".join(faults), 12, C_WARN)
-	_btn_row([["✖ Disconnect all (%d)" % conns.size(), _cancel_to.bind(t)], ["Select them", _select_contributors.bind(conns)]])
+		_action_button("Scan", _launch.bind(t, "scan"), actions)
+	if waiting.has("no Intel"): _plabel("Waiting for Intel · add a harvester or stop another attack.", 14, C_WARN)
+	elif waiting.has("no bots"): _plabel("Waiting for bots to regenerate", 14, C_WARN)
+	elif not waiting.is_empty(): _plabel(", ".join(waiting.keys()), 14, C_WARN)
+	_connection_list(conns)
+	_plabel(_operation_observation(t), 14, C_TEXT)
 
 
-func _panel_inspect() -> void:   # a building's own panel (for a foreign one: the launch pad, then your hand)
+func _operation_observation(t: int) -> String:
+	var sent := 0; var in_air := 0
+	for d in _departures:
+		if int(d.target) == t and str(d.kind) == "bot": sent += 1
+	for f in flights:
+		if int(f.owner) == PLAYER and int(f.route.back()) == t and str(f.kind) in ["bot", "scan"]: in_air += 1
+	return "%.1f bots/s sent · %d in transit" % [float(sent) / maxf(1, minf(4, _t)), in_air]
+
+
+func _panel_inspect() -> void:
 	var i := _inspect
-	var h: Dictionary = hosts[i]
-	var fac := int(h.owner)
-	var kick := fname(fac) if fac != PLAYER else "yours"
-	if not _mine(i) and _scanned(PLAYER, i): kick += " · scanned"
-	_kicker(kick)
-	_plabel(str(h.name), 18, fcol(fac).lightened(0.35) if fac != NEUTRAL else C_TEXT)
-	_plabel(_stage_line(i), 14, C_TEXT)
-	if _prod_down(i): _plabel("⚠ Production off · %.0f s" % float(h.prod_off), 14, C_WARN)
-	if _routing_down(i): _plabel("⚠ Routing cut · %.0f s" % float(h.route_off), 14, C_BAD)
-	if _stolen(i): _plabel("⚠ Production siphoned by %s · %.0f s" % [fname(int(h.steal_by)), float(h.steal_until) - _t], 14, C_WARN)
-	var aout := int(h.assign)            # whom THIS building is wired to (a foreign building's plan shows only while it flows)
-	if aout >= 0 and (_mine(i) or _wire_visible(i)):
-		var verb := "guarding" if int(hosts[aout].owner) == fac else "→ attacking"
-		_plabel("%s %s · %s" % [verb, str(hosts[aout].name), ("flowing" if bool(h.live) else "dormant")], 14, C_BAD if verb != "guarding" else C_GOOD)
-	_gap(4.0)
-	_panel_node_in(i)
 	if _mine(i):
-		_panel_build(i)   # its slots + build palette, right here
-		_btn("Select it", _select_contributors.bind([i]), true, null, "Then drag a line from it onto a target")
-	else:
-		_panel_enemy_slots(i)   # read-only: what's already built (fogged until you scan it) — no build palette
-		var rl := _resist_line(i)
-		if rl != "no particular weakness": _plabel(rl.left(1).to_upper() + rl.substr(1), 12, C_DIM)
-		_panel_hand()
-
-
-# cause → action for an attack that isn't finishing. Regeneration counts the target's OWN outgoing
-# stream as a drain, so a building that is attacking someone reads as the softer target it really is.
-func _panel_attack_diag(t: int, feeders: Array, sending: Array) -> void:   # one line: is it working, or why not
-	if sending.is_empty():
-		var reason := "idle"
-		for i in feeders:
-			var st := _src_state(int(i))
-			if st != "idle" and st != "sending": reason = st; break
-		match reason:
-			"wired (not launched)": _plabel("⛔ Not launched — press SCAN or ATTACK.", 14, C_WARN)
-			"scanning": _plabel("🔍 Scanning — these bots reveal the building, they do not wound it.", 14, C_TEXT)
-			"no Intel": _plabel("⛔ Out of Intel — build an Intel harvester or stop another attack.", 14, C_WARN)
-			"no bots": _plabel("⛔ Out of bots — let the source regenerate or guard it.", 14, C_WARN)
-			"no route": _plabel("⛔ No route — capture a building bordering it, then launch again.", 14, C_WARN)
-			"link busy": _plabel("⛔ Link at capacity — lower rates, route elsewhere, or wait.", 14, C_WARN)
-			"routing cut": _plabel("⛔ A card cut the source's routing — nothing leaves it until that wears off.", 14, C_BAD)
-			_: _plabel("⛔ Supply is paused.", 14, C_WARN)
+		_plabel(str(hosts[i].name), 20, C_TEXT)
+		_plabel(_stage_line(i), 14, C_TEXT)
+		_panel_build(i)
 		return
-	var regen := _ai_known_regen(PLAYER, t)   # the same readers the AI uses: scanned inside, visible outflow, no dials
-	var drain := _ai_seen_drain(t)
-	var dmg := 0.0
-	for s in sending: dmg += SEND_RATE * float(hosts[int(s)].rate) * (ATTACK_POWER / DEFEND_POWER)
-	var net := dmg - (regen - drain)
-	var leaving := (" (−%.1f/s leaving)" % drain) if drain > 0.0 else ""
-	if net <= 0.001:
-		_plabel("↔ −%.1f/s vs +%.1f/s regen%s — wire and launch another source." % [dmg, regen - drain, leaving], 14, C_WARN)
-	else:
-		var secs := float(hosts[t].bots) / net
-		var need := secs * dmg * DEFEND_POWER / ATTACK_POWER
-		_plabel("✔ %d flowing · −%.1f/s net · ≈%d s · %d bots in transit%s" % [sending.size(), net, int(ceil(secs)), int(_incoming(t, PLAYER)), leaving], 15, C_GOOD)
-		if float(intel[PLAYER]) < need: _plabel("⚠ Intel %d — ≈%d still needed (+%d/s)" % [int(intel[PLAYER]), int(ceil(need)), int(_intel_rate(PLAYER))], 14, C_WARN)
+	_plabel(str(hosts[i].name), 20, C_TEXT)
+	_plabel(_stage_line(i), 14, C_DIM)
+	_panel_enemy_slots(i)
+	_panel_node_in(i)
+
+
+func _panel_attack_diag(t: int, _feeders: Array, _sending: Array) -> void:
+	_plabel(_operation_observation(t), 16, C_TEXT)
 
 
 func _panel_idle() -> void:
@@ -2995,28 +3352,15 @@ func _panel_idle() -> void:
 	_plabel("Esc menu · Space pause · R research · L board", 11, C_DIM)
 
 
-func _panel_board() -> void:   # the leaderboard: every botnet's standing by control; rivals live here, not on the HUD
-	_plabel("LEADERBOARD", 18, C_TEXT)
-	var need := _control_need()
-	var hold_txt := ("  ·  ⏳ you %d/%ds" % [int(_hold[PLAYER]), int(HOLD_SECS)]) if float(_hold[PLAYER]) > 0.5 else ""
-	_plabel("⏱ %s%s" % [_fmt_time(_t), hold_txt], 13, C_DIM)
-	_gap(4.0)
-	var rows := []
-	for fac in botnets: rows.append([fac, _faction_nodes(fac)])
-	rows.sort_custom(func(a, b): return int(a[1]) > int(b[1]))
-	var rank := 1
-	for r in rows:
-		var fac := int(r[0]); var n := int(r[1])
-		var nm := "you" if fac == PLAYER else fname(fac)
-		var col: Color = C_GOOD if fac == PLAYER else fcol(fac).lightened(0.3)
-		var status := ""
-		if n == 0: status = "out"
-		elif float(_hold[fac]) > 0.5: status = "⏳ holding the majority %d/%d s" % [int(_hold[fac]), int(HOLD_SECS)]
-		elif n > need: status = "majority"
-		_plabel("%d.  %s — %d buildings · %d%%%s" % [rank, nm, n, _control_pct(fac), ("  ·  " + status) if status != "" else ""], 15, col if n > 0 else C_DIM)
-		if fac == PLAYER: _plabel("     bots %d · cards played %d · Cash %d" % [int(_bot_sum(fac)), int(card_plays.get(fac, 0)), int(cash[fac])], 12, C_DIM)
-		else: _plabel("     cards played %d" % int(card_plays.get(fac, 0)), 12, C_DIM)
-		rank += 1
+func _panel_board() -> void:
+	_plabel("Leaderboard", 22, C_TEXT)
+	var standings := []
+	for fac in botnets: standings.append([fac, _faction_nodes(fac)])
+	standings.sort_custom(func(a, b): return int(a[1]) > int(b[1]))
+	for index in standings.size():
+		var fac := int(standings[index][0]); var count := int(standings[index][1])
+		var status := "Out" if _eliminated.has(fac) else "%d buildings · %d%%" % [count, _control_pct(fac)]
+		_plabel("%d. %s    %s" % [index + 1, "You" if fac == PLAYER else fname(fac), status], 16, fcol(fac).lightened(0.3))
 
 
 func _control_pct(fac: int) -> int:
@@ -3044,13 +3388,13 @@ func _res_spend(res: String) -> float:
 
 
 func _rate_tag(res: String) -> String:
-	var net := _res_income(res) - _res_spend(res)
-	if absf(net) < 0.05: return ""
+	var net := _observed_net(res)
+	if absf(net) < 0.05: net = 0.0
 	return " %+.1f/s" % net
 
 
 func _rate_col(res: String) -> Color:
-	var net := _res_income(res) - _res_spend(res)
+	var net := _observed_net(res)
 	if net > 0.05: return C_GOOD
 	if net < -0.05: return C_WARN
 	return C_TEXT
@@ -3162,7 +3506,7 @@ func _draw() -> void:
 			if _highways.has(_lk(i, int(j))): lcol = Color(0.55, 0.7, 0.85, 0.3); w = 2.2   # a highway across a gap
 			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.35; w = (2.4 if _highways.has(_lk(i, int(j))) else 1.3)
 			if _link_busy_visible(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8
-			if focus_on and not flinks.has(_lk(i, int(j))): lcol.a *= 0.22
+			if focus_on and not flinks.has(_lk(i, int(j))): lcol.a *= 0.6
 			draw_line(hosts[i].pos, hosts[int(j)].pos, lcol, w, true)
 	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent);
 	# Strict fog: only the focused building's own connections stay bright.
@@ -3223,7 +3567,7 @@ func _draw() -> void:
 		draw_circle(a_pos.lerp(b_pos, prog), 5.0, Color(1, 1, 1, 0.9 * wa))
 		draw_arc(b_pos, _r(int(w.b)) + 5.0, 0.0, TAU, 28, Color(wc.r, wc.g, wc.b, 0.95 * wa), 2.5, true)
 	for i in hosts.size():   # strict fog: ONLY buildings connected to the focused one stay bright
-		_draw_node(f, i, 1.0 if (not focus_on or fnodes.has(i)) else 0.22, i == aim)
+		_draw_node(f, i, 1.0 if (not focus_on or fnodes.has(i)) else 0.6, i == aim)
 	for fl in flights:   # card packets ride above everything: a glowing card shape in the family's colour
 		if str(fl.kind) != "card": continue
 		var pp2 := _packet_pos(fl, _t)
@@ -3240,9 +3584,9 @@ func _draw() -> void:
 		var red := Color(1, 0.35, 0.3, 0.95)
 		for i in hosts.size():
 			if i != aim and int(hosts[i].assign) == aim and (_mine(i) or _wire_visible(i)):
-				_frame(hosts[i].pos, _r(i) + 11.0, gold if _mine(i) else red, 1.8)   # gold = yours, red = another botnet's
+				_node_frame(i, 11, gold if _mine(i) else red, 1.8)   # gold = yours, red = another botnet's
 		var aout := int(hosts[aim].assign)
-		if aout >= 0 and (_mine(aim) or _wire_visible(aim)): _frame(hosts[aout].pos, _r(aout) + 11.0, gold, 1.8)
+		if aout >= 0 and (_mine(aim) or _wire_visible(aim)): _node_frame(aout, 11, gold, 1.8)
 		var reach := 0
 		for s in _aim_sources():
 			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 1.6); reach += 1
@@ -3250,7 +3594,7 @@ func _draw() -> void:
 			draw_string(f, _label_pos(aim), "✖ no path to %s" % str(hosts[aim].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.45, 0.4))
 		else:
 			var act: String = "🛡 defend %s" if _mine(aim) else "⚔ attack %s"
-			draw_string(f, _label_pos(aim), act % str(hosts[aim].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.92, 0.5))
+			pass # selected target already has a readable screen-space name
 	elif not sel.is_empty():   # connect step: glow where a wire could go + hover preview
 		var src_keys: Array = sel.keys()
 		for i in hosts.size():
@@ -3275,10 +3619,10 @@ func _draw() -> void:
 		if hov >= 0:
 			var sc := _card_scale(str(cd.fam), hov)
 			var why := _can_play(PLAYER, dk, hov)
-			var txt: String = ("✖ your own building" if int(hosts[hov].owner) == PLAYER else ("✖ needs a connection" if why != "" else ("✖ immune" if sc <= 0.0 else "▼ " + _effect_text(cd, hov, sc))))
+			var txt: String = ("✖ your own building" if int(hosts[hov].owner) == PLAYER else ("✖ " + why if why != "" else ("✖ immune" if sc <= 0.0 else "▼ " + _effect_text(cd, hov, sc))))
 			var ok: bool = why == "" and sc > 0.0
 			if ok: _frame(hosts[hov].pos, _r(hov) + 9.0, cc, 2.5)
-			draw_string(f, _label_pos(hov), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, cc if ok else Color(1, 0.5, 0.45))
+			pass # full-size preview is shown in the reserved feedback lane
 	if _dragging and _drag_from >= 0:   # the rubber band: RED over a target no selected source has a path to
 		var to := _mouse_world()
 		var hv := _host_at(get_local_mouse_position())
@@ -3298,9 +3642,11 @@ func _draw() -> void:
 		draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to SCREEN space for the overlays below
 	var sz := get_viewport_rect().size
-	if _msg_t > 0.0:
-		var mc := C_TEXT; mc.a = clampf(_msg_t, 0, 1)
-		draw_multiline_string(f, Vector2(20, sz.y - 36.0), _msg, HORIZONTAL_ALIGNMENT_LEFT, sz.x - PANEL_W - 60.0, 15, 2, mc)
+	# Mask map content outside its reserved area; controls draw above this.
+	var map := _map_rect()
+	var background := Color(0.04, 0.05, 0.08)
+	draw_rect(Rect2(0, 0, sz.x, map.position.y - 8), background)
+	if _panel_shown(): draw_rect(Rect2(map.end.x + 8, 88, sz.x - map.end.x, sz.y - 264), background)
 	if won or lost:
 		draw_rect(Rect2(Vector2.ZERO, sz), Color(0, 0, 0, 0.55), true)
 		draw_string(f, Vector2((sz.x - PANEL_W) * 0.5 - 150.0, sz.y * 0.5), ("VICTORY" if won else "DEFEATED"), HORIZONTAL_ALIGNMENT_LEFT, -1, 46, Color(0.5, 1, 1) if won else Color(1, 0.5, 0.5))
@@ -3319,9 +3665,20 @@ func _draw_menu_bg(sz: Vector2) -> void:   # ported from the old title screen: g
 		draw_circle(Vector2(xx, yy), 2.5, c)
 
 
+func _visible_bot_count(i: int) -> String:
+	return str(int(round(float(hosts[i].bots)))) if _mine(i) or _scanned(PLAYER, i) else "?"
+
+
+func _node_frame(i: int, margin: float, col: Color, width: float) -> void:
+	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	_frame(_w2s(hosts[i].pos), maxf(16, _r(i) * _zoom) + margin, col, width)
+	draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
+
+
 func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
-	var p: Vector2 = hosts[i].pos
-	var rr := _r(i)
+	var p := _w2s(hosts[i].pos)
+	var rr := maxf(16, _r(i) * _zoom)
+	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	var fill := _fill_of(i)
 	fill.a = a
 	var ink := Color(0.04, 0.06, 0.1, 0.9 * a)
@@ -3337,18 +3694,20 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if sel.has(i): _frame(p, rr + 6.0, Color(1, 1, 1, 0.95 * a), 2.0)
 	if i == _inspect: _frame(p, rr + 8.0, Color(1, 0.9, 0.3, a), 1.5)
 	if is_aim: _frame(p, rr + 9.0, Color(1, 0.9, 0.3), 2.0)
-	var nb_txt := "%d" % int(round(float(hosts[i].bots)))   # the strength badge: bots, or "?" until scanned
-	if not _mine(i) and not _scanned(PLAYER, i):
-		var rec: Dictionary = (scans[PLAYER] as Dictionary).get(i, {})
-		nb_txt = ("≈%d" % int(round(_ai_known_bots(PLAYER, i)))) if rec.has("bots") else "?"   # memory of a scan or a witnessed capture, else unknown
+	if i == _tutorial_target() or (_tut and _tut_stage <= 3 and i == _tut_target):
+		_frame(p, rr + 13, C_WARN, 3)
+		if i == _tut_target: draw_circle(p + Vector2(0, -rr - 18), 5, C_WARN)
+	var nb_txt := _visible_bot_count(i)
 	var bw := 8.0 + 7.0 * float(nb_txt.length())
 	draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 13.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
-	draw_string(f, Vector2(p.x - 3.6 * float(nb_txt.length()), p.y + rr * 0.42 + 10.5), nb_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.95, 0.97, 1.0, a))
+	draw_string(f, Vector2(p.x - 3.6 * float(nb_txt.length()), p.y + rr * 0.42 + 10.5), nb_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.95, 0.97, 1.0, a))
 	var nm := str(hosts[i].name)
-	var nw := f.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+	if _tut: nm = nm.replace("TRAINING TARGET", "TARGET").replace("TRAINING SUPPORT", "SUPPORT")
+	if _zoom < 0.45 and not focused and not _mine(i) and i != _host_at(get_local_mouse_position()) and not (_tut and i == _tut_target): nm = ""
+	var nw := f.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
 	var x0 := p.x - nw * 0.5   # name centred above the glyph
 	var ncol := Color(0.85, 0.92, 1.0, a) if not _mine(i) else Color(0.95, 1.0, 0.95, a)
-	draw_string(f, Vector2(x0, p.y - rr - 8.0), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, ncol)
+	draw_string(f, Vector2(x0, p.y - rr - 8.0), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ncol)
 	var sub := ""   # ONE warning under the glyph, most urgent first; the rest is in the panel
 	if bool(hosts[i].get("junction", false)): sub = "junction"
 	var st := _stage(i)
@@ -3374,9 +3733,10 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		if not (hosts[i].jobs as Dictionary).is_empty(): bi += "…"
 		if float(hosts[i].rate) < 1.0: bi += ("  " if bi != "" else "") + "%d%%" % int(round(float(hosts[i].rate) * 100.0))
 		if bi != "": sub = bi if sub == "" else sub + "  " + bi
-	if sub != "":
-		var sw := f.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
-		draw_string(f, Vector2(p.x - sw * 0.5, p.y + rr + 16.0), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, subcol)
+	if sub != "" and (_zoom >= 0.45 or focused or _mine(i)):
+		var sw := f.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+		draw_string(f, Vector2(p.x - sw * 0.5, p.y + rr + 16.0), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, subcol)
+	draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
 
 
 func _label_pos(i: int) -> Vector2:   # where a floating label for building i goes: above it, or below it near the top edge
@@ -3541,6 +3901,13 @@ func _draw_type_glyph(c: CanvasItem, t: String, centre: Vector2, sz: float, fill
 
 # the seven cards as skill icons: a bold glyph in the family's neon on a dark tile — procedural, no files
 func _draw_card_glyph(c: CanvasItem, card: String, centre: Vector2, sz: float, col: Color, f: Font) -> void:
+	var texture: Texture2D = CfgCards.FAMILY_ART.get(str(CARDS[card].fam))
+	if texture != null:
+		var extent := Vector2.ONE * sz
+		var source := Rect2(texture.get_size() * 0.1, texture.get_size() * 0.8)
+		c.draw_texture_rect_region(texture, Rect2(centre - extent * 0.5, extent), source, Color(1, 1, 1, col.a))
+		return
+	# Keep the procedural emblem as a fallback for future families without an image.
 	var ink := Color(0.06, 0.07, 0.1, col.a)
 	var w := maxf(1.5, sz * 0.07)
 	match str(CARDS[card].fam):
@@ -3602,13 +3969,14 @@ class HelpGlyph extends Control:   # a big icon for the Help screen: a building 
 	var col := Color(1, 1, 1)
 
 	func _init() -> void:
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		custom_minimum_size = Vector2(88, 88); mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _draw() -> void:
 		var f := get_theme_default_font()
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.08, 0.1, 0.14), true)
 		draw_rect(Rect2(Vector2.ZERO, size), Color(col.r, col.g, col.b, 0.5), false, 1.5)
-		if card != "": game._draw_card_glyph(self, card, size * 0.5, size.y * 0.66, col, f)
+		if card != "": game._draw_card_glyph(self, card, size * 0.5, size.y * 0.9, col, f)
 		elif kind != "": game._draw_kind_icon(self, kind, size * 0.5, size.y * 0.58, col, f)
 
 
@@ -3626,13 +3994,133 @@ class HudBar extends Control:   # the one-line HUD with resource icons
 			var kind := str(it[0])
 			var tx := x
 			if kind != "":
-				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 16.0), 16.0, game.BUILD_KINDS[kind].col, f)
+				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 28.0), 16.0, game.BUILD_KINDS[kind].col, f)
 				tx += 22.0
-			draw_string(f, Vector2(tx, 21.0), str(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, it[2])
+			draw_string(f, Vector2(tx, 36.0), str(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, it[2])
 			x += float(it[3])   # a fixed column: the next item never moves when this number grows
 
 
 
+
+
+class ResearchTile extends Control:
+	var game
+	var key := "phish:linked"
+	var catalogue := true
+	var queue_index := -1
+	var stop_button: Button
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP; focus_mode = Control.FOCUS_ALL
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	func _ready() -> void:
+		if not catalogue and queue_index >= 0:
+			var shader := Shader.new()
+			shader.code = "shader_type canvas_item; void fragment(){vec4 c=texture(TEXTURE,UV)*COLOR;float g=dot(c.rgb,vec3(0.299,0.587,0.114));COLOR=vec4(vec3(g),c.a);}"
+			var shader_material := ShaderMaterial.new(); shader_material.shader = shader; material = shader_material
+			stop_button = Button.new(); stop_button.text = "■"
+			stop_button.add_theme_color_override("font_color", game.C_BAD)
+			stop_button.add_theme_font_size_override("font_size", 12)
+			stop_button.position = Vector2(0, 78); stop_button.size = Vector2(custom_minimum_size.x, 26)
+			stop_button.pressed.connect(game._dequeue_research.bind(game.PLAYER, queue_index)); add_child(stop_button)
+	func _process(_dt: float) -> void: queue_redraw()
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			if catalogue and not event.double_click: game._queue_research(game.PLAYER, key); accept_event()
+			elif not catalogue and queue_index >= 0 and event.position.y < 78: game._toggle_research_item(game.PLAYER, queue_index); accept_event()
+		elif event is InputEventKey and event.pressed and event.keycode == KEY_ENTER:
+			if catalogue: game._queue_research(game.PLAYER, key)
+			elif queue_index >= 0: game._toggle_research_item(game.PLAYER, queue_index)
+			accept_event()
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		if catalogue or queue_index >= 0: return null
+		var preview := CardTile.new(); preview.game = game; preview.key = key
+		preview.custom_minimum_size = Vector2(170, 104); preview.position = Vector2(24, 24); set_drag_preview(preview)
+		game._leave_research_for_drag.call_deferred()
+		return {"card": key}
+	func _draw() -> void:
+		var font := get_theme_default_font()
+		var cd: Dictionary = game.CARDS[game._card_of(key)]
+		var colour: Color = game.FAMILY_COL[str(cd.fam)]
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.065, 0.08, 0.115))
+		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), colour.darkened(0.3), false, 1)
+		if not catalogue: draw_multiline_string(font, Vector2(10, 20), str(cd.name), HORIZONTAL_ALIGNMENT_LEFT, size.x - 20, 12, 2, game.C_TEXT)
+		if catalogue:
+			draw_rect(Rect2(5, 5, size.x - 10, 48), colour.darkened(0.78))
+			draw_multiline_string(font, Vector2(8, 25), str(cd.name), HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 16, 2, game.C_TEXT)
+			draw_rect(Rect2(10, 59, size.x - 20, 90), Color(0.035, 0.045, 0.07))
+			game._draw_card_glyph(self, game._card_of(key), Vector2(size.x * 0.5, 104), 84, colour, font)
+			draw_rect(Rect2(8, 155, size.x - 16, 88), Color(0.09, 0.105, 0.14))
+			draw_multiline_string(font, Vector2(12, 169), game._research_effect(key), HORIZONTAL_ALIGNMENT_LEFT, size.x - 24, 13, 5, game.C_TEXT)
+			var cost: Dictionary = game._card_cost(key)
+			var x := 10.0
+			var y := 260.0
+			var cost_index := 0
+			for pair in [["cash", "cash"], ["creds", "cred"], ["research", "lab"]]:
+				game._draw_kind_icon(self, pair[1], Vector2(x + 6, y), 14, game.BUILD_KINDS[pair[1]].col, font)
+				draw_string(font, Vector2(x + 17, y + 5), str(int(cost[pair[0]])), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, game.C_TEXT)
+				cost_index += 1
+				x = 10 + (cost_index % 2) * ((size.x - 20) / 2)
+				y = 260 + (cost_index / 2) * 24
+			draw_arc(Vector2(x + 6, y), 6, 0, TAU, 20, game.C_DIM, 1)
+			draw_line(Vector2(x + 6, y - 4), Vector2(x + 6, y), game.C_DIM)
+			draw_line(Vector2(x + 6, y), Vector2(x + 10, y), game.C_DIM)
+			draw_string(font, Vector2(x + 17, y + 5), "%.0fs" % game._card_time(key), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, game.C_TEXT)
+
+		else:
+			game._draw_card_glyph(self, game._card_of(key), Vector2(25, 55), 30, colour, font)
+			if queue_index >= 0:
+				var items: Array = game._research_items(game.PLAYER)
+				if queue_index >= items.size(): return
+				var item: Dictionary = items[queue_index]
+				var progress := float(item.progress) / float(game._card_time(key))
+				var status := "Ⅱ" if bool(item.paused) else "%d%%" % int(progress * 100)
+				if not bool(item.paused) and int(game.lab[game.PLAYER].get("active", -1)) != queue_index: status = "Queued"
+				if not bool(item.paused) and int(game.lab[game.PLAYER].get("active", -1)) == queue_index and str(item.get("waiting_for", "")) != "": status = "Waiting"
+				draw_string(font, Vector2(45, 60), status, HORIZONTAL_ALIGNMENT_LEFT, size.x - 48, 12, game.C_TEXT)
+				draw_rect(Rect2(8, 73, (size.x - 16) * progress, 3), game.C_TEXT)
+			else:
+				draw_string(font, Vector2(67, 72), "×%d" % game._held(game.PLAYER, key), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, game.C_GOOD)
+				draw_string(font, Vector2(10, 114), "Ready", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, game.C_GOOD)
+
+
+class CardTile extends Control:
+	var game
+	var key := "phish:linked"
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		focus_mode = Control.FOCUS_ALL
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		if game.menu_open or game.won or game.lost: return null
+		var preview := CardTile.new(); preview.game = game; preview.key = key
+		preview.custom_minimum_size = Vector2(184, 104)
+		preview.position = Vector2(24, 24)
+		set_drag_preview(preview)
+		if game._tab == "research": game._leave_research_for_drag.call_deferred()
+		return {"card": key}
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			game._inspect_card(key); accept_event()
+		if event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER, KEY_SPACE]:
+			game._inspect_card(key); accept_event()
+	func _notification(what: int) -> void:
+		if what in [NOTIFICATION_MOUSE_ENTER, NOTIFICATION_MOUSE_EXIT, NOTIFICATION_FOCUS_ENTER, NOTIFICATION_FOCUS_EXIT]: queue_redraw()
+	func _draw() -> void:
+		var font := get_theme_default_font()
+		var cd: Dictionary = game.CARDS[game._card_of(key)]
+		var col: Color = game.FAMILY_COL[str(cd.fam)]
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.065, 0.08, 0.115))
+		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), col.darkened(0.4), false, 2 if has_focus() else 1)
+		var title := str(cd.name)
+		draw_multiline_string(font, Vector2(10, 18), title, HORIZONTAL_ALIGNMENT_LEFT, size.x - 20, 12, 2, game.C_TEXT)
+		game._draw_card_glyph(self, game._card_of(key), Vector2(24, 59), 28, col, font)
+		var effect := "−%d%% bots" % int(float(cd.power) * 100)
+		if str(cd.effect) == "deny": effect = "Disable %.0fs" % float(cd.dur)
+		elif str(cd.effect) == "steal": effect = "Siphon %.0fs" % float(cd.dur)
+		elif str(cd.effect) == "breach": effect = "Damage + cut"
+		draw_multiline_string(font, Vector2(43, 50), effect, HORIZONTAL_ALIGNMENT_LEFT, size.x - 47, 12, 3, game.C_TEXT)
+		draw_string(font, Vector2(12, 94), "Ready", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, game.C_DIM)
+		draw_string(font, Vector2(size.x - 40, 94), "×%d" % game._held(game.PLAYER, key), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, game.C_TEXT)
 
 
 class CardFace extends Control:   # a Magic-style card: title, art, type line, rules text, flavour, cost — click to act
@@ -3646,6 +4134,7 @@ class CardFace extends Control:   # a Magic-style card: title, art, type line, r
 	var on_click: Callable = Callable()
 
 	func _init() -> void:
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		mouse_filter = Control.MOUSE_FILTER_STOP
 
 	func _get_drag_data(_p: Vector2) -> Variant:
@@ -3678,13 +4167,9 @@ class CardFace extends Control:   # a Magic-style card: title, art, type line, r
 		var fs_title := maxi(10, int(13.0 * k))
 		draw_string(f, Vector2(8.0 * k, 18.0 * k), str(cd.name), HORIZONTAL_ALIGNMENT_LEFT, w - 16.0 * k, fs_title, Color(1, 1, 1, a))
 		var art := Rect2(8.0 * k, 32.0 * k, w - 16.0 * k, 100.0 * k)   # the art window
-		draw_rect(art, Color(0.05, 0.06, 0.09, a), true)
-		var y := art.position.y + 4.0
-		while y < art.end.y - 2.0:
-			draw_line(Vector2(art.position.x + 2, y), Vector2(art.end.x - 2, y), Color(col.r, col.g, col.b, 0.06 * a), 1.0)
-			y += 5.0
+		draw_rect(art, Color(0.051, 0.059, 0.09, a), true)
 		draw_rect(art, Color(col.r, col.g, col.b, 0.5 * a), false, 1.0)
-		game._draw_card_glyph(self, card, art.get_center(), art.size.y * 0.8, Color(col.r, col.g, col.b, a), f)
+		game._draw_card_glyph(self, card, art.get_center(), art.size.y, Color(col.r, col.g, col.b, a), f)
 		var tl := "%s — %s" % ["Worm" if bool(cd.chain) else "Single host", str(game.FAMILY_NAME[str(cd.fam)]).capitalize()]
 		draw_string(f, Vector2(8.0 * k, 147.0 * k), tl, HORIZONTAL_ALIGNMENT_LEFT, w - 16.0 * k, maxi(9, int(10.0 * k)), Color(col.r, col.g, col.b, 0.95 * a))
 		draw_line(Vector2(8.0 * k, 151.0 * k), Vector2(w - 8.0 * k, 151.0 * k), Color(col.r, col.g, col.b, 0.4 * a), 1.0)
@@ -3734,66 +4219,77 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 		draw_rect(Rect2(Vector2.ZERO, Vector2(size.x, 40)), Color(0.12, 0.14, 0.19), true)
 		game._draw_type_glyph(self, t, Vector2(22, 20), 32.0, Color(0.75, 0.85, 1.0), Color(0.08, 0.1, 0.16))
 		draw_string(f, Vector2(46, 17), str(tp.name), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.95, 0.97, 1.0))
-		draw_string(f, Vector2(46, 33), str(tp.desc), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.7, 0.8, 0.9))
+		draw_string(f, Vector2(46, 33), str(tp.desc), HORIZONTAL_ALIGNMENT_LEFT, size.x - 50, 12, Color(0.7, 0.8, 0.9))
 
 
-class SlotBox extends Control:   # one slot of the building you are inside: "+" when empty, the icon when built
+func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false) -> void:
+	var font := canvas.get_theme_default_font()
+	var colour: Color = BUILD_KINDS[kind].col if not gray else Color(0.6, 0.6, 0.6)
+	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), Color(0.13, 0.15, 0.21) if not gray else Color(0.15, 0.15, 0.15))
+	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), colour, false, 2)
+	canvas.draw_rect(Rect2(4, 4, canvas.size.x - 8, 34), colour.darkened(0.8))
+	canvas.draw_rect(Rect2(6, 40, canvas.size.x - 12, 43), Color(0.04, 0.05, 0.07))
+	_draw_kind_icon(canvas, kind, Vector2(canvas.size.x * 0.5, 62), 42, colour, font)
+	canvas.draw_multiline_string(font, Vector2(7, 17), str(BUILD_KINDS[kind].name), HORIZONTAL_ALIGNMENT_CENTER, canvas.size.x - 14, 13, 2, C_TEXT)
+	var effect: String = {"bot": "+1 bot/s", "intel": "+1 Intel/s\n+50 capacity", "cash": "Cash every 3s\nBased on value", "cred": "+0.5 Creds/s\n+50 capacity", "lab": "+0.5 Research/s\n+50 capacity"}[kind]
+	canvas.draw_multiline_string(font, Vector2(7, 93), effect, HORIZONTAL_ALIGNMENT_CENTER, canvas.size.x - 14, 12, 2, C_TEXT)
+	canvas.draw_string(font, Vector2(7, 131), footer, HORIZONTAL_ALIGNMENT_LEFT, canvas.size.x - 14, 12, C_DIM)
+
+
+class SlotBox extends Control:
 	var game
 	var host := -1
 	var slot := 0
-
+	var stop_button: Button
 	func _init() -> void:
-		custom_minimum_size = Vector2(76, 90)
+		custom_minimum_size = Vector2(112, 140)
 		mouse_filter = Control.MOUSE_FILTER_STOP
-		tooltip_text = "Drop a building card here: build in %.0f s, replace in %.0f + %.0f s. Right-click a built slot to demolish it." % [10.0, 5.0, 10.0]
-
-	func _process(_dt: float) -> void: queue_redraw()
-
+		focus_mode = Control.FOCUS_ALL
+	func _ready() -> void:
+		stop_button = Button.new(); stop_button.text = "■"
+		stop_button.add_theme_color_override("font_color", game.C_BAD)
+		stop_button.add_theme_font_size_override("font_size", 12)
+		stop_button.position = Vector2(0, 114); stop_button.size = Vector2(112, 26)
+		game._fixed_button_style(stop_button, true)
+		stop_button.size = Vector2(112, 26)
+		stop_button.pressed.connect(game._cancel_job.bind(host, slot)); add_child(stop_button)
+	func _process(_dt: float) -> void:
+		var busy: bool = game.hosts[host].jobs.has(slot)
+		stop_button.visible = busy
+		stop_button.size = Vector2(size.x, 26)
+		stop_button.position = Vector2(0, size.y - 26)
+		self_modulate = Color(0.72, 0.72, 0.72) if busy else Color.WHITE
+		var kind := str(game.hosts[host].builds[slot])
+		queue_redraw()
 	func _can_drop_data(_p: Vector2, data: Variant) -> bool:
-		return data is Dictionary and (data as Dictionary).has("kind") and game._can_drop(host, slot, str(data.kind))
-
+		return data is Dictionary and data.has("kind") and game._can_drop(host, slot, str(data.kind))
 	func _drop_data(_p: Vector2, data: Variant) -> void:
 		game._drop_build(host, slot, str(data.kind))
-
-	func _gui_input(ev: InputEvent) -> void:   # right-click a built slot = demolish it
-		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_RIGHT:
-			if str(game.hosts[host].builds[slot]) != "": game._demolish(host, slot)
-
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed:
+			if event.button_index == MOUSE_BUTTON_LEFT and event.position.y < 114: game._toggle_job(host, slot); accept_event()
+			elif event.button_index == MOUSE_BUTTON_RIGHT and str(game.hosts[host].builds[slot]) != "": game._demolish(host, slot)
+		elif event is InputEventKey and event.pressed and event.keycode == KEY_ENTER: game._toggle_job(host, slot); accept_event()
 	func _draw() -> void:
-		var f := get_theme_default_font()
-		var w := size.x
-		var box := Rect2(Vector2.ZERO, Vector2(w, 72))
+		var font := get_theme_default_font()
 		var h: Dictionary = game.hosts[host]
+		var job: Dictionary = h.jobs.get(slot, {})
 		var kind := str(h.builds[slot])
-		var jobs: Dictionary = h.jobs
-		var busy: bool = jobs.has(slot)
-		var job: Dictionary = jobs.get(slot, {})
-		var dragging: bool = get_viewport().gui_is_dragging()
-		var hover: bool = dragging and get_global_rect().has_point(get_global_mouse_position())
-		draw_rect(box, Color(0.1, 0.12, 0.17), true)
-		var edge := Color(0.45, 0.55, 0.7, 0.7)
-		if dragging: edge = Color(1, 0.9, 0.5, 0.95) if hover else Color(0.8, 0.75, 0.5, 0.7)
-		draw_rect(box, edge, false, 2.0)
-		draw_string(f, Vector2(4, 12), "slot %d" % (slot + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.55, 0.65, 0.8))
-		var centre := Vector2(w * 0.5, 38)
-		if busy:
-			var phase := str(job.phase)
-			var total: float = game.DEMOLISH_TIME if phase == "demolish" else game.BUILD_TIME
-			var frac: float = clampf(1.0 - float(job.left) / total, 0.0, 1.0)
-			var k2: String = str(job.kind) if phase == "build" else kind
-			if k2 != "": game._draw_kind_icon(self, k2, centre, 30.0, Color(game.BUILD_KINDS[k2].col, 0.35), f)
-			draw_rect(Rect2(6, 62, w - 12, 6), Color(0.2, 0.22, 0.28), true)
-			draw_rect(Rect2(6, 62, (w - 12) * frac, 6), Color(1, 0.6, 0.4) if phase == "demolish" else Color(1, 0.9, 0.5), true)
-			draw_string(f, Vector2(4, 86), ("clearing %.0f s" if phase == "demolish" else "building %.0f s") % float(job.left), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 0.9, 0.5))
-		elif kind == "":
-			draw_string(f, centre + Vector2(-9, 11), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color(0.6, 0.7, 0.85))
-			draw_string(f, Vector2(4, 86), "empty", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.6, 0.7, 0.8))
-		else:
-			var active: bool = game._slot_active(host, slot)
-			var col: Color = game.BUILD_KINDS[kind].col
-			if not active: col.a = 0.4
-			game._draw_kind_icon(self, kind, centre, 34.0, col, f)
-			draw_string(f, Vector2(4, 86), str(game.BUILD_KINDS[kind].name) + ("" if active else " · OFF"), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.85, 0.95, 0.9) if active else Color(0.9, 0.7, 0.6))
+		if not job.is_empty() and str(job.phase) == "build": kind = str(job.kind)
+		if kind == "":
+			draw_rect(Rect2(Vector2.ZERO, size), Color(0.1, 0.12, 0.17))
+			draw_rect(Rect2(Vector2.ZERO, size), game.C_DIM, false, 1)
+			draw_string(font, Vector2(46, 76), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, game.C_DIM)
+			return
+		var footer := "" if game._slot_active(host, slot) else "Inactive"
+		if not job.is_empty():
+			footer = ""
+			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else "■  %.0fs" % float(job.left)
+		game._draw_building_card(self, kind, footer, not job.is_empty())
+		if not job.is_empty():
+			var total: float = game.DEMOLISH_TIME if str(job.phase) == "demolish" else game.BUILD_TIME
+			draw_rect(Rect2(6, 110, 100 * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
+
 
 
 class PeekSlot extends Control:   # read-only view of ONE slot of a building you don't own (fogged if unscanned)
@@ -3802,23 +4298,25 @@ class PeekSlot extends Control:   # read-only view of ONE slot of a building you
 	var slot := 0
 
 	func _init() -> void:
-		custom_minimum_size = Vector2(66, 66); mouse_filter = Control.MOUSE_FILTER_IGNORE
+		custom_minimum_size = Vector2(104, 84); mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _draw() -> void:
 		var f := get_theme_default_font()
 		var box := Rect2(Vector2.ZERO, size)
 		draw_rect(box, Color(0.1, 0.12, 0.17), true)
 		draw_rect(box, Color(0.4, 0.5, 0.65, 0.55), false, 1.5)
-		draw_string(f, Vector2(4, 12), "slot %d" % (slot + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.55, 0.65, 0.8))
-		var centre := Vector2(size.x * 0.5, size.y * 0.58)
+
+		var centre := Vector2(size.x * 0.5, 26)
 		if not game._scanned(game.PLAYER, host):
-			draw_string(f, centre + Vector2(-7, 9), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color(0.5, 0.6, 0.75, 0.7))
+			var baseline := size.y * 0.5 + (f.get_ascent(26) - f.get_descent(26)) * 0.5
+			draw_string(f, Vector2(0, baseline), "?", HORIZONTAL_ALIGNMENT_CENTER, size.x, 26, Color(0.5, 0.6, 0.75, 0.7))
 			return
 		var kind := str(game.hosts[host].builds[slot])
 		if kind == "":
-			draw_string(f, centre + Vector2(-5, 6), "—", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.5, 0.58, 0.7))
+			draw_line(size * 0.5 - Vector2(7, 0), size * 0.5 + Vector2(7, 0), Color(0.5, 0.58, 0.7), 2)
 		else:
-			game._draw_kind_icon(self, kind, centre, 28.0, game.BUILD_KINDS[kind].col, f)
+			game._draw_kind_icon(self, kind, centre, 36.0, game.BUILD_KINDS[kind].col, f)
+			draw_multiline_string(f, Vector2(4, 57), str(game.BUILD_KINDS[kind].name), HORIZONTAL_ALIGNMENT_CENTER, size.x - 8, 12, 2, game.C_TEXT)
 
 
 class DragIcon extends Control:   # the picture that follows the pointer while a card is dragged
@@ -3836,9 +4334,7 @@ class BuildCard extends Control:   # a draggable card for one building kind
 	func _init() -> void:
 		custom_minimum_size = Vector2(72, 94)
 		mouse_filter = Control.MOUSE_FILTER_STOP
-
-	func _ready() -> void:
-		tooltip_text = "%s — %s. Drag onto a slot." % [str(game.BUILD_KINDS[kind].name), str(game.BUILD_KINDS[kind].desc)]
+		focus_mode = Control.FOCUS_ALL
 
 	func _get_drag_data(_p: Vector2) -> Variant:
 		var icon := DragIcon.new(); icon.game = game; icon.kind = kind
@@ -3849,12 +4345,8 @@ class BuildCard extends Control:   # a draggable card for one building kind
 	func _gui_input(ev: InputEvent) -> void:
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and not ev.pressed:
 			game._card_click(kind)
+		elif ev is InputEventKey and ev.pressed and ev.keycode == KEY_ENTER:
+			game._card_click(kind); accept_event()
 
 	func _draw() -> void:
-		var f := get_theme_default_font()
-		var col: Color = game.BUILD_KINDS[kind].col
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.13, 0.15, 0.21), true)
-		draw_rect(Rect2(Vector2.ZERO, size), Color(col.r, col.g, col.b, 0.85), false, 2.0)
-		game._draw_kind_icon(self, kind, Vector2(size.x * 0.5, 30), 28.0, col, f)
-		draw_string(f, Vector2(4, 66), str(game.BUILD_KINDS[kind].card), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.9, 0.95, 1.0))
-		draw_string(f, Vector2(4, 82), "%.0f s · drag ↑" % game.BUILD_TIME, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.8, 0.9))
+		game._draw_building_card(self, kind, "10 Intel · 10s")
