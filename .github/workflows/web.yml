@@ -1,0 +1,76 @@
+name: Build & publish web version
+
+# On every push to main (or a manual run), export the Godot project to HTML5 and
+# publish it to GitHub Pages. Enable Pages once, in the repo:
+#   Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# The game then lives at https://<user>.github.io/<repo>/ after the first green run.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  # Must be a version whose Linux editor AND export templates are published on
+  # github.com/godotengine/godot-builds/releases. Bump this to match your editor.
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} + export templates
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable"
+          echo "Downloading editor…"
+          curl -fL "$BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -o godot.zip
+          unzip -q godot.zip
+          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          echo "Downloading export templates…"
+          curl -fL "$BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -o templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -q templates.tpz -d _tpz
+          mv _tpz/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          godot --version
+
+      - name: Import project (build the resource cache)
+        run: |
+          # A first headless open imports every asset. It may exit non-zero on a
+          # fresh cache; the export step below is what actually matters.
+          timeout 300 godot --headless --path . --import || true
+
+      - name: Export the "Web" preset
+        run: |
+          set -euo pipefail
+          mkdir -p build/web
+          godot --headless --path . --export-release "Web" build/web/index.html
+          test -f build/web/index.html
+          cp build/web/index.html build/web/404.html   # friendly SPA fallback on Pages
+          ls -la build/web
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

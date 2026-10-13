@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Keep ONLY what the game needs to build and run: source (scripts/, scenes/),
+# content (data/, assets/), project config (project.godot, export_presets.cfg,
+# .gitattributes), the icon, the CI workflow (.github/) and BUILD.md.
+# Everything else — our design decisions, logs, reviews, evidence, build output,
+# engine caches — is ignored.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Our working material: design decisions, reviews, logs, evidence, galleries
+design/
+review/
+docs/
+notes/
+logs/
+*.log
+*.jsonl
+
+# Godot engine cache & imports
+.godot/
+.import/
+export.cfg
+export_credentials.cfg
+*.translation
+
+# Mono / C#
+.mono/
+data_*/
+mono_crash.*.json
+
+# Exported / packaged game builds
+build/
+*.pck
+*.zip
+*.exe
+*.wasm
+
+# Session scratchpad (headless Godot, downloads)
+scratchpad/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,87 @@
+extends Control
+## K&M-style minimap: whole map at a glance; click or drag to move the camera.
+## The static district grid is baked once to a texture; the minimap only redraws when
+## the camera or the set of nodes actually changes (not every frame) to save CPU.
+
+var main: Node2D
+var _grid_tex: ImageTexture
+var _last_cam := Vector2(INF, INF)
+var _last_zoom := -1.0
+var _last_nodes := -1
+var _last_seed := -1      # B49: rebake the district texture when a different seed loads
+var _last_relays := -1    # B50: redraw when a node is converted to / from a Proxy
+var _last_cb := false     # B43: rebake when the colour-blind palette toggles
+var _last_world_rev := -1 # PERF02: rebake + repaint markers on load even at the same seed
+
+
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST  # crisp district blocks when scaled
+
+
+func _gui_input(event: InputEvent) -> void:
+	if main == null:
+		return
+	var press: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT
+	var drag: bool = event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0
+	if press or drag:
+		var f: Vector2 = event.position / size
+		main.camera.position = Vector2(f.x * main.MAP_W * main.TILE, f.y * main.MAP_H * main.TILE)
+		accept_event()
+
+
+func _process(_delta: float) -> void:
+	if main == null:
+		return
+	# only repaint when the view, node set, conversions or seed changed — idle frames cost nothing
+	var nc: int = main.nodes.size()
+	var relays := 0
+	for id in main.nodes:
+		if main.nodes[id].get("relay", false):
+			relays += 1
+	if main.seed != _last_seed or _last_cb != Settings.cb or main.world_rev != _last_world_rev:
+		_last_seed = main.seed
+		_last_cb = Settings.cb
+		_last_world_rev = main.world_rev
+		_grid_tex = null   # B49 seed / B43 palette / PERF02 load: re-bake + repaint markers
+		queue_redraw()
+	if main.camera.position != _last_cam or main.camera.zoom.x != _last_zoom or nc != _last_nodes or relays != _last_relays or _grid_tex == null:
+		_last_cam = main.camera.position
+		_last_zoom = main.camera.zoom.x
+		_last_nodes = nc
+		_last_relays = relays
+		queue_redraw()
+
+
+func _bake_grid() -> void:
+	var img := Image.create(main.GW, main.GH, false, Image.FORMAT_RGBA8)
+	for gy in main.GH:
+		for gx in main.GW:
+			var t: String = main.regions[main.region_grid[gy * main.GW + gx]].type
+			var c: Color = main._zone_sem_color(t)   # B43: palette-consistent district tint
+			c.a = 0.5
+			img.set_pixel(gx, gy, c)
+	_grid_tex = ImageTexture.create_from_image(img)
+
+
+func _draw() -> void:
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.05, 1.0), true)
+	if main == null:
+		return
+	if _grid_tex == null and not main.regions.is_empty():
+		_bake_grid()
+	if _grid_tex != null:
+		draw_texture_rect(_grid_tex, Rect2(Vector2.ZERO, size), false)
+	var sx: float = size.x / (main.MAP_W * main.TILE)
+	var sy: float = size.y / (main.MAP_H * main.TILE)
+	for id in main.nodes:
+		var n = main.nodes[id]
+		# B50: effective Proxy identity; B43: palette-consistent producer markers
+		var c: Color = main.COLORS["relay"] if n.get("relay", false) else main._sem_color(n.type)
+		var p := Vector2((n.cell.x + n.size * 0.5) * main.TILE * sx, (n.cell.y + n.size * 0.5) * main.TILE * sy)
+		draw_rect(Rect2(p - Vector2(1.5, 1.5), Vector2(3, 3)), c, true)
+	# camera view rectangle
+	var vp: Vector2 = main.get_viewport_rect().size / main.camera.zoom.x
+	var tl: Vector2 = main.camera.position - vp * 0.5
+	draw_rect(Rect2(tl.x * sx, tl.y * sy, vp.x * sx, vp.y * sy), Color(1, 1, 1, 0.7), false, 1.0)
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.2, 1.0, 0.9, 0.6), false, 1.0)
