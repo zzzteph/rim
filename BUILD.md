@@ -88,6 +88,8 @@ godot --headless --path . --script tests/four_card_effect_test.gd
 godot --headless --path . --script tests/production_cost_test.gd
 godot --headless --path . --script tests/ai_card_smoke_test.gd
 godot --headless --path . --script tests/botnet_help_test.gd
+godot --headless --path . --script tests/mp_lockstep_test.gd      # multiplayer lockstep, no server needed
+godot --headless --path . --script tests/mp_server_e2e_test.gd    # needs Node.js + `npm ci` in server/ (starts it)
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
 To capture the usability suite's rendered fixtures, omit `--headless` and append
@@ -116,13 +118,20 @@ name (buildings in their card colour, ATTACK red, DEFENCE blue, your pieces gree
 Winning: hold at least 51% of ALL buildings (rounded up) for 51 continuous seconds
 (`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig.
 
-Fog of war (one rule for the player's screen and for the Insane AI): a faction sees its own
-hosts, every host one street away from them, and every rig (`_visible_to`/`_visible_set`).
+Fog of war (one rule for the player's screen and for the Insane AI): a faction's real sight is
+its own hosts and every host one street away from them (`_in_sight`/`_sight_set`); on top of
+that every rig is visible as a landmark (`_visible_to`/`_visible_set`). A rig seen only through
+fog is drawn and clickable, but nothing around it shows: rival packets, wires, worm jumps, card
+pulses and the busy-street colour all follow real sight (`_flight_visible`, `_sighted_runs`).
 Hosts seen before stay on the map as dim outlines without owner or bot count (`_seen`,
-`_explored`, `_last_seen`); fogged hosts cannot be clicked; rival packets are drawn only
-while their current street touches your sight (`_flight_visible`). Territories: every
-visible owned host colours its town cell; same-owner neighbours merge into one area with a
-border wherever the next cell belongs to someone else (`_draw_territories`).
+`_explored`, `_last_seen`); fogged hosts cannot be clicked. Territories: every visible owned
+host claims a round patch (`TERR_RADIUS`); one botnet's patches melt into rounded areas
+(gaps and waists filled by `TERR_SMOOTH`), the ground between rivals is split halfway between
+their buildings, and borders are inset so two botnets' lines never touch (`_territory_shapes`,
+recomputed only when sight or ownership changes).
+
+Every standing building works whatever its bot count (0.1.5: losing bots no longer switches
+slots off); only a card (DDOS), a running construction or the owner's pause stops one.
 
 Building prices (`BUILD_COSTS` in buildings.gd), paid evenly over 10 s of funded work, the
 full price needed in the bank to queue: Intel harvester 10 Intel, Bot farm 30 Intel, Crypto
@@ -195,6 +204,32 @@ func _ready():
 Run with `godot --path . res://that_scene.tscn` (omit `--headless` when you need a rendered PNG).
 
 ---
+
+## 3b. Multiplayer
+
+Up to 3 people play one match; there is no AI in multiplayer. **Menu → Multiplayer**: set your name, join
+an open public lobby, create a public or private lobby (private ones are joined by their 5-letter code). In the
+lobby the host picks 2 or 3 players, the map size and public/private; everybody can chat; when every player
+presses Ready a 5-second countdown starts the match (any change cancels it). A player who leaves or
+disconnects mid-match leaves an idle botnet behind; the others play on.
+
+How it works (deterministic lockstep, see `server/PROTOCOL.md`): every screen runs the same simulation from
+the same seed in fixed 1/30 s steps (`_sim_step`). Only **commands** travel: every state change a person makes
+goes through `_cmd([...])`, which in single player applies at once (`_apply_cmd` → `_do_*`) and in
+multiplayer is queued and sent for turn `T + delay` (`_mp_begin_turn`). A turn is 3 steps; a screen may only
+simulate turn `T` when every player still in the match has sent it (`_mp_advance` / `_mp_ready`), and every
+screen applies the commands of a turn at its first step, faction by faction. `PLAYER` is the faction **this
+screen** plays (1–3); rules that differ for people and AIs ask `_is_human(fac)` (`humans`). Every 30 turns the
+screens exchange a state fingerprint (`_mp_hash`) and the server reports a desync. Anything that changes the
+match from the UI must go through `_cmd`, and nothing in `_sim_step` may depend on the local screen
+(selection, `PLAYER`, time of day, `randf()`): otherwise the screens drift apart. `tests/mp_lockstep_test.gd`
+checks exactly that.
+
+The connection and lobby state live in `scripts/botnet_net.gd` (one WebSocket; the default server is
+`wss://network.thenakedcat.games/ws`, changeable in the Multiplayer menu or with
+`-- --server=ws://localhost:8787/ws`). The server (Node.js, `server/`) only runs lobbies, chat, the ready
+countdown and relays turns; it runs on a VPS behind Caddy (TLS) and is deployed by
+`.github/workflows/server.yml` — see `server/README.md`. The game itself stays on GitHub Pages.
 
 ## 4. Export a build
 

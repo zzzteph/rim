@@ -19,7 +19,8 @@ const AI_LEVELS := ["normal", "insane"]
 const INSANE_READY := false   # the Insane brain is still being built: its menu button stays disabled until it lands
 
 const NEUTRAL := CfgFactions.NEUTRAL
-const PLAYER := CfgFactions.PLAYER
+var PLAYER: int = CfgFactions.PLAYER   # the faction this screen plays (multiplayer: yours, 1–3)
+var humans: Array = [CfgFactions.PLAYER]   # every faction a person plays (single player: just you)
 const RIVAL := CfgFactions.RIVAL
 const RIVAL2 := CfgFactions.RIVAL2
 const RIVAL3 := CfgFactions.RIVAL3
@@ -105,7 +106,7 @@ const MAP_CELL := 190.0         # world size of one town cell; each host sits in
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.1.4"
+const GAME_VERSION := "0.1.6"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -215,6 +216,22 @@ var _focused := true             # the window has focus (else the frame cap drop
 var _shaped := {}                # Font -> {size -> {text -> TextLine}}: see _shape()
 var _route_memo = null           # {src * 65536 + target: route} while _sim_step allows it (see _route), else null
 var _terr := {}                  # cached territory shapes for one sight/ownership "key" (see _territory_shapes)
+# ---- multiplayer (deterministic lockstep, server/PROTOCOL.md): every screen runs the same simulation; only
+# commands travel, grouped in turns of _mp_turn_steps steps and scheduled _mp_delay turns ahead ----
+var _mp_on := false              # a multiplayer match runs on this screen
+var _mp_names := {}              # faction -> the player's name
+var _out := false                # multiplayer: your rig fell; you watch the rest of the match
+var _mp_turn := 0                # the next turn to simulate
+var _mp_step_in_turn := 0        # steps of _mp_turn already simulated
+var _mp_turns := {}              # turn -> {faction: [commands]} received from the server
+var _mp_dropped := {}            # faction -> the first turn it no longer sends (disconnected: idle botnet)
+var _mp_queue := []              # your commands not sent yet
+var _mp_turn_steps := 3
+var _mp_delay := 2
+var _mp_wait := 0.0              # how long the lockstep has been waiting for another player
+var _mp_desync := -1             # turn at which the screens disagreed (-1: never)
+var net: Node = null              # the lobby-server connection (scripts/botnet_net.gd), made on first use
+const NetScript := preload("res://scripts/botnet_net.gd")
 # The map is painted by MapLayer children, bottom to top. ground / nodes / mask repaint only when the view changes
 # (pan, zoom, hover, selection, deck, …) and MAP_REFRESH-ly while the match runs; packets / over repaint every
 # frame only while something moves. Godot keeps a layer's drawing between repaints, so an idle map costs ~nothing.
@@ -368,7 +385,8 @@ func _ready() -> void:
 	set_process(true)
 
 
-func fname(fac: int) -> String: return str(FACTIONS[fac].name)
+func fname(fac: int) -> String: return str(_mp_names.get(fac, FACTIONS[fac].name))   # multiplayer: the player's own name
+func _is_human(fac: int) -> bool: return humans.has(fac)
 func fcol(fac: int) -> Color: return FACTIONS[fac].col
 
 
@@ -396,12 +414,13 @@ func _gen() -> void:
 	var hub_cell := Vector2i(int(centre.x) + (rng.randi() % 2), int(centre.y) + (rng.randi() % 2))
 	# each botnet starts in a corner: you top-left, the enemies in the other corners (only the active ones)
 	var corner := {
+		CfgFactions.PLAYER: [Vector2i(0, 0), Vector2i(0, 1)],
 		RIVAL:  [Vector2i(_cols - 1, _rows - 1), Vector2i(_cols - 1, _rows - 2)],
 		RIVAL2: [Vector2i(0, _rows - 1), Vector2i(0, _rows - 2)],
 		RIVAL3: [Vector2i(_cols - 1, 0), Vector2i(_cols - 2, 0)],
 	}
-	var starts := {PLAYER: [Vector2i(0, 0), Vector2i(0, 1)]}
-	for fac in ais: starts[fac] = corner[fac]
+	var starts := {}
+	for fac in botnets: starts[fac] = corner[fac]
 	var forced := [hub_cell]
 	for fac in starts.keys(): forced += starts[fac]
 	for gy in _rows:
@@ -468,10 +487,8 @@ func _gen() -> void:
 					if dd < best: best = dd; pa = int(a); pb = int(b)
 		if pa >= 0: _link(pa, pb)
 	# every botnet starts with a rig (its Cash sink) and one more building
-	_claim(_cell[starts[PLAYER][0]], PLAYER, true, "YOUR RIG")
-	_claim(_cell[starts[PLAYER][1]], PLAYER, false, "")
-	for fac in ais:   # each active enemy claims its corner rig + a second building
-		_claim(_cell[starts[fac][0]], fac, true, "%s RIG" % fname(fac))
+	for fac in botnets:   # each botnet claims its corner rig + a second building
+		_claim(_cell[starts[fac][0]], fac, true, "YOUR RIG" if fac == PLAYER else "%s RIG" % fname(fac))
 		_claim(_cell[starts[fac][1]], fac, false, "")
 
 
@@ -527,11 +544,15 @@ func _producer_paused(i: int, slot: int) -> bool:
 	return paused_slots != null and bool((paused_slots as Dictionary).get(slot, false))
 
 
-func _toggle_producer(i: int, slot: int) -> void:
-	if not _mine(i) or _slot_busy(i, slot) or not str(hosts[i].builds[slot]) in ["cash", "cred", "lab"]: return
+func _toggle_producer(i: int, slot: int) -> void: _cmd(["produce", i, slot])
+
+
+func _do_produce(fac: int, i: int, slot: int) -> void:   # pause / resume a producer
+	if not _owns(fac, i) or slot < 0 or slot >= (hosts[i].builds as Array).size(): return
+	if _slot_busy(i, slot) or not str(hosts[i].builds[slot]) in ["cash", "cred", "lab"]: return
 	if not hosts[i].has("producer_paused"): hosts[i].producer_paused = {}
 	hosts[i].producer_paused[slot] = not _producer_paused(i, slot)
-	_refresh_panel(); queue_redraw()
+	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
 
 # ---- scanning ----
@@ -973,7 +994,7 @@ func _cash_of_host(i: int) -> float:   # Cash/s this one market produces
 
 
 func _crypto_packet_amount(i: int) -> float:
-	return float(hosts[i].value) * _tmult(i, "cash") * (ai_cash_mult if int(hosts[i].owner) != PLAYER else 1.0)
+	return float(hosts[i].value) * _tmult(i, "cash") * (1.0 if _is_human(int(hosts[i].owner)) else ai_cash_mult)
 
 
 func _production_input_rate(fac: int, input: String) -> float:
@@ -1007,7 +1028,7 @@ func _tick_production(dt: float) -> void:
 			var input := "cash" if kind == "lab" else "intel"
 			var amount := 0.0
 			if kind == "cash":
-				amount = float(n) * float(hosts[i].value) * _tmult(i, "cash") / CASH_INTERVAL * _production_multiplier(i) * (ai_cash_mult if owner != PLAYER else 1.0) * dt   # = _cash_of_host(i) * …
+				amount = float(n) * float(hosts[i].value) * _tmult(i, "cash") / CASH_INTERVAL * _production_multiplier(i) * (1.0 if _is_human(owner) else ai_cash_mult) * dt   # = _cash_of_host(i) * …
 				if not _stolen(i):
 					if not rig.has(owner) or int(hosts[int(rig[owner])].owner) != owner: continue
 					if i != int(rig[owner]) and _route(i, int(rig[owner])).is_empty(): continue
@@ -1092,18 +1113,27 @@ func _job_cost_total(job: Dictionary) -> Dictionary:
 
 
 func _can_drop(i: int, slot: int, kind: String) -> bool:   # a card held over a slot of a building you own
-	if i < 0 or not _mine(i) or not BUILD_KINDS.has(kind): return false
+	return _can_build(PLAYER, i, slot, kind)
+
+
+func _can_build(fac: int, i: int, slot: int, kind: String) -> bool:
+	if not _owns(fac, i) or not BUILD_KINDS.has(kind): return false
 	if slot < 0 or slot >= (hosts[i].builds as Array).size() or _slot_busy(i, slot): return false
 	return str(hosts[i].builds[slot]) != kind
 
 
-func _drop_build(i: int, slot: int, kind: String) -> void:   # a card dropped on a slot
-	if not _can_drop(i, slot, kind): return
+func _drop_build(i: int, slot: int, kind: String) -> void: _cmd(["build", i, slot, kind])   # a card dropped on a slot
+
+
+func _do_build(fac: int, i: int, slot: int, kind: String) -> void:
+	if not _can_build(fac, i, slot, kind): return
 	var cur := str(hosts[i].builds[slot])
-	if _start_job(i, kind, slot):
+	var started := _start_job(i, kind, slot)
+	if fac != PLAYER: return
+	if started:
 		if cur == "": _flash("Building %s in slot %d of %s — %.0f s · %s" % [BUILD_KINDS[kind].name, slot + 1, str(hosts[i].name), BUILD_TIME, _build_cost_text(kind)])
 		else: _flash("Replacing %s with %s in slot %d — %.0f s to clear, then %.0f s to build · %s" % [BUILD_KINDS[cur].name, BUILD_KINDS[kind].name, slot + 1, DEMOLISH_TIME, BUILD_TIME, _build_cost_text(kind)])
-	elif not _can_afford_build(PLAYER, kind): _flash("Not enough to build a %s — it costs %s" % [BUILD_KINDS[kind].name, _build_cost_text(kind)])
+	elif not _can_afford_build(fac, kind): _flash("Not enough to build a %s — it costs %s" % [BUILD_KINDS[kind].name, _build_cost_text(kind)])
 	_refresh_panel(); queue_redraw()
 
 
@@ -1127,23 +1157,34 @@ func _player_build(i: int, kind: String) -> void:   # script helper: first empty
 	_drop_build(i, _free_slot(i), kind)
 
 
-func _toggle_job(i: int, slot: int) -> void:
-	if not _mine(i) or not (hosts[i].jobs as Dictionary).has(slot): return
+func _toggle_job(i: int, slot: int) -> void: _cmd(["job", i, slot])
+
+
+func _do_toggle_job(fac: int, i: int, slot: int) -> void:
+	if not _owns(fac, i) or not (hosts[i].jobs as Dictionary).has(slot): return
 	var job: Dictionary = hosts[i].jobs[slot]
 	job["paused"] = not bool(job.get("paused", false))
-	_refresh_panel(); queue_redraw()
+	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
 
-func _cancel_job(i: int, slot: int) -> void:   # a cancelled job refunds nothing
-	if i >= 0: (hosts[i].jobs as Dictionary).erase(slot)
-	_refresh_panel(); queue_redraw()
+func _cancel_job(i: int, slot: int) -> void: _cmd(["cancel", i, slot])   # a cancelled job refunds nothing
 
 
-func _demolish(i: int, slot: int) -> void:   # clear a slot (DEMOLISH_TIME); the building is offline meanwhile
-	if i < 0 or slot < 0 or slot >= (hosts[i].builds as Array).size(): return
+func _do_cancel_job(fac: int, i: int, slot: int) -> void:
+	if not _owns(fac, i): return
+	(hosts[i].jobs as Dictionary).erase(slot)
+	if fac == PLAYER: _refresh_panel(); queue_redraw()
+
+
+func _demolish(i: int, slot: int) -> void: _cmd(["demolish", i, slot])   # clear a slot (DEMOLISH_TIME); the building is offline meanwhile
+
+
+func _do_demolish(fac: int, i: int, slot: int) -> void:
+	if not _owns(fac, i) or slot < 0 or slot >= (hosts[i].builds as Array).size(): return
 	if str(hosts[i].builds[slot]) == "" or _slot_busy(i, slot): return
 	(hosts[i].get("producer_paused", {}) as Dictionary).erase(slot)
 	hosts[i].jobs[slot] = {"kind": "", "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME}
+	if fac != PLAYER: return
 	_flash("Demolishing %s in slot %d of %s — %.0f s" % [BUILD_KINDS[str(hosts[i].builds[slot])].name, slot + 1, str(hosts[i].name), DEMOLISH_TIME])
 	_refresh_panel(); queue_redraw()
 
@@ -1227,9 +1268,11 @@ func _check_rigs() -> void:
 	for fac in botnets:
 		if _eliminated.has(fac) or int(hosts[int(rig[fac])].owner) == fac: continue
 		_eliminated[fac] = true
-		if fac == PLAYER:
+		if fac == PLAYER and not _mp_on:
 			lost = true; won = false; _end_cause = "Your rig was captured. Protect it to stay in the game."
-		else: _ai[fac].dead = true
+		elif fac == PLAYER:
+			_out = true; _flash("Your rig was captured — you are out of the match. Watch it to the end or leave from the menu.", 3)
+		if _ai.has(fac): _ai[fac].dead = true
 		lab[fac].queue = []; lab[fac].progress = 0.0
 		for i in hosts.size():
 			if int(hosts[i].owner) != fac: continue
@@ -1309,7 +1352,7 @@ func _tick_domination(dt: float) -> void:   # a true majority held wins; the las
 
 # ---- who sends what where ----
 func _reserve_of(i: int) -> float:   # garrison a source keeps at home
-	if int(hosts[i].owner) != PLAYER: return AI_RESERVE
+	if not _is_human(int(hosts[i].owner)): return AI_RESERVE
 	return 0.0
 
 
@@ -1359,7 +1402,9 @@ func _src_state(s: int) -> String:
 func _process(dt: float) -> void:
 	_pace_frames()
 	if _msg_t > 0.0: _msg_t -= dt
-	if not paused and not menu_open and not won and not lost:
+	if _mp_on:
+		if not won and not lost: _mp_advance(dt)
+	elif not paused and not menu_open and not won and not lost:
 		_sim_acc += dt
 		var steps := 0
 		while _sim_acc >= SIM_DT - 0.000001 and steps < SIM_MAX_STEPS and not won and not lost:
@@ -1380,6 +1425,7 @@ func _process(dt: float) -> void:
 	if hs != _hand_sig: _hand_sig = hs; _refresh_hand()   # rebuild the bottom hand only when it changes
 	if menu_open:
 		_menu_t += dt; queue_redraw()                     # keep the menu's drifting packets moving
+		if _menu_view == "lobby" and net != null: _mp_tick_countdown()
 		return
 	if tick:   # the slow layers and the HUD: on a view change at once, else MAP_REFRESH-ly while the match runs
 		hud.queue_redraw()
@@ -1423,7 +1469,7 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	_tick_research(dt)
 	_fx = _fx.filter(func(x): return float(x.until) > _t)
 	_worms = _worms.filter(func(x): return float(x.until) > _t)
-	_ai_remember(PLAYER)   # your memory of a scanned building stays as fresh as the AI's
+	for h in humans: _ai_remember(h)   # a person's memory of a scanned building stays as fresh as the AI's
 	_prune_res()
 	_route_memo = {}    # owners and route cuts hold still from here to production: each route is searched once
 	_auto_guards()      # guard wires arm themselves while their building is threatened, stand down after
@@ -1438,8 +1484,9 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	if not won and not lost and not _ai_paused: _ai_tick(dt)   # the tutorial freezes the AI early on
 	_check_rigs()
 	if not won and not lost: _tick_domination(dt)
-	if not won and not lost and int(hosts[int(rig[PLAYER])].owner) != PLAYER: lost = true; _end_cause = "Your rig was captured — the botnet is finished."
-	if not won and not lost and _player_nodes() == 0: lost = true; _end_cause = "You lost your last building."
+	if not _mp_on:   # single player: losing your rig or your last building ends it (multiplayer: you are out and watch)
+		if not won and not lost and int(hosts[int(rig[PLAYER])].owner) != PLAYER: lost = true; _end_cause = "Your rig was captured — the botnet is finished."
+		if not won and not lost and _player_nodes() == 0: lost = true; _end_cause = "You lost your last building."
 	for fac in ais:
 		if not bool(_ai[fac].dead) and _faction_nodes(fac) == 0:
 			_ai[fac].dead = true; _flash("%s is out of the game" % fname(fac))
@@ -2389,6 +2436,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled(); return
 	if menu_open or won or lost: return
 	if event.keycode == KEY_SPACE:
+		if _mp_on: return   # a shared match never pauses
 		paused = not paused; _refresh_panel(); queue_redraw()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_0: _reset_view()
@@ -2403,7 +2451,7 @@ func _can_drop_data(pos: Vector2, data: Variant) -> bool:   # a hand card held o
 
 func _drop_data(pos: Vector2, data: Variant) -> void:
 	var t := _host_at(pos)
-	if t >= 0: _play_card(PLAYER, str(data.card), t)
+	if t >= 0: _cmd(["card", str(data.card), t])
 
 
 func _dragged_card() -> String:   # the hand card being dragged right now, or ""
@@ -2571,14 +2619,22 @@ func _card_queue_index(key: String) -> int:
 
 func _card_research_click(key: String) -> void:
 	if menu_open or won or lost: return
-	var index := _card_queue_index(key)
-	if index >= 0: _toggle_research_item(PLAYER, index)
-	else: _queue_research(PLAYER, key)
+	_cmd(["research", key])
+
+
+func _do_research(fac: int, key: String) -> void:   # queue a card's research, or pause / resume it when queued
+	var index := (lab[fac].queue as Array).find(key)
+	if index >= 0: _toggle_research_item(fac, index)
+	else: _queue_research(fac, key)
 
 
 func _card_research_cancel(key: String) -> void:
-	var index := _card_queue_index(key)
-	if index >= 0 and not menu_open and not won and not lost: _dequeue_research(PLAYER, index)
+	if _card_queue_index(key) >= 0 and not menu_open and not won and not lost: _cmd(["unresearch", key])
+
+
+func _do_unresearch(fac: int, key: String) -> void:
+	var index := (lab[fac].queue as Array).find(key)
+	if index >= 0: _dequeue_research(fac, index)
 
 
 func _card_research_state(key: String) -> Dictionary:
@@ -2742,17 +2798,23 @@ func _connection_at(w: Vector2) -> int:
 # building's current target changes nothing (it never interrupts a live flow).
 func _wire(dest: int) -> void:
 	if dest < 0 or sel.is_empty(): return
+	_cmd(["wire", sel.keys(), dest])
+
+
+func _do_wire(fac: int, sources: Array, dest: int) -> void:
+	if not _host_ok(dest): return
 	var join_attack := false
-	for source in _owned_feeders(dest):
-		if bool(hosts[source].live) and str(hosts[source].mode) == "attack": join_attack = true
+	for i in hosts.size():   # fac's buildings already wired into dest: is that an attack in progress?
+		if int(hosts[i].owner) == fac and int(hosts[i].assign) == dest and bool(hosts[i].live) and str(hosts[i].mode) == "attack": join_attack = true
 	var done := 0; var nopath := 0
-	for s in sel.keys():
+	for s in sources:
 		var i := int(s)
-		if not _mine(i) or i == dest: continue
+		if not _owns(fac, i) or i == dest: continue
 		if _route(i, dest).is_empty(): nopath += 1; continue
 		if int(hosts[i].assign) != dest:
 			hosts[i].assign = dest; hosts[i].live = join_attack; hosts[i].mode = "attack"; _next_depart.erase(i)
 		done += 1
+	if fac != PLAYER: return
 	if done > 0:
 		var extra := ("  ·  %d had no path" % nopath) if nopath > 0 else ""
 		if _mine(dest):
@@ -2769,14 +2831,20 @@ func _wire(dest: int) -> void:
 
 # LAUNCH: the button on the TARGET's panel — turns every dormant connection into `t` live, together.
 # Added contributors join an existing attack; new inactive targets need explicit launch.
-func _launch(t: int, mode := "attack") -> void:   # "scan" = quiet reveal; "attack" = alarms, wounds, reveals as it lands
-	if mode == "scan" and _scanned(PLAYER, t):
-		_flash("Already scanned. Choose Attack to send combat bots."); return
+func _launch(t: int, mode := "attack") -> void: _cmd(["launch", t, mode])   # "scan" = quiet reveal; "attack" = alarms, wounds, reveals as it lands
+
+
+func _do_launch(fac: int, t: int, mode: String) -> void:
+	if not _host_ok(t) or not mode in ["attack", "scan"]: return
+	if mode == "scan" and _scanned(fac, t):
+		if fac == PLAYER: _flash("Already scanned. Choose Attack to send combat bots.")
+		return
 	var started := 0; var unrouted := 0
 	for i in hosts.size():
-		if not _mine(i) or int(hosts[i].assign) != t or bool(hosts[i].live): continue
+		if int(hosts[i].owner) != fac or int(hosts[i].assign) != t or bool(hosts[i].live): continue
 		if _route(i, t).is_empty(): unrouted += 1; continue
 		hosts[i].live = true; hosts[i].mode = mode; _next_depart[i] = _t; started += 1
+	if fac != PLAYER: return
 	var verb := "Scanning quietly" if mode == "scan" else ("Attacking blind (alarm raised)" if not _scanned(PLAYER, t) else "Attacking")
 	if started > 0: _flash("%s %s — %d flow(s) launched%s" % [verb, str(hosts[t].name), started, ("  ·  %d held (no route)" % unrouted) if unrouted > 0 else ""])
 	elif unrouted > 0: _flash("Cannot launch on %s — no routes (capture a bordering building first)" % str(hosts[t].name))
@@ -2785,11 +2853,16 @@ func _launch(t: int, mode := "attack") -> void:   # "scan" = quiet reveal; "atta
 
 
 # STOP: pause every live attack flow into `t` — the wires stay, ready to launch again
-func _halt(t: int) -> void:
+func _halt(t: int) -> void: _cmd(["halt", t])
+
+
+func _do_halt(fac: int, t: int) -> void:   # pause every live flow of fac's into t — the wires stay
+	if not _host_ok(t): return
 	var n := 0
 	for i in hosts.size():
-		if _mine(i) and int(hosts[i].assign) == t and bool(hosts[i].live):
+		if int(hosts[i].owner) == fac and int(hosts[i].assign) == t and bool(hosts[i].live):
 			hosts[i].live = false; _next_depart.erase(i); n += 1
+	if fac != PLAYER: return
 	if n > 0: _flash("Stopped %d flow(s) into %s (connections kept)" % [n, str(hosts[t].name)])
 	else: _flash("No live flows into %s" % str(hosts[t].name))
 	_refresh_panel(); queue_redraw()
@@ -2819,6 +2892,42 @@ func _adjust_rate(d: float) -> void:   # the output-limit dial, 25% steps, for e
 
 
 
+# ---- player commands: the one door through which a person changes the match ----
+# Single player applies a command at once. Multiplayer queues it for the lockstep (_mp_begin_turn), and every screen
+# applies it at the same step for the faction that sent it. Commands are plain arrays because they travel as JSON
+# (server/PROTOCOL.md); _apply_cmd checks every field, so a malformed one does nothing — identically everywhere.
+func _cmd(c: Array) -> void:
+	if not _mp_on: _apply_cmd(PLAYER, c); return
+	if _out or won or lost: return
+	_mp_queue.append(c)
+
+
+func _apply_cmd(fac: int, c: Array) -> void:
+	if c.is_empty() or not botnets.has(fac) or _eliminated.has(fac): return
+	var n := c.size()
+	match str(c[0]):
+		"wire": if n == 3 and c[1] is Array: _do_wire(fac, (c[1] as Array).slice(0, 64), _int(c[2]))
+		"launch": if n == 3: _do_launch(fac, _int(c[1]), str(c[2]))
+		"halt": if n == 2: _do_halt(fac, _int(c[1]))
+		"unwire": if n == 2: _do_unwire(fac, _int(c[1]))
+		"build": if n == 4: _do_build(fac, _int(c[1]), _int(c[2]), str(c[3]))
+		"job": if n == 3: _do_toggle_job(fac, _int(c[1]), _int(c[2]))
+		"cancel": if n == 3: _do_cancel_job(fac, _int(c[1]), _int(c[2]))
+		"demolish": if n == 3: _do_demolish(fac, _int(c[1]), _int(c[2]))
+		"produce": if n == 3: _do_produce(fac, _int(c[1]), _int(c[2]))
+		"research": if n == 2: _do_research(fac, str(c[1]))
+		"unresearch": if n == 2: _do_unresearch(fac, str(c[1]))
+		"card": if n == 3 and _host_ok(_int(c[2])): _play_card(fac, str(c[1]), _int(c[2]))
+
+
+func _int(v: Variant) -> int:   # a JSON number (or anything else) as a building / slot index; garbage becomes -1
+	return int(v) if (v is int or v is float) and is_finite(float(v)) else -1
+
+
+func _host_ok(i: int) -> bool: return i >= 0 and i < hosts.size()
+func _owns(fac: int, i: int) -> bool: return _host_ok(i) and int(hosts[i].owner) == fac
+
+
 func _select_contributors(feeders: Array) -> void:
 	sel = {}
 	for i in feeders: sel[int(i)] = true
@@ -2845,6 +2954,9 @@ func _cancel_to(dest: int) -> void:
 
 func _apply_options() -> void:   # turn the menu choices into the live grid + faction set + seed
 	_cols = _opt_size.x; _rows = _opt_size.y
+	if _mp_on:   # people only: every faction in the match is a player, no AI
+		ais = []; botnets = humans.duplicate(); town_seed = _opt_seed; ai_level = {}
+		return
 	var pool := [RIVAL, RIVAL2, RIVAL3]
 	ais = []
 	for k in clampi(_opt_enemies, 1, 3): ais.append(pool[k])
@@ -2855,7 +2967,7 @@ func _apply_options() -> void:   # turn the menu choices into the live grid + fa
 
 
 func _reset() -> void:   # a NEW town every restart, with the current options
-	won = false; lost = false; _end_shown = false; _end_cause = ""; paused = false; _t = 0.0
+	won = false; lost = false; _end_shown = false; _end_cause = ""; paused = false; _t = 0.0; _sim_acc = 0.0
 	_emit_cursor = 0; _panel_t = 0.0
 	_departures.clear(); _resource_samples.clear(); _defender_samples.clear(); _eliminated.clear()
 	_panel_context = ""; _msg_t = 0.0; _msg_priority = 0
@@ -3024,23 +3136,377 @@ func _refresh_menu() -> void:
 	for c in menu_box.get_children(): menu_box.remove_child(c); c.queue_free()
 	if is_instance_valid(menu_seed_edit): _seed_draft = menu_seed_edit.text
 	menu_seed_edit = null
-	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if _menu_view == "help" else ScrollContainer.SCROLL_MODE_DISABLED
+	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if _menu_view in ["help", "mp", "lobby"] else ScrollContainer.SCROLL_MODE_DISABLED
 	match _menu_view:
 		"help": _size_menu(680.0, 640.0); _menu_help()
 		"newgame": _size_menu(MENU_W, 452.0); _menu_newgame()
 		"feedback": _size_menu(480.0, 590.0); _menu_feedback()
+		"mp": _size_menu(560.0, 600.0); _menu_mp()
+		"lobby": _size_menu(640.0, 660.0); _menu_lobby()
 		_:
-			var nb := 6 if (_t >= 0.01 and not won and not lost) else 5
+			var nb := (6 if (_t >= 0.01 and not won and not lost) else 5) + (0 if _mp_on else 1)
 			_size_menu(MENU_W, 96.0 + float(nb) * 52.0); _menu_main()
 	_fit_menu_to_contents.call_deferred()
+
+
+# ============================================================ MULTIPLAYER (lockstep; server/PROTOCOL.md)
+const MP_SIZES := ["small", "medium", "big"]   # the lobby's map sizes, as SIZE_PRESETS
+var _mp_name_draft := ""
+var _mp_code_draft := ""
+var _mp_chat_draft := ""
+var _mp_public := true                         # the browser's "create" choice
+var _mp_ui := {}                               # live controls of the open multiplayer view (updated in place)
+var _sp_size := Vector2i.ZERO                  # your single-player map size, restored after a match
+
+
+func _net() -> Node:
+	if net == null:
+		net = NetScript.new(); net.version = GAME_VERSION; net.name = "Net"
+		add_child(net)
+		net.changed.connect(_mp_on_changed)
+		net.match_message.connect(_mp_on_message)
+	return net
+
+
+func _mp_open() -> void:   # the menu's Multiplayer button
+	_net()
+	if net.status == "offline": net.open()
+	_mp_name_draft = net.player_name
+	_menu_view = "lobby" if net.in_lobby() else "mp"
+	_refresh_menu()
+
+
+func _mp_on_changed() -> void:   # the connection moved: show it without rebuilding text fields the player types in
+	if not menu_open: return
+	if _menu_view == "mp" and net.in_lobby(): _menu_view = "lobby"; _refresh_menu(); return
+	if _menu_view == "lobby" and not net.in_lobby(): _menu_view = "mp"; _refresh_menu(); return
+	if _menu_view == "mp": _mp_fill_browser()
+	elif _menu_view == "lobby": _mp_fill_lobby()
+
+
+func _mp_on_message(m: Dictionary) -> void:
+	match str(m.get("t", "")):
+		"start": _mp_start(m)
+		"turn":
+			if not _mp_on: return
+			var turn := _int(m.get("turn")); var from := _int(m.get("from"))
+			if turn < _mp_turn or not humans.has(from): return
+			if not _mp_turns.has(turn): _mp_turns[turn] = {}
+			_mp_turns[turn][from] = m.get("cmds") if m.get("cmds") is Array else []
+		"drop":
+			if not _mp_on: return
+			var fac := _int(m.get("faction"))
+			if not humans.has(fac): return
+			_mp_dropped[fac] = maxi(_int(m.get("from_turn")), 0)
+			if fac != PLAYER: _flash("%s left the match — their botnet stands idle" % fname(fac), 3)
+		"desync":
+			if _mp_on and _mp_desync < 0:
+				_mp_desync = _int(m.get("turn"))
+				_flash("The players' games drifted apart (turn %d) — this match can no longer be trusted. Leave from the menu." % _mp_desync, 4)
+		"closed":
+			if _mp_on and not won and not lost:
+				lost = true; _end_cause = "The connection to the server was lost."
+				_refresh_panel()
+
+
+func _mp_start(m: Dictionary) -> void:   # the countdown ran out: everybody builds the same town from the same seed
+	var players: Array = m.get("players") if m.get("players") is Array else []
+	var me := _int(m.get("you"))
+	var hs := []; var names := {}
+	for p in players:
+		if not (p is Dictionary): continue
+		var fac := _int(p.get("faction"))
+		if fac in [CfgFactions.PLAYER, RIVAL, RIVAL2] and not hs.has(fac): hs.append(fac); names[fac] = NetScript.clean_name(str(p.get("name", "")))
+	hs.sort()
+	if not hs.has(me) or hs.size() < 2: return   # a broken start message: stay in the lobby
+	if not _mp_on: _sp_size = _opt_size
+	PLAYER = me; humans = hs; _mp_names = names
+	_mp_on = true; _out = false; _mp_desync = -1; _mp_wait = 0.0
+	_mp_turn_steps = clampi(_int(m.get("turn_steps")), 1, 10); _mp_delay = clampi(_int(m.get("delay")), 1, 10)
+	_mp_turn = 0; _mp_step_in_turn = 0; _mp_turns = {}; _mp_dropped = {}; _mp_queue = []
+	_opt_size = SIZE_PRESETS[maxi(0, MP_SIZES.find(str(m.get("size", "medium"))))]
+	_opt_seed = maxi(1, _int(m.get("seed")))
+	_reset()
+	_open_menu(false)
+	_flash("The match is on — you play %s. Hold the majority or be the last botnet standing." % ("green" if PLAYER == CfgFactions.PLAYER else ("red" if PLAYER == RIVAL else "purple")), 3)
+
+
+func _mp_leave() -> void:   # out of a match, back to the multiplayer menu (the server drops you: your botnet idles)
+	if net != null: net.leave()
+	_mp_on = false; _out = false; _mp_turns = {}; _mp_queue = []; _mp_dropped = {}
+	PLAYER = CfgFactions.PLAYER; humans = [CfgFactions.PLAYER]; _mp_names = {}
+	if _sp_size != Vector2i.ZERO: _opt_size = _sp_size
+	_opt_seed = 0   # a random town behind the menu again
+	_reset()
+	_open_menu(true)
+	_menu_view = "mp"; _refresh_menu()
+
+
+func _mp_advance(dt: float) -> void:   # simulate while every player's turn is in; wait (frozen) while one is missing
+	_sim_acc = minf(_sim_acc + dt, 0.5)   # fell behind: catch up as fast as frames allow, but never bank more
+	var steps := 0; var stalled := false
+	while _sim_acc >= SIM_DT - 0.000001 and steps < SIM_MAX_STEPS and not won and not lost:
+		if _mp_step_in_turn == 0:
+			if not _mp_ready(_mp_turn): stalled = true; break
+			_mp_begin_turn()
+		_sim_acc -= SIM_DT; steps += 1
+		_sim_step(SIM_DT)
+		_mp_step_in_turn += 1
+		if _mp_step_in_turn >= _mp_turn_steps: _mp_end_turn()
+	_mp_wait = (_mp_wait + dt) if stalled and steps == 0 else 0.0   # held up by someone's late turn
+
+
+func _mp_ready(turn: int) -> bool:   # every faction still sending has sent this turn
+	if turn < _mp_delay: return true
+	var got: Dictionary = _mp_turns.get(turn, {})
+	for fac in humans:
+		if not got.has(fac) and not (_mp_dropped.has(fac) and turn >= int(_mp_dropped[fac])): return false
+	return true
+
+
+func _mp_begin_turn() -> void:   # everyone's commands for this turn, faction by faction; then yours go out for turn + delay
+	var got: Dictionary = _mp_turns.get(_mp_turn, {})
+	for fac in humans:
+		if not got.has(fac) or (_mp_dropped.has(fac) and _mp_turn >= int(_mp_dropped[fac])): continue
+		for c in got[fac]:
+			if c is Array: _apply_cmd(fac, c)
+	var batch := _mp_queue.slice(0, 64)
+	_mp_queue = _mp_queue.slice(64)
+	if net != null: net.send({"t": "turn", "turn": _mp_turn + _mp_delay, "cmds": batch})
+
+
+func _mp_end_turn() -> void:
+	_mp_step_in_turn = 0
+	if _mp_turn > 0 and _mp_turn % 30 == 0 and net != null: net.send({"t": "hash", "turn": _mp_turn, "h": _mp_hash()})
+	_mp_turns.erase(_mp_turn)
+	_mp_turn += 1
+
+
+func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
+	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size())])
+	for h in hosts:
+		parts.append("%d,%d,%d,%d,%s" % [int(h.owner), roundi(float(h.bots) * 1000.0), int(h.assign), int(bool(h.live)), ",".join(PackedStringArray(h.builds))])
+	for fac in botnets:
+		parts.append("%d:%d:%d:%d:%d" % [fac, roundi(float(intel[fac]) * 1000.0), roundi(float(cash[fac]) * 1000.0), roundi(float(creds[fac]) * 1000.0), roundi(float(research[fac]) * 1000.0)])
+	return "|".join(parts).md5_text()
+
+
+# ---- the multiplayer menu: a lobby browser and the lobby itself ----
+func _mp_row() -> HBoxContainer:
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
+	menu_box.add_child(row)
+	return row
+
+
+func _mp_button(row: Control, txt: String, cb: Callable, on := false) -> Button:
+	var b := Button.new(); b.text = txt; b.custom_minimum_size = Vector2(0, 36); b.clip_text = true
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
+	if on: b.add_theme_color_override("font_color", C_GOOD)
+	b.pressed.connect(cb); row.add_child(b)
+	return b
+
+
+func _mp_field(row: Control, txt: String, hint: String, max_len: int) -> LineEdit:
+	var e := LineEdit.new(); e.text = txt; e.placeholder_text = hint; e.max_length = max_len
+	e.custom_minimum_size = Vector2(0, 34); e.size_flags_horizontal = Control.SIZE_EXPAND_FILL; _inset_focus(e)
+	row.add_child(e)
+	return e
+
+
+func _menu_mp() -> void:   # who you are, open lobbies, create one, join by code
+	_menu_title("Multiplayer")
+	var status := Label.new(); status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status.custom_minimum_size.x = menu_box.custom_minimum_size.x; status.add_theme_font_size_override("font_size", 13)
+	menu_box.add_child(status); _mp_ui = {"status": status}
+	_menu_label("Your name")
+	var nrow := _mp_row()
+	var name_edit := _mp_field(nrow, _mp_name_draft if _mp_name_draft != "" else net.player_name, "Player", 16)
+	name_edit.text_changed.connect(func(t): _mp_name_draft = t)
+	var save_name := func(_t = ""): net.rename(name_edit.text); _mp_name_draft = net.player_name
+	name_edit.text_submitted.connect(save_name); name_edit.focus_exited.connect(save_name)
+	_menu_label("Open lobbies")
+	var list := VBoxContainer.new(); list.add_theme_constant_override("separation", 4)
+	list.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 150)
+	menu_box.add_child(list); _mp_ui["list"] = list
+	var lrow := _mp_row()
+	_mp_button(lrow, "Refresh", func(): net.refresh())
+	_menu_label("Create a lobby")
+	var crow := _mp_row()
+	var go_public := func(): _mp_public = true; _refresh_menu()
+	var go_private := func(): _mp_public = false; _refresh_menu()
+	var create := func(): net.rename(name_edit.text); net.create(_mp_public, 3, "medium")
+	_mp_button(crow, "Public", go_public, _mp_public)
+	_mp_button(crow, "Private", go_private, not _mp_public)
+	_mp_button(crow, "Create lobby", create)
+	_menu_label("Join a private lobby by its code")
+	var jrow := _mp_row()
+	var code := _mp_field(jrow, _mp_code_draft, "CODE", 5)
+	code.text_changed.connect(func(t): _mp_code_draft = t)
+	var join := func(_t = ""): net.rename(name_edit.text); net.join_code(code.text)
+	code.text_submitted.connect(join)
+	_mp_button(jrow, "Join", join)
+	_menu_label("Server")
+	var srow := _mp_row()
+	var server := _mp_field(srow, net.url, NetScript.OFFICIAL_URL, 200)
+	var reconnect := func():
+		net.url = server.text.strip_edges() if server.text.strip_edges() != "" else NetScript.OFFICIAL_URL
+		net.save(); net.open()
+	_mp_button(srow, "Connect", reconnect)
+	_menu_gap(4)
+	_mbtn("← Back", func(): _menu_view = "main"; _refresh_menu())
+	_mp_fill_browser()
+
+
+func _mp_fill_browser() -> void:
+	if not _mp_ui.has("list") or not is_instance_valid(_mp_ui.list): return
+	var status: Label = _mp_ui.status
+	match net.status:
+		"online":
+			status.text = "Online as %s  ·  %s" % [net.player_name, net.url.trim_prefix("wss://").trim_prefix("ws://").trim_suffix("/ws")]
+			status.add_theme_color_override("font_color", C_GOOD)
+		"connecting":
+			status.text = "Connecting to %s …" % net.url
+			status.add_theme_color_override("font_color", C_DIM)
+		_:
+			status.text = "Offline" + (("  ·  " + net.error) if net.error != "" else "") + "  ·  press Connect to retry"
+			status.add_theme_color_override("font_color", C_BAD)
+	if net.online() and net.error != "":
+		status.text += "\n" + net.error
+		status.add_theme_color_override("font_color", C_WARN)
+	var list: VBoxContainer = _mp_ui.list
+	for c in list.get_children(): list.remove_child(c); c.queue_free()
+	if net.lobbies.is_empty():
+		var none := Label.new(); none.text = "No open lobbies yet — create one, or join a private one by its code." if net.online() else "—"
+		none.add_theme_color_override("font_color", C_DIM); none.add_theme_font_size_override("font_size", 13)
+		list.add_child(none)
+	for l in net.lobbies:
+		if not (l is Dictionary): continue
+		var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
+		var info := Label.new(); info.size_flags_horizontal = Control.SIZE_EXPAND_FILL; info.clip_text = true
+		info.text = "%s  ·  %d/%d  ·  %s" % [str(l.get("name", "lobby")), int(l.get("players", 0)), int(l.get("max", 3)), str(l.get("size", "medium")).capitalize()]
+		row.add_child(info)
+		var b := Button.new(); b.text = "Join"; b.custom_minimum_size = Vector2(90, 32)
+		b.disabled = int(l.get("players", 0)) >= int(l.get("max", 3))
+		b.pressed.connect(func(id = int(l.get("id", -1))): net.join_id(id))
+		row.add_child(b); list.add_child(row)
+
+
+func _menu_lobby() -> void:   # players + ready, the host's settings, chat, the countdown
+	var lob: Dictionary = net.lobby
+	_menu_title(str(lob.get("name", "Lobby")))
+	var sub := Label.new(); sub.add_theme_font_size_override("font_size", 13); sub.add_theme_color_override("font_color", C_DIM)
+	menu_box.add_child(sub)
+	var players := VBoxContainer.new(); players.add_theme_constant_override("separation", 4)
+	menu_box.add_child(players)
+	var host: bool = net.is_host()
+	_menu_label("Players · lobby" + ("" if host else "  ·  set by the host"))
+	var prow := _mp_row()
+	var max_b := []
+	for n in [2, 3]: max_b.append(_mp_button(prow, "%d players" % n, func(k = n): net.settings({"max": k})))
+	var vis_b := [_mp_button(prow, "Public", func(): net.settings({"public": true})), _mp_button(prow, "Private", func(): net.settings({"public": false}))]
+	_menu_label("Map size")
+	var mrow := _mp_row()
+	var size_b := []
+	for i in 3: size_b.append(_mp_button(mrow, ["Small", "Medium", "Big"][i], func(k = MP_SIZES[i]): net.settings({"size": k})))
+	var countdown := Label.new(); countdown.add_theme_font_size_override("font_size", 22); countdown.add_theme_color_override("font_color", C_WARN)
+	countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; countdown.custom_minimum_size.x = menu_box.custom_minimum_size.x
+	menu_box.add_child(countdown)
+	var brow := _mp_row()
+	var ready_b := _mp_button(brow, "Ready", func(): net.set_ready(not net.me_ready()))
+	_mp_button(brow, "Leave lobby", func(): net.leave())
+	_menu_label("Chat")
+	var chat_log := RichTextLabel.new(); chat_log.bbcode_enabled = true; chat_log.scroll_following = true
+	chat_log.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 104); chat_log.add_theme_font_size_override("normal_font_size", 13)
+	menu_box.add_child(chat_log)
+	var crow := _mp_row()
+	var say := _mp_field(crow, _mp_chat_draft, "Say something…", 200)
+	say.text_changed.connect(func(t): _mp_chat_draft = t)
+	var send := func(_t = ""):
+		net.say(say.text); say.text = ""; _mp_chat_draft = ""; say.grab_focus()
+	say.text_submitted.connect(send)
+	var send_b := _mp_button(crow, "Send", send)
+	send_b.custom_minimum_size.x = 90
+	_mp_ui = {"sub": sub, "players": players, "max": max_b, "size": size_b, "vis": vis_b, "countdown": countdown, "log": chat_log, "ready": ready_b, "chat_n": -1}
+	_mp_fill_lobby()
+
+
+func _mp_fill_lobby() -> void:
+	if not _mp_ui.has("players") or not is_instance_valid(_mp_ui.players): return
+	var lob: Dictionary = net.lobby
+	var host: bool = net.is_host()
+	(_mp_ui.sub as Label).text = "%s lobby  ·  code %s%s" % ["Public" if bool(lob.get("public", true)) else "Private", str(lob.get("code", "")), "" if bool(lob.get("public", true)) else "  ·  share it so friends can join"]
+	var box: VBoxContainer = _mp_ui.players
+	for c in box.get_children(): box.remove_child(c); c.queue_free()
+	var plist: Array = lob.get("players", [])
+	for k in plist.size():
+		var p: Variant = plist[k]
+		if not (p is Dictionary): continue
+		var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 8)
+		var swatch := ColorRect.new(); swatch.custom_minimum_size = Vector2(14, 14); swatch.color = fcol(k + 1)
+		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(swatch)
+		var who := Label.new(); who.size_flags_horizontal = Control.SIZE_EXPAND_FILL; who.clip_text = true
+		who.text = str(p.get("name", "Player")) + ("  (host)" if int(p.get("id", -1)) == int(lob.get("host", -2)) else "") + ("  · you" if int(p.get("id", -1)) == net.my_id else "")
+		row.add_child(who)
+		var rd := Label.new(); rd.text = "READY" if bool(p.get("ready", false)) else "not ready"
+		rd.add_theme_color_override("font_color", C_GOOD if bool(p.get("ready", false)) else C_DIM)
+		row.add_child(rd); box.add_child(row)
+	for k in range(plist.size(), int(lob.get("max", 3))):
+		var open_slot := Label.new(); open_slot.text = "      waiting for a player…"; open_slot.add_theme_color_override("font_color", C_DIM)
+		box.add_child(open_slot)
+	var mx := int(lob.get("max", 3))
+	for b in _mp_ui.max:
+		var n := 2 if b == _mp_ui.max[0] else 3
+		(b as Button).disabled = not host or n < plist.size()
+		(b as Button).add_theme_color_override("font_color", C_GOOD if n == mx else C_TEXT)
+	var size_now := str(lob.get("size", "medium"))
+	for i in 3:
+		var b: Button = _mp_ui.size[i]
+		b.disabled = not host
+		b.add_theme_color_override("font_color", C_GOOD if MP_SIZES[i] == size_now else C_TEXT)
+	for i in 2:
+		var b: Button = _mp_ui.vis[i]
+		b.disabled = not host
+		b.add_theme_color_override("font_color", C_GOOD if bool(lob.get("public", true)) == (i == 0) else C_TEXT)
+	(_mp_ui.ready as Button).text = "Not ready" if net.me_ready() else "Ready"
+	(_mp_ui.ready as Button).add_theme_color_override("font_color", C_WARN if net.me_ready() else C_GOOD)
+	if int(_mp_ui.chat_n) != net.chat.size() or net.chat.size() >= NetScript.CHAT_KEEP:
+		_mp_ui.chat_n = net.chat.size()
+		var chat_log: RichTextLabel = _mp_ui.log
+		chat_log.clear()
+		for line in net.chat:
+			if bool(line.system): chat_log.append_text("[color=#%s]%s[/color]\n" % [C_DIM.to_html(false), _bb(str(line.text))])
+			else: chat_log.append_text("[color=#%s]%s:[/color] %s\n" % [C_WARN.to_html(false), _bb(str(line.name)), _bb(str(line.text))])
+	_mp_tick_countdown()
+
+
+func _bb(t: String) -> String: return t.replace("[", "[lb]")   # chat is shown as written, never as markup
+
+
+func _mp_tick_countdown() -> void:   # the big "starting in 3…" line (also called every frame while the lobby is open)
+	if not _mp_ui.has("countdown") or not is_instance_valid(_mp_ui.countdown): return
+	var left: float = net.countdown_left()
+	var plist: Array = net.lobby.get("players", [])
+	var all_ready := plist.size() >= 2
+	for p in plist:
+		if p is Dictionary and not bool(p.get("ready", false)): all_ready = false
+	var txt := ""
+	if left > 0.0: txt = "Starting in %d…" % int(ceil(left))
+	elif plist.size() < 2: txt = "Waiting for at least one more player"
+	elif not all_ready: txt = "Everyone presses Ready to start"
+	(_mp_ui.countdown as Label).text = txt
 
 
 func _menu_main() -> void:
 	_menu_title("BOTNET")
 	_menu_gap(6)
 	if _t >= 0.01 and not won and not lost: _mbtn("Resume", func(): _open_menu(false))
-	_mbtn("New game", func(): _menu_view = "newgame"; _refresh_menu())
-	_mbtn("Tutorial", func(): _start_tutorial())
+	if _mp_on:
+		_mbtn("Leave match", _mp_leave)
+	else:
+		_mbtn("New game", func(): _menu_view = "newgame"; _refresh_menu())
+		_mbtn("Multiplayer", _mp_open)
+		_mbtn("Tutorial", func(): _start_tutorial())
 	_mbtn("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
 	_mbtn("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
 	_mbtn("Exit", func(): get_tree().quit())
@@ -3475,6 +3941,9 @@ func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips
 			var scale := _card_scale(str(cd.fam), target)
 			if reason == "" and scale <= 0: reason = "immune to this card family"
 			feedback_label.text = "%s · %s" % [str(hosts[target].name), reason if reason != "" else _effect_text(cd, target, scale)]
+	if _mp_on and _mp_wait > 1.0 and not won and not lost:   # the lockstep holds: someone's turn is late
+		feedback_label.visible = true
+		feedback_label.text = "Waiting for the other players… %d s" % int(_mp_wait)
 	_layout_feedback_label()
 
 
@@ -3537,10 +4006,12 @@ func _panel_result() -> void:
 	else: _plabel("DEFEATED", 20, C_BAD)
 	if _end_cause != "": _plabel(_end_cause, 14, C_TEXT)
 	var rivs := []
-	for fac in ais: rivs.append("%s %d" % [fname(fac), int(cash[fac])])
+	for fac in botnets:
+		if fac != PLAYER: rivs.append("%s %d" % [fname(fac), int(cash[fac])])
 	_plabel("Elapsed %s  ·  buildings %d/%d  ·  Crypto you %d · %s  ·  town #%d" % [_fmt_time(_t), _player_nodes(), hosts.size(), int(cash[PLAYER]), " · ".join(rivs), town_seed], 14, C_TEXT)
 	_btn("Tell us how it went", func(): _fb_status = ""; _open_menu(true); _menu_view = "feedback"; _refresh_menu())   # in-game feedback form
-	_btn("Restart in a new town", _reset)
+	if _mp_on: _btn("Leave match", _mp_leave)
+	else: _btn("Restart in a new town", _reset)
 
 
 func _type_line(i: int) -> String:   # "Database · 4 slots · Intel ×2"
@@ -3605,10 +4076,13 @@ func _panel_selecting() -> void:
 	if not connections.is_empty(): _connection_list(connections)
 
 
-func _disconnect_source(source: int) -> void:
-	if not _mine(source): return
+func _disconnect_source(source: int) -> void: _cmd(["unwire", source])
+
+
+func _do_unwire(fac: int, source: int) -> void:
+	if not _owns(fac, source): return
 	hosts[source].assign = -1; hosts[source].live = false; _next_depart.erase(source)
-	_refresh_panel(); queue_redraw()
+	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
 
 func _fixed_button_style(button: Button, red := false) -> void:
@@ -3901,13 +4375,26 @@ func _lk(a: int, b: int) -> String: return "%d_%d" % [mini(a, b), maxi(a, b)]
 # ---- fog of war: ONE rule for the player's screen and for every AI that plays fair (the Insane brain) ----
 # A faction sees its own hosts, every host one link away from them, and every rig. What it saw before is
 # remembered (_seen: last-known owner and time); the player's map draws those as dim outlines.
-func _visible_to(fac: int, i: int) -> bool:
+func _in_sight(fac: int, i: int) -> bool:   # real sight: fac's own buildings and every building one street away
 	if i < 0 or i >= hosts.size(): return false
 	var h: Dictionary = hosts[i]
-	if int(h.owner) == fac or bool(h.rig): return true
+	if int(h.owner) == fac: return true
 	for o in h.links:
 		if int(hosts[int(o)].owner) == fac: return true
 	return false
+
+
+func _visible_to(fac: int, i: int) -> bool:   # on fac's map: real sight, plus every rig — a landmark: the rig, nothing around it
+	return _in_sight(fac, i) or (i >= 0 and i < hosts.size() and bool(hosts[i].rig))
+
+
+func _sight_set(fac: int) -> Dictionary:   # every host in fac's real sight -> true (packets, wires and effects need it; rigs alone are not sight)
+	var out := {}
+	for i in hosts.size():
+		if int(hosts[i].owner) == fac:
+			out[i] = true
+			for o in hosts[i].links: out[int(o)] = true
+	return out
 
 
 func _visible_set(fac: int) -> Dictionary:   # every host fac can see right now -> true
@@ -3955,7 +4442,7 @@ func _flight_visible(fac: int, f: Dictionary) -> bool:   # a packet is seen wher
 	if int(f.owner) == fac: return true
 	if str(f.kind) == "scan": return false   # a quiet scan is only ever seen by its sender
 	var seg := _flight_segment(f, _t)
-	return _visible_to(fac, seg.x) or _visible_to(fac, seg.y)
+	return _in_sight(fac, seg.x) or _in_sight(fac, seg.y)   # a rig seen through fog shows nothing it sends
 
 
 func _wire_visible(i: int) -> bool:   # a foreign wire is public only while it flows and is not a quiet scan (a guard is never a scan)
@@ -3965,26 +4452,16 @@ func _wire_visible(i: int) -> bool:   # a foreign wire is public only while it f
 	return str(hosts[i].get("mode", "attack")) != "scan"
 
 
-func _street_traffic() -> Dictionary:   # _lk street -> packets on it right now, from the traffic you can see (one pass)
+func _street_traffic(sight: Dictionary) -> Dictionary:   # _lk street -> packets on it right now that you can see (one pass)
 	var out := {}
 	for fl in flights:
-		if str(fl.kind) == "scan" and int(fl.owner) != PLAYER: continue
+		if not _flight_seen(fl, sight): continue
 		var rt: Array = fl.route; var hops: Array = fl.hops
 		for k in hops.size():
 			if float(hops[k]) <= _t and _t < float(hops[k]) + LINK_TIME:
 				var key := _lk(int(rt[k]), int(rt[k + 1]))
 				out[key] = int(out.get(key, 0)) + 1
 	return out
-
-
-func _link_busy_visible(a: int, b: int) -> bool:   # a street at capacity, judged from the traffic you can see
-	var n := 0
-	for fl in flights:
-		if str(fl.kind) == "scan" and int(fl.owner) != PLAYER: continue
-		var rt: Array = fl.route; var hops: Array = fl.hops
-		for k in hops.size():
-			if float(hops[k]) <= _t and _t < float(hops[k]) + LINK_TIME and ((int(rt[k]) == a and int(rt[k + 1]) == b) or (int(rt[k]) == b and int(rt[k + 1]) == a)): n += 1
-	return n >= _link_cap(a, b)
 
 
 func _focus_route(rt: Array, flinks: Dictionary) -> void:
@@ -4031,7 +4508,7 @@ func _map_ctx() -> Dictionary:   # what the map layers share, worked out once pe
 	var aim := _aim_target()
 	var fnodes := {}; var flinks := {}
 	if aim >= 0: _build_focus(aim, fnodes, flinks)
-	_ctx = {"f": get_theme_default_font(), "vis": _visible_set(PLAYER), "seen": _seen.get(PLAYER, {}), "vt": _t + _sim_acc,   # fog of war: your hosts, their neighbours, every rig; + what you saw before
+	_ctx = {"f": get_theme_default_font(), "vis": _visible_set(PLAYER), "sight": _sight_set(PLAYER), "seen": _seen.get(PLAYER, {}), "vt": _t + minf(_sim_acc, SIM_DT),   # fog of war: your hosts, their neighbours, every rig; + what you saw before
 		"aim": aim, "focus_on": aim >= 0, "fnodes": fnodes, "flinks": flinks}   # vt: packets glide between the fixed simulation steps
 	return _ctx
 
@@ -4050,10 +4527,10 @@ func _paint(c: CanvasItem, part: String) -> void:   # one MapLayer; together, in
 
 
 func _paint_ground(cx: Dictionary) -> void:   # territories, streets, wires
-	var vis: Dictionary = cx.vis; var seen: Dictionary = cx.seen; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes; var flinks: Dictionary = cx.flinks
+	var vis: Dictionary = cx.vis; var sight: Dictionary = cx.sight; var seen: Dictionary = cx.seen; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes; var flinks: Dictionary = cx.flinks
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	_draw_territories(vis)
-	var traffic := _street_traffic()
+	var traffic := _street_traffic(sight)
 	for i in hosts.size():   # streets, tinted by the botnet holding both ends; amber when at capacity
 		for j in hosts[i].links:
 			if j < i: continue
@@ -4067,7 +4544,7 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, streets, wires
 			var lcol := Color(0.35, 0.5, 0.7, 0.18); var w := 1.0
 			if _highways.has(key): lcol = Color(0.55, 0.7, 0.85, 0.3); w = 2.2   # a highway across a gap
 			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.35; w = (2.4 if _highways.has(key) else 1.3)
-			if int(traffic.get(key, 0)) >= _link_cap(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8   # = _link_busy_visible
+			if int(traffic.get(key, 0)) >= _link_cap(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8   # at capacity, by the packets you can see
 			if focus_on and not flinks.has(key): lcol.a *= 0.6
 			_cv.draw_line(hosts[i].pos, hosts[int(j)].pos, lcol, w, true)
 	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent);
@@ -4080,9 +4557,9 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, streets, wires
 			continue
 		var dimmed: bool = focus_on and not (fnodes.has(i) and fnodes.has(a))
 		if not _mine(i) and not _wire_visible(i): continue   # others' quiet scans and dormant plans are invisible — to you and to them
-		if not _mine(i) and not vis.has(i): continue         # a foreign source in the fog: you see its packets arrive, not where it is
+		if not _mine(i) and not sight.has(i): continue       # a foreign source out of sight (fog, or a rig seen from afar): no wire
 		if bool(hosts[i].live) and not _mine(i):              # a foreign wire shows only along streets you can see
-			for run in _sighted_runs(_route(i, a), vis): _draw_route_line(run, i, a, dimmed, int(run.back()) == a)
+			for run in _sighted_runs(_route(i, a), sight): _draw_route_line(run, i, a, dimmed, int(run.back()) == a)
 		elif bool(hosts[i].live):
 			_draw_route_line(_route(i, a), i, a, dimmed)
 		else:
@@ -4095,10 +4572,10 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, streets, wires
 
 
 func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jumps (they pass UNDER the buildings)
-	var vis: Dictionary = cx.vis; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
+	var sight: Dictionary = cx.sight; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	for fl in flights:   # packets: yours = circle, other botnets = square in their colour, Cash = diamond
-		if not _flight_seen(fl, vis): continue
+		if not _flight_seen(fl, sight): continue
 		var pp := _packet_pos(fl, vt)
 		var endn := int((fl.route as Array)[(fl.route as Array).size() - 1])
 		var threat: bool = int(fl.owner) != PLAYER and _mine(endn)
@@ -4117,7 +4594,7 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 			for k in range(nxt, rt.size()): path.append(hosts[int(rt[k])].pos)
 			var theirs: bool = int(fl.owner) != PLAYER
 			for k in range(path.size() - 1):
-				if theirs and not (vis.has(int(rt[nxt + k])) and (k == 0 or vis.has(int(rt[nxt + k - 1])))): continue   # never through fog
+				if theirs and not (sight.has(int(rt[nxt + k])) and (k == 0 or sight.has(int(rt[nxt + k - 1])))): continue   # never through fog
 				var a2: Vector2 = path[k]; var b2: Vector2 = path[k + 1]
 				var ln := a2.distance_to(b2); var dir := (b2 - a2) / maxf(ln, 0.001); var d := 0.0
 				while d < ln:
@@ -4130,7 +4607,7 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 		elif int(fl.owner) == PLAYER: _cv.draw_circle(pp, 3.5, Color(0.5, 1, 0.7, ba))
 		else: _cv.draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(fc.r, fc.g, fc.b, ba).lightened(0.25), true)
 	for w in _worms:   # a worm's jumps: a bold trail, a pulse racing to the newly-infected building, a ring on it
-		if not (vis.has(int(w.a)) or vis.has(int(w.b))): continue
+		if not (sight.has(int(w.a)) or sight.has(int(w.b))): continue
 		var wa := clampf((float(w.until) - _t) / 4.0, 0.0, 1.0)
 		var wc: Color = w.col
 		var a_pos: Vector2 = hosts[int(w.a)].pos
@@ -4151,17 +4628,17 @@ func _paint_nodes(cx: Dictionary) -> void:   # the buildings: pictograms, frames
 
 
 func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focus rings, connect / drag / card-aim guides, box select
-	var f: Font = cx.f; var vis: Dictionary = cx.vis; var vt: float = cx.vt; var aim: int = cx.aim; var focus_on: bool = cx.focus_on
+	var f: Font = cx.f; var sight: Dictionary = cx.sight; var vt: float = cx.vt; var aim: int = cx.aim; var focus_on: bool = cx.focus_on
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	for fl in flights:   # card packets ride above everything: a glowing card shape in the family's colour
-		if str(fl.kind) != "card" or not _flight_seen(fl, vis): continue
+		if str(fl.kind) != "card" or not _flight_seen(fl, sight): continue
 		var pp2 := _packet_pos(fl, vt)
 		var cc2: Color = FAMILY_COL[str(CARDS[_card_of(str(fl.get("card", "phishworm:linked")))].fam)]
 		_cv.draw_circle(pp2, 11.0, Color(cc2.r, cc2.g, cc2.b, 0.25))
 		_cv.draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), cc2, true)
 		_cv.draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), Color(1, 1, 1, 0.95), false, 1.2)
 	for x in _fx:   # a card landed: an expanding frame in the caster's colour
-		if not vis.has(int(x.host)): continue
+		if not sight.has(int(x.host)): continue
 		var rem := clampf((float(x.until) - _t) / 3.0, 0.0, 1.0)
 		var xc: Color = x.col; xc.a = rem
 		_frame(hosts[int(x.host)].pos, _r(int(x.host)) + 10.0 + (1.0 - rem) * 14.0, xc, 1.5)
@@ -4169,7 +4646,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		var gold := Color(1, 0.85, 0.3, 0.95)
 		var red := Color(1, 0.35, 0.3, 0.95)
 		for i in hosts.size():
-			if i != aim and int(hosts[i].assign) == aim and (_mine(i) or (_wire_visible(i) and vis.has(i))):
+			if i != aim and int(hosts[i].assign) == aim and (_mine(i) or (_wire_visible(i) and sight.has(i))):
 				_node_frame(i, 11, gold if _mine(i) else red, 1.8)   # gold = yours, red = another botnet's
 		var aout := int(hosts[aim].assign)
 		if aout >= 0 and (_mine(aim) or _wire_visible(aim)): _node_frame(aout, 11, gold, 1.8)
@@ -4259,11 +4736,11 @@ func _draw_menu_bg(sz: Vector2) -> void:   # ported from the old title screen: g
 		draw_circle(Vector2(xx, yy), 2.5, c)
 
 
-func _flight_seen(fl: Dictionary, vis: Dictionary) -> bool:   # _flight_visible for the player, against this frame's sight set
+func _flight_seen(fl: Dictionary, sight: Dictionary) -> bool:   # _flight_visible for the player, against this frame's _sight_set
 	if int(fl.owner) == PLAYER: return true
 	if str(fl.kind) == "scan": return false
 	var seg := _flight_segment(fl, _t)
-	return vis.has(seg.x) or vis.has(seg.y)
+	return sight.has(seg.x) or sight.has(seg.y)
 
 
 func _draw_ghost(f: Font, i: int) -> void:   # a host you saw before but cannot see now: a dim outline — no owner, no bots
@@ -4282,8 +4759,9 @@ func _draw_ghost(f: Font, i: int) -> void:   # a host you saw before but cannot 
 # patches of one botnet melt into one rounded area, and where two botnets' patches meet the ground is split
 # halfway between their buildings. Shapes are worked out once per change of sight or ownership (_terr).
 const TERR_RADIUS := 0.6 * MAP_CELL   # world units a building's patch reaches
-const TERR_SIDES := 40                # circle resolution
+const TERR_SIDES := 32                # circle resolution
 const TERR_INSET := 4.0               # two botnets' borders never sit on the same line
+const TERR_SMOOTH := 0.5 * TERR_RADIUS   # how far waists between a botnet's patches are filled in (rounder blobs)
 
 
 func _draw_territories(vis: Dictionary) -> void:
@@ -4297,39 +4775,81 @@ func _draw_territories(vis: Dictionary) -> void:
 		_cv.draw_polyline(line[0], Color(col.r, col.g, col.b, 0.6 if int(line[1]) == PLAYER else 0.45), bw, true)
 
 
-func _territory_shapes(vis: Dictionary) -> Dictionary:   # {"fills": [[convex polygon, owner]], "lines": [[closed outline, owner]]}
+func _territory_shapes(vis: Dictionary) -> Dictionary:   # {"fills": [[polygon, owner]], "lines": [[closed outline, owner]]}
 	var sites := []; var key := []
 	for i in hosts.size():
 		var o := int(hosts[i].owner)
 		if o == NEUTRAL or not vis.has(i): continue
 		sites.append(i); key.append(i * 8 + o)
 	if _terr.get("key", null) == key: return _terr
-	var fills := []; var by_owner := {}
+	var patches := {}; var room := {}; var contested := {}   # owner -> polygons; owners with a rival in reach
 	for i in sites:
 		var o := int(hosts[i].owner)
 		var c: Vector2 = hosts[i].pos
-		var ring := PackedVector2Array()
-		for k in TERR_SIDES: ring.append(c + Vector2.from_angle(TAU * float(k) / float(TERR_SIDES)) * TERR_RADIUS)
-		var mine := [ring]   # the patch, cut back from every rival's building (halfway between them)
-		var piece := [ring]  # ... and from every other building too: these pieces tile without overlapping (the fill)
+		var mine := [_ring(c, TERR_RADIUS)]    # the patch, cut back halfway towards every rival building
+		var far := [_ring(c, TERR_RADIUS + TERR_SMOOTH)]   # what smoothing may claim: ground nearer to it than to any rival
 		for j in sites:
-			if j == i: continue
+			if int(hosts[j].owner) == o: continue
 			var cj: Vector2 = hosts[j].pos
-			if c.distance_to(cj) >= 2.0 * TERR_RADIUS: continue
+			var d := c.distance_to(cj)
+			if d >= 2.0 * (TERR_RADIUS + TERR_SMOOTH): continue
 			var side := _half_plane(c, cj)
-			piece = _clip_all(piece, side)
-			if int(hosts[j].owner) != o: mine = _clip_all(mine, side)
-		for p in piece: fills.append([p, o])
-		if not by_owner.has(o): by_owner[o] = []
-		by_owner[o].append_array(mine)
-	var lines := []
-	for o in by_owner:
-		var u := _union_outline(by_owner[o])
-		for outer in u[0]:
-			for inset in Geometry2D.offset_polygon(outer, -TERR_INSET, Geometry2D.JOIN_ROUND): lines.append([_closed(inset), o])
-		for hole in u[1]: lines.append([_closed(hole), o])
+			far = _clip_all(far, side); contested[o] = true
+			if d < 2.0 * TERR_RADIUS: mine = _clip_all(mine, side)
+		if not patches.has(o): patches[o] = []; room[o] = []
+		patches[o].append_array(mine); room[o].append_array(far)
+	var fills := []; var lines := []
+	for o in patches:
+		var area: Array = patches[o] if patches[o].size() == 1 else _smooth_area(patches[o], room[o] if contested.has(o) else [])
+		if area.is_empty():   # an area with a real hole in it: the plain round patches, cut into pieces that never overlap
+			for i in sites:
+				if int(hosts[i].owner) != o: continue
+				var piece := [_ring(hosts[i].pos, TERR_RADIUS)]
+				for j in sites:
+					if j != i and (hosts[i].pos as Vector2).distance_to(hosts[j].pos) < 2.0 * TERR_RADIUS: piece = _clip_all(piece, _half_plane(hosts[i].pos, hosts[j].pos))
+				for p in piece: fills.append([p, o])
+			var u := _union_outline(patches[o])
+			for outer in u[0]:
+				for inset in Geometry2D.offset_polygon(outer, -TERR_INSET, Geometry2D.JOIN_ROUND): lines.append([_closed(inset), o])
+			for hole in u[1]: lines.append([_closed(hole), o])
+			continue
+		for p in area:
+			fills.append([p, o])
+			for inset in Geometry2D.offset_polygon(p, -TERR_INSET, Geometry2D.JOIN_ROUND): lines.append([_closed(inset), o])
 	_terr = {"key": key, "fills": fills, "lines": lines}
 	return _terr
+
+
+func _smooth_area(patches: Array, room: Array) -> Array:   # the patches' union, waists and small gaps filled in, kept inside room; [] if a real hole stays
+	var u := _union_outline(patches)
+	for h in u[1]:   # a gap between patches closes when the area grows by TERR_SMOOTH; a bigger one is a real hole
+		var gap: PackedVector2Array = h if Geometry2D.is_polygon_clockwise(h) == Geometry2D.is_polygon_clockwise(u[0][0]) else _reversed(h)
+		if not Geometry2D.offset_polygon(gap, -TERR_SMOOTH, Geometry2D.JOIN_ROUND).is_empty(): return []
+	var grown := []
+	for o in u[0]: grown.append_array(Geometry2D.offset_polygon(o, TERR_SMOOTH, Geometry2D.JOIN_ROUND))
+	var g := _union_outline(grown)
+	if not g[1].is_empty(): return []
+	var out := []
+	for o in g[0]: out.append_array(Geometry2D.offset_polygon(o, -TERR_SMOOTH, Geometry2D.JOIN_ROUND))
+	if room.is_empty(): return out   # no rival in reach: nothing to keep it away from
+	var r := _union_outline(room)
+	if not r[1].is_empty(): return []
+	var kept := []
+	for shrunk in out:
+		for a in r[0]: kept.append_array(Geometry2D.intersect_polygons(shrunk, a))
+	return kept
+
+
+func _reversed(p: PackedVector2Array) -> PackedVector2Array:
+	var out := p.duplicate()
+	out.reverse()
+	return out
+
+
+func _ring(c: Vector2, radius: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for k in TERR_SIDES: out.append(c + Vector2.from_angle(TAU * float(k) / float(TERR_SIDES)) * radius)
+	return out
 
 
 func _half_plane(c: Vector2, other: Vector2) -> PackedVector2Array:   # a big quad: everything on c's side of the line halfway to other
@@ -4347,21 +4867,8 @@ func _clip_all(polys: Array, keep: PackedVector2Array) -> Array:
 
 
 func _union_outline(polys: Array) -> Array:   # [outer outlines, hole outlines] of the union of overlapping polygons
-	var outers := []; var holes := []
-	for p in polys:
-		var cur: PackedVector2Array = p
-		var rest := []
-		for o in outers:
-			var merged := Geometry2D.merge_polygons(o, cur)
-			var big := 0.0; var sign := 1.0   # holes wind against the outer boundary (the largest polygon)
-			for q in merged:
-				var a := _signed_area(q)
-				if absf(a) > big: big = absf(a); sign = signf(a)
-			var outs := []; var hs := []
-			for q in merged: (outs if signf(_signed_area(q)) == sign else hs).append(q)
-			if outs.size() == 1: cur = outs[0]; holes.append_array(hs)
-			else: rest.append(o)
-		rest.append(cur); outers = rest
+	var u := _union_halves(polys)
+	var holes: Array = u[1]
 	var left := []   # a later patch can fill part of an earlier hole
 	for h in holes:
 		var parts := [h]
@@ -4370,13 +4877,28 @@ func _union_outline(polys: Array) -> Array:   # [outer outlines, hole outlines] 
 			for x in parts: cut.append_array(Geometry2D.clip_polygons(x, p))
 			parts = cut
 		left.append_array(parts)
-	return [outers, left]
+	return [u[0], left]
 
 
-func _signed_area(p: PackedVector2Array) -> float:
-	var a := 0.0
-	for k in p.size(): a += p[k].cross(p[(k + 1) % p.size()])
-	return a * 0.5
+func _union_halves(polys: Array) -> Array:   # [outers, holes]: each half merged on its own first, so no outline is re-merged many times
+	if polys.size() <= 1: return [polys.duplicate(), []]
+	var a := _union_halves(polys.slice(0, polys.size() >> 1))
+	var b := _union_halves(polys.slice(polys.size() >> 1))
+	var outers: Array = a[0]; var holes: Array = a[1] + b[1]
+	for p in b[0]:
+		var cur: PackedVector2Array = p
+		var rest := []
+		for o in outers:
+			var merged := Geometry2D.merge_polygons(o, cur)
+			var most := -1; var cw := false   # holes wind against the outer boundary (the polygon with the most points)
+			for q in merged:
+				if q.size() > most: most = q.size(); cw = Geometry2D.is_polygon_clockwise(q)
+			var outs := []; var hs := []
+			for q in merged: (outs if Geometry2D.is_polygon_clockwise(q) == cw else hs).append(q)
+			if outs.size() == 1: cur = outs[0]; holes.append_array(hs)
+			else: rest.append(o)
+		rest.append(cur); outers = rest
+	return [outers, holes]
 
 
 func _closed(p: PackedVector2Array) -> PackedVector2Array:   # a polyline that returns to its start

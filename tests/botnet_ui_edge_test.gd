@@ -313,6 +313,15 @@ func _run() -> void:
 	var hidden := {"route": [far, far], "hops": [game._t - 0.1], "owner": game.RIVAL, "kind": "bot"}
 	var shown := {"route": [home, home], "hops": [game._t - 0.1], "owner": game.RIVAL, "kind": "bot"}
 	check(not game._flight_visible(game.PLAYER, hidden) and game._flight_visible(game.PLAYER, shown), "Rival packets are seen only where you have sight")
+	var landmark := -1; var out_of_sight := -1   # a rival rig you only see through fog: the rig, not what it sends
+	for r in game.rig.values():
+		if int(r) != home and not game._in_sight(game.PLAYER, int(r)): landmark = int(r); break
+	if landmark >= 0:
+		for x in game.hosts[landmark].links:
+			if not game._in_sight(game.PLAYER, int(x)): out_of_sight = int(x); break
+	check(landmark >= 0 and out_of_sight >= 0 and game._visible_to(game.PLAYER, landmark), "Fixture: a rival rig seen only through fog, with a neighbour out of sight")
+	var from_rig := {"route": [landmark, out_of_sight], "hops": [game._t - 0.1], "owner": int(game.hosts[landmark].owner), "kind": "bot"}
+	check(not game._flight_visible(game.PLAYER, from_rig) and not game._sight_set(game.PLAYER).has(landmark), "A rig seen through fog shows no packets it sends")
 	check(game._tut_rich("Click Intel harvester").contains(game.BUILD_KINDS.intel.col.to_html(false)) and game._tut_rich("Press Scan on TRAINING TARGET").count("[color=") == 2, "Tutorial keywords take their colour without nesting")
 	game._open_menu(true); game._menu_view = "feedback"; game._refresh_menu(); await settle()
 	var focus_style: StyleBox = game.fb_details.get_theme_stylebox("focus")

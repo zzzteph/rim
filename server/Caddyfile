@@ -1,0 +1,5 @@
+# Caddy gets and renews a Let's Encrypt certificate for this name on its own: the DNS record must point at the
+# VPS and ports 80 + 443 must be open. reverse_proxy passes WebSocket upgrades (/ws) through as they are.
+network.thenakedcat.games {
+	reverse_proxy lobby:8787
+}
