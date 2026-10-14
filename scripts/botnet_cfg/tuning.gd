@@ -17,12 +17,12 @@ const CRED_PER_BUILD := 0.5        # Credentials/s per active Credential harvest
 const RESEARCH_PER_BUILD := 0.5    # Research/s per active Research lab (× the type's research multiplier)
 const RES_CAP_BASE := 50.0         # Credentials and Research limits start here …
 const RES_CAP_PER_BUILD := 50.0    # … and each harvester / lab raises its own resource's limit by this
-const CASH_INTERVAL := 3.0         # seconds between Cash packets per active Darknet market
+const CASH_INTERVAL := 3.0         # seconds between Crypto packets per active Crypto miner
 
-# ── the win: two ways, no clock. (1) hold a true majority (> HOLD_FRACTION of ALL buildings) for HOLD_SECS
-# without a break → win. (2) be the last botnet with its rig. Losing a rig eliminates any faction.
-const HOLD_FRACTION := 0.5         # a true-majority win needs more than half of ALL buildings (16 of 31)
-const HOLD_SECS := 45.0            # seconds of continuous majority for the win
+# ── the win: two ways, no clock. (1) hold AT LEAST HOLD_FRACTION of ALL buildings for HOLD_SECS without a
+# break → win. (2) be the last botnet with its rig. Losing a rig eliminates any faction.
+const HOLD_FRACTION := 0.51        # at least 51 % of ALL buildings (rounded up: 16 of 31, 19 of 37)
+const HOLD_SECS := 51.0            # seconds of continuous hold for the win
 
 # ── the bot-flow dials ──
 # ── scanning: optional quiet scouting, separate from a blind attack. One pending scout per faction/target.

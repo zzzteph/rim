@@ -16,11 +16,11 @@ func check(ok: bool, description: String) -> void:
 		failures.append(description)
 		push_error(description)
 
-func fresh(map_size := Vector2i(6, 4)) -> void:
+func fresh(map_size := Vector2i(6, 4), enemy_count := 2) -> void:
 	if is_instance_valid(game): game.free()
 	game = load("res://scripts/botnet_proto.gd").new()
 	game.theme = load("res://assets/ui_theme.tres")
-	game._opt_seed = 7; game._opt_size = map_size
+	game._opt_seed = 7; game._opt_size = map_size; game._opt_enemies = enemy_count
 	viewport.add_child(game)
 	game.set_process(false); game.ai_enabled = false
 	game.set_anchors_preset(Control.PRESET_TOP_LEFT); game.size = Vector2(viewport.size)
@@ -38,7 +38,7 @@ func find_button(node: Node, name: String) -> Button:
 
 func scripted_nodes(node: Node, script: Script) -> Array:
 	var found := []
-	if node.get_script() == script: found.append(node)
+	if node.get_script() == script and (script != game.CardTile or node.visible): found.append(node)
 	for child in node.get_children(): found.append_array(scripted_nodes(child, script))
 	return found
 
@@ -95,7 +95,7 @@ func _run() -> void:
 	game._capture(fixture[1], game.PLAYER); game._refresh_panel(); await settle()
 	check(find_button(game.panel, "Disconnect_%d" % fixture[0]) != null, "Captured inspected target keeps connection management")
 
-	viewport.size = Vector2i(1920, 1080); fresh()
+	viewport.size = Vector2i(1920, 1080); fresh(); game._set_deck_open(true)
 	game.paused = true; await settle()
 	var tiles := scripted_nodes(game.hand_panel, game.CardTile)
 	var identity: int = tiles[0].get_instance_id()
@@ -107,7 +107,7 @@ func _run() -> void:
 	for tile in tiles:
 		if not game.hand_panel.get_global_rect().encloses(tile.get_global_rect()): cards_fit = false
 	check(cards_fit and tiles.size() == 4, "Four permanent cards fit after wide-to-small resize while paused")
-	check(game.hand_panel.size.x >= viewport.size.x - 60 and tiles[0].size.x >= 240 and tiles[0].size.y >= 240, "Live resize retains four large detailed cards across the bottom")
+	check(game.hand_panel.size.x == viewport.size.x - 48 and game.hand_panel.size.y == 264 and tiles[0].size.x >= 240 and tiles[0].size.y == 264, "Live resize retains the full-width 264px detailed-card dock")
 	game._left_click(game.rig[game.PLAYER], false); game._refresh_panel(); await settle()
 	check(game.panel.get_global_rect().end.y <= game.hand_panel.position.y - 10 and not game.panel.get_global_rect().intersects(game.hand_panel.get_global_rect()), "Resized sidebar stays above the full-width card dock")
 	game._card_research_click("phishworm:linked"); game._card_research_click("zeroday:linked"); await settle()
@@ -121,7 +121,7 @@ func _run() -> void:
 	check(cancel.get_instance_id() == cancel_identity, "Another card's completion preserves a pressed cancel control")
 	await mouse(cancel_point, false)
 	check(game.lab[game.PLAYER].queue.is_empty() and game._held(game.PLAYER, "phishworm:linked") == 1, "Cancel resolves by card identity after queue indices shift")
-	fresh(); await settle()
+	fresh(); game._set_deck_open(true); await settle()
 	var empty_tile: Control = scripted_nodes(game.hand_panel, game.CardTile)[0]
 	var empty_point := empty_tile.get_global_rect().get_center()
 	await mouse(empty_point, true)
@@ -131,7 +131,7 @@ func _run() -> void:
 	viewport.push_input(motion, true); await process_frame
 	await mouse(motion.position, false)
 	check(game.lab[game.PLAYER].queue.is_empty(), "Dragging an empty card off the tray does not queue research on release")
-	fresh(); source = game.rig[game.PLAYER]
+	fresh(); source = game.rig[game.PLAYER]; game._set_deck_open(true)   # pulled-up cards leave the sidebar short
 	game.hosts[source].slots = 5; game._set_builds(source, [])
 	game.intel[game.PLAYER] = 100
 	game._left_click(source, false); game._refresh_panel(); await settle()
@@ -164,6 +164,13 @@ func _run() -> void:
 		game._menu_view = menu; game._refresh_menu(); await settle()
 		check(game.menu_sc.get_global_rect().encloses(game.menu_box.get_global_rect()) and not game.menu_sc.get_v_scroll_bar().visible, "%s menu fits without scrolling with the bundled font" % menu)
 		check(viewport.get_visible_rect().encloses(game.menu_panel.get_global_rect()), "%s menu stays inside the viewport" % menu)
+	viewport.size = Vector2i(1280, 720)
+	for enemy_count in [1, 2, 3]:
+		fresh(Vector2i(8, 6), enemy_count); await settle()
+		check(game.panel.visible and game.panel.size.x == 280 and game.botnets.size() == enemy_count + 1, "Compact standings include every configured faction: %d enemies" % enemy_count)
+		check(game.panel_scroll.get_global_rect().encloses(game.panel_box.get_global_rect()) and not game.panel_scroll.get_v_scroll_bar().visible, "Every compact leaderboard row fits without scrolling: %d enemies" % enemy_count)
+		game._hold[game.PLAYER] = 10.0; game._refresh_panel(); await settle()
+		check("Holding 10" in game._panel_text() and game.panel_scroll.get_global_rect().encloses(game.panel_box.get_global_rect()), "Active hold progress remains readable without clipping any faction: %d enemies" % enemy_count)
 	for resolution in [Vector2i(1280, 720), Vector2i(1366, 768)]:
 		viewport.size = resolution
 		for map_size in [Vector2i(8, 6), Vector2i(10, 8)]:
@@ -172,17 +179,94 @@ func _run() -> void:
 			for index in game.hosts.size():
 				var point: Vector2 = game._w2s(game.hosts[index].pos)
 				var margin := maxf(22, game._r(index) * game._zoom + 5)
-				if point.y + margin > game.hand_panel.position.y - 12: glyphs_clear = false
-			check(game.hand_panel.visible and not game.panel.visible and glyphs_clear, "Fitted node glyphs stay above the permanent row: %s / %s" % [resolution, map_size])
+				if point.y + margin > game._deck_top() - 12: glyphs_clear = false
+			check(game.card_banks.visible and game.panel.visible and not game._panel_has_context() and game._panel_width() == 280 and glyphs_clear, "Fitted nodes stay above the deck beside compact standings: %s / %s" % [resolution, map_size])
+			var leaderboard_clear := true
+			for index in game.hosts.size():
+				if game._w2s(game.hosts[index].pos).x + maxf(22, game._r(index) * game._zoom + 5) > game.panel.position.x - 12: leaderboard_clear = false
+			check(leaderboard_clear, "Fitted node glyphs stay left of the automatic leaderboard: %s / %s" % [resolution, map_size])
 			game._open_menu(true); game._reset(); game._open_menu(false); await settle()
 			var restart_clear := true
 			for index in game.hosts.size():
-				if game._w2s(game.hosts[index].pos).y + maxf(22, game._r(index) * game._zoom + 5) > game.hand_panel.position.y - 12: restart_clear = false
+				if game._w2s(game.hosts[index].pos).y + maxf(22, game._r(index) * game._zoom + 5) > game._deck_top() - 12: restart_clear = false
 			check(restart_clear, "Starting from the menu fits the town above the row: %s / %s" % [resolution, map_size])
 		fresh(); game._left_click(game.rig[game.PLAYER], false); game._refresh_panel()
-		for message in ["Connected 1 building to TRAINING TARGET (dormant - press SCAN or ATTACK on its panel). Travelling packets still arrive.", "Phishing campaign hit the server: remove 10% of defenders and steal every resource output for 30 seconds, spreading to the database for 20 seconds and ERP for 10 seconds."]:
+		var dock_before: Rect2 = game.card_banks.get_global_rect()
+		check(game._panel_has_context() and game.panel.size.x == 620, "Node context replaces compact standings with the full sidebar")
+		var board_key := InputEventKey.new(); board_key.keycode = KEY_L; board_key.pressed = true
+		game._input(board_key); await settle()
+		check(game._panel_has_context() and game.card_banks.get_global_rect() == dock_before, "Removed L shortcut preserves node details and deck geometry")
+		game._clear_all(); game._refresh_panel(); await settle()
+		check(not game._panel_has_context() and game.panel.size.x == 280 and game.card_banks.get_global_rect() == dock_before, "Clearing context restores compact standings without moving the deck")
+		game._left_click(game.rig[game.PLAYER], false); game._refresh_panel(); await settle()
+		var blank_map_point: Vector2 = game._map_rect().position + Vector2(10, 10)
+		await mouse(blank_map_point, true); await mouse(blank_map_point, false); await settle()
+		check(not game._panel_has_context() and game.panel.size.x == 280, "Clicking empty map restores the automatic leaderboard")
+		game._left_click(game.rig[game.PLAYER], false); game._refresh_panel(); await settle()
+		var escape := InputEventKey.new(); escape.keycode = KEY_ESCAPE; escape.pressed = true
+		game._input(escape); await settle()
+		check(not game._panel_has_context() and not game.menu_open, "Escape clears node details to the automatic leaderboard")
+		game._input(escape); await settle()
+		check(game.menu_open and not game.panel.visible, "Escape from compact standings opens the main menu")
+		game._input(escape); await settle()
+		check(not game.menu_open and game.panel.visible and not game._panel_has_context(), "Closing the menu restores compact standings")
+		game._left_click(game.rig[game.PLAYER], false); game._refresh_panel()
+		for message in ["Connected 1 building to TRAINING TARGET (dormant - press SCAN or ATTACK on its panel). Travelling packets still arrive.", "Phishing campaign hit the server: steal every resource output for 30 seconds, spreading to the database for 20 seconds and ERP for 10 seconds."]:
 			game._flash(message); game._update_chrome(); await settle()
-			check(game.feedback_label.visible and game.feedback_label.get_global_rect().end.y <= game.hand_panel.position.y - 10, "Wrapped connection/card toast ends above the permanent row: %s" % resolution)
+			check(game.feedback_label.visible and game.feedback_label.get_global_rect().end.y <= game._deck_top() - 10, "Wrapped connection/card toast ends above the deck: %s" % resolution)
 			check(not game.feedback_label.get_global_rect().intersects(game.panel.get_global_rect()), "Wrapped toast stays inside the map's available width: %s" % resolution)
+
+	# the pull-out deck: pushed down by default; red ATTACK / blue DEFENCE tabs, eight mini cards, a handle and C
+	for resolution in [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1920, 1080)]:
+		viewport.size = resolution; fresh(); await settle()
+		check(not game._deck_open and not game.hand_panel.visible and game.card_banks.visible and game.deck_chips.visible and game.deck_handle.visible, "Deck starts pushed down to one strip: %s" % resolution)
+		check(game.card_banks.get_child(0).text.begins_with("ATTACK") and game.card_banks.get_child(1).text.begins_with("DEFENCE"), "Deck tabs are named ATTACK and DEFENCE")
+		var attack_edge: Color = game.card_banks.get_child(0).get_theme_stylebox("normal").border_color
+		var defence_edge: Color = game.card_banks.get_child(1).get_theme_stylebox("normal").border_color
+		check(attack_edge.r > attack_edge.b + 0.3 and defence_edge.b > defence_edge.r + 0.3, "ATTACK is red and DEFENCE is blue")
+		var chips := scripted_nodes(game.deck_chips, game.DeckChip)
+		var strip := Rect2(Vector2(24, game._deck_top()), Vector2(resolution.x - 48, game.DECK_BAR_HEIGHT)).grow(1)
+		var strip_fits := chips.size() == 8 and strip.encloses(game.deck_handle.get_global_rect()) and strip.encloses(game.card_banks.get_global_rect())
+		for chip in chips:
+			var r: Rect2 = chip.get_global_rect()
+			if not strip.encloses(r) or r.intersects(game.card_banks.get_global_rect()) or r.intersects(game.deck_handle.get_global_rect()) or r.size.x < 84: strip_fits = false
+		check(strip_fits, "Tabs, eight readable mini cards and the handle share one strip without overlap: %s" % resolution)
+		var closed_map: Rect2 = game._map_rect()
+		var defence_tab: Rect2 = game.card_banks.get_child(1).get_global_rect()
+		await mouse(defence_tab.get_center(), true); await mouse(defence_tab.get_center(), false); await settle()
+		check(game._deck_open and game._card_bank == "defense" and game.hand_panel.visible and not game.deck_chips.visible, "A closed DEFENCE tab pulls the deck up on its cards: %s" % resolution)
+		check(closed_map.size.y - game._map_rect().size.y >= game.CARD_DOCK_HEIGHT, "Pushed down, the map gains the whole card height: %s" % resolution)
+		check(game.card_banks.get_global_rect().end.y < game.hand_panel.position.y and game.panel.get_global_rect().end.y <= game._deck_top() - 10, "Pulled up, tabs sit above the cards and the sidebar above both: %s" % resolution)
+		game.card_banks.get_child(0).pressed.emit(); await settle()
+		check(game._deck_open and game._card_bank == "attack", "The other tab switches banks without closing the deck")
+		game.card_banks.get_child(0).pressed.emit(); await settle()
+		check(not game._deck_open and not game.hand_panel.visible, "The open tab pushes the deck back down")
+		game.deck_handle.pressed.emit(); await settle()
+		check(game._deck_open and game._card_bank == "attack", "The handle pulls the deck up on the last tab")
+		var c_key := InputEventKey.new(); c_key.keycode = KEY_C; c_key.pressed = true
+		game._input(c_key); await settle()
+		check(not game._deck_open and game._map_rect() == closed_map, "C pushes the deck down and gives the map its full height back")
+	viewport.size = Vector2i(1280, 720); fresh(); await settle()
+	var phishing_chip: Control = scripted_nodes(game.deck_chips, game.DeckChip)[0]
+	var chip_point := phishing_chip.get_global_rect().get_center()
+	await mouse(chip_point, true); await mouse(chip_point, false)
+	check(game.lab[game.PLAYER].queue == ["phishworm:linked"] and not game._deck_open, "Clicking a mini card queues its research without pulling the deck up")
+	game.cards[game.PLAYER]["phishworm:linked"] = 1
+	var enemy := -1
+	for n in game.hosts[game.rig[game.PLAYER]].links:
+		if int(game.hosts[n].owner) != game.PLAYER: enemy = n; break
+	await mouse(chip_point, true)
+	var pull := InputEventMouseMotion.new(); pull.position = chip_point + Vector2(0, -30); pull.global_position = pull.position
+	pull.relative = Vector2(0, -30); pull.button_mask = MOUSE_BUTTON_MASK_LEFT
+	viewport.push_input(pull, true); await process_frame
+	check(viewport.gui_is_dragging(), "A held copy drags straight from its mini card")
+	await mouse(game._w2s(game.hosts[enemy].pos), false); await settle()
+	check(game._held(game.PLAYER, "phishworm:linked") == 0 and not game._deck_open, "Dropping a mini card on an enemy plays it; the deck stays down")
+	game.cash[game.PLAYER] = 1000; game.creds[game.PLAYER] = 1000; game.research[game.PLAYER] = 1000
+	game.lab[game.PLAYER].queue.clear(); game.lab[game.PLAYER].items.clear()
+	game._card_research_click("cdn:linked"); game._tick_research(60)
+	check(game._held(game.PLAYER, "cdn:linked") == 1 and int(game._bank_alert.get("defense", 0)) > Time.get_ticks_msec(), "A finished DEFENCE card makes its tab blink")
+	game._bank_pressed("defense"); await settle()
+	check(not game._bank_alert.has("defense") and game._deck_open, "Opening the blinking tab clears the alert")
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	quit(0 if failures.is_empty() else 1)

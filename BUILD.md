@@ -17,6 +17,10 @@ to be handed to another developer or LLM so they can build, run, and ship the ga
   cards, and all balance numbers. The main script reads them through aliases and never hard-codes
   values. **These are `const`s read at load time: after editing a cfg, restart the scene.**
 - **Data:** `data/*.json` is bundled into exports (see the `include_filter` in `export_presets.cfg`).
+- **Version:** `X.Y.Z`, kept identical in `GAME_VERSION` (`scripts/botnet_proto.gd`, sent with
+  feedback) and `config/version` (`project.godot`). **Every update bumps it:** Z+1; when Z
+  would reach 10 it wraps to 0 and Y+1; when Y would reach 10 it wraps to 0 and X+1
+  (0.1.9 → 0.2.0, 0.9.9 → 1.0.0).
 - **Fonts:** The interface bundles JetBrains Mono Regular/Bold with Noto Sans Symbols for
   circled digits and the queue pause mark. No installed system fonts are required. Source
   versions and hashes are recorded in `assets/fonts/README.md`; both SIL Open Font License
@@ -81,19 +85,53 @@ godot --headless --path . --script tests/botnet_usability_test.gd
 godot --headless --path . --script tests/botnet_ui_edge_test.gd
 godot --headless --path . --script tests/card_balance_probe.gd
 godot --headless --path . --script tests/four_card_effect_test.gd
+godot --headless --path . --script tests/production_cost_test.gd
 godot --headless --path . --script tests/ai_card_smoke_test.gd
+godot --headless --path . --script tests/botnet_help_test.gd
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
 To capture the usability suite's rendered fixtures, omit `--headless` and append
 `-- --capture`; results and screenshots are written to `review/implemented_ui/`.
 These checks cover scripted behavior and layout; human usability testing is still pending.
 
-Four detailed cards fill a dock across the bottom of the game. Effects, research
-cost/time, held copies, state and progress stay visible on the cards. Click to
-research, click a queued card to pause/resume, use its `x` to cancel, and drag a
-held copy onto a reachable foreign node to play it. The map and sidebar stay
-above the dock; scroll inside a long sidebar to reach its remaining controls.
-Hover highlights the card border.
+The card deck is a pull-out drawer at the bottom. Pushed down (the default) it is one
+40px strip: a red ATTACK tab, a blue DEFENCE tab, eight mini cards (all cards, both
+banks) and a handle. Click a mini card to research / pause it; drag a held copy straight
+onto the map to play it. A closed tab, the handle or `C` pulls the deck up to the four
+detailed cards of that tab (effects, cost/time, held copies, progress, `x` to cancel);
+the open tab, the handle or `C` pushes it down again, the other tab switches banks.
+Pulled up, the deck covers the bottom of the map instead of moving it. Dragging a big
+card pushes the deck down for the drag and brings it back after the drop. A tab blinks
+for 3 seconds when one of its cards finishes research. Eight cards share one research
+queue. Drag a held ATTACK card onto a reachable foreign host, a DEFENCE card onto one
+of your own hosts (including your rig). The sidebar always ends above the deck; scroll
+inside a long sidebar to reach its remaining controls.
+
+The idle right sidebar shows compact standings automatically; selecting a node replaces
+it with node controls. Research and Board buttons/menus are removed. Help uses six
+illustrated pages with examples.
+
+Production costs are 1:1: Intel -> Credentials, Intel -> Crypto, Crypto -> Research.
+Inputs belong to the host owner; funded output goes to the Phishing caster during theft.
+Unfunded or capped producers consume nothing. Click an installed market, credential
+harvester or lab to pause/resume; capacity remains installed. Attacks and construction
+take priority over conversion spending; card research spends before labs.
+
+Phishing steals output for 30/20/10 seconds across three foreign hosts. DDOS stops all
+production and routing for 30/20/10/5/2 seconds across five foreign hosts. 0day captures
+instantly with 75% probability, but only a host you have a connection into (a dormant
+wire is enough); failure changes nothing. Supply chain removes buildings, jobs and
+defenders while retaining ownership. A rig whose routing is cut can still play DEFENCE
+cards on itself (CDN clears its DDOS) but cannot send cards anywhere else.
+
+Each DEFENCE card spreads through up to five successive owned hosts and costs twice
+its matching ATTACK card in each resource (research times unchanged): CDN/DDOS, Patch day/0day,
+Incident response/Phishing, SCA/Supply chain. Card art lives in `assets/cards/schematic/`
+(the four DEFENCE shields are flat pictograms in the same style as the attack art).
+CDN clears DDOS (production and routing) on an affected host;
+otherwise it doubles production for 10 seconds, still paying 1:1 inputs. Patch day blocks
+0day and Supply chain for 30 seconds; Incident response clears Phishing without immunity;
+SCA blocks Supply chain for 60 seconds. Boosts refresh rather than stacking above x2.
 
 To run a one-off test or render, add a tiny scene whose script instantiates the game and inspects
 it, e.g.:

@@ -1,6 +1,6 @@
 extends SceneTree
 ## Run: godot --headless --path . --script tests/ai_card_smoke_test.gd
-## Exercises AI research, casting and economy with the four-card catalogue.
+## Exercises AI research, attack/protection casting and paid production.
 
 var checks := 0
 var failures: Array = []
@@ -29,9 +29,12 @@ func _run() -> void:
 			for card in game.CARD_ORDER: game.cards[faction][game._card_key(card, "linked")] = 1
 		var stocks_valid := true
 		var queues_valid := true
+		var defensive_cast := false
 		for frame in 5400:
 			if game.won or game.lost: break
 			game._process(1.0 / 30.0)
+			for host in game.hosts:
+				if game.ais.has(int(host.owner)) and float(host.get("patch_until", 0.0)) > game._t: defensive_cast = true
 			for faction in game.botnets:
 				if float(game.intel[faction]) < -0.00001 or float(game.cash[faction]) < -0.00001 or float(game.creds[faction]) < -0.00001 or float(game.research[faction]) < -0.00001: stocks_valid = false
 				for key in game.lab[faction].queue:
@@ -40,8 +43,9 @@ func _run() -> void:
 		for faction in game.ais: plays += int(game.card_plays.get(faction, 0))
 		check(game._t > 10.0, "AI match advances with seed %d" % scenario.seed)
 		check(stocks_valid, "AI card research keeps resource stocks nonnegative: seed %d" % scenario.seed)
-		check(queues_valid, "AI research uses only the four retained cards: seed %d" % scenario.seed)
+		check(queues_valid, "AI research uses the current eight-card catalogue: seed %d" % scenario.seed)
 		check(plays > 0, "AI can cast retained cards: seed %d" % scenario.seed)
+		check(defensive_cast, "AI applies protection to its own network: seed %d" % scenario.seed)
 		scenarios.append({"seed": scenario.seed, "map": str(scenario.size), "enemies": scenario.enemies, "simulated_seconds": game._t, "ai_card_plays": plays, "won": game.won, "lost": game.lost})
 		game.free()
 	var report := {"checks": checks, "failures": failures, "scenarios": scenarios, "scope": "Deterministic AI integration smoke, not a difficulty or pacing verdict"}
