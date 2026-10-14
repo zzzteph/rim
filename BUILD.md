@@ -17,6 +17,10 @@ to be handed to another developer or LLM so they can build, run, and ship the ga
   cards, and all balance numbers. The main script reads them through aliases and never hard-codes
   values. **These are `const`s read at load time: after editing a cfg, restart the scene.**
 - **Data:** `data/*.json` is bundled into exports (see the `include_filter` in `export_presets.cfg`).
+- **Fonts:** The interface bundles JetBrains Mono Regular/Bold with Noto Sans Symbols for
+  circled digits and the queue pause mark. No installed system fonts are required. Source
+  versions and hashes are recorded in `assets/fonts/README.md`; both SIL Open Font License
+  files in that directory are included in the Windows and Web exports.
 
 ### Repo layout
 ```
@@ -76,11 +80,20 @@ Run the automated mechanics, pointer-input, and layout checks before exporting:
 godot --headless --path . --script tests/botnet_usability_test.gd
 godot --headless --path . --script tests/botnet_ui_edge_test.gd
 godot --headless --path . --script tests/card_balance_probe.gd
+godot --headless --path . --script tests/four_card_effect_test.gd
+godot --headless --path . --script tests/ai_card_smoke_test.gd
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
 To capture the usability suite's rendered fixtures, omit `--headless` and append
 `-- --capture`; results and screenshots are written to `review/implemented_ui/`.
 These checks cover scripted behavior and layout; human usability testing is still pending.
+
+Four detailed cards fill a dock across the bottom of the game. Effects, research
+cost/time, held copies, state and progress stay visible on the cards. Click to
+research, click a queued card to pause/resume, use its `x` to cancel, and drag a
+held copy onto a reachable foreign node to play it. The map and sidebar stay
+above the dock; scroll inside a long sidebar to reach its remaining controls.
+Hover highlights the card border.
 
 To run a one-off test or render, add a tiny scene whose script instantiates the game and inspects
 it, e.g.:

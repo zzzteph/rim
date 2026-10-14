@@ -1,17 +1,16 @@
-[gd_resource type="Theme" load_steps=9 format=3 uid="uid://b8theme0rim001"]
+[gd_resource type="Theme" load_steps=12 format=3 uid="uid://b8theme0rim001"]
 
-[sub_resource type="SystemFont" id="font_ui"]
-font_names = PackedStringArray("Segoe UI", "Noto Sans", "DejaVu Sans", "Arial")
-antialiasing = 1
-hinting = 1
-subpixel_positioning = 1
+[ext_resource type="FontFile" path="res://assets/fonts/JetBrainsMono-Regular.ttf" id="1_regular"]
+[ext_resource type="FontFile" path="res://assets/fonts/JetBrainsMono-Bold.ttf" id="2_bold"]
+[ext_resource type="FontFile" path="res://assets/fonts/NotoSansSymbols-Regular.ttf" id="3_symbols"]
 
-[sub_resource type="SystemFont" id="font_bold"]
-font_names = PackedStringArray("Segoe UI", "Noto Sans", "DejaVu Sans", "Arial")
-font_weight = 700
-antialiasing = 1
-hinting = 1
-subpixel_positioning = 1
+[sub_resource type="FontVariation" id="font_ui"]
+base_font = ExtResource("1_regular")
+fallbacks = Array[Font]([ExtResource("3_symbols")])
+
+[sub_resource type="FontVariation" id="font_bold"]
+base_font = ExtResource("2_bold")
+fallbacks = Array[Font]([ExtResource("3_symbols")])
 
 [sub_resource type="StyleBoxFlat" id="panel"]
 content_margin_left = 14.0

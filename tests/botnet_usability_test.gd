@@ -49,12 +49,21 @@ func find_button(node: Node, term: String) -> Button:
 func scripted_nodes(node: Node, script: Script) -> Array:
 	var found := []
 	if node.get_script() == script: found.append(node)
-	for child in node.get_children(): found.append_array(scripted_nodes(child, script))
+	for child in node.get_children(true): found.append_array(scripted_nodes(child, script))
 	return found
 
 func panel_fits(description: String) -> void:
-	check(game.panel.get_global_rect().encloses(game.panel_box.get_global_rect()), description)
-	check(not game.panel_scroll.get_v_scroll_bar().visible, "Sidebar has no vertical scrollbar")
+	var visible_area: Rect2 = game.panel_scroll.get_global_rect()
+	var content: Rect2 = game.panel_box.get_global_rect()
+	check(content.position.x >= visible_area.position.x and content.end.x <= visible_area.end.x + 1, description)
+	check(game.panel.get_global_rect().encloses(visible_area) and game.panel.get_global_rect().end.y <= game.hand_panel.position.y - 10, "Sidebar stays above the permanent card dock")
+	check(content.size.y <= visible_area.size.y + 1 or game.panel_scroll.get_v_scroll_bar().visible, "Overflowing sidebar content remains reachable by vertical scrolling")
+
+func visible_controls(node: Node) -> Array:
+	var visible := []
+	for child in node.get_children():
+		if child is Control and child.visible: visible.append(child.get_instance_id())
+	return visible
 
 func has_tooltips(node: Node) -> bool:
 	if node is Control and not node.tooltip_text.is_empty(): return true
@@ -115,7 +124,7 @@ func _run() -> void:
 	check(game.hosts[second].live, "New source autojoins an existing attack")
 	game.intel[game.PLAYER] = 0.0
 	await shot("01_attack_waiting_for_intel")
-	panel_fits("Blocked operation fits without scrolling")
+	panel_fits("Blocked operation stays inside the sidebar width")
 	check("Waiting for Intel" in game._panel_text(), "Persistent Intel blocker names its recovery action")
 	var stop := find_button(game.panel, "Stop")
 	var stop_id := stop.get_instance_id() if stop != null else -1
@@ -144,7 +153,7 @@ func _run() -> void:
 	check(is_zero_approx(float(game.intel[game.PLAYER])), "Job funding has exact resource accounting")
 	game.sel = {source:true}
 	await shot("02_funded_construction")
-	panel_fits("Construction slots and palette fit without scrolling")
+	panel_fits("Construction slots and palette stay inside the sidebar width")
 	var slots := scripted_nodes(game.panel, game.SlotBox)
 	var palette := scripted_nodes(game.panel, game.BuildCard)
 	check(slots[0].size.x == palette[0].size.x, "Slots and building cards have equal width")
@@ -213,25 +222,25 @@ func _run() -> void:
 	fresh(); var enemy_rig: int = game.rig[game.RIVAL]
 	game._capture(enemy_rig, game.PLAYER)
 	check(game._eliminated.has(game.RIVAL) and game._faction_nodes(game.RIVAL) == 0, "Rivals also lose when their rig falls")
-	game.cards[game.RIVAL]["phish:linked"] = 1
-	check(game._can_play(game.RIVAL, "phish:linked", game.rig[game.PLAYER]) != "", "Eliminated rivals cannot cast from a captured rig")
-	check(not "150" in game._effect_text(game.CARDS.stuff, enemy_rig, 1.5), "Defender removal preview caps at 100 percent")
+	game.cards[game.RIVAL]["phishworm:linked"] = 1
+	check(game._can_play(game.RIVAL, "phishworm:linked", game.rig[game.PLAYER]) != "", "Eliminated rivals cannot cast from a captured rig")
+	check("75" in game._effect_text(game.CARDS.zeroday, enemy_rig, 1.5), "0day preview uses its exact defender-removal effect")
 	fresh(); source = game.rig[game.PLAYER]; target = neighbor(source)
-	game.cards[game.PLAYER]["phish:linked"] = 1
+	game.cards[game.PLAYER]["phishworm:linked"] = 1
 	game.hosts[source].route_off = 25
-	check(game._can_play(game.PLAYER, "phish:linked", target) != "", "A routing-disabled rig cannot launch a card")
-	check(not game._play_card(game.PLAYER, "phish:linked", target) and game._held(game.PLAYER, "phish:linked") == 1 and game.flights.is_empty(), "Blocked card launch preserves the held card without creating a packet")
+	check(game._can_play(game.PLAYER, "phishworm:linked", target) != "", "A routing-disabled rig cannot launch a card")
+	check(not game._play_card(game.PLAYER, "phishworm:linked", target) and game._held(game.PLAYER, "phishworm:linked") == 1 and game.flights.is_empty(), "Blocked card launch preserves the held card without creating a packet")
 	game.hosts[source].route_off = 0
-	check(game._play_card(game.PLAYER, "phish:linked", target), "Card launch resumes when rig routing recovers")
+	check(game._play_card(game.PLAYER, "phishworm:linked", target), "Card launch resumes when rig routing recovers")
 	fresh(); source = game.rig[game.PLAYER]
 	game.hosts[source].slots = 5; game.hosts[source].type = "erp"; game.hosts[source].bots = 30
 	game._set_builds(source, ["cash", "cred", "lab", "intel", "intel"])
 	var production_before := Vector4(game._cash_rate(game.PLAYER), game._cred_rate(game.PLAYER), game._research_rate(game.PLAYER), game._intel_rate(game.PLAYER))
-	game._apply_effect(game.RIVAL, game.CARDS.supply, source)
-	check(game._benef(source) == game.RIVAL, "Supplychain diverts production while its caster is active")
+	game._apply_effect(game.RIVAL, game.CARDS.phishworm, source)
+	check(game._benef(source) == game.RIVAL, "Phishing campaign diverts production while its caster is active")
 	game._capture(game.rig[game.RIVAL], game.PLAYER)
 	var production_restored := Vector4(game._cash_rate(game.PLAYER), game._cred_rate(game.PLAYER), game._research_rate(game.PLAYER), game._intel_rate(game.PLAYER))
-	check(not game.won and not game.lost and game._benef(source) == game.PLAYER and production_restored.is_equal_approx(production_before), "Eliminating a Supplychain caster restores all victim production during the match")
+	check(not game.won and not game.lost and game._benef(source) == game.PLAYER and production_restored.is_equal_approx(production_before), "Eliminating a Phishing campaign caster restores all victim production during the match")
 	var eliminated_cash: float = game.cash[game.RIVAL]
 	advance(1)
 	check(is_equal_approx(float(game.cash[game.RIVAL]), eliminated_cash), "An eliminated faction receives no further stolen Cash")
@@ -241,13 +250,19 @@ func _run() -> void:
 		for map_size in game.SIZE_PRESETS:
 			fresh(map_size)
 			game._left_click(game.rig[game.RIVAL], false)
-			for card in game.CARD_ORDER: game.cards[game.PLAYER][game._card_key(card, "linked")] = 1
-			game._refresh_hand()
 			await shot("layout_%dx%d_map_%dx%d" % [resolution.x, resolution.y, map_size.x, map_size.y])
 			check(game._map_rect().grow(-20).has_point(game._w2s(game.hosts[game._inspect].pos)), "Selected target stays visible: %s / %s" % [resolution, map_size])
-			check(not game.panel.get_global_rect().intersects(game.feedback_label.get_global_rect()) and not game.panel.get_global_rect().intersects(game.hand_panel.get_global_rect()), "Panel, feedback and hand do not overlap: %s" % resolution)
-			check(not game.hand_scroll.get_h_scroll_bar().visible, "All eight held cards fit without horizontal scrolling")
-			panel_fits("Foreign building panel fits at each map size")
+			check(game.CARD_ORDER == ["phishworm", "zeroday", "ddos", "supply"], "Only the four requested cards exist")
+			var tiles := scripted_nodes(game.hand_panel, game.CardTile)
+			check(tiles.size() == 4 and game.hand_panel.visible, "All four cards are visible at zero copies")
+			var cards_fit := true
+			for tile in tiles:
+				if not game.hand_panel.get_global_rect().encloses(tile.get_global_rect()): cards_fit = false
+				if not game._card_research_state(tile.key).count == 0: cards_fit = false
+			check(cards_fit, "Four zero-copy cards fit in the permanent dock")
+			check(game.hand_panel.size.x >= resolution.x - 60 and tiles[0].size.y >= 240 and tiles[0].size.x >= 240, "Four large detailed cards permanently fill the bottom dock")
+			check(game.panel.get_global_rect().end.y <= game.hand_panel.position.y - 10 and not game.panel.get_global_rect().intersects(game.hand_panel.get_global_rect()), "Sidebar ends above the full-width card dock")
+			panel_fits("Foreign node panel fits at each map size")
 			game._fit_view()
 			var all_visible := true
 			for host in game.hosts:
@@ -256,223 +271,135 @@ func _run() -> void:
 			var zoom_before: float = game._zoom
 			game._zoom_at(game._map_rect().get_center(), 1 / 1.15)
 			check(game._zoom <= zoom_before, "Wheel zoom never jumps in at the fit-town scale")
-		game._set_tab("research")
-		await shot("research_%d" % resolution.x)
-		check(game.CARD_ORDER.size() == 8, "Catalogue contains the requested eight cards")
-		check(game.panel.get_global_rect().encloses(game.panel_box.get_global_rect()), "Entire gallery and ready cards fit without scrolling")
-		game._inspect_card("zeroday:linked")
-		await shot("card_detail_%d" % resolution.x)
-		panel_fits("Card details fit without scrolling")
 		game._set_tab("board"); await shot("leaderboard_%d" % resolution.x)
+		check(game.hand_panel.visible and scripted_nodes(game.hand_panel, game.CardTile).size() == 4, "Four cards stay visible on Board")
 		check(not "Cash" in game._panel_text() and not "cards played" in game._panel_text(), "Board contains only standings")
 
-	vp.size = Vector2i(1280, 720); fresh()
-	game._set_tab("research"); await settle()
-	var gallery := scripted_nodes(game.panel, game.ResearchTile)
-	var phishing: Control = gallery[1]
-	var phishing_point := phishing.get_global_rect().get_center()
-	await mouse(phishing_point, true)
-	await mouse(phishing_point, false)
-	check(game.lab[game.PLAYER].queue == ["phish:linked"], "Single click queues research")
+	vp.size = Vector2i(1280, 720); fresh(); await settle()
+	check(find_button(game.top_tabs, "RESEARCH") == null, "Top bar has no Research button")
+	game._set_tab("research")
+	var research_key := InputEventKey.new(); research_key.keycode = KEY_R; research_key.pressed = true
+	game._input(research_key); await settle()
+	check(game._tab == "" and not game.panel.visible, "Research menu and R shortcut are removed")
+	check(not has_tooltips(game), "Card and map controls have no tooltips")
+	var tiles := scripted_nodes(game.hand_panel, game.CardTile)
+	var campaign: Control = tiles[0]
+	var point := campaign.get_global_rect().get_center()
+	await mouse(point, true); game._refresh_hand(); await mouse(point, false)
+	check(game.lab[game.PLAYER].queue == ["phishworm:linked"], "Single click on a permanent card queues its research")
+	check(game._card_research_state("phishworm:linked").status == "Researching", "Current research is identified immediately")
 	game.cash[game.PLAYER] = 100; game.creds[game.PLAYER] = 100; game.research[game.PLAYER] = 100
-	game._queue_research(game.PLAYER, "oneday:linked"); game._tick_research(2)
-	await settle()
-	var queue_tiles: Array = scripted_nodes(game.pending_research, game.ResearchTile)
-	var queue_point: Vector2 = queue_tiles[0].get_global_rect().position + Vector2(40, 55)
-	await mouse(queue_point, true); await mouse(queue_point, false)
+	var zero_day: Control = tiles[1]
+	await mouse(zero_day.get_global_rect().get_center(), true); await mouse(zero_day.get_global_rect().get_center(), false)
+	game._tick_research(2)
+	check(game._card_research_state("zeroday:linked").status == "Queued", "Waiting queue card is visibly distinguished from current research")
+	check(float(game._card_research_state("phishworm:linked").progress) > 0, "The active card reports visible progress")
+	await shot("four_cards_researching")
+	await mouse(point, true); await mouse(point, false)
 	var saved_progress: float = game.lab[game.PLAYER].items[0].progress
 	game._tick_research(1)
-	check(game.lab[game.PLAYER].items[0].progress == saved_progress and float(game.lab[game.PLAYER].items[1].progress) > 0, "Pausing a research card preserves progress and lets the next card work")
-	await shot("research_queue_paused")
-	panel_fits("Gallery and paused research fit together")
-	game._dequeue_research(game.PLAYER, 1)
-	check(game.lab[game.PLAYER].items[0].progress == saved_progress, "Cancelling another research card preserves paused work")
-	game._toggle_research_item(game.PLAYER, 0); game._tick_research(30)
-	check(game._held(game.PLAYER, "phish:linked") == 1, "Resumed research completes exactly once")
-	await shot("research_ready_card")
-	check(game._rate_tag("intel").contains("+0.0/s"), "HUD always includes an explicit signed rate")
-	var ready_tiles: Array = scripted_nodes(game.hand_panel, game.CardTile)
-	var ready_start: Vector2 = ready_tiles[0].get_global_rect().get_center()
-	await mouse(ready_start, true)
-	var ready_motion := InputEventMouseMotion.new()
-	ready_motion.position = ready_start + Vector2(20, -20); ready_motion.global_position = ready_motion.position
-	ready_motion.relative = Vector2(20, -20); ready_motion.button_mask = MOUSE_BUTTON_MASK_LEFT
-	vp.push_input(ready_motion, true)
-	for frame in 3: await process_frame
-	check(vp.gui_is_dragging() and not game.panel.visible, "Dragging ready research reveals the map and preserves the native drag")
-	var ready_target := neighbor(game.rig[game.PLAYER])
-	await mouse(game._w2s(game.hosts[ready_target].pos), false)
-	check(game._held(game.PLAYER, "phish:linked") == 0, "Completed research can be dragged directly from the gallery onto the map")
-
-	fresh(); target = neighbor(game.rig[game.PLAYER])
-	game.hosts[target].owner = game.RIVAL; game.hosts[target].type = "erp"
-	game.hosts[target].slots = 5; game.hosts[target].value = 3; game.hosts[target].bots = 30
-	game._set_builds(target, ["cash", "cred", "lab", "intel", "intel"])
-	var supply_before := Vector4(game._cash_rate(game.PLAYER), game._cred_rate(game.PLAYER), game._research_rate(game.PLAYER), game._intel_rate(game.PLAYER))
-	game._apply_effect(game.PLAYER, game.CARDS.supply, target)
-	var supply_after := Vector4(game._cash_rate(game.PLAYER), game._cred_rate(game.PLAYER), game._research_rate(game.PLAYER), game._intel_rate(game.PLAYER))
-	check((supply_after - supply_before).is_equal_approx(Vector4(1.5, 0.75, 0.75, 3)), "Supplychain runtime production matches the executable balance model")
-	check(is_equal_approx(float(game.hosts[target].steal_until) - game._t, 22.5), "Supplychain runtime duration includes ERP susceptibility")
-
-	fresh(); game._set_tab("research")
-	for card in game.CARD_ORDER: game.cards[game.PLAYER][game._card_key(card, "linked")] = 1
-	for card in ["phish", "oneday", "dos", "supply", "zeroday"]:
-		game._queue_research(game.PLAYER, game._card_key(card, "linked"))
-	await shot("research_full_queue")
-	check(game.lab[game.PLAYER].queue.size() == 4, "Research queue rejects a fifth card")
-	check(scripted_nodes(game.panel, game.ResearchTile).size() == 8, "Catalogue contains no queue pagination")
-	check(scripted_nodes(game.pending_research, game.ResearchTile).size() == 4, "Four pending cards share the dashboard with ready cards")
-	check(not game.hand_scroll.get_h_scroll_bar().visible, "Eight ready plus four pending cards fit without scrolling")
-	check(not has_tooltips(game), "Research and dashboard have no tooltips")
-	panel_fits("Full research catalogue fits above persistent dashboard")
-	var pending_tiles := scripted_nodes(game.pending_research, game.ResearchTile)
-	var pending_stop: Button = pending_tiles[0].stop_button
-	var stop_point := pending_stop.get_global_rect().get_center()
+	check(game.lab[game.PLAYER].items[0].progress == saved_progress and float(game.lab[game.PLAYER].items[1].progress) > 0, "Pausing one card preserves progress and lets the next card work")
+	check(game._card_research_state("phishworm:linked").status == "Paused" and game._card_research_state("zeroday:linked").status == "Researching", "Paused and active statuses identify the working item")
+	await shot("four_cards_paused")
+	var research_cancel: Button = zero_day.stop_button
+	var stop_point := research_cancel.get_global_rect().get_center()
 	await mouse(stop_point, true); game._refresh_hand(); await mouse(stop_point, false)
-	check(game.lab[game.PLAYER].queue.size() == 3 and game.lab[game.PLAYER].queue[0] == "oneday:linked", "Dashboard stop cancels its card across live refresh")
-	game._queue_research(game.PLAYER, "zeroday:linked")
-	check(game.lab[game.PLAYER].queue.size() == 4, "Cancelling frees a queue place immediately")
-	game._clear_all(); await settle()
-	check(game.hand_panel.visible and scripted_nodes(game.pending_research, game.ResearchTile).size() == 4, "Pending research stays visible on the map")
-	game._left_click(game.rig[game.PLAYER], false); await shot("pending_research_left")
-	check(game.panel.get_global_rect().end.y == vp.size.y - 24, "Right sidebar extends to the bottom margin")
-	check(game.pending_research.get_global_rect().end.y <= game.hand_panel.position.y and game.pending_research.get_global_rect().end.x < game.panel.position.x, "Pending research is above ready cards and left of sidebar")
-	check(not game.hand_panel.get_global_rect().intersects(game.panel.get_global_rect()), "Ready cards do not cover the expanded sidebar")
-	check(not game.hand_scroll.get_h_scroll_bar().visible, "Returning from Research fits the ready cards into the left tray")
-	check(scripted_nodes(game.panel, game.BuildCard).size() == 5, "Available building cards are restored to the sidebar")
-	check(not has_tooltips(game), "Map controls have no tooltips")
+	check(game.lab[game.PLAYER].queue == ["phishworm:linked"] and game.lab[game.PLAYER].items[0].progress == saved_progress, "Embedded cancel preserves the other card's paid work across refresh")
+	await mouse(point, true); await mouse(point, false)
+	game._tick_research(42)
+	check(game._held(game.PLAYER, "phishworm:linked") == 1 and game._card_research_state("phishworm:linked").status == "Ready", "Resumed research completes once and shows its held copy")
+	await shot("four_cards_ready")
+	await mouse(point, true); await mouse(point, false); game._tick_research(1)
+	check(game._card_research_state("phishworm:linked").count == 1 and game._card_research_state("phishworm:linked").status == "Researching" and float(game._card_research_state("phishworm:linked").progress) > 0, "A held x1 copy keeps the next copy's active progress visible on its card")
+	check(scripted_nodes(game.hand_panel, game.CardTile).size() == 4, "Research queue and inventory share four permanent unique tiles")
+
+	var card_rect: Rect2 = campaign.get_global_rect()
+	var before_hover := visible_controls(game)
+	var hover := InputEventMouseMotion.new(); hover.position = point; hover.global_position = point
+	vp.push_input(hover, true); await settle()
+	check(campaign.get_global_rect() == card_rect and visible_controls(game) == before_hover, "Hover decorates the permanent card without creating an overlay over the map")
+	check(game.hand_panel.get_global_rect().encloses(card_rect), "Detailed card stays inside the permanent dock while hovered")
+	check("30 / 20 / 10" in game._research_effect("phishworm:linked") and "30 / 20 / 10 / 5 / 2" in game._research_effect("ddos:linked"), "Permanent card descriptions expose exact durations for successive spreading nodes")
+	await shot("detailed_card_x1_researching_hover")
+	game._left_click(game.rig[game.PLAYER], false); await settle()
+	check(game.hand_panel.visible and campaign.get_instance_id() == scripted_nodes(game.hand_panel, game.CardTile)[0].get_instance_id(), "Selecting a building preserves all permanent card controls")
+	game._set_tab("board"); await settle()
+	check(game.hand_panel.visible, "Board preserves the permanent card row")
+	game._clear_all(); game._refresh_panel(); await settle()
+
+	await mouse(point, true)
+	var drag := InputEventMouseMotion.new()
+	drag.position = point + Vector2(20, -20); drag.global_position = drag.position
+	drag.relative = Vector2(20, -20); drag.button_mask = MOUSE_BUTTON_MASK_LEFT
+	vp.push_input(drag, true); await settle()
+	check(vp.gui_is_dragging(), "A held copy starts native drag from its detailed card")
+	var previews := scripted_nodes(vp, game.CardDragPreview)
+	check(previews.size() == 1 and previews[0].size.y < campaign.size.y and previews[0].size.x < campaign.size.x, "Dragging uses one compact preview instead of an enlarged card over the map")
+	var card_target := neighbor(game.rig[game.PLAYER])
+	await mouse(game._w2s(game.hosts[card_target].pos), false)
+	check(game._held(game.PLAYER, "phishworm:linked") == 0, "Drag plays one held copy from the permanent row")
+	check(game._card_queue_index("phishworm:linked") >= 0 and game._card_research_state("phishworm:linked").status == "Researching", "Playing a held copy preserves its next research item")
+	await shot("four_cards_after_play")
+
+	fresh(); game._card_research_click("phishworm:linked")
+	game.cash[game.PLAYER] = 0; game.creds[game.PLAYER] = 100; game.research[game.PLAYER] = 100
+	game._tick_research(1.0 / 60)
+	check(game._card_research_state("phishworm:linked").status == "Waiting", "Card shows sustained resource starvation")
+	for frame in 10:
+		game.cash[game.PLAYER] = 1 if frame % 2 == 0 else 0
+		game._tick_research(1.0 / 60)
+		check(game._card_research_state("phishworm:linked").status == "Waiting", "Intermittent resource arrivals do not blink the visible waiting state")
+	game.cash[game.PLAYER] = 100; game._tick_research(1)
+	check(game._card_research_state("phishworm:linked").status == "Researching", "Stable funding restores the active research status")
+	await shot("four_cards_waiting_recovered")
+	for card in ["zeroday", "ddos", "supply"]: game._card_research_click(game._card_key(card, "linked"))
+	check(game.lab[game.PLAYER].queue.size() == 4 and scripted_nodes(game.hand_panel, game.CardTile).size() == 4, "Four queued cards remain four unique bottom tiles")
+	await shot("four_cards_full_queue")
+	game._open_menu(true); await settle()
+	check(not game.hand_panel.visible, "Main menu hides the gameplay card dock")
+	game._open_menu(false); await settle()
+	check(game.hand_panel.visible and game.lab[game.PLAYER].queue.size() == 4, "Returning to play restores the cards and preserved research")
 
 	fresh(); source = game.rig[game.PLAYER]; target = neighbor(source)
 	game._left_click(target, false); await settle()
 	var fixed_slot_rect: Rect2 = scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect()
 	game.sel = {source:true}; game._wire(target); await settle()
-	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Connecting preserves unknown target slot position")
+	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Connecting preserves unknown target slot position: %s vs %s" % [scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect(), fixed_slot_rect])
 	game._launch(target, "scan"); await settle()
-	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Starting a scan preserves target slot position")
+	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Starting Scan preserves target slot position: %s vs %s" % [scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect(), fixed_slot_rect])
 	game._mark_scanned(game.PLAYER, target); game._halt(target); await settle()
 	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Revealing contents preserves target slot position")
 	game._launch(target, "attack"); await settle()
-	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Starting an attack preserves target slot position")
-	game._disconnect_source(source); await shot("fixed_target_slots")
+	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Starting Attack preserves target slot position")
+	game._disconnect_source(source); await settle()
 	check(scripted_nodes(game.panel, game.PeekSlot)[0].get_global_rect() == fixed_slot_rect, "Disconnecting preserves target slot position")
-	game.scans[game.PLAYER].erase(target)
-	game.hosts[target].bots = 73
+	game.scans[game.PLAYER].erase(target); game.hosts[target].bots = 73
 	check(game._visible_bot_count(target) == "?" and not "73" in game._stage_line(target), "Unscanned enemy strength is hidden on map and sidebar")
 	game._mark_scanned(game.PLAYER, target)
-	check(game._visible_bot_count(target) == "73", "Completed scan reveals enemy strength")
+	check(game._visible_bot_count(target) == "73", "Completed Scan reveals enemy strength")
 	game.scans[game.PLAYER][target].done = false
-	check(game._visible_bot_count(target) == "?" and not "73" in game._stage_line(target), "Stale scan memory cannot leak an estimated enemy count")
-	game.sel = {source:true}; game._wire(target); await settle()
-	check(find_button(game.panel, "Scan") != null and not "Scout" in game._panel_text(), "Operation controls say Scan")
-	await shot("operation_icons")
+	check(game._visible_bot_count(target) == "?" and not "73" in game._stage_line(target), "Stale scan memory cannot reveal an estimated enemy count")
 	game._left_click(source, false)
 	game.hosts[source].slots = 5; game._set_builds(source, ["bot", "intel", "cash", "cred", "lab"])
 	await shot("building_dashboard")
-	panel_fits("Five-slot building dashboard fits with connection controls")
-	check("Node buildings" in game._panel_text() and "Available buildings" in game._panel_text(), "Both building rows have explicit headings")
-	check(game.pending_research.get_global_rect().end.y < game.hand_panel.position.y and game.pending_research.get_global_rect().end.x < game.panel.position.x, "Pending research sits left of sidebar and above ready cards")
-	check(not game.panel_box.get_global_rect().intersects(game.hand_panel.get_global_rect()), "Building controls stay above the card tray")
-	check(game._map_rect().end.y > game.hand_panel.position.y + 80, "Map extends behind transparent card dashboard")
-	game._zoom = 0.15; game.queue_redraw(); await shot("zoomed_connection_frames")
-	var building_panel_rect: Rect2 = game.panel.get_rect()
+	panel_fits("Five-slot building dashboard stays reachable above the permanent cards")
 	var built_cards := scripted_nodes(game.panel, game.SlotBox)
 	var available_cards := scripted_nodes(game.panel, game.BuildCard)
 	check(built_cards[0].size == available_cards[0].size, "Built and available building cards have identical dimensions")
-	var second_source := -1
-	for i in game.hosts.size():
-		if i != source and game._mine(i): second_source = i; break
-	game.hosts[second_source].assign = target
-	game._left_click(target, false); await settle()
-	check(game.panel.get_rect() == building_panel_rect, "Building and target dashboards have identical size and position")
-	var attack_icon := find_button(game.panel, "Attack")
-	var scan_icon := find_button(game.panel, "Scan")
-	check(attack_icon == null and scan_icon != null, "Unknown target has one contextual action")
-	var disconnect_icon := find_button(game.panel, "Disconnect_%d" % source)
-	check(disconnect_icon != null and disconnect_icon.size.x < scan_icon.size.x, "Disconnect is a compact control beside a connected node")
-	var disconnect_point := disconnect_icon.get_global_rect().get_center()
-	await mouse(disconnect_point, true); game._refresh_panel(); await mouse(disconnect_point, false)
-	check(game.hosts[source].assign == -1 and game.hosts[second_source].assign == target, "Per-node disconnect preserves the other contributor")
-	game._launch(target, "attack"); await settle()
-	check(find_button(game.panel, "Attack") == null and find_button(game.panel, "Scan") == null and find_button(game.panel, "Stop") != null, "Running operation has one Stop action")
+	check(game.hand_panel.visible and game.panel.get_global_rect().end.y <= game.hand_panel.position.y - 10, "Permanent cards stay below the node sidebar")
+	game.sel = {source:true}; game._wire(target); game._launch(target, "attack"); await settle()
+	check(find_button(game.panel, "Attack") == null and find_button(game.panel, "Scan") == null and find_button(game.panel, "Stop") != null, "Running operation has one contextual Stop control")
 	await shot("consistent_target_dashboard")
 	game.hosts[target].slots = 5; game._set_builds(target, ["bot", "intel", "cash", "cred", "lab"])
 	game._mark_scanned(game.PLAYER, target); await shot("scanned_connected_target")
-	check(scripted_nodes(game.panel, game.PeekSlot).size() == 5 and "bot capacity" in game._panel_text(), "Connected scanned targets show all buildings and capacity")
-	panel_fits("Scanned target contents and connection table fit together")
-	check("Source" in game._panel_text() and "Target" in game._panel_text() and "Disconnect" in game._panel_text(), "Connections identify source, target and action in columns")
-	var hover_disconnect := find_button(game.panel, "Disconnect_%d" % second_source)
-	var hover_size := hover_disconnect.size
-	var hover_motion := InputEventMouseMotion.new(); hover_motion.position = hover_disconnect.get_global_rect().get_center()
-	vp.push_input(hover_motion, true); await process_frame; await process_frame
-	check(hover_disconnect.size == hover_size, "Disconnect size is unchanged on hover")
-	check(not game.objective_label.visible and find_button(game.top_tabs, "🧪 RESEARCH") != null, "Top bar hides objective strip and research inventory count")
+	panel_fits("Scanned target contents and connections fit together")
 
-	fresh(); game._queue_research(game.PLAYER, "phish:linked")
-	game.cash[game.PLAYER] = 0; game.creds[game.PLAYER] = 100; game.research[game.PLAYER] = 100
-	game._tick_research(1.0 / 60)
-	check(game.lab[game.PLAYER].items[0].waiting_for == "cash", "Research reports sustained resource starvation")
-	for frame in 10:
-		game.cash[game.PLAYER] = 1 if frame % 2 == 0 else 0
-		game._tick_research(1.0 / 60)
-		check(game.lab[game.PLAYER].items[0].waiting_for == "cash", "Intermittent resource arrivals do not blink the waiting state")
-	game.cash[game.PLAYER] = 100; game._tick_research(1)
-	check(game.lab[game.PLAYER].items[0].waiting_for == "", "Stable funding clears the waiting state")
-	game._set_tab("research"); await settle()
-	var dismiss_point := Vector2(400, 680)
-	await mouse(dismiss_point, true); await mouse(dismiss_point, false); await settle()
-	check(game._tab == "" and not game.panel.visible, "Clicking exposed map through empty dashboard space closes Research")
-	check(game.sel.is_empty() and game._inspect == -1, "Research dismissal does not also select or command a map node")
-	game._set_tab("research"); await settle()
-	var catalogue_card: Control = scripted_nodes(game.panel, game.ResearchTile)[0]
-	var catalogue_point := catalogue_card.get_global_rect().get_center()
-	await mouse(catalogue_point, true); await mouse(catalogue_point, false)
-	check(game._tab == "research", "Clicking a research card keeps the gallery open")
-
-	fresh(); source = game.rig[game.PLAYER]
-	game._set_builds(source, []); game.intel[game.PLAYER] = 100
-	game._left_click(source, false); await settle()
-	var left_build_card: Control = scripted_nodes(game.panel, game.BuildCard)[0]
-	var left_build_point := left_build_card.get_global_rect().get_center()
-	await mouse(left_build_point, true); game._refresh_panel(); await mouse(left_build_point, false)
-	check(game.hosts[source].jobs.size() == 1, "Left building palette starts construction in the selected node")
-	var feeder_count := 0
-	for i in game.hosts.size():
-		if i == source: continue
-		game.hosts[i].owner = game.PLAYER; game.hosts[i].assign = source
-		feeder_count += 1
-		if feeder_count == 8: break
-	await shot("expanded_connections")
-	panel_fits("Eight connections and node buildings fit the expanded sidebar")
-	game._set_tab("research"); await settle()
-	check(scripted_nodes(game.panel, game.BuildCard).is_empty(), "Building palette hides while researching")
-
-	vp.size = Vector2i(1280, 720); fresh()
-	game.cards[game.PLAYER]["phish:linked"] = 1; game._refresh_hand()
-	await settle()
-	var tile: Control = game.hand_bar.get_child(0)
-	var card_start := tile.get_global_rect().get_center()
-	var card_target := neighbor(game.rig[game.PLAYER])
-	await mouse(card_start, true)
-	var drag := InputEventMouseMotion.new()
-	drag.position = card_start + Vector2(20, -20); drag.global_position = drag.position
-	drag.relative = Vector2(20, -20)
-	drag.button_mask = MOUSE_BUTTON_MASK_LEFT; vp.push_input(drag, true)
-	await process_frame
-	drag = InputEventMouseMotion.new()
-	drag.position = game._w2s(game.hosts[card_target].pos); drag.global_position = drag.position
-	drag.relative = drag.position - card_start - Vector2(20, -20)
-	drag.button_mask = MOUSE_BUTTON_MASK_LEFT; vp.push_input(drag, true)
-	await process_frame
-	check(vp.gui_is_dragging(), "Pointer motion starts native card drag")
-	await shot("card_drag_preview")
-	await mouse(game._w2s(game.hosts[card_target].pos), false)
-	check(game._held(game.PLAYER, "phish:linked") == 0, "A held card can actually be dragged from the scroll tray onto the map")
 	fresh()
 	game._start_tutorial(); game.set_process(false)
 	await shot("tutorial_01_connect")
-	check(game.tut_panel.get_global_rect().encloses(find_button(game.tut_panel, "Skip tutorial").get_global_rect()), "Skip tutorial fits inside the tutorial window")
+	check(game.tut_panel.get_global_rect().encloses(find_button(game.tut_panel, "Skip tutorial").get_global_rect()), "Skip tutorial fits inside its window")
 	advance(1)
-	check(game._tut_stage == 0 and game._ai_paused, "Tutorial cannot advance by waiting or wake AI early")
+	check(game._tut_stage == 0 and game._ai_paused, "Tutorial requires action and keeps the rival paused")
 	source = game.rig[game.PLAYER]; target = game._tut_target
 	game.sel = {source:true}; game._wire(target); advance(0.3)
 	check(game._tut_stage == 1, "Tutorial observes connection")
@@ -485,13 +412,13 @@ func _run() -> void:
 	await shot("tutorial_05_build")
 	game._player_build(target, "intel"); advance(11)
 	check(game._tut_stage == 5, "Tutorial observes completed construction")
-	game._queue_research(game.PLAYER, "phish:linked"); advance(24)
-	check(game._held(game.PLAYER, "phish:linked") > 0 and game._tut_stage == 6, "Training fixture funds the full card lesson")
+	game._card_research_click("phishworm:linked"); advance(43)
+	check(game._held(game.PLAYER, "phishworm:linked") > 0 and game._tut_stage == 6, "Training fixture funds the full permanent-card lesson")
 	await shot("tutorial_07_card")
 	for i in game.hosts.size():
-		if game._can_play(game.PLAYER, "phish:linked", i) == "": game._play_card(game.PLAYER, "phish:linked", i); break
+		if game._can_play(game.PLAYER, "phishworm:linked", i) == "": game._play_card(game.PLAYER, "phishworm:linked", i); break
 	advance(0.3)
-	check(game._tut_stage == 7 and game._ai_paused, "Tutorial observes card play and waits for explicit start")
+	check(game._tut_stage == 7 and game._ai_paused, "Tutorial observes play and waits for explicit match start")
 	game._tut_finish(); check(not game._ai_paused, "Finishing tutorial releases the rival")
 	var report := {"checks": checks, "failures": failures, "scope": "Automated mechanics, synthetic input and layout fixtures; not a human playtest"}
 	var file := FileAccess.open(output + "/results.json", FileAccess.WRITE); file.store_string(JSON.stringify(report, "\t")); file.close()
