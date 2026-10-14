@@ -98,7 +98,8 @@ The card deck is a pull-out drawer at the bottom. Pushed down (the default) it i
 40px strip: a red ATTACK tab, a blue DEFENCE tab, eight mini cards (all cards, both
 banks) and a handle. Click a mini card to research / pause it; drag a held copy straight
 onto the map to play it. A closed tab, the handle or `C` pulls the deck up to the four
-detailed cards of that tab (effects, cost/time, held copies, progress, `x` to cancel);
+detailed cards of that tab (effects, the research price as resource icons + a clock,
+held copies, progress, and a quiet `Cancel` link in the status row while queued);
 the open tab, the handle or `C` pushes it down again, the other tab switches banks.
 Pulled up, the deck covers the bottom of the map instead of moving it. Dragging a big
 card pushes the deck down for the drag and brings it back after the drop. A tab blinks
@@ -109,13 +110,57 @@ inside a long sidebar to reach its remaining controls.
 
 The idle right sidebar shows compact standings automatically; selecting a node replaces
 it with node controls. Research and Board buttons/menus are removed. Help uses six
-illustrated pages with examples.
+illustrated pages with examples; the tutorial colours its keywords like the things they
+name (buildings in their card colour, ATTACK red, DEFENCE blue, your pieces green).
 
+Winning: hold at least 51% of ALL buildings (rounded up) for 51 continuous seconds
+(`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig.
+
+Fog of war (one rule for the player's screen and for the Insane AI): a faction sees its own
+hosts, every host one street away from them, and every rig (`_visible_to`/`_visible_set`).
+Hosts seen before stay on the map as dim outlines without owner or bot count (`_seen`,
+`_explored`, `_last_seen`); fogged hosts cannot be clicked; rival packets are drawn only
+while their current street touches your sight (`_flight_visible`). Territories: every
+visible owned host colours its town cell; same-owner neighbours merge into one area with a
+border wherever the next cell belongs to someone else (`_draw_territories`).
+
+Building prices (`BUILD_COSTS` in buildings.gd), paid evenly over 10 s of funded work, the
+full price needed in the bank to queue: Intel harvester 10 Intel, Bot farm 30 Intel, Crypto
+miner 50 Intel, Credential harvester 50 Intel, Research lab 50 Intel + 25 Crypto. A short
+resource slows a job (the scarcest one sets its pace); build cards show prices as icons.
 Production costs are 1:1: Intel -> Credentials, Intel -> Crypto, Crypto -> Research.
-Inputs belong to the host owner; funded output goes to the Phishing caster during theft.
-Unfunded or capped producers consume nothing. Click an installed market, credential
-harvester or lab to pause/resume; capacity remains installed. Attacks and construction
-take priority over conversion spending; card research spends before labs.
+Inputs belong to the host owner; funded output goes to the Phishing caster during theft
+(the host shows PHISHED and its countdown). Unfunded or capped producers consume nothing.
+Click an installed miner, credential harvester or lab to pause/resume; capacity remains
+installed. Attacks and construction take priority over conversion spending; card research
+spends before labs.
+
+AI difficulty (New game menu): Normal is the original `_ai_think`; Insane is
+`scripts/botnet_ai_insane.gd` (one brain per AI faction, created by `_ai_tick`, ticked every
+simulation step). Insane plays fair: same fog, same actions and income, foreign details only through
+scans; it models opponents from what it can see and plans a win. The tutorial always uses Normal.
+
+Performance rules (0.1.3–0.1.4): the simulation runs in fixed `SIM_DT` = 1/30 s steps
+(`_sim_step`); `_process` only feeds it real time and decides what to repaint, with packets drawn
+`_sim_acc` ahead so they glide. Frames are capped by `_pace_frames`: 60 fps while playing, 30 with
+the menu open or the window in the background.
+
+The map is painted by five `MapLayer` children (`MAP_PARTS`, bottom to top): `ground` (territories,
+streets, wires), `packets`, `nodes` (buildings), `over` (card packets, pulses, focus / drag guides)
+and `mask` (screen-space masks). Each is painted by `_paint_<part>` into `_cv`; map drawing code
+calls `_cv.draw_*`, never a bare `draw_*`. Godot keeps a layer's drawing until it is repainted:
+`ground`/`nodes`/`over`/`mask` and the HUD repaint when `_view_key()` changes (pan, zoom, hover,
+selection, deck, …) and every `MAP_REFRESH` s while the match runs; `packets` repaints every frame
+only while something moves, `over` only while something in it animates (`_over_fast`). Anything
+new the map shows must either come from the simulation (refreshed MAP_REFRESH-ly) or be part of
+`_view_key()`. `queue_redraw()` on the game still repaints every layer.
+
+Text in custom `_draw` code goes through `_text` / `_text_w` (a shaped-text cache), never
+`draw_string` / `get_string_size` directly: Godot's own font cache keeps only 64 strings and one
+frame draws more, so it re-shaped everything every frame. Inside `_sim_step`, `_route` results
+are memoised from `_auto_guards` to `_tick_production` (`_route_memo`), where no owner or route cut
+changes. A change that must not alter the rules should leave a fixed-seed match identical, step for
+step.
 
 Phishing steals output for 30/20/10 seconds across three foreign hosts. DDOS stops all
 production and routing for 30/20/10/5/2 seconds across five foreign hosts. 0day captures

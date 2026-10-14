@@ -197,14 +197,10 @@ func _goal() -> void:
 	_text("CAPTURE", Rect2(478, 215, 128, 22), 14, RED)
 	_text("all rivals to win", Rect2(472, 239, 140, 22), 11, DIM)
 	_tile(Rect2(0, 312, 620, 68))
-	_text("DRAG MAP", Rect2(12, 322, 144, 22), 13, BLUE)
-	_text("pan", Rect2(12, 346, 144, 20), 12, DIM)
-	_text("WHEEL", Rect2(162, 322, 144, 22), 13, BLUE)
-	_text("zoom", Rect2(162, 346, 144, 20), 12, DIM)
-	_text("SPACE", Rect2(312, 322, 144, 22), 13, BLUE)
-	_text("pause", Rect2(312, 346, 144, 20), 12, DIM)
-	_text("0 / ESC", Rect2(462, 322, 144, 22), 13, BLUE)
-	_text("center / menu", Rect2(462, 346, 144, 20), 12, DIM)
+	var keys := [["DRAG MAP", "pan"], ["WHEEL", "zoom"], ["SPACE", "pause"], ["C", "card deck"], ["0 / ESC", "center / menu"]]
+	for k in keys.size():
+		_text(keys[k][0], Rect2(6 + k * 122, 322, 116, 22), 13, BLUE)
+		_text(keys[k][1], Rect2(6 + k * 122, 346, 116, 20), 12, DIM)
 
 func _protection() -> void:
 	var cards := ["cdn", "patch", "response", "sca"]

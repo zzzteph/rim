@@ -16,6 +16,7 @@ const CfgTuning := preload("res://scripts/botnet_cfg/tuning.gd")
 const HelpIllustration := preload("res://scripts/botnet_help.gd")
 const AiInsane := preload("res://scripts/botnet_ai_insane.gd")   # the Insane difficulty's brain (one per AI faction)
 const AI_LEVELS := ["normal", "insane"]
+const INSANE_READY := false   # the Insane brain is still being built: its menu button stays disabled until it lands
 
 const NEUTRAL := CfgFactions.NEUTRAL
 const PLAYER := CfgFactions.PLAYER
@@ -100,10 +101,11 @@ const PANEL_W := 620.0
 const LEADERBOARD_W := 280.0
 const CARD_DOCK_HEIGHT := 264.0
 const CARD_DOCK_GAP := 12.0
+const MAP_CELL := 190.0         # world size of one town cell; each host sits in its own cell (territories are drawn per cell)
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.1.1"
+const GAME_VERSION := "0.1.4"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -126,6 +128,7 @@ var _opt_ai_level := "normal"      # the New-game difficulty: every AI faction p
 var ai_level := {}                 # faction -> "normal" | "insane" (set from the option; probes may mix levels)
 var _brains := {}                  # faction -> its Insane brain, created on its first tick
 var _seen := {}                    # fog memory: faction -> {host: Vector2(last-known owner, time seen)}
+var _hover_host := -1              # the visible host under the mouse, found once per drawn frame
 var _opt_seed := 0                 # 0 = random town
 var menu_seed_edit: LineEdit
 # in-game feedback form state
@@ -203,7 +206,28 @@ var _dragging := false
 var _emit_cursor := 0
 var _panel_t := 0.0
 var _redraw_t := 0.0             # gate the per-frame canvas redraw (only while something animates + a light heartbeat)
-var _menu_t := 0.0               # animation clock for the menu's drifting-packet background
+const SIM_DT := 1.0 / 30.0       # the simulation advances in fixed 1/30 s steps, however fast the screen refreshes
+const SIM_MAX_STEPS := 10        # after a hitch catch up at most 1/3 s; the rest is dropped so a slow frame never snowballs
+const FPS_PLAY := 60             # frame cap while playing: a 2D map gains nothing from 144/165 Hz, the CPU pays for every frame
+const FPS_IDLE := 30             # frame cap with the menu open or the window in the background
+var _sim_acc := 0.0              # real time not simulated yet (< SIM_DT); packets are drawn this far ahead so they glide
+var _focused := true             # the window has focus (else the frame cap drops to FPS_IDLE)
+var _shaped := {}                # Font -> {size -> {text -> TextLine}}: see _shape()
+var _route_memo = null           # {src * 65536 + target: route} while _sim_step allows it (see _route), else null
+var _terr := {}                  # cached territory shapes for one sight/ownership "key" (see _territory_shapes)
+# The map is painted by MapLayer children, bottom to top. ground / nodes / mask repaint only when the view changes
+# (pan, zoom, hover, selection, deck, …) and MAP_REFRESH-ly while the match runs; packets / over repaint every
+# frame only while something moves. Godot keeps a layer's drawing between repaints, so an idle map costs ~nothing.
+const MAP_PARTS := ["ground", "packets", "nodes", "over", "mask"]
+const MAP_REFRESH := 0.1         # s between repaints of the slow layers (bot counts, timers, ownership) while playing
+var _layers := {}                # part -> MapLayer
+var _cv: CanvasItem              # the canvas being painted right now (a MapLayer, or the game itself)
+var _ctx := {}                   # _map_ctx() of frame _ctx_frame
+var _ctx_frame := -1
+var _last_view := []             # _view_key() of the previous frame
+var _was_moving := false         # packets were moving last frame (one more repaint clears the last positions)
+var _was_fast := false           # the over layer was animating last frame
+var _menu_t := 0.0              # animation clock for the menu's drifting-packet background
 var _zoom := 1.0                 # map zoom (wheel); 1.0 = identity. Pan with the middle mouse button.
 var _pan := Vector2.ZERO
 var _panning := false
@@ -241,8 +265,13 @@ var _toptab_sig := "@"            # rebuild the top tabs only when their state c
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_cv = self
+	for part in MAP_PARTS:   # the map layers come first, so every control added below draws above the map
+		var layer := MapLayer.new(); layer.game = self; layer.part = part
+		add_child(layer); _layers[part] = layer
 	_apply_options()
 	_gen()
+	_refresh_sight()
 	var sz := get_viewport_rect().size
 	hud = HudBar.new(); hud.game = self; hud.position = Vector2(24, 10)
 	hud.size = Vector2(sz.x - PANEL_W - 60.0, 32); add_child(hud)
@@ -351,7 +380,7 @@ func _gen() -> void:
 		rng.randomize(); town_seed = int(rng.randi() % 900000) + 1
 	rng.seed = town_seed
 	var sz := get_viewport_rect().size
-	hosts = []; hub = -1; rig = {}; _cell = {}; _highways = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}; _crypto_credit = {}
+	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}; _crypto_credit = {}
 	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []; _hold = {}
 	for fac in botnets:
 		intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}; creds[fac] = 0.0; research[fac] = 0.0
@@ -360,7 +389,7 @@ func _gen() -> void:
 	_brains = {}   # a new town gets fresh Insane brains (created on their first tick)
 	_seen = {}     # and a fresh fog memory (filled once the town exists)
 	# fixed WORLD spacing between cells → the map never crowds; the view is fit around it afterwards (_fit_view)
-	var cell := 190.0
+	var cell := MAP_CELL
 	var sx := cell; var sy := cell
 	var ax := 0.0; var ay := 0.0
 	var centre := Vector2(float(_cols - 1) * 0.5, float(_rows - 1) * 0.5)
@@ -494,7 +523,8 @@ func _production_multiplier(i: int) -> float:
 
 
 func _producer_paused(i: int, slot: int) -> bool:
-	return bool((hosts[i].get("producer_paused", {}) as Dictionary).get(slot, false))
+	var paused_slots = hosts[i].get("producer_paused")   # (no throwaway {} per call: this runs for every standing slot)
+	return paused_slots != null and bool((paused_slots as Dictionary).get(slot, false))
 
 
 func _toggle_producer(i: int, slot: int) -> void:
@@ -601,10 +631,7 @@ func _is_botnet(fac: int) -> bool: return fac != NEUTRAL
 
 
 func _bot_farms(i: int) -> int:   # how many Bot farms are BUILT here (not stage-limited) — each stacks the cap
-	var n := 0
-	for b in hosts[i].builds:
-		if str(b) == "bot": n += 1
-	return n
+	return (hosts[i].builds as Array).count("bot")
 
 
 func _cap_of(i: int) -> float:   # neutral: its own security; owned: NODE_CAP PER Bot farm (2 farms → 60)
@@ -619,6 +646,13 @@ func _r(i: int) -> float:   # drawn radius grows with the building's slots
 # route packets travel: BFS over same-faction buildings from src to one bordering t, then the final hop
 func _route(src: int, t: int) -> Array:
 	if src < 0 or t < 0 or src == t: return []
+	if _route_memo == null: return _route_bfs(src, t)
+	var k := src * 65536 + t   # memo: _sim_step opens it for the phases that change no owner and cut no route
+	if not _route_memo.has(k): _route_memo[k] = _route_bfs(src, t)
+	return (_route_memo[k] as Array).duplicate()
+
+
+func _route_bfs(src: int, t: int) -> Array:
 	var fac := int(hosts[src].owner)
 	var prev := {src: src}; var q := [src]; var head := 0; var hit := -1
 	while head < q.size():
@@ -785,8 +819,7 @@ func _drain(t: int) -> float:   # bots/s the building itself is streaming out ri
 
 
 # ---- control stages, buildings & the economy ----
-func _stage(i: int) -> int:
-	# More storage must never switch off a working building.
+func _stage(i: int) -> int:   # how full the garrison is: 0 stable, 1 shaky, 2 critical (informational: it switches nothing off)
 	var fr := float(hosts[i].bots) / NODE_CAP
 	if fr >= STAGE_FULL: return 0
 	if fr >= STAGE_SHAKY: return 1
@@ -805,8 +838,16 @@ func _built(i: int) -> Array:   # [slot, kind] of every standing building in slo
 	return out
 
 
-func _active_slots(i: int) -> int:   # a weakened building runs fewer of its slots (the first always works)
-	return maxi(1, _built(i).size() - _stage(i))
+func _standing(i: int) -> int:   # = _built(i).size(), without building the list
+	var n := 0
+	var b: Array = hosts[i].builds; var jobs: Dictionary = hosts[i].jobs
+	for k in b.size():
+		if str(b[k]) != "" and not jobs.has(k): n += 1
+	return n
+
+
+func _active_slots(i: int) -> int:   # every standing building works: losing bots never switches a building off
+	return _standing(i)
 
 
 func _slot_active(i: int, k: int) -> bool:   # is the building in slot k among the ones still working?
@@ -820,18 +861,17 @@ func _slot_active(i: int, k: int) -> bool:   # is the building in slot k among t
 
 func _count(i: int, kind: String) -> int:   # ACTIVE buildings of a kind (none while a card has production switched off)
 	if _prod_down(i): return 0
+	var b: Array = hosts[i].builds
+	if not b.has(kind): return 0   # the common case: nothing of that kind here at all
+	var jobs: Dictionary = hosts[i].jobs
 	var n := 0
-	var bl := _built(i)
-	for k in mini(_active_slots(i), bl.size()):
-		if str(bl[k][1]) == kind and not _producer_paused(i, int(bl[k][0])): n += 1
+	for k in b.size():   # every standing one (a slot under construction is offline), unless its owner paused it
+		if str(b[k]) == kind and not jobs.has(k) and not _producer_paused(i, k): n += 1
 	return n
 
 
 func _count_all(i: int, kind: String) -> int:   # built, active or not
-	var n := 0
-	for b in hosts[i].builds:
-		if str(b) == kind: n += 1
-	return n
+	return (hosts[i].builds as Array).count(kind)
 
 
 func _free_slot(i: int) -> int:   # first empty slot not reserved by a running job, or -1
@@ -895,11 +935,30 @@ func _pool_add(fac: int, r: String, d: float) -> void:   # add to (or spend from
 func _intel_rate(fac: int) -> float:   # harvesters, plus the rig's own trickle while the botnet still holds it
 	var r := 0.0
 	for i in hosts.size():
+		if not (hosts[i].builds as Array).has("intel"): continue   # adds exactly 0 — skip the work
 		if _benef(i) == fac: r += float(_count(i, "intel")) * INTEL_PER_BUILD * _tmult(i, "intel") * _production_multiplier(i)
 	for owner in botnets:
 		var home := int(rig.get(owner, -1))
 		if home >= 0 and int(hosts[home].owner) == int(owner) and _benef(home) == fac and not _prod_down(home): r += RIG_INTEL * _production_multiplier(home)
 	return r
+
+
+func _tick_intel(dt: float) -> void:   # every botnet's Intel income and limit in one pass (= _intel_rate / _intel_cap, same order)
+	var rate := {}; var harvesters := {}
+	for fac in botnets: rate[fac] = 0.0; harvesters[fac] = 0
+	for i in hosts.size():
+		var b: Array = hosts[i].builds
+		if not b.has("intel"): continue
+		var o := int(hosts[i].owner)
+		if harvesters.has(o): harvesters[o] = int(harvesters[o]) + b.count("intel")
+		var to := _benef(i)
+		if rate.has(to): rate[to] = float(rate[to]) + float(_count(i, "intel")) * INTEL_PER_BUILD * _tmult(i, "intel") * _production_multiplier(i)
+	for fac in botnets:
+		var r: float = rate[fac]
+		for owner in botnets:
+			var home := int(rig.get(owner, -1))
+			if home >= 0 and int(hosts[home].owner) == int(owner) and _benef(home) == fac and not _prod_down(home): r += RIG_INTEL * _production_multiplier(home)
+		intel[fac] = minf(INTEL_CAP_BASE + INTEL_CAP_PER_BUILD * float(harvesters[fac]), float(intel[fac]) + r * dt)
 
 
 func _cash_rate(fac: int) -> float:   # Cash/s a faction's active markets emit (a stolen market feeds the thief)
@@ -931,32 +990,45 @@ func _production_input_rate(fac: int, input: String) -> float:
 func _tick_production(dt: float) -> void:
 	# Budget all outputs before spending: scarce inputs and destination capacity
 	# are shared proportionally, independent of host order. Each output costs one input.
+	# Pools are keyed faction * 4 + (0 Intel, 1 Crypto, 2 Credentials, 3 Research).
 	var candidates := []; var cap_demand := {}; var input_demand := {}; var budget := {}
 	for fac in botnets:
-		budget["%s:intel" % fac] = maxf(0.0, float(intel[fac]) - _attack_reserve(fac))
-		budget["%s:cash" % fac] = maxf(0.0, float(cash[fac]))
+		budget[fac * 4] = maxf(0.0, float(intel[fac]) - _attack_reserve(fac))
+		budget[fac * 4 + 1] = maxf(0.0, float(cash[fac]))
 	for i in hosts.size():
+		var b: Array = hosts[i].builds
+		if not (b.has("cash") or b.has("cred") or b.has("lab")): continue   # no producer here: no candidate
 		var owner := int(hosts[i].owner); var beneficiary := _benef(i)
 		if owner == NEUTRAL or not botnets.has(beneficiary) or _eliminated.has(owner): continue
 		for kind in ["cash", "cred", "lab"]:
-			if _count(i, kind) <= 0: continue
+			var n := _count(i, kind)
+			if n <= 0: continue
 			var output := "cash" if kind == "cash" else ("creds" if kind == "cred" else "research")
 			var input := "cash" if kind == "lab" else "intel"
 			var amount := 0.0
 			if kind == "cash":
-				amount = _cash_of_host(i) * (ai_cash_mult if owner != PLAYER else 1.0) * dt
+				amount = float(n) * float(hosts[i].value) * _tmult(i, "cash") / CASH_INTERVAL * _production_multiplier(i) * (ai_cash_mult if owner != PLAYER else 1.0) * dt   # = _cash_of_host(i) * …
 				if not _stolen(i):
 					if not rig.has(owner) or int(hosts[int(rig[owner])].owner) != owner: continue
 					if i != int(rig[owner]) and _route(i, int(rig[owner])).is_empty(): continue
 					amount = minf(amount, maxf(0.0, _crypto_packet_amount(i) - float(_crypto_credit.get(i, 0.0))))
 			else:
-				amount = float(_count(i, kind)) * (CRED_PER_BUILD if kind == "cred" else RESEARCH_PER_BUILD) * _tmult(i, "cred" if kind == "cred" else "research") * _production_multiplier(i) * dt
-			var cap_key := "%s:%s" % [beneficiary, output]
+				amount = float(n) * (CRED_PER_BUILD if kind == "cred" else RESEARCH_PER_BUILD) * _tmult(i, "cred" if kind == "cred" else "research") * _production_multiplier(i) * dt
+			var cap_key := beneficiary * 4 + (1 if kind == "cash" else (2 if kind == "cred" else 3))
 			cap_demand[cap_key] = float(cap_demand.get(cap_key, 0.0)) + amount
-			candidates.append({"host": i, "owner": owner, "beneficiary": beneficiary, "kind": kind, "output": output, "input_key": "%s:%s" % [owner, input], "input": input, "cap_key": cap_key, "amount": amount})
+			candidates.append({"host": i, "owner": owner, "beneficiary": beneficiary, "kind": kind, "output": output, "input_key": owner * 4 + (1 if kind == "lab" else 0), "input": input, "cap_key": cap_key, "amount": amount})
+	var built := {}   # faction * 4 + 2 (cred) / 3 (lab) -> buildings of that kind it owns: _res_cap's count, one pass for all
+	if not candidates.is_empty():
+		for h in hosts:
+			var o := int(h.owner)
+			if o == NEUTRAL: continue
+			var hb: Array = h.builds
+			built[o * 4 + 2] = int(built.get(o * 4 + 2, 0)) + hb.count("cred")
+			built[o * 4 + 3] = int(built.get(o * 4 + 3, 0)) + hb.count("lab")
 	for candidate in candidates:
 		if candidate.kind != "cash":
-			var room := maxf(0.0, _res_cap(int(candidate.beneficiary), str(candidate.kind)) - _pool(int(candidate.beneficiary), str(candidate.output)))
+			var cap := RES_CAP_BASE + RES_CAP_PER_BUILD * float(built.get(int(candidate.cap_key), 0))   # = _res_cap(beneficiary, kind)
+			var room := maxf(0.0, cap - _pool(int(candidate.beneficiary), str(candidate.output)))
 			candidate.amount *= minf(1.0, room / maxf(0.000001, float(cap_demand[candidate.cap_key])))
 		input_demand[candidate.input_key] = float(input_demand.get(candidate.input_key, 0.0)) + float(candidate.amount)
 	for candidate in candidates:
@@ -1285,54 +1357,95 @@ func _src_state(s: int) -> String:
 
 # ============================================================ LOOP
 func _process(dt: float) -> void:
+	_pace_frames()
 	if _msg_t > 0.0: _msg_t -= dt
 	if not paused and not menu_open and not won and not lost:
-		_t += dt                        # the shared clock only advances while playing → pause freezes everything
-		for i in hosts.size():
-			var nb := _count(i, "bot")
-			if nb > 0 and float(hosts[i].bots) < _cap_of(i):
-				hosts[i].bots = minf(_cap_of(i), float(hosts[i].bots) + _regen(i) * dt)
-		for fac in botnets:
-			intel[fac] = minf(_intel_cap(fac), float(intel[fac]) + _intel_rate(fac) * dt)
-		_tick_research(dt)
-		_fx = _fx.filter(func(x): return float(x.until) > _t)
-		_worms = _worms.filter(func(x): return float(x.until) > _t)
-		_ai_remember(PLAYER)   # your memory of a scanned building stays as fresh as the AI's
-		_prune_res()
-		_auto_guards()      # guard wires arm themselves while their building is threatened, stand down after
-		_emit_due()
-		_tick_jobs(dt)
-		_tick_production(dt)
-		for i in hosts.size():
-			hosts[i].prod_off = maxf(0.0, float(hosts[i].prod_off) - dt)
-			hosts[i].route_off = maxf(0.0, float(hosts[i].route_off) - dt)
-		if not won and not lost: _deliver_due()      # chronological; may set won/lost and then stops
-		if not won and not lost and not _ai_paused: _ai_tick(dt)   # the tutorial freezes the AI early on
-		_check_rigs()
-		if not won and not lost: _tick_domination(dt)
-		if not won and not lost and int(hosts[int(rig[PLAYER])].owner) != PLAYER: lost = true; _end_cause = "Your rig was captured — the botnet is finished."
-		if not won and not lost and _player_nodes() == 0: lost = true; _end_cause = "You lost your last building."
-		for fac in ais:
-			if not bool(_ai[fac].dead) and _faction_nodes(fac) == 0:
-				_ai[fac].dead = true; _flash("%s is out of the game" % fname(fac))
-		_panel_t += dt
-		if _panel_t >= 0.25:
-			_panel_t = 0.0; _record_observations(); _tick_tutorial(); _refresh_panel()
+		_sim_acc += dt
+		var steps := 0
+		while _sim_acc >= SIM_DT - 0.000001 and steps < SIM_MAX_STEPS and not won and not lost:
+			_sim_acc -= SIM_DT; steps += 1
+			_sim_step(SIM_DT)
+		if steps >= SIM_MAX_STEPS or won or lost: _sim_acc = 0.0   # a long hitch is dropped, not replayed
+		_sim_acc = maxf(0.0, _sim_acc)
 	if (won or lost) and not _end_shown:
 		_end_shown = true; _refresh_panel()
-	_update_chrome()
+	_hover_host = _host_at(get_local_mouse_position())
+	var view := _view_key()
+	_redraw_t += dt
+	var tick: bool = view != _last_view or (_redraw_t >= MAP_REFRESH and not paused and not won and not lost)
+	_last_view = view
+	if tick: _redraw_t = 0.0
+	_update_chrome(tick)
 	var hs := _hand_signature()
 	if hs != _hand_sig: _hand_sig = hs; _refresh_hand()   # rebuild the bottom hand only when it changes
 	if menu_open:
 		_menu_t += dt; queue_redraw()                     # keep the menu's drifting packets moving
 		return
-	# redraw only while something is actually moving, plus a light heartbeat for regen/number updates
-	_redraw_t += dt
-	var animating: bool = not paused and (not flights.is_empty() or not _worms.is_empty() or not _fx.is_empty() or _dragging)
-	if animating or _redraw_t >= 0.2:
-		_redraw_t = 0.0
+	if tick:   # the slow layers and the HUD: on a view change at once, else MAP_REFRESH-ly while the match runs
 		hud.queue_redraw()
-		queue_redraw()
+		_redraw_map(["ground", "nodes", "over", "mask"])
+	var moving: bool = not paused and (not flights.is_empty() or not _worms.is_empty())
+	if moving or _was_moving or tick: _layers.packets.queue_redraw()
+	_was_moving = moving
+	var fast := _over_fast()
+	if fast or _was_fast: _layers.over.queue_redraw()
+	_was_fast = fast
+
+
+func _view_key() -> Array:   # what the slow map layers show besides the simulation: when it changes they repaint at once
+	return [_pan, _zoom, _hover_host, _aim_target(), sel.keys(), _inspect, _dragging, _drag_from, _boxing, _dragged_card(),
+		get_viewport_rect().size, _deck_open, menu_open, paused, won, lost, _tut, _tut_stage]
+
+
+func _over_fast() -> bool:   # the over layer animates: a wire, card or box being dragged, a card packet flying, a landing pulse
+	if _dragging or _boxing or _dragged_card() != "": return true
+	if paused: return false
+	if not _fx.is_empty(): return true
+	for fl in flights:
+		if str(fl.kind) == "card": return true
+	return false
+
+
+func _redraw_map(parts: Array = MAP_PARTS) -> void:
+	for part in parts:
+		if _layers.has(part): (_layers[part] as CanvasItem).queue_redraw()
+
+
+func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_process feeds it SIM_DT)
+	_t += dt                        # the shared clock only advances while playing → pause freezes everything
+	for i in hosts.size():
+		var nb := _count(i, "bot")
+		if nb <= 0: continue
+		var cap := _cap_of(i)
+		if float(hosts[i].bots) < cap:
+			hosts[i].bots = minf(cap, float(hosts[i].bots) + float(nb) * PROD_RATE * _tmult(i, "bot") * _production_multiplier(i) * dt)   # = _regen(i)
+	_tick_intel(dt)
+	_tick_research(dt)
+	_fx = _fx.filter(func(x): return float(x.until) > _t)
+	_worms = _worms.filter(func(x): return float(x.until) > _t)
+	_ai_remember(PLAYER)   # your memory of a scanned building stays as fresh as the AI's
+	_prune_res()
+	_route_memo = {}    # owners and route cuts hold still from here to production: each route is searched once
+	_auto_guards()      # guard wires arm themselves while their building is threatened, stand down after
+	_emit_due()
+	_tick_jobs(dt)
+	_tick_production(dt)
+	_route_memo = null
+	for i in hosts.size():
+		hosts[i].prod_off = maxf(0.0, float(hosts[i].prod_off) - dt)
+		hosts[i].route_off = maxf(0.0, float(hosts[i].route_off) - dt)
+	if not won and not lost: _deliver_due()      # chronological; may set won/lost and then stops
+	if not won and not lost and not _ai_paused: _ai_tick(dt)   # the tutorial freezes the AI early on
+	_check_rigs()
+	if not won and not lost: _tick_domination(dt)
+	if not won and not lost and int(hosts[int(rig[PLAYER])].owner) != PLAYER: lost = true; _end_cause = "Your rig was captured — the botnet is finished."
+	if not won and not lost and _player_nodes() == 0: lost = true; _end_cause = "You lost your last building."
+	for fac in ais:
+		if not bool(_ai[fac].dead) and _faction_nodes(fac) == 0:
+			_ai[fac].dead = true; _flash("%s is out of the game" % fname(fac))
+	_panel_t += dt
+	if _panel_t >= 0.25:
+		_panel_t = 0.0; _refresh_sight(); _drop_fogged_focus(); _record_observations(); _tick_tutorial(); _refresh_panel()
 
 
 # "Attack and defend is the STATUS": a wire into a building of the SAME faction is a GUARD — it stands by
@@ -1340,12 +1453,31 @@ func _process(dt: float) -> void:
 # full, counting help already in the air), then stands down again. Guards are never launched or stopped
 # by hand. The same rule serves every botnet.
 func _auto_guards() -> void:
+	# _under_attack / _incoming answered for every host in one pass (nothing below changes flights or hostile
+	# wires: it only arms and stands down guards, which point at their own faction's buildings)
+	var inbound := {}   # target -> {faction: bots flying at it}
+	for f in flights:
+		if str(f.kind) != "bot": continue
+		var rt: Array = f.route
+		var to := int(rt[rt.size() - 1])
+		var by = inbound.get(to)
+		if by == null: by = {}; inbound[to] = by
+		by[int(f.owner)] = float(by.get(int(f.owner), 0.0)) + 1.0
+	var wired := {}     # hosts a hostile LIVE attack wire is aimed at
+	for i in hosts.size():
+		var a := int(hosts[i].assign)
+		if a >= 0 and bool(hosts[i].live) and int(hosts[i].owner) != int(hosts[a].owner) and str(hosts[i].get("mode", "attack")) != "scan": wired[a] = true
 	for s in hosts.size():
 		var fac := int(hosts[s].owner)
 		if fac == NEUTRAL: continue
 		var t := int(hosts[s].assign)
 		if t < 0 or int(hosts[t].owner) != fac: continue
-		var want: bool = _under_attack(t) or (float(hosts[t].bots) + _incoming(t, fac) < _cap_of(t) - 0.25)
+		var by: Dictionary = inbound.get(t, {})
+		var hostile := false
+		for o in by:
+			if int(o) != fac: hostile = true
+		var attacked: bool = _t - float(hosts[t].get("hit_t", -100.0)) < CARD_ALARM or hostile or wired.has(t)   # = _under_attack(t)
+		var want: bool = attacked or (float(hosts[t].bots) + float(by.get(fac, 0.0)) < _cap_of(t) - 0.25)
 		if want and not bool(hosts[s].live):
 			hosts[s].live = true; _next_depart[s] = _t
 		elif not want and bool(hosts[s].live):
@@ -1527,6 +1659,8 @@ func _capture(t: int, fac: int) -> void:
 	else:
 		_flash("%s took %s%s" % [fname(fac), nm, ("" if prev == NEUTRAL else " from %s" % fname(prev))], 0)
 	if _tut and t == _tut_target and fac == PLAYER: _tut_captured = true
+	if _seen.has(prev): (_seen[prev] as Dictionary)[t] = Vector2(float(fac), _t)   # the loser saw it flip
+	_refresh_sight()
 	_check_rigs()
 	if prev != NEUTRAL and not won and not lost:   # did that capture leave one botnet standing?
 		var alive := []
@@ -1902,12 +2036,9 @@ func _ai_known_builds(fac: int, i: int) -> Array:   # THE builds gate: live when
 func _ai_known_regen(fac: int, i: int) -> float:   # bots/s it believes i regenerates (the OFF frame is public)
 	if _prod_down(i): return 0.0
 	var kinds := _ai_known_builds(fac, i)
-	var fr := _ai_known_bots(fac, i) / NODE_CAP
-	var stg := 0 if fr >= STAGE_FULL else (1 if fr >= STAGE_SHAKY else 2)
-	var act := maxi(1, kinds.size() - stg)
 	var n := 0
-	for k in mini(act, kinds.size()):
-		if str(kinds[k]) == "bot": n += 1
+	for k in kinds:   # every Bot farm it knows of works, whatever the garrison
+		if str(k) == "bot": n += 1
 	return float(n) * PROD_RATE * _tmult(i, "bot")
 
 
@@ -2302,7 +2433,7 @@ func _refresh_hand() -> void:
 	_update_card_banks()
 
 
-func _update_card_banks() -> void:   # tab text (owned · progress), tab look (open / closed / blinking), handle arrow
+func _update_card_banks(chips := true) -> void:   # tab text (owned · progress), tab look (open / closed / blinking), handle arrow; chips = repaint the mini cards
 	if card_banks == null or deck_handle == null: return
 	var now := Time.get_ticks_msec()
 	for index in 2:
@@ -2324,7 +2455,7 @@ func _update_card_banks() -> void:   # tab text (owned · progress), tab look (o
 	var chevron = deck_handle.get_child(0)
 	var arrow := "DeckClose" if _deck_open else "DeckOpen"
 	if chevron.action != arrow: chevron.action = arrow; chevron.queue_redraw()
-	if deck_chips.visible:
+	if deck_chips.visible and chips:
 		for chip in _deck_chip_nodes(): chip.queue_redraw()
 
 
@@ -2418,7 +2549,14 @@ func _card_drag_started() -> void:   # a card left the pulled-up deck: push it d
 	_layout_ui()
 
 
+func _pace_frames() -> void:   # frames cost CPU: 60 fps while you play, 30 with the menu up or the window in the background
+	var want := FPS_PLAY if _focused and not menu_open else FPS_IDLE
+	if Engine.max_fps != want: Engine.max_fps = want
+
+
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT: _focused = false
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN: _focused = true
 	if what == NOTIFICATION_DRAG_END and _deck_drag_restore:   # played or dropped: the deck comes back up
 		_deck_drag_restore = false; _deck_open = true
 		_layout_ui()
@@ -2575,12 +2713,12 @@ func _fit_view() -> void:
 	queue_redraw()
 
 
-func _host_at(p: Vector2) -> int:
+func _host_at(p: Vector2) -> int:   # the host under a screen point — only one the player can see (fog of war)
 	if not _map_rect().has_point(p): return -1
 	var hit := -1; var nearest := INF
 	for i in hosts.size():
 		var distance := p.distance_to(_w2s(hosts[i].pos))
-		if distance <= maxf(22, _r(i) * _zoom + 5) and distance < nearest:
+		if distance <= maxf(22, _r(i) * _zoom + 5) and distance < nearest and _visible_to(PLAYER, i):
 			hit = i; nearest = distance
 	return hit
 
@@ -2726,7 +2864,7 @@ func _reset() -> void:   # a NEW town every restart, with the current options
 	if tut_panel != null: tut_panel.visible = false
 	_apply_options()
 	_clear_all()
-	_gen(); _fit_view(); _refresh_panel(); _refresh_hand(); _refresh_top_tabs()
+	_gen(); _refresh_sight(); _fit_view(); _refresh_panel(); _refresh_hand(); _refresh_top_tabs()
 
 
 func _build_names(builds: Array) -> String:
@@ -2768,7 +2906,7 @@ func _action_button(action: String, callback: Callable, parent: Control = null, 
 	(parent if parent != null else panel_box).add_child(column)
 	var button := Button.new(); button.name = action
 	var icon := ActionGlyph.new(); icon.action = action
-	icon.col = C_BAD if action in ["Disconnect", "Stop"] else (C_WARN if action == "Attack" else C_GOOD)
+	icon.col = C_BAD if action in ["Disconnect", "Stop"] else (BANK_COL["attack"] if action == "Attack" else C_GOOD)   # attack = red everywhere
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button.add_child(icon)
 	button.custom_minimum_size = Vector2(96, 44)
@@ -2935,12 +3073,13 @@ func _menu_newgame() -> void:
 		var b := Button.new(); b.text = str(level).capitalize(); b.name = "AI_%s" % level
 		b.custom_minimum_size = Vector2(0, 36); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
 		if _opt_ai_level == level: b.add_theme_color_override("font_color", C_BAD if level == "insane" else C_GOOD)
+		if level == "insane" and not INSANE_READY: b.disabled = true; b.text = "Insane · in progress"
 		b.pressed.connect(func(l = level): _opt_ai_level = l; _refresh_menu())
 		drow.add_child(b)
 	menu_box.add_child(drow)
-	if _opt_ai_level == "insane": _menu_label("Insane reads your economy and cards, plans a win and micro-manages every attack.")
+	if _opt_ai_level == "insane": _menu_label("Insane plays fair (same fog, same rules) but scouts, models your economy from what it sees, plans a win and micro-manages every attack.")
 	_menu_label("Seed (blank = random)")
-	menu_seed_edit = LineEdit.new(); menu_seed_edit.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 34)
+	menu_seed_edit = LineEdit.new(); menu_seed_edit.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 34); _inset_focus(menu_seed_edit)
 	menu_seed_edit.placeholder_text = "random"
 	menu_seed_edit.text = _seed_draft
 	menu_box.add_child(menu_seed_edit)
@@ -3007,12 +3146,12 @@ func _menu_feedback() -> void:
 		tr.add_child(b)
 	menu_box.add_child(tr)
 	_menu_label("Details")
-	fb_details = TextEdit.new(); fb_details.placeholder_text = "What happened, or your idea…"
+	fb_details = TextEdit.new(); fb_details.placeholder_text = "What happened, or your idea…"; _inset_focus(fb_details)
 	fb_details.text = str(_fb_draft.details)
 	fb_details.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 100)
 	menu_box.add_child(fb_details)
 	_menu_label("Name (optional)")
-	fb_name = LineEdit.new(); fb_name.placeholder_text = "anonymous"; fb_name.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 32)
+	fb_name = LineEdit.new(); fb_name.placeholder_text = "anonymous"; fb_name.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 32); _inset_focus(fb_name)
 	fb_name.text = str(_fb_draft.name)
 	menu_box.add_child(fb_name)
 	_menu_gap(4)
@@ -3047,7 +3186,7 @@ func _submit_feedback() -> void:
 func _tut_stages() -> Array:
 	var target := str(hosts[_tut_target].name) if _tut_target >= 0 else "Training target"
 	return [
-		{"title": "Connect", "text": "Drag from YOUR RIG to TARGET. A dashed connection is a plan; it spends nothing."},
+		{"title": "Connect", "text": "Drag from YOUR RIG to TARGET. A dashed connection is a plan; it spends nothing. You see only your hosts, their neighbours and the rival rig: the rest is fog."},
 		{"title": "Scan, then attack", "text": "Press Scan on %s's panel. When it finishes, the same button becomes Attack. Press it to capture." % target},
 		{"title": "Combine", "text": "Drag SUPPORT to the same target. It immediately joins the running attack."},
 		{"title": "Capture", "text": "Watch the target's defenders fall. Your connected sources become automatic guards when it turns green."},
@@ -3056,6 +3195,23 @@ func _tut_stages() -> Array:
 		{"title": "Play a card", "text": "Drag your Phishing card from the deck onto a highlighted enemy to steal its production."},
 		{"title": "Ready", "text": "Hold at least 51% of the town for 51 seconds, or capture the rival rig. Losing your rig ends the match."},
 	]
+
+
+# Tutorial keywords take the colour of the thing they name: buildings their card colour, ATTACK things red, DEFENCE blue,
+# your own pieces green, the target and the win numbers gold. Longest phrases first; placeholders stop nested matches.
+func _tut_rich(text: String) -> String:
+	var keys := [
+		["TRAINING TARGET", C_WARN], ["TRAINING SUPPORT", fcol(PLAYER)], ["Training support", fcol(PLAYER)],
+		["Intel harvester", BUILD_KINDS.intel.col], ["Phishing card", BANK_COL["attack"]], ["YOUR RIG", fcol(PLAYER)],
+		["rival rig", fcol(RIVAL)], ["51 seconds", C_WARN], ["Phishing", BANK_COL["attack"]], ["DEFENCE", BANK_COL["defense"]],
+		["ATTACK", BANK_COL["attack"]], ["Attack", BANK_COL["attack"]], ["SUPPORT", fcol(PLAYER)], ["TARGET", C_WARN],
+		["Scan", C_GOOD], ["green", fcol(PLAYER)], ["51%", C_WARN],
+	]
+	var out := text.replace("[", "[lb]")
+	for k in keys.size(): out = out.replace(str(keys[k][0]), "%d" % k)
+	for k in keys.size():
+		out = out.replace("%d" % k, "[color=#%s]%s[/color]" % [(keys[k][1] as Color).to_html(false), str(keys[k][0])])
+	return out
 
 
 func _start_tutorial() -> void:
@@ -3081,7 +3237,7 @@ func _start_tutorial() -> void:
 	hosts[_tut_second].slots = 4
 	_set_builds(_tut_second, ["bot", "cash", "cred", "lab"])
 	hosts[_tut_second].bots = 30.0
-	_link(source, _tut_target); _link(_tut_second, _tut_target)
+	_link(source, _tut_target); _link(_tut_second, _tut_target); _refresh_sight()
 	cash[PLAYER] = 100.0; creds[PLAYER] = 100.0; research[PLAYER] = 100.0
 	_open_menu(false); _show_tut(); _fit_view()
 
@@ -3117,7 +3273,10 @@ func _show_tut() -> void:
 	var button := Button.new(); button.custom_minimum_size = Vector2(126, 32); button.add_theme_font_size_override("font_size", 14)
 	button.text = "Start match" if _tut_stage == stages.size() - 1 else "Skip tutorial"
 	button.pressed.connect(_tut_finish); row.add_child(button)
-	var body := _lbl(tut_box, str(step.text), 14, C_TEXT, 0)
+	var body := RichTextLabel.new(); body.bbcode_enabled = true; body.fit_content = true; body.scroll_active = false
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_theme_font_size_override("normal_font_size", 14); body.add_theme_color_override("default_color", C_TEXT)
+	body.text = _tut_rich(str(step.text)); tut_box.add_child(body)
 	body.custom_minimum_size.x = maxf(200, get_viewport_rect().size.x - 80)
 	tut_panel.visible = _tut and not menu_open
 	_layout_ui()
@@ -3264,7 +3423,7 @@ func _layout_ui() -> void:
 	tut_box.size.x = tut_panel.size.x - 32
 	tut_panel.visible = _tut and not menu_open
 	for c in tut_box.get_children():
-		if c is Label: c.custom_minimum_size.x = tut_panel.size.x - 32
+		if c is Label or c is RichTextLabel: c.custom_minimum_size.x = tut_panel.size.x - 32
 	queue_redraw()
 
 
@@ -3294,9 +3453,9 @@ func _layout_feedback_label() -> void:
 	feedback_label.position = Vector2(24, _deck_top() - height - 10)
 
 
-func _update_chrome() -> void:
+func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips (the map's slow-layer cadence)
 	if objective_label == null: return
-	_update_card_banks()
+	_update_card_banks(tick)
 	objective_label.visible = false
 	feedback_label.visible = not menu_open and _msg_t > 0
 	feedback_label.text = _msg
@@ -3316,13 +3475,6 @@ func _update_chrome() -> void:
 			var scale := _card_scale(str(cd.fam), target)
 			if reason == "" and scale <= 0: reason = "immune to this card family"
 			feedback_label.text = "%s · %s" % [str(hosts[target].name), reason if reason != "" else _effect_text(cd, target, scale)]
-	var need := _control_need() + 1
-	var warning := ""
-	for fac in ais:
-		if float(_hold.get(fac, 0.0)) > 0: warning = "  ·  %s wins in %.0fs" % [fname(fac), maxf(0, HOLD_SECS - float(_hold[fac]))]
-	if _under_attack(int(rig[PLAYER])): warning = "  ·  YOUR RIG IS UNDER ATTACK"
-	objective_label.text = "%sHold %d buildings for %ds  ·  Yours %d/%d  ·  Hold %.0f/%ds  ·  Protect your rig%s" % ["PAUSED  ·  " if paused else "", need, int(HOLD_SECS), _player_nodes(), need, float(_hold.get(PLAYER, 0.0)), int(HOLD_SECS), warning]
-	objective_label.add_theme_color_override("font_color", C_WARN if warning != "" or paused else C_TEXT)
 	_layout_feedback_label()
 
 
@@ -3409,7 +3561,7 @@ func _stage_line(i: int) -> String:   # one line that says what the building is 
 		return "Security %d/%d · %s" % [int(h.bots), int(h.sec), tname]
 	if not _mine(i):
 		return "%d/%d bots · %s" % [int(h.bots), int(_cap_of(i)), tname]
-	return "%d/%d bots · %s · %d/%d working slots" % [int(h.bots), int(_cap_of(i)), ["Stable", "Shaky", "Critical"][_stage(i)], mini(_active_slots(i), _built(i).size()), int(h.slots)]
+	return "%d/%d bots · %d/%d slots built" % [int(h.bots), int(_cap_of(i)), _built(i).size(), int(h.slots)]
 
 
 func _panel_build(i: int) -> void:
@@ -3421,7 +3573,7 @@ func _panel_build(i: int) -> void:
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
 		box.custom_minimum_size = Vector2(112, 140); row.add_child(box)
 	panel_box.add_child(row)
-	_plabel("Available buildings", 16, C_TEXT)
+	_plabel("Available buildings · %d s of funded work each" % int(BUILD_TIME), 16, C_TEXT)
 	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", 4)
 	for kind in BUILD_KINDS:
 		var card := BuildCard.new(); card.game = self; card.kind = kind
@@ -3469,6 +3621,58 @@ func _fixed_button_style(button: Button, red := false) -> void:
 		style.content_margin_left = 2; style.content_margin_right = 2
 		style.content_margin_top = 0; style.content_margin_bottom = 0
 		button.add_theme_stylebox_override(state, style)
+
+
+func _inset_focus(field: Control) -> void:   # the focus outline drawn INSIDE the field: the menu's scroll clips one drawn outside
+	var style := StyleBoxFlat.new()
+	style.draw_center = false; style.border_color = Color(0.45, 0.85, 1.0, 0.95)
+	style.set_border_width_all(2); style.set_corner_radius_all(3)
+	field.add_theme_stylebox_override("focus", style)
+
+
+func _link_button_style(button: Button) -> void:   # a quiet text action (e.g. Cancel): dim, red with a soft box on hover
+	button.add_theme_font_size_override("font_size", 12)
+	button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	for state in ["normal", "focus", "disabled"]:
+		var calm := StyleBoxEmpty.new(); calm.content_margin_left = 6; calm.content_margin_right = 6
+		button.add_theme_stylebox_override(state, calm)
+	for state in ["hover", "pressed"]:
+		var warm := StyleBoxFlat.new()
+		warm.bg_color = Color(0.3, 0.08, 0.1, 0.9); warm.border_color = C_BAD
+		warm.set_border_width_all(1); warm.set_corner_radius_all(4)
+		warm.content_margin_left = 6; warm.content_margin_right = 6
+		button.add_theme_stylebox_override(state, warm)
+	button.add_theme_color_override("font_color", C_DIM)
+	for key in ["font_hover_color", "font_pressed_color", "font_hover_pressed_color"]: button.add_theme_color_override(key, C_BAD)
+
+
+# A price as resource icons — the same icons as the HUD — with an optional clock for the time. Returns its width.
+const _COST_ICON := {"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}
+func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, fs := 13, icon := 15.0, paint := true) -> float:
+	var font := get_theme_default_font()
+	var x := at.x
+	var items := 0
+	for res in ["intel", "cash", "creds", "research"]:
+		if not cost.has(res) or float(cost[res]) <= 0.0: continue
+		if items > 0: x += icon * 0.7
+		var kind: String = _COST_ICON[res]
+		var txt := str(int(cost[res]))
+		if paint:
+			_draw_kind_icon(c, kind, Vector2(x + icon * 0.5, at.y), icon, BUILD_KINDS[kind].col, font)
+			_text(c, font, Vector2(x + icon + 3.0, at.y + fs * 0.38), txt, fs, C_TEXT)
+		x += icon + 3.0 + _text_w(font, txt, fs)
+		items += 1
+	if secs > 0.0:
+		if items > 0: x += icon * 0.7
+		var t := "%ds" % int(round(secs))
+		if paint:
+			var r := icon * 0.42; var o := Vector2(x + icon * 0.5, at.y)
+			c.draw_arc(o, r, 0.0, TAU, 20, C_DIM, 1.4, true)
+			c.draw_line(o, o + Vector2(0, -r * 0.7), C_DIM, 1.4, true)
+			c.draw_line(o, o + Vector2(r * 0.55, 0), C_DIM, 1.4, true)
+			_text(c, font, Vector2(x + icon + 3.0, at.y + fs * 0.38), t, fs, C_DIM)
+		x += icon + 3.0 + _text_w(font, t, fs)
+	return x - at.x
 
 
 func _connection_chip(source: int, label: String, parent: Control) -> void:
@@ -3723,6 +3927,10 @@ func _refresh_sight() -> void:   # remember what every botnet sees now (cheap; o
 		_seen[fac] = mem
 
 
+func _drop_fogged_focus() -> void:   # a foreign host that slipped into the fog cannot stay inspected
+	if _inspect >= 0 and not _visible_to(PLAYER, _inspect): _inspect = -1
+
+
 func _explored(fac: int, i: int) -> bool:   # seen now or before
 	return _visible_to(fac, i) or (_seen.get(fac, {}) as Dictionary).has(i)
 
@@ -3755,6 +3963,18 @@ func _wire_visible(i: int) -> bool:   # a foreign wire is public only while it f
 	var a := int(hosts[i].assign)
 	if a >= 0 and int(hosts[a].owner) == int(hosts[i].owner): return true
 	return str(hosts[i].get("mode", "attack")) != "scan"
+
+
+func _street_traffic() -> Dictionary:   # _lk street -> packets on it right now, from the traffic you can see (one pass)
+	var out := {}
+	for fl in flights:
+		if str(fl.kind) == "scan" and int(fl.owner) != PLAYER: continue
+		var rt: Array = fl.route; var hops: Array = fl.hops
+		for k in hops.size():
+			if float(hops[k]) <= _t and _t < float(hops[k]) + LINK_TIME:
+				var key := _lk(int(rt[k]), int(rt[k + 1]))
+				out[key] = int(out.get(key, 0)) + 1
+	return out
 
 
 func _link_busy_visible(a: int, b: int) -> bool:   # a street at capacity, judged from the traffic you can see
@@ -3797,26 +4017,59 @@ func _fill_of(i: int) -> Color:
 	return fcol(fac)
 
 
-func _draw() -> void:
-	var f := get_theme_default_font()
-	if menu_open:
-		_draw_menu_bg(get_viewport_rect().size)   # the old drifting-packet backdrop; the menu panel draws on top
-		return
-	draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # map layer: everything below is in WORLD space (zoom/pan)
+func _draw() -> void:   # the game's own canvas holds only the menu backdrop; the map is painted by its MapLayer children
+	_cv = self
+	if menu_open: _draw_menu_bg(get_viewport_rect().size)   # the old drifting-packet backdrop; the menu panel draws on top
+	_redraw_map()   # a redraw of the game is a redraw of every map layer (they paint nothing while the menu is up)
+
+
+func _map_ctx() -> Dictionary:   # what the map layers share, worked out once per frame
+	var frame := Engine.get_process_frames()
+	if frame == _ctx_frame and not _ctx.is_empty(): return _ctx
+	_ctx_frame = frame
+	_hover_host = _host_at(get_local_mouse_position())  # once per frame (labels ask for it per node)
 	var aim := _aim_target()
-	var focus_on := aim >= 0
 	var fnodes := {}; var flinks := {}
-	if focus_on: _build_focus(aim, fnodes, flinks)
+	if aim >= 0: _build_focus(aim, fnodes, flinks)
+	_ctx = {"f": get_theme_default_font(), "vis": _visible_set(PLAYER), "seen": _seen.get(PLAYER, {}), "vt": _t + _sim_acc,   # fog of war: your hosts, their neighbours, every rig; + what you saw before
+		"aim": aim, "focus_on": aim >= 0, "fnodes": fnodes, "flinks": flinks}   # vt: packets glide between the fixed simulation steps
+	return _ctx
+
+
+func _paint(c: CanvasItem, part: String) -> void:   # one MapLayer; together, in MAP_PARTS order, they paint what one big _draw did
+	if menu_open: return
+	_cv = c
+	var cx := _map_ctx()
+	match part:
+		"ground": _paint_ground(cx)
+		"packets": _paint_packets(cx)
+		"nodes": _paint_nodes(cx)
+		"over": _paint_over(cx)
+		"mask": _paint_mask(cx)
+	_cv = self
+
+
+func _paint_ground(cx: Dictionary) -> void:   # territories, streets, wires
+	var vis: Dictionary = cx.vis; var seen: Dictionary = cx.seen; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes; var flinks: Dictionary = cx.flinks
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
+	_draw_territories(vis)
+	var traffic := _street_traffic()
 	for i in hosts.size():   # streets, tinted by the botnet holding both ends; amber when at capacity
 		for j in hosts[i].links:
 			if j < i: continue
+			var vi := vis.has(i); var vj := vis.has(int(j))
+			if not ((vi or seen.has(i)) and (vj or seen.has(int(j)))): continue   # an unexplored end: fog
+			if not (vi and vj):   # a remembered street at the edge of sight: faint, owners unknown
+				_cv.draw_line(hosts[i].pos, hosts[int(j)].pos, Color(0.35, 0.5, 0.7, 0.08), 1.0, true)
+				continue
 			var oi := int(hosts[i].owner); var oj := int(hosts[j].owner)
+			var key := _lk(i, int(j))
 			var lcol := Color(0.35, 0.5, 0.7, 0.18); var w := 1.0
-			if _highways.has(_lk(i, int(j))): lcol = Color(0.55, 0.7, 0.85, 0.3); w = 2.2   # a highway across a gap
-			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.35; w = (2.4 if _highways.has(_lk(i, int(j))) else 1.3)
-			if _link_busy_visible(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8
-			if focus_on and not flinks.has(_lk(i, int(j))): lcol.a *= 0.6
-			draw_line(hosts[i].pos, hosts[int(j)].pos, lcol, w, true)
+			if _highways.has(key): lcol = Color(0.55, 0.7, 0.85, 0.3); w = 2.2   # a highway across a gap
+			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.35; w = (2.4 if _highways.has(key) else 1.3)
+			if int(traffic.get(key, 0)) >= _link_cap(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8   # = _link_busy_visible
+			if focus_on and not flinks.has(key): lcol.a *= 0.6
+			_cv.draw_line(hosts[i].pos, hosts[int(j)].pos, lcol, w, true)
 	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent);
 	# Strict fog: only the focused building's own connections stay bright.
 	for i in hosts.size():
@@ -3827,7 +4080,10 @@ func _draw() -> void:
 			continue
 		var dimmed: bool = focus_on and not (fnodes.has(i) and fnodes.has(a))
 		if not _mine(i) and not _wire_visible(i): continue   # others' quiet scans and dormant plans are invisible — to you and to them
-		if bool(hosts[i].live):
+		if not _mine(i) and not vis.has(i): continue         # a foreign source in the fog: you see its packets arrive, not where it is
+		if bool(hosts[i].live) and not _mine(i):              # a foreign wire shows only along streets you can see
+			for run in _sighted_runs(_route(i, a), vis): _draw_route_line(run, i, a, dimmed, int(run.back()) == a)
+		elif bool(hosts[i].live):
 			_draw_route_line(_route(i, a), i, a, dimmed)
 		else:
 			var kcol: Color = Color(0.45, 0.95, 0.7, 0.8) if int(hosts[a].owner) == int(hosts[i].owner) else Color(1, 0.85, 0.4, 0.8)
@@ -3836,55 +4092,76 @@ func _draw() -> void:
 			var rt := _route(i, a)
 			if rt.size() >= 2: _draw_dashed(rt, kcol, 1.2)
 			else: _draw_dashed([i, a], Color(0.8, 0.5, 0.5, (0.15 if dimmed else 0.55)), 1.0)   # your unrouted plan (only yours reach here)
+
+
+func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jumps (they pass UNDER the buildings)
+	var vis: Dictionary = cx.vis; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	for fl in flights:   # packets: yours = circle, other botnets = square in their colour, Cash = diamond
-		var pp := _packet_pos(fl, _t)
+		if not _flight_seen(fl, vis): continue
+		var pp := _packet_pos(fl, vt)
 		var endn := int((fl.route as Array)[(fl.route as Array).size() - 1])
 		var threat: bool = int(fl.owner) != PLAYER and _mine(endn)
 		var ba: float = 1.0 if (not focus_on or fnodes.has(endn) or threat) else 0.3
 		var fc := fcol(int(fl.owner))
 		if str(fl.kind) == "scan":
-			if int(fl.owner) == PLAYER: draw_arc(pp, 3.5, 0.0, TAU, 12, Color(0.6, 0.95, 1.0, ba), 1.5, true)   # a quiet scan: only you see it
+			if int(fl.owner) == PLAYER: _cv.draw_arc(pp, 3.5, 0.0, TAU, 12, Color(0.6, 0.95, 1.0, ba), 1.5, true)   # a quiet scan: only you see it
 			continue
 		if str(fl.kind) == "card":   # a card in flight: its remaining path dashed in its colour (the packet itself is drawn above the buildings)
 			var cc: Color = FAMILY_COL[str(CARDS[_card_of(str(fl.get("card", "phishworm:linked")))].fam)]
 			var rt: Array = fl.route; var hops: Array = fl.hops
 			var nxt := rt.size() - 1
 			for k in hops.size():
-				if _t < float(hops[k]) + LINK_TIME: nxt = k + 1; break
+				if vt < float(hops[k]) + LINK_TIME: nxt = k + 1; break
 			var path := [pp]
 			for k in range(nxt, rt.size()): path.append(hosts[int(rt[k])].pos)
+			var theirs: bool = int(fl.owner) != PLAYER
 			for k in range(path.size() - 1):
+				if theirs and not (vis.has(int(rt[nxt + k])) and (k == 0 or vis.has(int(rt[nxt + k - 1])))): continue   # never through fog
 				var a2: Vector2 = path[k]; var b2: Vector2 = path[k + 1]
 				var ln := a2.distance_to(b2); var dir := (b2 - a2) / maxf(ln, 0.001); var d := 0.0
 				while d < ln:
-					draw_line(a2 + dir * d, a2 + dir * minf(d + 6.0, ln), Color(cc.r, cc.g, cc.b, 0.5), 1.2, true)
+					_cv.draw_line(a2 + dir * d, a2 + dir * minf(d + 6.0, ln), Color(cc.r, cc.g, cc.b, 0.5), 1.2, true)
 					d += 11.0
 			continue
 		if str(fl.kind) == "cash":
 			var c := Color(1, 0.9, 0.3, ba) if int(fl.owner) == PLAYER else Color(fc.r, fc.g, fc.b, ba).lightened(0.3)
-			draw_colored_polygon(PackedVector2Array([pp + Vector2(0, -4), pp + Vector2(4, 0), pp + Vector2(0, 4), pp + Vector2(-4, 0)]), c)
-		elif int(fl.owner) == PLAYER: draw_circle(pp, 3.5, Color(0.5, 1, 0.7, ba))
-		else: draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(fc.r, fc.g, fc.b, ba).lightened(0.25), true)
+			_cv.draw_colored_polygon(PackedVector2Array([pp + Vector2(0, -4), pp + Vector2(4, 0), pp + Vector2(0, 4), pp + Vector2(-4, 0)]), c)
+		elif int(fl.owner) == PLAYER: _cv.draw_circle(pp, 3.5, Color(0.5, 1, 0.7, ba))
+		else: _cv.draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(fc.r, fc.g, fc.b, ba).lightened(0.25), true)
 	for w in _worms:   # a worm's jumps: a bold trail, a pulse racing to the newly-infected building, a ring on it
+		if not (vis.has(int(w.a)) or vis.has(int(w.b))): continue
 		var wa := clampf((float(w.until) - _t) / 4.0, 0.0, 1.0)
 		var wc: Color = w.col
 		var a_pos: Vector2 = hosts[int(w.a)].pos
 		var b_pos: Vector2 = hosts[int(w.b)].pos
-		draw_line(a_pos, b_pos, Color(wc.r, wc.g, wc.b, 0.28 * wa), 7.0, true)   # underglow
-		draw_line(a_pos, b_pos, Color(wc.r, wc.g, wc.b, 0.95 * wa), 3.0, true)   # core
+		_cv.draw_line(a_pos, b_pos, Color(wc.r, wc.g, wc.b, 0.28 * wa), 7.0, true)   # underglow
+		_cv.draw_line(a_pos, b_pos, Color(wc.r, wc.g, wc.b, 0.95 * wa), 3.0, true)   # core
 		var prog := clampf((4.0 - (float(w.until) - _t)) / 0.7, 0.0, 1.0)         # pulse races a→b in the first 0.7 s
-		draw_circle(a_pos.lerp(b_pos, prog), 5.0, Color(1, 1, 1, 0.9 * wa))
-		draw_arc(b_pos, _r(int(w.b)) + 5.0, 0.0, TAU, 28, Color(wc.r, wc.g, wc.b, 0.95 * wa), 2.5, true)
+		_cv.draw_circle(a_pos.lerp(b_pos, prog), 5.0, Color(1, 1, 1, 0.9 * wa))
+		_cv.draw_arc(b_pos, _r(int(w.b)) + 5.0, 0.0, TAU, 28, Color(wc.r, wc.g, wc.b, 0.95 * wa), 2.5, true)
+
+
+func _paint_nodes(cx: Dictionary) -> void:   # the buildings: pictograms, frames, bot counts, names; remembered ones as dim outlines
+	var f: Font = cx.f; var vis: Dictionary = cx.vis; var seen: Dictionary = cx.seen; var aim: int = cx.aim; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	for i in hosts.size():   # strict fog: ONLY buildings connected to the focused one stay bright
-		_draw_node(f, i, 1.0 if (not focus_on or fnodes.has(i)) else 0.6, i == aim)
+		if vis.has(i): _draw_node(f, i, 1.0 if (not focus_on or fnodes.has(i)) else 0.6, i == aim)
+		elif seen.has(i): _draw_ghost(f, i)
+
+
+func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focus rings, connect / drag / card-aim guides, box select
+	var f: Font = cx.f; var vis: Dictionary = cx.vis; var vt: float = cx.vt; var aim: int = cx.aim; var focus_on: bool = cx.focus_on
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	for fl in flights:   # card packets ride above everything: a glowing card shape in the family's colour
-		if str(fl.kind) != "card": continue
-		var pp2 := _packet_pos(fl, _t)
+		if str(fl.kind) != "card" or not _flight_seen(fl, vis): continue
+		var pp2 := _packet_pos(fl, vt)
 		var cc2: Color = FAMILY_COL[str(CARDS[_card_of(str(fl.get("card", "phishworm:linked")))].fam)]
-		draw_circle(pp2, 11.0, Color(cc2.r, cc2.g, cc2.b, 0.25))
-		draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), cc2, true)
-		draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), Color(1, 1, 1, 0.95), false, 1.2)
+		_cv.draw_circle(pp2, 11.0, Color(cc2.r, cc2.g, cc2.b, 0.25))
+		_cv.draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), cc2, true)
+		_cv.draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), Color(1, 1, 1, 0.95), false, 1.2)
 	for x in _fx:   # a card landed: an expanding frame in the caster's colour
+		if not vis.has(int(x.host)): continue
 		var rem := clampf((float(x.until) - _t) / 3.0, 0.0, 1.0)
 		var xc: Color = x.col; xc.a = rem
 		_frame(hosts[int(x.host)].pos, _r(int(x.host)) + 10.0 + (1.0 - rem) * 14.0, xc, 1.5)
@@ -3892,7 +4169,7 @@ func _draw() -> void:
 		var gold := Color(1, 0.85, 0.3, 0.95)
 		var red := Color(1, 0.35, 0.3, 0.95)
 		for i in hosts.size():
-			if i != aim and int(hosts[i].assign) == aim and (_mine(i) or _wire_visible(i)):
+			if i != aim and int(hosts[i].assign) == aim and (_mine(i) or (_wire_visible(i) and vis.has(i))):
 				_node_frame(i, 11, gold if _mine(i) else red, 1.8)   # gold = yours, red = another botnet's
 		var aout := int(hosts[aim].assign)
 		if aout >= 0 and (_mine(aim) or _wire_visible(aim)): _node_frame(aout, 11, gold, 1.8)
@@ -3900,7 +4177,7 @@ func _draw() -> void:
 		for s in _aim_sources():
 			if _link_kind(int(s), aim) != "": _draw_dashed(_route(int(s), aim), Color(1, 0.95, 0.55, 0.95), 1.6); reach += 1
 		if _dragging and reach == 0:
-			draw_string(f, _label_pos(aim), "no path to %s" % str(hosts[aim].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.45, 0.4))
+			_text(_cv, f, _label_pos(aim), "no path to %s" % str(hosts[aim].name), 14, Color(1, 0.45, 0.4))
 		else:
 			var act: String = "defend %s" if _mine(aim) else "attack %s"
 			pass # selected target already has a readable screen-space name
@@ -3917,7 +4194,7 @@ func _draw() -> void:
 			for s in src_keys:
 				if _link_kind(int(s), hov) != "": _draw_dashed(_route(int(s), hov)); elig += 1
 			if elig > 0:
-				draw_string(f, _label_pos(hov), "drag here to connect %s" % str(hosts[hov].name), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.9, 0.5))
+				_text(_cv, f, _label_pos(hov), "drag here to connect %s" % str(hosts[hov].name), 13, Color(1, 0.9, 0.5))
 	var dk := _dragged_card()
 	if dk != "":   # a hand card in the air: where it can land, and what it would do there
 		var cd: Dictionary = CARDS[_card_of(dk)]
@@ -3942,27 +4219,31 @@ func _draw() -> void:
 			for s in _aim_sources():
 				if _link_kind(int(s), hv) != "": ok = true; break
 			if not ok: lcol2 = Color(1, 0.4, 0.35, 0.95)
-		draw_line(hosts[_drag_from].pos, to, lcol2, 1.8, true)
-		draw_circle(to, 3.0, lcol2)
+		_cv.draw_line(hosts[_drag_from].pos, to, lcol2, 1.8, true)
+		_cv.draw_circle(to, 3.0, lcol2)
 	if _boxing:
 		var ws := _s2w(_box_start)
 		var r := Rect2(ws, _mouse_world() - ws).abs()
-		draw_rect(r, Color(0.6, 1, 1, 0.08), true)
-		draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to SCREEN space for the overlays below
+		_cv.draw_rect(r, Color(0.6, 1, 1, 0.08), true)
+		_cv.draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
+
+
+func _paint_mask(cx: Dictionary) -> void:   # screen space: masks around the map, the deck backing, the end-of-match veil
+	var f: Font = cx.f
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to SCREEN space for the overlays below
 	var sz := get_viewport_rect().size
 	# Mask map content outside its reserved area; controls draw above this.
 	var map := _map_rect()
 	var background := Color(0.04, 0.05, 0.08)
-	draw_rect(Rect2(0, 0, sz.x, map.position.y - 8), background)
-	if _panel_shown(): draw_rect(Rect2(map.end.x + 8, 64, sz.x - map.end.x, map.end.y - 64), background)
+	_cv.draw_rect(Rect2(0, 0, sz.x, map.position.y - 8), background)
+	if _panel_shown(): _cv.draw_rect(Rect2(map.end.x + 8, 64, sz.x - map.end.x, map.end.y - 64), background)
 	if not won and not lost:   # the deck's backing: only as tall as the deck is right now
 		var deck_top := _deck_top()
-		draw_rect(Rect2(0, deck_top - 10, sz.x, sz.y - deck_top + 10), Color(0.025, 0.035, 0.055))
-		draw_line(Vector2(24, deck_top - 6), Vector2(sz.x - 24, deck_top - 6), Color(0.2, 0.4, 0.45, 0.4))
+		_cv.draw_rect(Rect2(0, deck_top - 10, sz.x, sz.y - deck_top + 10), Color(0.025, 0.035, 0.055))
+		_cv.draw_line(Vector2(24, deck_top - 6), Vector2(sz.x - 24, deck_top - 6), Color(0.2, 0.4, 0.45, 0.4))
 	if won or lost:
-		draw_rect(Rect2(Vector2.ZERO, sz), Color(0, 0, 0, 0.55), true)
-		draw_string(f, Vector2((sz.x - PANEL_W) * 0.5 - 150.0, sz.y * 0.5), ("VICTORY" if won else "DEFEATED"), HORIZONTAL_ALIGNMENT_LEFT, -1, 46, Color(0.5, 1, 1) if won else Color(1, 0.5, 0.5))
+		_cv.draw_rect(Rect2(Vector2.ZERO, sz), Color(0, 0, 0, 0.55), true)
+		_text(_cv, f, Vector2((sz.x - PANEL_W) * 0.5 - 150.0, sz.y * 0.5), ("VICTORY" if won else "DEFEATED"), 46, Color(0.5, 1, 1) if won else Color(1, 0.5, 0.5))
 
 
 func _draw_menu_bg(sz: Vector2) -> void:   # ported from the old title screen: grid + drifting packets
@@ -3978,25 +4259,151 @@ func _draw_menu_bg(sz: Vector2) -> void:   # ported from the old title screen: g
 		draw_circle(Vector2(xx, yy), 2.5, c)
 
 
+func _flight_seen(fl: Dictionary, vis: Dictionary) -> bool:   # _flight_visible for the player, against this frame's sight set
+	if int(fl.owner) == PLAYER: return true
+	if str(fl.kind) == "scan": return false
+	var seg := _flight_segment(fl, _t)
+	return vis.has(seg.x) or vis.has(seg.y)
+
+
+func _draw_ghost(f: Font, i: int) -> void:   # a host you saw before but cannot see now: a dim outline — no owner, no bots
+	var p := _w2s(hosts[i].pos)
+	var rr := maxf(16, _r(i) * _zoom)
+	_cv.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	_draw_type_glyph(_cv, str(hosts[i].get("type", "pc")), p, rr * 1.9, Color(0.42, 0.48, 0.58, 0.2), Color(0.04, 0.06, 0.1, 0.22))
+	if _zoom >= 0.45:
+		var nm := str(hosts[i].name)
+		var nw := _text_w(f, nm, 12)
+		_text(_cv, f, Vector2(p.x - nw * 0.5, p.y - rr - 8.0), nm, 12, Color(0.6, 0.66, 0.76, 0.3))
+	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
+
+
+# Territories: every owned building you can see claims a round patch of ground around it (TERR_RADIUS); the
+# patches of one botnet melt into one rounded area, and where two botnets' patches meet the ground is split
+# halfway between their buildings. Shapes are worked out once per change of sight or ownership (_terr).
+const TERR_RADIUS := 0.6 * MAP_CELL   # world units a building's patch reaches
+const TERR_SIDES := 40                # circle resolution
+const TERR_INSET := 4.0               # two botnets' borders never sit on the same line
+
+
+func _draw_territories(vis: Dictionary) -> void:
+	var shapes := _territory_shapes(vis)
+	var bw := 2.0 / maxf(_zoom, 0.3)                    # about 2 px on screen at any zoom
+	for piece in shapes.fills:
+		var col := fcol(int(piece[1]))
+		_cv.draw_colored_polygon(piece[0], Color(col.r, col.g, col.b, 0.1 if int(piece[1]) == PLAYER else 0.07))
+	for line in shapes.lines:
+		var col := fcol(int(line[1]))
+		_cv.draw_polyline(line[0], Color(col.r, col.g, col.b, 0.6 if int(line[1]) == PLAYER else 0.45), bw, true)
+
+
+func _territory_shapes(vis: Dictionary) -> Dictionary:   # {"fills": [[convex polygon, owner]], "lines": [[closed outline, owner]]}
+	var sites := []; var key := []
+	for i in hosts.size():
+		var o := int(hosts[i].owner)
+		if o == NEUTRAL or not vis.has(i): continue
+		sites.append(i); key.append(i * 8 + o)
+	if _terr.get("key", null) == key: return _terr
+	var fills := []; var by_owner := {}
+	for i in sites:
+		var o := int(hosts[i].owner)
+		var c: Vector2 = hosts[i].pos
+		var ring := PackedVector2Array()
+		for k in TERR_SIDES: ring.append(c + Vector2.from_angle(TAU * float(k) / float(TERR_SIDES)) * TERR_RADIUS)
+		var mine := [ring]   # the patch, cut back from every rival's building (halfway between them)
+		var piece := [ring]  # ... and from every other building too: these pieces tile without overlapping (the fill)
+		for j in sites:
+			if j == i: continue
+			var cj: Vector2 = hosts[j].pos
+			if c.distance_to(cj) >= 2.0 * TERR_RADIUS: continue
+			var side := _half_plane(c, cj)
+			piece = _clip_all(piece, side)
+			if int(hosts[j].owner) != o: mine = _clip_all(mine, side)
+		for p in piece: fills.append([p, o])
+		if not by_owner.has(o): by_owner[o] = []
+		by_owner[o].append_array(mine)
+	var lines := []
+	for o in by_owner:
+		var u := _union_outline(by_owner[o])
+		for outer in u[0]:
+			for inset in Geometry2D.offset_polygon(outer, -TERR_INSET, Geometry2D.JOIN_ROUND): lines.append([_closed(inset), o])
+		for hole in u[1]: lines.append([_closed(hole), o])
+	_terr = {"key": key, "fills": fills, "lines": lines}
+	return _terr
+
+
+func _half_plane(c: Vector2, other: Vector2) -> PackedVector2Array:   # a big quad: everything on c's side of the line halfway to other
+	var mid := (c + other) * 0.5
+	var n := (other - c).normalized()
+	var t := Vector2(-n.y, n.x) * (TERR_RADIUS * 4.0)
+	var back := -n * (TERR_RADIUS * 4.0)
+	return PackedVector2Array([mid + t, mid + t + back, mid - t + back, mid - t])
+
+
+func _clip_all(polys: Array, keep: PackedVector2Array) -> Array:
+	var out := []
+	for p in polys: out.append_array(Geometry2D.intersect_polygons(p, keep))
+	return out
+
+
+func _union_outline(polys: Array) -> Array:   # [outer outlines, hole outlines] of the union of overlapping polygons
+	var outers := []; var holes := []
+	for p in polys:
+		var cur: PackedVector2Array = p
+		var rest := []
+		for o in outers:
+			var merged := Geometry2D.merge_polygons(o, cur)
+			var big := 0.0; var sign := 1.0   # holes wind against the outer boundary (the largest polygon)
+			for q in merged:
+				var a := _signed_area(q)
+				if absf(a) > big: big = absf(a); sign = signf(a)
+			var outs := []; var hs := []
+			for q in merged: (outs if signf(_signed_area(q)) == sign else hs).append(q)
+			if outs.size() == 1: cur = outs[0]; holes.append_array(hs)
+			else: rest.append(o)
+		rest.append(cur); outers = rest
+	var left := []   # a later patch can fill part of an earlier hole
+	for h in holes:
+		var parts := [h]
+		for p in polys:
+			var cut := []
+			for x in parts: cut.append_array(Geometry2D.clip_polygons(x, p))
+			parts = cut
+		left.append_array(parts)
+	return [outers, left]
+
+
+func _signed_area(p: PackedVector2Array) -> float:
+	var a := 0.0
+	for k in p.size(): a += p[k].cross(p[(k + 1) % p.size()])
+	return a * 0.5
+
+
+func _closed(p: PackedVector2Array) -> PackedVector2Array:   # a polyline that returns to its start
+	var out := p.duplicate()
+	if not out.is_empty(): out.append(out[0])
+	return out
+
+
 func _visible_bot_count(i: int) -> String:
 	return str(int(round(float(hosts[i].bots)))) if _mine(i) or _scanned(PLAYER, i) else "?"
 
 
 func _node_frame(i: int, margin: float, col: Color, width: float) -> void:
-	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	_cv.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	_frame(_w2s(hosts[i].pos), maxf(16, _r(i) * _zoom) + margin, col, width)
-	draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
+	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
 
 
 func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	var p := _w2s(hosts[i].pos)
 	var rr := maxf(16, _r(i) * _zoom)
-	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	_cv.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	var fill := _fill_of(i)
 	fill.a = a
 	var ink := Color(0.04, 0.06, 0.1, 0.9 * a)
 	var focused: bool = sel.has(i) or i == _inspect or is_aim
-	_draw_type_glyph(self, str(hosts[i].get("type", "pc")), p, rr * 1.9, fill, ink)   # the building IS its pictogram
+	_draw_type_glyph(_cv, str(hosts[i].get("type", "pc")), p, rr * 1.9, fill, ink)   # the building IS its pictogram
 	if bool(hosts[i].rig): _frame(p, rr + 1.0, Color(1, 1, 1, 0.8 * a), 2.0)   # a rig = Cash sink
 	if bool(hosts[i].get("junction", false)): _frame(p, rr + 1.5, Color(0.75, 0.9, 1.0, 0.7 * a), 1.0)   # a junction: double traffic
 	if _mine(i) and _under_attack(i):   # under attack → red frame, always full brightness (never fogged)
@@ -4010,25 +4417,21 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if is_aim: _frame(p, rr + 9.0, Color(1, 0.9, 0.3), 2.0)
 	if i == _tutorial_target() or (_tut and _tut_stage <= 3 and i == _tut_target):
 		_frame(p, rr + 13, C_WARN, 3)
-		if i == _tut_target: draw_circle(p + Vector2(0, -rr - 18), 5, C_WARN)
+		if i == _tut_target: _cv.draw_circle(p + Vector2(0, -rr - 18), 5, C_WARN)
 	var nb_txt := _visible_bot_count(i)
 	var bw := 8.0 + 7.0 * float(nb_txt.length())
-	draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 13.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
-	draw_string(f, Vector2(p.x - 3.6 * float(nb_txt.length()), p.y + rr * 0.42 + 10.5), nb_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.95, 0.97, 1.0, a))
+	_cv.draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 13.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
+	_text(_cv, f, Vector2(p.x - 3.6 * float(nb_txt.length()), p.y + rr * 0.42 + 10.5), nb_txt, 12, Color(0.95, 0.97, 1.0, a))
 	var nm := str(hosts[i].name)
 	if _tut: nm = nm.replace("TRAINING TARGET", "TARGET").replace("TRAINING SUPPORT", "SUPPORT")
-	if _zoom < 0.45 and not focused and not _mine(i) and i != _host_at(get_local_mouse_position()) and not (_tut and i == _tut_target): nm = ""
-	var nw := f.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+	if _zoom < 0.45 and not focused and not _mine(i) and i != _hover_host and not (_tut and i == _tut_target): nm = ""
+	var nw := _text_w(f, nm, 12)
 	var x0 := p.x - nw * 0.5   # name centred above the glyph
 	var ncol := Color(0.85, 0.92, 1.0, a) if not _mine(i) else Color(0.95, 1.0, 0.95, a)
-	draw_string(f, Vector2(x0, p.y - rr - 8.0), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ncol)
+	_text(_cv, f, Vector2(x0, p.y - rr - 8.0), nm, 12, ncol)
 	var sub := ""   # ONE warning under the glyph, most urgent first; the rest is in the panel
 	if bool(hosts[i].get("junction", false)): sub = "junction"
-	var st := _stage(i)
-	var known: bool = _mine(i) or _scanned(PLAYER, i)
-	if known and int(hosts[i].owner) != NEUTRAL and st == 2: sub = "CRITICAL"
-	elif known and int(hosts[i].owner) != NEUTRAL and st == 1: sub = "SHAKY"
-	elif _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
+	if _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
 	elif _stolen(i): sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))   # its output goes to the caster
 	elif _prod_down(i): sub = "OFF %ds" % int(ceil(float(hosts[i].prod_off)))
 	elif float(hosts[i].get("patch_until", 0.0)) > _t: sub = "PATCH %ds" % int(ceil(float(hosts[i].patch_until) - _t))
@@ -4040,7 +4443,6 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if sub.begins_with("PHISHED"): subcol = Color(FAMILY_COL["phish"].r, FAMILY_COL["phish"].g, FAMILY_COL["phish"].b, a)
 	if sub.begins_with("OFF"): subcol = Color(1, 0.62, 0.2, a)
 	elif sub.begins_with("CUT"): subcol = Color(1, 0.4, 0.65, a)
-	elif sub == "CRITICAL": subcol = Color(1, 0.5, 0.45, a)
 	if focused and _mine(i):   # details only while you look at it: what is built, the send rate
 		var bi := ""
 		var bl := _built(i); var act := _active_slots(i)
@@ -4051,9 +4453,9 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		if float(hosts[i].rate) < 1.0: bi += ("  " if bi != "" else "") + "%d%%" % int(round(float(hosts[i].rate) * 100.0))
 		if bi != "": sub = bi if sub == "" else sub + "  " + bi
 	if sub != "" and (_zoom >= 0.45 or focused or _mine(i)):
-		var sw := f.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
-		draw_string(f, Vector2(p.x - sw * 0.5, p.y + rr + 16.0), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, subcol)
-	draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
+		var sw := _text_w(f, sub, 12)
+		_text(_cv, f, Vector2(p.x - sw * 0.5, p.y + rr + 16.0), sub, 12, subcol)
+	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
 
 
 func _label_pos(i: int) -> Vector2:   # where a floating label for building i goes: above it, or below it near the top edge
@@ -4071,12 +4473,22 @@ func _draw_dashed(rt: Array, col := Color(1, 0.9, 0.5, 0.9), w := 1.2) -> void: 
 		var dir := (b - a) / maxf(ln, 0.001)
 		var d := 0.0
 		while d < ln:
-			draw_line(a + dir * d, a + dir * minf(d + 9.0, ln), col, w, true)
+			_cv.draw_line(a + dir * d, a + dir * minf(d + 9.0, ln), col, w, true)
 			d += 15.0
 
 
 # colour by the SOURCE's faction, shape by kind (defend/reinforce = diamond, attack = arrow)
-func _draw_route_line(rt: Array, src: int, tgt: int, dim := false) -> void:
+func _sighted_runs(rt: Array, vis: Dictionary) -> Array:   # the stretches of a route whose every building is in sight (2+ long)
+	var runs := []; var cur := []
+	for n in rt:
+		if vis.has(int(n)): cur.append(n); continue
+		if cur.size() >= 2: runs.append(cur)
+		cur = []
+	if cur.size() >= 2: runs.append(cur)
+	return runs
+
+
+func _draw_route_line(rt: Array, src: int, tgt: int, dim := false, head := true) -> void:   # head: the arrow / diamond at tgt
 	if rt.size() < 2: return
 	var from_player: bool = _mine(src)
 	var reinforce: bool = int(hosts[src].owner) == int(hosts[tgt].owner)
@@ -4089,8 +4501,9 @@ func _draw_route_line(rt: Array, src: int, tgt: int, dim := false) -> void:
 	var fade := 0.3 if dim else 1.0
 	var pts := PackedVector2Array()
 	for idx in rt: pts.append(hosts[int(idx)].pos)
-	draw_polyline(pts, Color(col.r, col.g, col.b, 0.16 * fade), 3.2, true)
-	draw_polyline(pts, Color(col.r, col.g, col.b, 0.9 * fade), 1.4, true)
+	_cv.draw_polyline(pts, Color(col.r, col.g, col.b, 0.16 * fade), 3.2, true)
+	_cv.draw_polyline(pts, Color(col.r, col.g, col.b, 0.9 * fade), 1.4, true)
+	if not head: return
 	var a: Vector2 = hosts[int(rt[rt.size() - 2])].pos
 	var b: Vector2 = hosts[int(rt[rt.size() - 1])].pos
 	var dir: Vector2 = (b - a).normalized()
@@ -4099,9 +4512,9 @@ func _draw_route_line(rt: Array, src: int, tgt: int, dim := false) -> void:
 	var c := Color(col.r, col.g, col.b, 0.95 * fade)
 	if reinforce:
 		var ctr := tip - dir * 5.0
-		draw_colored_polygon(PackedVector2Array([ctr + dir * 5.0, ctr + perp * 4.0, ctr - dir * 5.0, ctr - perp * 4.0]), c)
+		_cv.draw_colored_polygon(PackedVector2Array([ctr + dir * 5.0, ctr + perp * 4.0, ctr - dir * 5.0, ctr - perp * 4.0]), c)
 	else:
-		draw_colored_polygon(PackedVector2Array([tip, tip - dir * 9.0 + perp * 5.0, tip - dir * 9.0 - perp * 5.0]), c)
+		_cv.draw_colored_polygon(PackedVector2Array([tip, tip - dir * 9.0 + perp * 5.0, tip - dir * 9.0 - perp * 5.0]), c)
 
 
 # ============================================================ LOCAL VIEW WIDGETS (slots & cards)
@@ -4121,7 +4534,7 @@ func _draw_kind_icon(c: CanvasItem, kind: String, centre: Vector2, sz: float, co
 		"cash":   # Crypto token; the internal resource key remains compatible
 			c.draw_circle(centre, sz * 0.46, col)
 			c.draw_arc(centre, sz * 0.36, 0.0, TAU, 32, ink, sz * 0.04, true)
-			c.draw_string(f, centre + Vector2(-sz * 0.17, sz * 0.21), "C", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz * 0.62), ink)
+			_text(c, f, centre + Vector2(-sz * 0.17, sz * 0.21), "C", int(sz * 0.62), ink)
 		"cred":   # a key
 			c.draw_arc(centre + Vector2(-sz * 0.24, 0), sz * 0.19, 0.0, TAU, 20, col, sz * 0.11, true)
 			c.draw_line(centre + Vector2(-sz * 0.05, 0), centre + Vector2(sz * 0.47, 0), col, sz * 0.11, true)
@@ -4138,7 +4551,7 @@ func _draw_kind_icon(c: CanvasItem, kind: String, centre: Vector2, sz: float, co
 
 
 func _frame(p: Vector2, half: float, col: Color, w: float) -> void:   # a square frame around a pictogram
-	draw_rect(Rect2(p - Vector2(half, half), Vector2(half * 2.0, half * 2.0)), col, false, w)
+	_cv.draw_rect(Rect2(p - Vector2(half, half), Vector2(half * 2.0, half * 2.0)), col, false, w)
 
 
 func _ellipse(centre: Vector2, rx: float, ry: float, n := 24) -> PackedVector2Array:
@@ -4233,7 +4646,7 @@ func _draw_card_glyph(c: CanvasItem, card: String, centre: Vector2, sz: float, c
 			c.draw_colored_polygon(shield, col.darkened(0.78))
 			shield.append(shield[0]); c.draw_polyline(shield, col, w * 0.6, true)
 			var symbol: String = {"cdn": "x2", "patch": "+", "response": "IR", "sca": "SCA"}[str(CARDS[card].fam)]
-			c.draw_string(f, centre + Vector2(-sz * 0.35, sz * 0.1), symbol, HORIZONTAL_ALIGNMENT_CENTER, sz * 0.7, int(sz * 0.26), col)
+			_text(c, f, centre + Vector2(-sz * 0.35, sz * 0.1), symbol, int(sz * 0.26), col, sz * 0.7, HORIZONTAL_ALIGNMENT_CENTER)
 		"cred":      # a padlock sprung open, a key driven into it
 			var body := Rect2(centre + Vector2(-sz * 0.3, -sz * 0.02), Vector2(sz * 0.6, sz * 0.46))
 			c.draw_rect(body, col, true)
@@ -4258,7 +4671,7 @@ func _draw_card_glyph(c: CanvasItem, card: String, centre: Vector2, sz: float, c
 				var o := PackedVector2Array(sh); o.append(sh[0]); c.draw_polyline(o, col, w, true)
 			var crack := PackedVector2Array([centre + Vector2(sz * 0.05, -sz * 0.42), centre + Vector2(-sz * 0.08, -sz * 0.12), centre + Vector2(sz * 0.08, sz * 0.02), centre + Vector2(-sz * 0.04, sz * 0.3)])
 			c.draw_polyline(crack, ink if zero else col, w, true)
-			c.draw_string(f, centre + Vector2(sz * 0.08, sz * 0.12), "0" if zero else "1", HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz * 0.42), ink if zero else col)
+			_text(c, f, centre + Vector2(sz * 0.08, sz * 0.12), "0" if zero else "1", int(sz * 0.42), ink if zero else col)
 		"supply":    # crates on a belt, the middle one struck
 			for k in 3:
 				var bx := centre + Vector2(-sz * 0.32 + float(k) * sz * 0.32, 0)
@@ -4283,6 +4696,14 @@ func _draw_card_glyph(c: CanvasItem, card: String, centre: Vector2, sz: float, c
 				c.draw_line(tip, tip + (-perp - dir) * sz * 0.08, col, w, true)
 		_:
 			c.draw_rect(Rect2(centre - Vector2(sz * 0.4, sz * 0.4), Vector2(sz * 0.8, sz * 0.8)), col, false, w)
+
+
+class MapLayer extends Node2D:   # one slice of the map (see MAP_PARTS); the game paints it, Godot keeps it until the next repaint
+	var game
+	var part := ""
+
+	func _draw() -> void:
+		game._paint(self, part)
 
 
 class ActionGlyph extends Control:   # operation icons also render without system-font glyphs on Web
@@ -4349,7 +4770,7 @@ class HudBar extends Control:   # the one-line HUD with resource icons
 			if kind != "":
 				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 28.0), 16.0, game.BUILD_KINDS[kind].col, f)
 				tx += 22.0
-			draw_string(f, Vector2(tx, 36.0), str(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, it[2])
+			game._text(self, f, Vector2(tx, 36.0), str(it[1]), 15, it[2])
 			x += float(it[3])   # a fixed column: the next item never moves when this number grows
 
 
@@ -4372,16 +4793,15 @@ class CardTile extends Control:
 		stock_material = ShaderMaterial.new(); stock_material.shader = shader; material = stock_material
 		var frame := CardFrame.new(); frame.tile = self   # its own material: the red / blue edge never turns gray
 		frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); add_child(frame)
-		stop_button = Button.new(); stop_button.text = "x"
-		stop_button.add_theme_font_size_override("font_size", 14)
-		stop_button.add_theme_color_override("font_color", game.C_BAD)
-		game._fixed_button_style(stop_button, true)
+		stop_button = Button.new(); stop_button.text = "Cancel"; stop_button.name = "CancelResearch"   # a quiet link in the status row
+		stop_button.focus_mode = Control.FOCUS_NONE
+		game._link_button_style(stop_button)
 		stop_button.pressed.connect(game._card_research_cancel.bind(key)); add_child(stop_button)
 	func _process(_dt: float) -> void:
 		var state: Dictionary = game._card_research_state(key)
 		stock_material.set_shader_parameter("saturation", 0.0 if int(state.count) == 0 else 1.0)
 		stop_button.visible = bool(state.queued)
-		stop_button.position = Vector2(size.x - 38, size.y - 59); stop_button.size = Vector2(24, 24)
+		stop_button.size = Vector2(70, 22); stop_button.position = Vector2(size.x - 14 - 70, size.y - 56)
 		queue_redraw(); (get_child(0) as CanvasItem).queue_redraw()
 	func _get_drag_data(_pos: Vector2) -> Variant:
 		return game._card_drag_data(self, key)
@@ -4400,29 +4820,26 @@ class CardTile extends Control:
 		var working := str(state.status) == "Researching"
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105))   # the edge is CardFrame's (red / blue)
 		draw_rect(Rect2(7, 7, size.x - 14, 28), colour.darkened(0.8))
-		draw_string(font, Vector2(14, 26), str(card.name), HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, 16, game.C_TEXT)
+		game._text(self, font, Vector2(14, 26), str(card.name), 16, game.C_TEXT, size.x - 28, HORIZONTAL_ALIGNMENT_LEFT)
 		# The illustration, inventory and complete rules stay inside this card.
 		for line in 3:
 			var y := 50.0 + line * 19.0
 			draw_line(Vector2(100, y), Vector2(size.x - 16, y), Color(colour, 0.1))
 		draw_rect(Rect2(16, 43, 72, 62), colour.darkened(0.9))
 		game._draw_card_glyph(self, game._card_of(key), Vector2(52, 74), 62, colour, font)
-		draw_string(font, Vector2(110, 61), "OWNED", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, game.C_DIM)
-		draw_string(font, Vector2(110, 92), "x%d" % int(state.count), HORIZONTAL_ALIGNMENT_LEFT, size.x - 124, 28, game.C_TEXT)
+		game._text(self, font, Vector2(110, 61), "OWNED", 10, game.C_DIM)
+		game._text(self, font, Vector2(110, 92), "x%d" % int(state.count), 28, game.C_TEXT, size.x - 124, HORIZONTAL_ALIGNMENT_LEFT)
 		draw_line(Vector2(14, 113), Vector2(size.x - 14, 113), Color(colour, 0.25))
 		draw_multiline_string(font, Vector2(14, 130), game._research_effect(key), HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, 12, 4, game.C_TEXT)
-		var cost: Dictionary = game._card_cost(key)
-		var cost_text := "%d Crypto · %d Creds · %d Research · %.0fs" % [int(cost.cash), int(cost.creds), int(cost.research), game._card_time(key)]
-		var cost_size := 11 if font.get_string_size(cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x <= size.x - 28 else 10
-		draw_string(font, Vector2(14, size.y - 62), cost_text, HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, cost_size, game.C_DIM)
+		# (the research price is drawn as resource icons by CardFrame, in colour)
 		var status_colour: Color = Color.WHITE if working else (game.C_WARN if str(state.status) in ["Waiting", "Paused"] else game.C_TEXT)
 		var status := "%s · %d%%" % [str(state.status), int(float(state.progress) * 100)] if bool(state.queued) else str(state.status)
-		draw_string(font, Vector2(14, size.y - 41), status, HORIZONTAL_ALIGNMENT_LEFT, size.x - 60, 13, status_colour)
+		game._text(self, font, Vector2(14, size.y - 41), status, 13, status_colour, size.x - 110, HORIZONTAL_ALIGNMENT_LEFT)
 		draw_rect(Rect2(14, size.y - 30, size.x - 28, 8), Color(0.17, 0.20, 0.26))
 		draw_rect(Rect2(14, size.y - 30, (size.x - 28) * float(state.progress), 8), status_colour)
 		var hint := "Click to resume" if str(state.status) == "Paused" else ("Click to pause" if bool(state.queued) else "Click to research")
 		if int(state.count) > 0: hint += " · Drag to play"
-		draw_string(font, Vector2(14, size.y - 8), hint, HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, 10, game.C_DIM)
+		game._text(self, font, Vector2(14, size.y - 8), hint, 10, game.C_DIM, size.x - 28, HORIZONTAL_ALIGNMENT_LEFT)
 
 
 class CardDragPreview extends Control:
@@ -4439,8 +4856,8 @@ class CardDragPreview extends Control:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.07, 0.105))
 		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.BANK_COL[game._bank_of(key)], false, 2)
 		game._draw_card_glyph(self, game._card_of(key), Vector2(28, 29), 36, colour, font)
-		draw_string(font, Vector2(56, 25), str(card.name), HORIZONTAL_ALIGNMENT_LEFT, size.x - 64, 12, game.C_TEXT)
-		draw_string(font, Vector2(56, 44), "Release on one of your hosts" if defense else "Release on a foreign host", HORIZONTAL_ALIGNMENT_LEFT, size.x - 64, 10, game.C_DIM)
+		game._text(self, font, Vector2(56, 25), str(card.name), 12, game.C_TEXT, size.x - 64, HORIZONTAL_ALIGNMENT_LEFT)
+		game._text(self, font, Vector2(56, 44), "Release on one of your hosts" if defense else "Release on a foreign host", 10, game.C_DIM, size.x - 64, HORIZONTAL_ALIGNMENT_LEFT)
 
 
 class CardFrame extends Control:   # a big card's red / blue edge, drawn outside the gray-until-owned shader
@@ -4454,6 +4871,7 @@ class CardFrame extends Control:   # a big card's red / blue edge, drawn outside
 		var hot: bool = str(state.status) == "Researching" or tile.has_focus() or Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
 		draw_rect(Rect2(0, 0, size.x, 4), bank)
 		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.C_TEXT if hot else bank.darkened(0.1), false, 2 if hot else 1)
+		game._draw_cost_row(self, game._card_cost(tile.key), game._card_time(tile.key), Vector2(14, size.y - 66))   # in colour, outside the shader
 
 
 class DeckChip extends Control:   # a mini card in the pushed-down deck: click = research / pause, drag a held copy = play
@@ -4491,11 +4909,11 @@ class DeckChip extends Control:   # a mini card in the pushed-down deck: click =
 		var room := size.x - 39.0
 		if size.x >= 84:
 			var title := str(card.get("short", card.name))
-			var fs := 11 if font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x <= room else 10   # the whole name, never clipped
-			draw_string(font, Vector2(35, 16), title, HORIZONTAL_ALIGNMENT_LEFT, room, fs, game.C_TEXT if owned else game.C_DIM)
-			draw_string(font, Vector2(35, 31), line, HORIZONTAL_ALIGNMENT_LEFT, room, 11, line_col)
+			var fs := 11 if game._text_w(font, title, 11) <= room else 10   # the whole name, never clipped
+			game._text(self, font, Vector2(35, 16), title, fs, game.C_TEXT if owned else game.C_DIM, room, HORIZONTAL_ALIGNMENT_LEFT)
+			game._text(self, font, Vector2(35, 31), line, 11, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
 		else:
-			draw_string(font, Vector2(35, 25), "x%d" % int(state.count), HORIZONTAL_ALIGNMENT_LEFT, room, 11, line_col)
+			game._text(self, font, Vector2(35, 25), "x%d" % int(state.count), 11, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
 		if bool(state.queued):   # research progress along the bottom edge
 			draw_rect(Rect2(3, size.y - 5, (size.x - 6) * float(state.progress), 3), game.C_WARN if warn else Color.WHITE)
 
@@ -4514,23 +4932,66 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 		var tp: Dictionary = game.NODE_TYPES[t]
 		draw_rect(Rect2(Vector2.ZERO, Vector2(size.x, 40)), Color(0.12, 0.14, 0.19), true)
 		game._draw_type_glyph(self, t, Vector2(22, 20), 32.0, Color(0.75, 0.85, 1.0), Color(0.08, 0.1, 0.16))
-		draw_string(f, Vector2(46, 17), str(tp.name), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.95, 0.97, 1.0))
-		draw_string(f, Vector2(46, 33), str(tp.desc), HORIZONTAL_ALIGNMENT_LEFT, size.x - 50, 12, Color(0.7, 0.8, 0.9))
+		game._text(self, f, Vector2(46, 17), str(tp.name), 13, Color(0.95, 0.97, 1.0))
+		game._text(self, f, Vector2(46, 33), str(tp.desc), 12, Color(0.7, 0.8, 0.9), size.x - 50, HORIZONTAL_ALIGNMENT_LEFT)
 
 
-func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false) -> void:
+# A building card (palette and slots share it), in fixed bands so nothing overlaps at 112 x 140:
+# title 4-28 · icon 32-72 · two effect lines (88, 101) · bottom band 108-136: the price as icons (palette) or a status (slots).
+const BUILD_EFFECT := {
+	"bot": ["+1 bot/s", "+30 bot cap"], "intel": ["+1 Intel/s", "+50 Intel cap"], "cash": ["+Crypto / 3s", "1 Intel each"],
+	"cred": ["+0.5 Creds/s", "1 Intel each"], "lab": ["+0.5 Research/s", "1 Crypto each"],
+}
+func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:
 	var font := canvas.get_theme_default_font()
+	var w := canvas.size.x
 	var colour: Color = BUILD_KINDS[kind].col if not gray else Color(0.6, 0.6, 0.6)
 	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), Color(0.13, 0.15, 0.21) if not gray else Color(0.15, 0.15, 0.15))
 	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), colour, false, 2)
-	canvas.draw_rect(Rect2(4, 4, canvas.size.x - 8, 34), colour.darkened(0.8))
-	canvas.draw_rect(Rect2(6, 40, canvas.size.x - 12, 43), Color(0.04, 0.05, 0.07))
-	_draw_kind_icon(canvas, kind, Vector2(canvas.size.x * 0.5, 62), 42, colour, font)
-	canvas.draw_multiline_string(font, Vector2(7, 17), str(BUILD_KINDS[kind].name), HORIZONTAL_ALIGNMENT_CENTER, canvas.size.x - 14, 13, 2, C_TEXT)
-	var effect: String = {"bot": "+1 bot/s", "intel": "+1 Intel/s\n+50 capacity", "cash": "Crypto / 3s\n1 Intel/Crypto", "cred": "+0.5 Creds/s\n-0.5 Intel/s\n+50 capacity", "lab": "+0.5 Research/s\n-0.5 Crypto/s\n+50 capacity"}[kind]
-	var lines := effect.split("\n")
-	for line in lines.size(): canvas.draw_string(font, Vector2(7, 91 + line * 14), lines[line], HORIZONTAL_ALIGNMENT_CENTER, canvas.size.x - 14, 11, C_TEXT)
-	canvas.draw_string(font, Vector2(7, 131), footer, HORIZONTAL_ALIGNMENT_LEFT, canvas.size.x - 14, 11, C_DIM)
+	canvas.draw_rect(Rect2(4, 4, w - 8, 24), colour.darkened(0.8))
+	_fit_text(canvas, str(BUILD_KINDS[kind].card), Rect2(6, 21, w - 12, 0), 12, C_TEXT)
+	canvas.draw_rect(Rect2(6, 32, w - 12, 40), Color(0.04, 0.05, 0.07))
+	_draw_kind_icon(canvas, kind, Vector2(w * 0.5, 52), 34, colour, font)
+	var lines: Array = BUILD_EFFECT[kind]
+	for k in lines.size(): _fit_text(canvas, str(lines[k]), Rect2(6, 88 + k * 13, w - 12, 0), 11, C_TEXT)
+	if show_cost:
+		var width := _draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)   # measure, then centre
+		_draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2((w - width) * 0.5, 121), 11, 12.0)
+	elif footer != "":
+		_fit_text(canvas, footer, Rect2(6, 127, w - 12, 0), 11, C_DIM)
+
+
+# Text is shaped once and kept. Font.draw_string()/get_string_size() remember only the last 64 strings, and one
+# frame draws more than that (names, bot counts, HUD, deck), so every call used to shape its text from scratch.
+func _shape(f: Font, s: String, fs: int) -> TextLine:
+	var by_size = _shaped.get(f)
+	if by_size == null: by_size = {}; _shaped[f] = by_size
+	var lines = by_size.get(fs)
+	if lines == null: lines = {}; by_size[fs] = lines
+	var tl = lines.get(s)
+	if tl == null:
+		if lines.size() >= 2048: lines.clear()   # countdowns and rates keep minting new strings: never grow without bound
+		tl = TextLine.new(); tl.add_string(s, f, fs); lines[s] = tl
+	return tl
+
+
+func _text(c: CanvasItem, f: Font, pos: Vector2, s: String, fs: int, col: Color, w := -1.0, al := HORIZONTAL_ALIGNMENT_LEFT) -> void:
+	# = c.draw_string(f, pos, s, al, w, fs, col) through the cache; pos is the baseline, as for draw_string
+	var tl: TextLine = _shape(f, s, fs)
+	if tl.width != w: tl.width = w
+	if tl.alignment != al: tl.alignment = al
+	tl.draw(c.get_canvas_item(), Vector2(pos.x, pos.y - tl.get_line_ascent()), col)
+
+
+func _text_w(f: Font, s: String, fs: int) -> float:   # = f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	return _shape(f, s, fs).get_size().x
+
+
+func _fit_text(c: CanvasItem, text: String, at: Rect2, fs: int, col: Color) -> void:   # centred on at.position.y, shrunk to fit the width
+	var font := get_theme_default_font()
+	var size := fs
+	while size > 8 and _text_w(font, text, size) > at.size.x: size -= 1
+	_text(c, font, at.position, text, size, col, at.size.x, HORIZONTAL_ALIGNMENT_CENTER)
 
 
 class SlotBox extends Control:
@@ -4582,7 +5043,7 @@ class SlotBox extends Control:
 		if kind == "":
 			draw_rect(Rect2(Vector2.ZERO, size), Color(0.1, 0.12, 0.17))
 			draw_rect(Rect2(Vector2.ZERO, size), game.C_DIM, false, 1)
-			draw_string(font, Vector2(46, 76), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 28, game.C_DIM)
+			game._text(self, font, Vector2(46, 76), "+", 28, game.C_DIM)
 			return
 		var footer := "" if game._slot_active(host, slot) else "Inactive"
 		if kind in ["cash", "cred", "lab"]:
@@ -4597,7 +5058,7 @@ class SlotBox extends Control:
 		game._draw_building_card(self, kind, footer, not job.is_empty())
 		if not job.is_empty():
 			var total: float = game.DEMOLISH_TIME if str(job.phase) == "demolish" else game.BUILD_TIME
-			draw_rect(Rect2(6, 110, 100 * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
+			draw_rect(Rect2(6, 106, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
 
 
 
@@ -4618,7 +5079,7 @@ class PeekSlot extends Control:   # read-only view of ONE slot of a building you
 		var centre := Vector2(size.x * 0.5, 26)
 		if not game._scanned(game.PLAYER, host):
 			var baseline := size.y * 0.5 + (f.get_ascent(26) - f.get_descent(26)) * 0.5
-			draw_string(f, Vector2(0, baseline), "?", HORIZONTAL_ALIGNMENT_CENTER, size.x, 26, Color(0.5, 0.6, 0.75, 0.7))
+			game._text(self, f, Vector2(0, baseline), "?", 26, Color(0.5, 0.6, 0.75, 0.7), size.x, HORIZONTAL_ALIGNMENT_CENTER)
 			return
 		var kind := str(game.hosts[host].builds[slot])
 		if kind == "":
@@ -4658,4 +5119,4 @@ class BuildCard extends Control:   # a draggable card for one building kind
 			game._card_click(kind); accept_event()
 
 	func _draw() -> void:
-		game._draw_building_card(self, kind, game._build_cost_text(kind))
+		game._draw_building_card(self, kind, "", false, true)   # the price as resource icons

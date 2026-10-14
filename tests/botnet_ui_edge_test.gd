@@ -268,5 +268,54 @@ func _run() -> void:
 	check(game._held(game.PLAYER, "cdn:linked") == 1 and int(game._bank_alert.get("defense", 0)) > Time.get_ticks_msec(), "A finished DEFENCE card makes its tab blink")
 	game._bank_pressed("defense"); await settle()
 	check(not game._bank_alert.has("defense") and game._deck_open, "Opening the blinking tab clears the alert")
+
+	# fog of war: you see your hosts, their neighbours and every rig; what you saw stays remembered (dim outline)
+	fresh(Vector2i(8, 6), 2); await settle()
+	var home: int = game.rig[game.PLAYER]
+	var sight: Dictionary = game._visible_set(game.PLAYER)
+	var rule_ok := true
+	for i in game.hosts.size():
+		var expect: bool = int(game.hosts[i].owner) == game.PLAYER or bool(game.hosts[i].rig)
+		for o in game.hosts[i].links:
+			if int(game.hosts[o].owner) == game.PLAYER: expect = true
+		if sight.has(i) != expect or game._visible_to(game.PLAYER, i) != expect: rule_ok = false
+	check(rule_ok, "Fog shows exactly your hosts, their neighbours and every rig")
+	var far := -1
+	for i in game.hosts.size():
+		if not sight.has(i): far = i; break
+	check(far >= 0 and game._host_at(game._w2s(game.hosts[far].pos)) == -1, "A host in the fog cannot be clicked")
+	var rival_rig: int = game.rig[game.RIVAL]
+	game._pan = game._map_rect().get_center() - game.hosts[rival_rig].pos * game._zoom
+	check(game._host_at(game._w2s(game.hosts[rival_rig].pos)) == rival_rig, "Enemy rigs stay visible and clickable")
+	var lost := -1; var edge := -1
+	for s in game.hosts.size():
+		if not game._mine(s) or s == home: continue
+		for x in game.hosts[s].links:
+			if game._mine(x) or bool(game.hosts[x].rig) or game.hosts[home].links.has(x): continue
+			lost = s; edge = int(x); break
+		if lost >= 0: break
+	if lost < 0:   # make one: take a host two streets out, then lose it again
+		for y in game.hosts.size():
+			if game._mine(y) or bool(game.hosts[y].rig) or game.hosts[home].links.has(y): continue
+			game._capture(y, game.PLAYER)
+			for x in game.hosts[y].links:
+				if game._mine(x) or bool(game.hosts[x].rig): continue
+				var other := false
+				for o in game.hosts[x].links:
+					if int(o) != y and game._mine(int(o)): other = true
+				if not other: lost = y; edge = int(x); break
+			if lost >= 0: break
+	check(lost >= 0, "Fog memory fixture found a host that only one building could see")
+	if lost >= 0:
+		game._capture(lost, game.RIVAL)
+		check(not game._visible_to(game.PLAYER, edge) and game._explored(game.PLAYER, edge) and not game._last_seen(game.PLAYER, edge).is_empty(), "A host that slips into the fog stays remembered as last seen")
+		check(int(game._last_seen(game.PLAYER, lost).get("owner", -1)) == game.RIVAL, "You remember who took your building")
+	var hidden := {"route": [far, far], "hops": [game._t - 0.1], "owner": game.RIVAL, "kind": "bot"}
+	var shown := {"route": [home, home], "hops": [game._t - 0.1], "owner": game.RIVAL, "kind": "bot"}
+	check(not game._flight_visible(game.PLAYER, hidden) and game._flight_visible(game.PLAYER, shown), "Rival packets are seen only where you have sight")
+	check(game._tut_rich("Click Intel harvester").contains(game.BUILD_KINDS.intel.col.to_html(false)) and game._tut_rich("Press Scan on TRAINING TARGET").count("[color=") == 2, "Tutorial keywords take their colour without nesting")
+	game._open_menu(true); game._menu_view = "feedback"; game._refresh_menu(); await settle()
+	var focus_style: StyleBox = game.fb_details.get_theme_stylebox("focus")
+	check(focus_style is StyleBoxFlat and focus_style.expand_margin_left == 0.0 and not focus_style.draw_center, "The feedback field's focus outline is drawn inside it, so no side is clipped")
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	quit(0 if failures.is_empty() else 1)

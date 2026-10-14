@@ -176,7 +176,7 @@ func _run() -> void:
 	game.intel[game.PLAYER] = 10; game._start_job(source, "intel", 2)
 	game.sel = {source:true}; game._wire(target); game._launch(target, "attack")
 	game.intel[game.PLAYER] = 0
-	advance(10)
+	advance(10.5)   # the 9th hit lands at exactly t = 10 s; the margin keeps the check off that rounding boundary
 	check(float(game.hosts[target].bots) < 92, "Construction cannot consume fractional Intel before attack packets can depart")
 	check(float(game.hosts[source].jobs[2].left) > 9.9, "Starved construction waits without losing paid work")
 	check(absf(game._observed_net("intel")) < 0.3, "Observed Intel net reflects actual spending")
