@@ -228,8 +228,9 @@ checks exactly that.
 The connection and lobby state live in `scripts/botnet_net.gd` (one WebSocket; the default server is
 `wss://network.thenakedcat.games/ws`, changeable in the Multiplayer menu or with
 `-- --server=ws://localhost:8787/ws`). The server (Node.js, `server/`) only runs lobbies, chat, the ready
-countdown and relays turns; it runs on a VPS behind Caddy (TLS) and is deployed by
-`.github/workflows/server.yml` — see `server/README.md`. The game itself stays on GitHub Pages.
+countdown and relays turns. `.github/workflows/server.yml` tests it and publishes the Docker image
+`ghcr.io/zzzteph/rim-lobby` (`:latest`, `:sha-<commit>`) to GHCR; the VPS runs it with `docker run`, bound to
+`127.0.0.1:8787` behind its reverse proxy — see `server/README.md`. The game itself stays on GitHub Pages.
 
 ## 4. Export a build
 

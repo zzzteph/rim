@@ -5461,7 +5461,7 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 # A building card (palette and slots share it), in fixed bands so nothing overlaps at 112 x 140:
 # title 4-28 · icon 32-72 · two effect lines (88, 101) · bottom band 108-136: the price as icons (palette) or a status (slots).
 const BUILD_EFFECT := {
-	"bot": ["+1 bot/s", "+30 bot cap"], "intel": ["+1 Intel/s", "+50 Intel cap"], "cash": ["+Crypto / 3s", "1 Intel each"],
+	"bot": ["+1 bot/s", "+30 bot cap"], "intel": ["+1 Intel/s", "+50 Intel cap"], "cash": ["+0.33 Crypto/s", "1 Intel each"],   # 1 Crypto every CASH_INTERVAL (3 s), like the others: the base rate
 	"cred": ["+0.5 Creds/s", "1 Intel each"], "lab": ["+0.5 Research/s", "1 Crypto each"],
 }
 func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:

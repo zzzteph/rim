@@ -7,5 +7,3 @@ test
 .gitignore
 .dockerignore
 Dockerfile
-docker-compose.yml
-Caddyfile

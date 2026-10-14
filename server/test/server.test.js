@@ -136,6 +136,9 @@ test('GET /health answers 200 ok, other paths 404, and WebSockets upgrade only a
   const health = await fetch(`${base}/health`);
   assert.equal(health.status, 200);
   assert.equal(await health.text(), 'ok');
+  const healthz = await fetch(`${base}/healthz`);   // the path the VPS check and the Docker HEALTHCHECK use
+  assert.equal(healthz.status, 200);
+  assert.equal(await healthz.text(), 'ok');
   const other = await fetch(`${base}/index.html`);
   assert.equal(other.status, 404);
   await other.text();

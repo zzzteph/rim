@@ -4,7 +4,7 @@ One WebSocket per player, JSON text frames, every message an object with a type 
 
 - Production: `wss://network.thenakedcat.games/ws` (the game is served over https, so it must be wss).
 - Local development: `ws://localhost:8787/ws`. The server listens on `$PORT` (default 8787) at path `/ws`;
-  `GET /health` answers `200 ok`.
+  `GET /healthz` (or `/health`) answers `200 ok`.
 
 The server never simulates the game. Every client runs the same deterministic simulation (fixed 1/30 s steps)
 and only player **commands** travel, grouped into **turns** (deterministic lockstep). The server keeps lobbies,

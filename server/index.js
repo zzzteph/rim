@@ -1,4 +1,4 @@
-// RIM multiplayer server: GET /health and, at /ws, the WebSocket protocol of PROTOCOL.md (logic in lobby.js).
+// RIM multiplayer server: GET /healthz (or /health) and, at /ws, the WebSocket protocol of PROTOCOL.md (logic in lobby.js).
 // `node index.js` listens on $PORT (default 8787); the tests import startServer().
 import { realpathSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -25,7 +25,7 @@ export async function startServer({
   const hub = new Hub({ countdownMs, log });
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
   const server = createServer((req, res) => {
-    const health = (req.method === 'GET' || req.method === 'HEAD') && req.url.split('?')[0] === '/health';
+    const health = (req.method === 'GET' || req.method === 'HEAD') && ['/healthz', '/health'].includes(req.url.split('?')[0]);
     res.writeHead(health ? 200 : 404, { 'content-type': 'text/plain' }).end(health ? 'ok' : 'not found');
   });
 
@@ -107,7 +107,7 @@ const isMain = (() => {
 
 if (isMain) {
   const { port, close } = await startServer();
-  stamp(`RIM lobby server listening on :${port} (WebSocket at /ws, health at /health)`);
+  stamp(`RIM lobby server listening on :${port} (WebSocket at /ws, health at /healthz)`);
   const stop = () => close().then(() => process.exit(0));
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);

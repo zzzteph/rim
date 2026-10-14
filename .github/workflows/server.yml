@@ -1,0 +1,77 @@
+name: Lobby server image
+
+# Tests the multiplayer lobby server (server/), then builds its Docker image and publishes it to the GitHub
+# Container Registry as ghcr.io/<owner>/rim-lobby — tags :latest (main only) and :sha-<commit> — for linux/amd64
+# and linux/arm64. The VPS runs it with plain docker commands (server/README.md → "Deploy"); nothing is copied there.
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ "server/**", ".github/workflows/server.yml" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lobby-server-image
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write     # push to ghcr.io with the workflow's own token: no extra secret
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Image name (GHCR wants it in lower case)
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rim-lobby" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v4.4.0      # arm64 builds on the amd64 runner
+      - uses: docker/setup-buildx-action@v4.4.1
+
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+          labels: |
+            org.opencontainers.image.title=rim-lobby
+            org.opencontainers.image.description=RIM multiplayer lobby server and lockstep relay
+
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
