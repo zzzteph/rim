@@ -106,7 +106,7 @@ const MAP_CELL := 190.0         # world size of one town cell; each host sits in
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.1.9"
+const GAME_VERSION := "0.2.1"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -3297,9 +3297,10 @@ func _mp_end_turn() -> void:
 func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
 	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size())])
 	for h in hosts:
-		parts.append("%d,%d,%d,%d,%s" % [int(h.owner), roundi(float(h.bots) * 1000.0), int(h.assign), int(bool(h.live)), ",".join(PackedStringArray(h.builds))])
+		parts.append("%d,%d,%d,%d,%d,%s,%s,%s" % [int(h.owner), roundi(float(h.bots) * 1000.0), roundi(float(h.sec) * 1000.0), int(h.assign), int(bool(h.live)), str(h.get("mode", "")), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs)])
 	for fac in botnets:
 		parts.append("%d:%d:%d:%d:%d" % [fac, roundi(float(intel[fac]) * 1000.0), roundi(float(cash[fac]) * 1000.0), roundi(float(creds[fac]) * 1000.0), roundi(float(research[fac]) * 1000.0)])
+		parts.append(JSON.stringify(cards[fac]) + JSON.stringify(lab[fac]))   # held cards, research queue and progress
 	return "|".join(parts).md5_text()
 
 

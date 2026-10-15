@@ -1,20 +1,29 @@
-# RIM lobby server
+# RIM server: the web game + the lobby server
 
-The multiplayer back end of RIM: lobbies, lobby/match chat, the ready countdown and the deterministic-lockstep
-turn relay, over one WebSocket per player. It never simulates the game. [PROTOCOL.md](PROTOCOL.md) is the
-contract with the game client.
+One container serves everything at `https://network.thenakedcat.games`:
 
-- Game endpoint: `wss://network.thenakedcat.games/ws`, health check: `https://network.thenakedcat.games/healthz` → `ok`
-- The web game itself stays on GitHub Pages (`.github/workflows/web.yml`); only this server runs on the VPS.
+- `/` — the web game (the Godot Web export, built into the image by the workflow): open the address and play,
+  single player or online.
+- `/ws` — the multiplayer back end: lobbies, lobby/match chat, the ready countdown and the deterministic-lockstep
+  turn relay, over one WebSocket per player. It never simulates the game. [PROTOCOL.md](PROTOCOL.md) is the
+  contract with the game client. The web game served here connects back to this same server.
+- `/api/lobbies` — the lobby list as JSON, for anyone (a browser, `curl`, a status page): every public lobby and
+  match with its state (`open`, `countdown`, `playing`), players, size and game version, how many players are online,
+  and how many private lobbies there are (only counted: their names and codes are never shown).
+- `/healthz` → `ok`
+
+Because the game and its server ship in the same image, they always have the same version (lobbies only match
+players of the same version). Desktop builds and the GitHub Pages copy connect to `wss://network.thenakedcat.games/ws`.
 - Everything lives in memory: restarting the container disconnects every player (lobbies and running matches are lost).
 
 | file | what |
 |---|---|
-| `index.js` | HTTP (`/healthz`, also `/health`), WebSocket upgrade at `/ws`, 8 KB message limit, 20 s ping keepalive, logging |
+| `index.js` | the web game from `public/` (gzip twins, revalidated on every load), `/healthz` (also `/health`), WebSocket upgrade at `/ws`, 8 KB message limit, 20 s ping keepalive, logging |
 | `lobby.js` | the protocol: lobbies, chat, countdown, turn relay, drops, desync check |
 | `test/server.test.js` | end-to-end tests over real sockets (`node:test`) |
+| `public/` | the Web export of the game (filled by the workflow; empty in git) |
 | `Dockerfile` | the image: Node 22 Alpine, runs as user `node`, port 8787, health check on `/healthz` |
-| `../.github/workflows/server.yml` | on a push to `main` that touches `server/**`: test, then build and push the image to GHCR |
+| `../.github/workflows/server.yml` | on every push to `main`: test, export the web game into `public/`, build and push the image to GHCR |
 
 ## Run and test locally
 
@@ -24,19 +33,23 @@ Node 20 or newer:
 cd server
 npm install
 npm test        # end-to-end tests
-npm start       # ws://localhost:8787/ws  and  http://localhost:8787/healthz
+npm start       # ws://localhost:8787/ws, http://localhost:8787/api/lobbies and /healthz
 ```
 
 Environment: `PORT` (default 8787), `COUNTDOWN_MS` (the ready countdown, default 5000). Players always connect to
 the official server; for development a build can be pointed at a local one with the launch argument
 `-- --server=ws://localhost:8787/ws`.
 
-With Docker: `docker build -t rim-lobby . && docker run --rm -p 127.0.0.1:8787:8787 rim-lobby`
+With Docker: `docker build -t rim-lobby . && docker run --rm -p 127.0.0.1:8787:8787 rim-lobby` (without the game: `/` shows
+a placeholder). To try the web game locally, export it first: from the repo root
+`godot --headless --path . --export-release "Web" server/public/index.html`, then `npm start` and open
+http://localhost:8787/ — the page connects to that local server.
 
 ## The image
 
-Every push to `main` that changes `server/**` (or a manual run: Actions → "Lobby server image" → Run workflow) runs
-the tests, then builds the image for `linux/amd64` and `linux/arm64` and pushes it to the GitHub Container Registry:
+Every push to `main` (or a manual run: Actions → "Lobby server image" → Run workflow) runs the tests, exports the web
+game into `public/` (gzipped twins next to the big files), then builds the image for `linux/amd64` and `linux/arm64`
+and pushes it to the GitHub Container Registry:
 
 - `ghcr.io/zzzteph/rim-lobby:latest` — the newest build of `main`
 - `ghcr.io/zzzteph/rim-lobby:sha-<commit>` — every build, to pin or roll back
@@ -53,8 +66,10 @@ docker pull ghcr.io/zzzteph/rim-lobby:latest
 docker rm -f rim-lobby 2>/dev/null || true
 docker run -d --name rim-lobby --restart unless-stopped \
   -p 127.0.0.1:8787:8787 \
+  --log-opt max-size=10m --log-opt max-file=3 \
   ghcr.io/zzzteph/rim-lobby:latest
 curl -fsS http://127.0.0.1:8787/healthz      # "ok"
+curl -fsS http://127.0.0.1:8787/api/lobbies  # who is online, the public lobbies and matches
 docker logs -f rim-lobby                     # one line per connect / disconnect / lobby created / match start
 ```
 
@@ -83,13 +98,15 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;   # the server logs the real client address
         proxy_read_timeout 1h;   # a match can be quiet for a while; the server also pings every 20 s
     }
 }
 ```
 
 DNS: an `A` record `network` → the VPS's IPv4 (and `AAAA` → its IPv6, if any). From anywhere:
-`curl https://network.thenakedcat.games/healthz` → `ok`.
+`curl https://network.thenakedcat.games/healthz` → `ok`, and https://network.thenakedcat.games/api/lobbies lists the
+lobbies.
 
 ## Where PROTOCOL.md leaves room, the server does this
 

@@ -35,6 +35,10 @@ func _ready() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) == OK:
 		player_name = clean_name(str(cfg.get_value("mp", "name", player_name)))
+	if OS.has_feature("web"):   # the web game served by the server itself talks to that same server (official host or a local test)
+		var host = JavaScriptBridge.eval("location.hostname")
+		if str(host) in ["network.thenakedcat.games", "localhost", "127.0.0.1"]:
+			url = str(JavaScriptBridge.eval("(location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'"))
 	for arg in OS.get_cmdline_user_args():   # testing against a local server: -- --server=ws://localhost:8787/ws
 		if arg.begins_with("--server="): url = arg.trim_prefix("--server=")
 

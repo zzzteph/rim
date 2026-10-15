@@ -1,13 +1,13 @@
 name: Lobby server image
 
-# Tests the multiplayer lobby server (server/), then builds its Docker image and publishes it to the GitHub
-# Container Registry as ghcr.io/<owner>/rim-lobby — tags :latest (main only) and :sha-<commit> — for linux/amd64
-# and linux/arm64. The VPS runs it with plain docker commands (server/README.md → "Deploy"); nothing is copied there.
+# Tests the multiplayer server (server/), exports the web game into it, then builds the Docker image and publishes it to
+# the GitHub Container Registry as ghcr.io/<owner>/rim-lobby — tags :latest (main only) and :sha-<commit> — for
+# linux/amd64 and linux/arm64. One container serves the game at / and the lobby at /ws, so the game and its server
+# always have the same version. The VPS runs it with plain docker commands (server/README.md → "Deploy").
 
 on:
   push:
     branches: [ main ]
-    paths: [ "server/**", ".github/workflows/server.yml" ]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +16,10 @@ permissions:
 concurrency:
   group: lobby-server-image
   cancel-in-progress: false
+
+env:
+  # Must be a version whose Linux editor AND export templates are on github.com/godotengine/godot-builds/releases.
+  GODOT_VERSION: "4.7.2"
 
 jobs:
   test:
@@ -42,6 +46,38 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      - name: Cache Godot and its export templates
+        id: godot-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/godot-bin
+            ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-${{ env.GODOT_VERSION }}-linux-web
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} + export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable"
+          curl -fL "$BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -o godot.zip
+          unzip -q godot.zip && mkdir -p ~/godot-bin && mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" ~/godot-bin/godot
+          curl -fL "$BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -o templates.tpz
+          unzip -q templates.tpz -d _tpz
+          T=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$T" && mv _tpz/templates/web_* _tpz/templates/version.txt "$T/"   # only what a Web export needs
+          rm -rf _tpz templates.tpz godot.zip
+
+      - name: Export the web game into server/public
+        run: |
+          set -euo pipefail
+          chmod +x ~/godot-bin/godot
+          timeout 300 ~/godot-bin/godot --headless --path . --import || true   # builds the resource cache
+          ~/godot-bin/godot --headless --path . --export-release "Web" server/public/index.html
+          test -f server/public/index.html && test -f server/public/index.wasm && test -f server/public/index.pck
+          gzip -9 -k server/public/*.wasm server/public/*.pck server/public/*.js server/public/*.html   # served to browsers that take gzip
+          ls -la server/public
+
       - name: Image name (GHCR wants it in lower case)
         id: name
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rim-lobby" >> "$GITHUB_OUTPUT"
@@ -64,7 +100,7 @@ jobs:
             type=sha,prefix=sha-,format=short
           labels: |
             org.opencontainers.image.title=rim-lobby
-            org.opencontainers.image.description=RIM multiplayer lobby server and lockstep relay
+            org.opencontainers.image.description=RIM web game and multiplayer lobby server
 
       - uses: docker/build-push-action@v7.4.0
         with:

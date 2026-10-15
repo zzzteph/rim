@@ -131,7 +131,7 @@ const readyAll = async (players) => {
 };
 
 // ---- HTTP ----
-test('GET /health answers 200 ok, other paths 404, and WebSockets upgrade only at /ws', async () => {
+test('GET /health answers 200 ok, unknown paths 404, and WebSockets upgrade only at /ws', async () => {
   const base = `http://127.0.0.1:${srv.port}`;
   const health = await fetch(`${base}/health`);
   assert.equal(health.status, 200);
@@ -139,7 +139,7 @@ test('GET /health answers 200 ok, other paths 404, and WebSockets upgrade only a
   const healthz = await fetch(`${base}/healthz`);   // the path the VPS check and the Docker HEALTHCHECK use
   assert.equal(healthz.status, 200);
   assert.equal(await healthz.text(), 'ok');
-  const other = await fetch(`${base}/index.html`);
+  const other = await fetch(`${base}/no-such-file.txt`);   // / and the game's files are served (see 'the web game')
   assert.equal(other.status, 404);
   await other.text();
   await assert.rejects(Client.open(undefined, undefined, { url: `ws://127.0.0.1:${srv.port}/elsewhere` }), /404/);
@@ -615,4 +615,120 @@ test('guessing private codes: after 10 wrong codes even a right one waits', asyn
   guesser.send({ t: 'join', code: lobby.code });
   assert.match((await guesser.next('error')).msg, /Too many tries/);
   await guesser.none('lobby');
+});
+
+// ---- what the game's JSON parser cannot read must never be relayed ----
+test('a turn with an unpaired surrogate or deep nesting cuts the sender off before anyone has to wait for it', async () => {
+  for (const cmds of ['[["research","\\ud800"]]', '[[' + '['.repeat(10) + ']'.repeat(10) + ']]', '[{"t":1}]']) {
+    const { players: [a, b] } = await matchOf(2);
+    a.send(`{"t":"turn","turn":2,"cmds":${cmds}}`); // raw text: JSON.stringify would not produce a lone surrogate
+    assert.match((await a.next('error')).msg, /Malformed/);
+    assert.equal(await a.closed, 1008);
+    assert.deepEqual(await b.next('drop'), { t: 'drop', faction: 1, from_turn: 2 }); // turn 2 is not required
+    await b.none('turn');
+  }
+});
+
+test('names and chat with an unpaired surrogate are repaired, so every message stays readable', async () => {
+  const version = freshVersion();
+  const p = await Client.open(undefined, version);
+  p.send('{"t":"hello","name":"A\\ud800B","version":"' + version + '"}');
+  const welcome = await p.next('welcome');
+  assert.equal(welcome.name, 'A\uFFFDB');
+  p.send({ t: 'create', public: true, max: 2, size: 'small' });
+  const { lobby } = await p.next('lobby');
+  assert.ok(lobby.name.isWellFormed() && lobby.players.every((q) => q.name.isWellFormed()));
+  p.send('{"t":"chat","text":"hi \\udc00"}');
+  assert.equal((await p.next('chat')).text, 'hi \uFFFD');
+});
+
+test('turns sent outside a match count toward the message limit', async () => {
+  const p = await Client.open('Spam', freshVersion());
+  for (let i = 0; i < 45; i++) p.send({ t: 'turn', turn: 2 + i, cmds: [] });
+  assert.match((await p.next('error', (m) => /Too many/.test(m.msg))).msg, /Too many messages/);
+  assert.equal(await p.closed, 1008);
+  assert.equal(p.seen.filter((m) => m.t === 'error').length, 1); // cut off once, then ignored
+});
+
+// ---- the web game ----
+test('the web game: types, gzip twins for browsers that take them, revalidation, nothing outside its folder', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const zlibSync = await import('node:zlib');
+  const { gzipSync } = zlibSync;
+  const http = await import('node:http');
+  const dir = await mkdtemp(join(tmpdir(), 'rim-public-'));
+  const wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+  await writeFile(join(dir, 'index.html'), '<!doctype html>game');
+  await writeFile(join(dir, 'index.wasm'), wasm);
+  await writeFile(join(dir, 'index.wasm.gz'), gzipSync(wasm));
+  const empty = await mkdtemp(join(tmpdir(), 'rim-empty-'));
+  const web = await startServer({ port: 0, host: '127.0.0.1', log: () => {}, publicDir: dir });
+  const none = await startServer({ port: 0, host: '127.0.0.1', log: () => {}, publicDir: empty });
+  const raw = (port, path, headers = {}, method = 'GET') => new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path, method, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  try {
+    const page = await raw(web.port, '/');
+    assert.equal(page.status, 200);
+    assert.match(page.headers['content-type'], /text\/html/);
+    assert.equal(page.headers['cache-control'], 'no-cache');
+    assert.equal(page.body.toString(), '<!doctype html>game');
+    const plain = await raw(web.port, '/index.wasm');
+    assert.equal(plain.headers['content-type'], 'application/wasm');
+    assert.equal(plain.headers['content-encoding'], undefined);
+    assert.deepEqual(plain.body, wasm);
+    const zipped = await raw(web.port, '/index.wasm', { 'accept-encoding': 'gzip, br' });
+    assert.equal(zipped.headers['content-encoding'], 'gzip');
+    assert.deepEqual(gunzip(zipped.body), wasm);
+    const again = await raw(web.port, '/index.wasm', { 'if-none-match': plain.headers.etag });
+    assert.equal(again.status, 304);
+    const head = await raw(web.port, '/index.html', {}, 'HEAD');
+    assert.equal(head.status, 200);
+    assert.equal(head.body.length, 0);
+    assert.equal((await raw(web.port, '/missing.js')).status, 404);
+    assert.equal((await raw(web.port, '/..%2fpackage.json')).status, 404); // outside the folder
+    assert.equal((await raw(web.port, '/%E0%A4%A')).status, 404); // a broken escape
+    assert.equal((await raw(web.port, '/healthz')).body.toString(), 'ok');
+    const placeholder = await raw(none.port, '/'); // an image built without the game still answers
+    assert.equal(placeholder.status, 200);
+    assert.match(placeholder.body.toString(), /not in this server image/);
+  } finally {
+    await web.close();
+    await none.close();
+    await rm(dir, { recursive: true, force: true });
+    await rm(empty, { recursive: true, force: true });
+  }
+  function gunzip(b) { return Buffer.from(zlibSync.gunzipSync(b)); }
+});
+
+// ---- the lobby list over plain HTTP ----
+test('GET /api/lobbies: public lobbies and matches with their state; private ones only counted; never a code', async () => {
+  const open = await lobbyOf(1, { size: 'small' });
+  const match = await matchOf(2);
+  const hidden = await lobbyOf(1, { public: false });
+  const res = await fetch(`http://127.0.0.1:${srv.port}/api/lobbies`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /application\/json/);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  const text = await res.text();
+  const body = JSON.parse(text);
+  const of = (version) => body.lobbies.filter((l) => l.version === version);
+  assert.deepEqual(of(open.version), [{ id: open.lobby.id, name: "P1's lobby", state: 'open', players: 1, max: 3, size: 'small', version: open.version }]);
+  assert.deepEqual(of(match.version).map((l) => [l.state, l.players]), [['playing', 2]]);
+  assert.deepEqual(of(hidden.version), []);
+  assert.ok(body.private >= 1);
+  assert.ok(body.online >= 4);
+  for (const code of [open.lobby.code, match.lobby.code, hidden.lobby.code]) assert.ok(!text.includes(code));
+  const before = body.online;
+  for (const p of [...open.players, ...match.players, ...hidden.players]) p.drop();
+  await until(() => srv.hub.online <= before - 4);
+  assert.equal((await fetch(`http://127.0.0.1:${srv.port}/api/lobbies`, { method: 'HEAD' })).status, 200);
 });

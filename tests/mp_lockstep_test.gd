@@ -121,6 +121,7 @@ func _run() -> void:
 	var ta := _neutral_next_to(a, 1); var tb := _neutral_next_to(b, 2)
 	check(ta >= 0 and tb >= 0, "Fixture: each player has a neutral neighbour to attack")
 	var sec_a: float = float(a.hosts[ta].sec)
+	var bots_tb: float = float(a.hosts[tb].bots)   # player 2's target, on player 1's screen
 	a.sel = {}
 	for i in _owned(a, 1): a.sel[i] = true
 	a._wire(ta); a._launch(ta, "attack")
@@ -141,7 +142,7 @@ func _run() -> void:
 			if a._mp_hash() != b._mp_hash() and mismatch < 0: mismatch = done[1]
 	check(turns >= 250 and mismatch < 0, "Identical simulation on both screens after every one of %d turns (first mismatch: %d)" % [turns, mismatch])
 	check(int(a.hosts[ta].owner) == 1 or float(a.hosts[ta].bots) < sec_a, "Player 1's wire + attack reached the target")
-	check(int(b.hosts[tb].owner) == 2 or float(b.hosts[tb].bots) < float(a.hosts[tb].sec) + 0.001, "Player 2's attack is seen on player 1's screen too")
+	check(int(a.hosts[tb].owner) == 2 or float(a.hosts[tb].bots) < bots_tb, "Player 2's attack is seen on player 1's screen too")
 	check(not (b.hosts[second_b].builds as Array).filter(func(x): return str(x) == "intel").is_empty() or not (b.hosts[second_b].jobs as Dictionary).is_empty(), "Player 2's build order runs on its building")
 	check((a.lab[1].queue as Array).has("phishworm:linked") or int(a._held(1, "phishworm:linked")) > 0, "Player 1's research order is in its lab")
 	check(r.hashes.size() >= 8, "Each screen reports a state fingerprint every 30 turns (%d reports)" % r.hashes.size())

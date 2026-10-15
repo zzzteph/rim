@@ -19,8 +19,20 @@ const MSG_WINDOW_MS = 10_000; // ... within this window; more closes the connect
 const JOIN_FAILS = 10; // failed joins (wrong code, gone lobby) per connection ...
 const JOIN_WINDOW_MS = 60_000; // ... within this window; then even a right code waits (no guessing private codes)
 
-// Trimmed text with control characters (newlines, tabs, …) turned into spaces; '' for anything but a string.
-const clean = (raw) => (typeof raw === 'string' ? raw.replace(/\p{Cc}+/gu, ' ').trim() : '');
+// Trimmed text with control characters (newlines, tabs, …) turned into spaces and broken UTF-16 (an unpaired
+// surrogate, which the game's JSON parser rejects outright) repaired to U+FFFD; '' for anything but a string.
+const clean = (raw) => (typeof raw === 'string' ? raw.toWellFormed().replace(/\p{Cc}+/gu, ' ').trim() : '');
+
+// Whether a turn's commands can be relayed: plain arrays of numbers, booleans, null and well-formed strings, nested at
+// most CMD_DEPTH deep (a real command is at most ["wire", [sources], target]). Godot's JSON parser refuses unpaired
+// surrogates and very deep nesting that V8 accepts: a client would silently drop such a turn and wait for it forever.
+const CMD_DEPTH = 4;
+const relayable = (v, depth = 0) => {
+  if (typeof v === 'string') return v.isWellFormed();
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v === 'boolean' || v === null) return true;
+  return Array.isArray(v) && depth < CMD_DEPTH && v.every((x) => relayable(x, depth + 1));
+};
 const chars = (s) => [...s]; // characters (code points), not UTF-16 units
 
 export const cleanName = (raw) => chars(clean(raw)).slice(0, NAME_MAX).join('').trim() || 'Player';
@@ -56,6 +68,7 @@ export class Hub {
     this.codes = new Map(); // code -> lobby
     this.nextPlayer = 1;
     this.nextLobby = 1;
+    this.online = 0; // connections that said hello
     this.sweep = setInterval(() => this.checkStalls(), Math.max(50, Math.min(2000, stallMs / 4)));
     this.sweep.unref?.();
   }
@@ -67,6 +80,7 @@ export class Hub {
 
   disconnect(c) {
     if (!c.id) return; // never said hello
+    this.online--;
     if (c.lobby) this.remove(c);
     this.log(`disconnect #${c.id} "${c.name}"`);
   }
@@ -77,7 +91,8 @@ export class Hub {
   }
 
   handle(c, msg) {
-    if (msg?.t !== 'turn') { // turns are bounded by the lockstep itself (see turn); everything else by rate
+    if (c.kicked) return; // being cut off: whatever it still sends is ignored (and not logged)
+    if (msg?.t !== 'turn' || c.lobby?.state !== 'playing') { // match turns are bounded by the lockstep (see turn)
       const now = Date.now();
       c.msgs = c.msgs.filter((t) => now - t < MSG_WINDOW_MS);
       if (c.msgs.length >= MSG_BURST) return this.kick(c, 'Too many messages');
@@ -108,6 +123,7 @@ export class Hub {
   // ---- connection ----
   hello(c, msg) {
     c.id = this.nextPlayer++;
+    this.online++;
     c.name = cleanName(msg.name);
     c.version = clean(String(msg.version ?? '')).slice(0, 32);
     this.send(c, { t: 'welcome', id: c.id, name: c.name });
@@ -133,6 +149,19 @@ export class Hub {
       }
     }
     this.send(c, { t: 'lobbies', lobbies });
+  }
+
+  // What GET /api/lobbies shows anyone, no game needed: every public lobby and match with its state and the game version
+  // it plays (the game itself lists only the open ones of its own version). Private lobbies are only counted: their
+  // names and codes stay private, and no code is ever shown.
+  overview() {
+    const lobbies = [];
+    let hidden = 0;
+    for (const l of this.lobbies.values()) {
+      if (!l.public) { hidden++; continue; }
+      lobbies.push({ id: l.id, name: lobbyName(l), state: l.state, players: l.players.length, max: l.max, size: l.size, version: l.version });
+    }
+    return { online: this.online, lobbies, private: hidden };
   }
 
   create(c, msg) {
@@ -281,6 +310,7 @@ export class Hub {
     if (msg.turn !== c.lastTurn + 1) return this.kick(c, 'Turns must come one after another');
     if (!Array.isArray(msg.cmds)) return this.error(c, 'A turn needs a cmds list');
     if (msg.cmds.length > MAX_CMDS) return this.error(c, `At most ${MAX_CMDS} commands per turn`);
+    if (!msg.cmds.every((cmd) => Array.isArray(cmd)) || !relayable(msg.cmds)) return this.kick(c, 'Malformed turn');
     // A client simulates turn T only with everyone's turn T, then sends T + DELAY: it never leads the slowest
     // member by more than DELAY. Anything further ahead is a flood, not a player.
     let slowest = Infinity;
@@ -346,6 +376,8 @@ export class Hub {
   }
   error(c, msg) { this.send(c, { t: 'error', msg }); }
   kick(c, msg) { // tell why, then close: the disconnect handling (drop, host transfer, …) follows from the close
+    if (c.kicked) return;
+    c.kicked = true;
     this.error(c, msg);
     this.log(`kick #${c.id} "${c.name}": ${msg}`);
     c.close(1008, msg);

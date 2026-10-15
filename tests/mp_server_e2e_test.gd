@@ -6,7 +6,7 @@ extends SceneTree
 ## Needs Node.js (and `npm ci` once in server/).
 ##   godot --headless --path . --script tests/mp_server_e2e_test.gd
 
-const PORT := 8799
+var PORT := 0                # picked per run (see _initialize): two runs never collide
 var checks := 0
 var failures: Array = []
 var server_pid := -1
@@ -19,6 +19,7 @@ func check(ok: bool, label: String) -> void:
 
 
 func _initialize() -> void:
+	PORT = 20000 + int(Time.get_ticks_usec() % 20000)
 	_run.call_deferred()
 
 
