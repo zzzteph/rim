@@ -225,9 +225,10 @@ match from the UI must go through `_cmd`, and nothing in `_sim_step` may depend 
 (selection, `PLAYER`, time of day, `randf()`): otherwise the screens drift apart. `tests/mp_lockstep_test.gd`
 checks exactly that.
 
-The connection and lobby state live in `scripts/botnet_net.gd` (one WebSocket; the default server is
-`wss://network.thenakedcat.games/ws`, changeable in the Multiplayer menu or with
-`-- --server=ws://localhost:8787/ws`). The server (Node.js, `server/`) only runs lobbies, chat, the ready
+The connection and lobby state live in `scripts/botnet_net.gd` (one WebSocket). Players always use the one
+official server, `wss://network.thenakedcat.games/ws`: Multiplayer connects to it by itself and keeps retrying
+while the menu is open; when it cannot be reached the lobby list says "Server unavailable". For development
+only, the launch argument `-- --server=ws://localhost:8787/ws` points a build at a local server. The server (Node.js, `server/`) only runs lobbies, chat, the ready
 countdown and relays turns. `.github/workflows/server.yml` tests it and publishes the Docker image
 `ghcr.io/zzzteph/rim-lobby` (`:latest`, `:sha-<commit>`) to GHCR; the VPS runs it with `docker run`, bound to
 `127.0.0.1:8787` behind its reverse proxy — see `server/README.md`. The game itself stays on GitHub Pages.

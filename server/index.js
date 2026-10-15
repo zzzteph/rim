@@ -19,10 +19,11 @@ export async function startServer({
   port = envInt('PORT', 8787),
   host, // default: every interface
   countdownMs = envInt('COUNTDOWN_MS', 5000), // ready countdown (shortened by the tests)
+  stallMs = envInt('STALL_MS', 30_000), // a match member the others wait for, silent this long, leaves the match
   pingMs = 20_000, // keepalive: ping every client this often, close those that missed the previous pong
   log = stamp,
 } = {}) {
-  const hub = new Hub({ countdownMs, log });
+  const hub = new Hub({ countdownMs, stallMs, log });
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
   const server = createServer((req, res) => {
     const health = (req.method === 'GET' || req.method === 'HEAD') && ['/healthz', '/health'].includes(req.url.split('?')[0]);
@@ -46,7 +47,7 @@ export async function startServer({
       if (ws.readyState !== WebSocket.OPEN) return;
       if (ws.bufferedAmount > MAX_BACKLOG) return ws.terminate();
       ws.send(text);
-    }, ip);
+    }, ip, (code, reason) => ws.close(code, reason));
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('message', (data) => {

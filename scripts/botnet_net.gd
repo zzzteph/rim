@@ -9,12 +9,17 @@ signal match_message(msg: Dictionary)   # start · turn · drop · desync · clo
 const OFFICIAL_URL := "wss://network.thenakedcat.games/ws"
 const SAVE_PATH := "user://multiplayer.cfg"
 const CHAT_KEEP := 60
+const RETRY_MS := 5000                  # while auto_retry is on, an unreachable server is tried again this often
+const ERROR_SHOW_MS := 6000             # a server error ("Lobby is full") is shown this long
+const UNAVAILABLE := "Server unavailable"
 
-var url := OFFICIAL_URL
+var url := OFFICIAL_URL                 # always the official server; only a developer's --server=… argument changes it
+var auto_retry := false                 # the multiplayer menu is open: keep (re)connecting on our own
 var player_name := "Player"
 var version := ""                       # the game version: lobbies only match the same one
 var status := "offline"                 # offline · connecting · online
 var error := ""                         # the last problem, shown in the menu
+var error_at := 0                       # Time.get_ticks_msec() of the last server error
 var my_id := -1
 var lobbies: Array = []                 # public open lobbies of this version
 var lobby: Dictionary = {}              # the lobby you are in ({} when none)
@@ -22,6 +27,7 @@ var chat: Array = []                    # [{"name", "text", "system"}], newest l
 var countdown_end := 0                  # Time.get_ticks_msec() when the start countdown ends (0: none)
 var _ws: WebSocketPeer = null
 var _was := WebSocketPeer.STATE_CLOSED
+var _retry_at := 0
 
 
 func _ready() -> void:
@@ -29,7 +35,6 @@ func _ready() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) == OK:
 		player_name = clean_name(str(cfg.get_value("mp", "name", player_name)))
-		url = str(cfg.get_value("mp", "url", url)).strip_edges()
 	for arg in OS.get_cmdline_user_args():   # testing against a local server: -- --server=ws://localhost:8787/ws
 		if arg.begins_with("--server="): url = arg.trim_prefix("--server=")
 
@@ -41,7 +46,7 @@ static func clean_name(n: String) -> String:
 
 func save() -> void:
 	var cfg := ConfigFile.new()
-	cfg.set_value("mp", "name", player_name); cfg.set_value("mp", "url", url)
+	cfg.set_value("mp", "name", player_name)
 	cfg.save(SAVE_PATH)
 
 
@@ -56,17 +61,20 @@ func me_ready() -> bool:
 	return false
 
 
+func recent_error() -> String:   # the server's last refusal while it is fresh ("" otherwise, and never UNAVAILABLE)
+	return error if error != UNAVAILABLE and error != "" and Time.get_ticks_msec() - error_at < ERROR_SHOW_MS else ""
+
+
 func countdown_left() -> float:   # seconds until the match starts, 0 when no countdown runs
 	return maxf(0.0, float(countdown_end - Time.get_ticks_msec()) / 1000.0) if countdown_end > 0 else 0.0
 
 
-func open() -> void:   # (re)connect to url
+func open() -> void:   # (re)connect to url; a failure is reported as UNAVAILABLE (cleared once the server welcomes us)
 	close()
-	error = ""
 	_ws = WebSocketPeer.new()
 	_ws.inbound_buffer_size = 1 << 20
 	if _ws.connect_to_url(url) != OK:
-		_ws = null; error = "Cannot reach %s" % url; changed.emit(); return
+		_ws = null; error = UNAVAILABLE; _retry_at = Time.get_ticks_msec() + RETRY_MS; changed.emit(); return
 	status = "connecting"; _was = WebSocketPeer.STATE_CONNECTING
 	changed.emit()
 
@@ -99,7 +107,9 @@ func say(text: String) -> void:
 
 
 func _process(_dt: float) -> void:
-	if _ws == null: return
+	if _ws == null:
+		if auto_retry and Time.get_ticks_msec() >= _retry_at: open()
+		return
 	_ws.poll()
 	var st := _ws.get_ready_state()
 	if st == WebSocketPeer.STATE_OPEN and _was != WebSocketPeer.STATE_OPEN:
@@ -109,9 +119,9 @@ func _process(_dt: float) -> void:
 		var parsed: Variant = JSON.parse_string(_ws.get_packet().get_string_from_utf8())
 		if parsed is Dictionary: _on(parsed)
 	if _ws != null and st == WebSocketPeer.STATE_CLOSED:
-		var was_online := status == "online"
 		_ws = null; status = "offline"; my_id = -1; lobby = {}; countdown_end = 0
-		if error == "": error = "Disconnected from the server" if was_online else "Cannot reach %s" % url
+		error = UNAVAILABLE
+		_retry_at = Time.get_ticks_msec() + RETRY_MS
 		match_message.emit({"t": "closed"})
 		changed.emit()
 
@@ -132,13 +142,14 @@ func _on(m: Dictionary) -> void:
 		"left":
 			lobby = {}; countdown_end = 0; chat.clear()
 			send({"t": "list"})
+			match_message.emit(m)   # out of a running match too (a late Leave, or removed for not responding)
 		"chat":
 			chat.append({"name": str(m.get("name", "")), "text": str(m.get("text", "")), "system": bool(m.get("system", false))})
 			while chat.size() > CHAT_KEEP: chat.pop_front()
 		"countdown":
 			var secs := float(m.get("secs", 0))
 			countdown_end = Time.get_ticks_msec() + int(secs * 1000.0) if secs > 0.0 else 0
-		"error": error = str(m.get("msg", "Something went wrong"))
+		"error": error = str(m.get("msg", "Something went wrong")); error_at = Time.get_ticks_msec()
 		"start":
 			countdown_end = 0
 			match_message.emit(m)

@@ -13,6 +13,11 @@ const CHAT_BURST = 5; // chat messages per player ...
 const CHAT_WINDOW_MS = 5000; // ... within this window
 const HASH_MAX = 128; // longest state hash accepted
 const HASH_PENDING = 128; // hash turns a match remembers while waiting for every faction's report
+const LOOKAHEAD = DELAY + 2; // a turn may lead the slowest other member's last turn by this much (lockstep allows DELAY)
+const MSG_BURST = 40; // messages (turns aside) per connection ...
+const MSG_WINDOW_MS = 10_000; // ... within this window; more closes the connection
+const JOIN_FAILS = 10; // failed joins (wrong code, gone lobby) per connection ...
+const JOIN_WINDOW_MS = 60_000; // ... within this window; then even a right code waits (no guessing private codes)
 
 // Trimmed text with control characters (newlines, tabs, …) turned into spaces; '' for anything but a string.
 const clean = (raw) => (typeof raw === 'string' ? raw.replace(/\p{Cc}+/gu, ' ').trim() : '');
@@ -42,18 +47,22 @@ function readSettings(msg, base, players) {
 }
 
 export class Hub {
-  constructor({ countdownMs = 5000, log = () => {} } = {}) {
+  constructor({ countdownMs = 5000, stallMs = 30_000, log = () => {} } = {}) {
     this.countdownMs = countdownMs;
     this.countdownSecs = Math.max(1, Math.ceil(countdownMs / 1000)); // 5 with the default 5000 ms
+    this.stallMs = stallMs; // a member others wait for that sends no turn this long is removed (see checkStalls)
     this.log = log;
     this.lobbies = new Map(); // id -> lobby (open, countdown or playing)
     this.codes = new Map(); // code -> lobby
     this.nextPlayer = 1;
     this.nextLobby = 1;
+    this.sweep = setInterval(() => this.checkStalls(), Math.max(50, Math.min(2000, stallMs / 4)));
+    this.sweep.unref?.();
   }
 
-  connect(send, ip = '?') {
-    return { id: 0, name: '', version: '', ip, send, lobby: null, ready: false, faction: 0, lastTurn: 0, chats: [] };
+  // `send` takes one JSON text; `close(code, reason)` ends the connection (a misbehaving client is cut off).
+  connect(send, ip = '?', close = () => {}) {
+    return { id: 0, name: '', version: '', ip, send, close, lobby: null, ready: false, faction: 0, lastTurn: 0, lastTurnAt: 0, chats: [], msgs: [], joinFails: [] };
   }
 
   disconnect(c) {
@@ -63,10 +72,17 @@ export class Hub {
   }
 
   close() {
+    clearInterval(this.sweep);
     for (const l of this.lobbies.values()) clearTimeout(l.timer);
   }
 
   handle(c, msg) {
+    if (msg?.t !== 'turn') { // turns are bounded by the lockstep itself (see turn); everything else by rate
+      const now = Date.now();
+      c.msgs = c.msgs.filter((t) => now - t < MSG_WINDOW_MS);
+      if (c.msgs.length >= MSG_BURST) return this.kick(c, 'Too many messages');
+      c.msgs.push(now);
+    }
     if (msg === null || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.t !== 'string') {
       return this.error(c, 'Bad message');
     }
@@ -136,10 +152,16 @@ export class Hub {
 
   join(c, msg) {
     if (c.lobby) return this.error(c, 'You are already in a lobby');
+    const now = Date.now();
+    c.joinFails = c.joinFails.filter((t) => now - t < JOIN_WINDOW_MS);
+    if (c.joinFails.length >= JOIN_FAILS) return this.error(c, 'Too many tries: wait a minute');
     const code = typeof msg.code === 'string' ? msg.code.trim().toUpperCase() : '';
     let l = code ? this.codes.get(code) : this.lobbies.get(msg.id);
     if (l && !code && !l.public) l = undefined; // a private lobby is joined by code only
-    if (!l) return this.error(c, code ? 'No lobby has that code' : 'That lobby is gone');
+    if (!l) {
+      c.joinFails.push(now);
+      return this.error(c, code ? 'No lobby has that code' : 'That lobby is gone');
+    }
     if (l.version !== c.version) return this.error(c, `That lobby runs game version ${l.version || '?'} (you have ${c.version || '?'})`);
     if (l.state === 'playing') return this.error(c, 'That match has already started');
     if (l.players.length >= l.max) return this.error(c, 'Lobby is full');
@@ -237,9 +259,11 @@ export class Hub {
     if (l.state !== 'countdown' || this.lobbies.get(l.id) !== l) return;
     l.state = 'playing';
     const seed = randomInt(1, 900001);
+    const now = Date.now();
     const players = l.players.map((p, i) => {
       p.faction = i + 1;
       p.lastTurn = DELAY - 1; // turns 0 … DELAY-1 are empty for everybody and never sent
+      p.lastTurnAt = now;
       return { id: p.id, name: p.name, faction: p.faction };
     });
     for (const p of l.players) {
@@ -253,10 +277,35 @@ export class Hub {
     const l = c.lobby;
     // Dropped: not in a match, or not after this player's previous turn (which starts at DELAY - 1).
     if (!l || l.state !== 'playing' || !Number.isSafeInteger(msg.turn) || msg.turn <= c.lastTurn) return;
+    // A gap would make from_turn a lie: the others would wait for the missing turns forever.
+    if (msg.turn !== c.lastTurn + 1) return this.kick(c, 'Turns must come one after another');
     if (!Array.isArray(msg.cmds)) return this.error(c, 'A turn needs a cmds list');
     if (msg.cmds.length > MAX_CMDS) return this.error(c, `At most ${MAX_CMDS} commands per turn`);
+    // A client simulates turn T only with everyone's turn T, then sends T + DELAY: it never leads the slowest
+    // member by more than DELAY. Anything further ahead is a flood, not a player.
+    let slowest = Infinity;
+    for (const p of l.players) if (p !== c) slowest = Math.min(slowest, p.lastTurn);
+    if (msg.turn > slowest + LOOKAHEAD) return this.kick(c, 'Too far ahead of the other players');
     c.lastTurn = msg.turn;
+    c.lastTurnAt = Date.now();
     this.broadcast(l, { t: 'turn', turn: msg.turn, from: c.faction, cmds: msg.cmds });
+  }
+
+  // A member the others are waiting for (one of them is already DELAY turns past it) that has sent no turn for
+  // stallMs (a hidden browser tab, a frozen machine) leaves the match like a disconnect: its botnet stays, idle,
+  // and the others play on. When everyone stops together (the match is over) nobody is waiting.
+  checkStalls(now = Date.now()) {
+    for (const l of this.lobbies.values()) {
+      if (l.state !== 'playing' || l.players.length < 2) continue;
+      for (const c of [...l.players]) {
+        const waited = l.players.some((p) => p !== c && p.lastTurn >= c.lastTurn + DELAY);
+        if (!waited || now - c.lastTurnAt <= this.stallMs) continue;
+        this.log(`stall #${c.id} "${c.name}" left lobby #${l.id} at turn ${c.lastTurn}`);
+        this.remove(c);
+        this.error(c, `You left the match: no response for ${Math.round(this.stallMs / 1000)} s`);
+        this.send(c, { t: 'left' });
+      }
+    }
   }
 
   hash(c, msg) {
@@ -296,5 +345,10 @@ export class Hub {
     for (const p of l.players) p.send(text);
   }
   error(c, msg) { this.send(c, { t: 'error', msg }); }
+  kick(c, msg) { // tell why, then close: the disconnect handling (drop, host transfer, …) follows from the close
+    this.error(c, msg);
+    this.log(`kick #${c.id} "${c.name}": ${msg}`);
+    c.close(1008, msg);
+  }
   system(l, text) { this.broadcast(l, { t: 'chat', system: true, text }); }
 }

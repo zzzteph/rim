@@ -106,7 +106,7 @@ const MAP_CELL := 190.0         # world size of one town cell; each host sits in
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.1.6"
+const GAME_VERSION := "0.1.9"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1401,6 +1401,7 @@ func _src_state(s: int) -> String:
 # ============================================================ LOOP
 func _process(dt: float) -> void:
 	_pace_frames()
+	if net != null: net.auto_retry = menu_open and _menu_view in ["mp", "lobby"]   # keep trying the server while you look at it
 	if _msg_t > 0.0: _msg_t -= dt
 	if _mp_on:
 		if not won and not lost: _mp_advance(dt)
@@ -1426,6 +1427,8 @@ func _process(dt: float) -> void:
 	if menu_open:
 		_menu_t += dt; queue_redraw()                     # keep the menu's drifting packets moving
 		if _menu_view == "lobby" and net != null: _mp_tick_countdown()
+		elif _menu_view == "mp" and net != null and _mp_ui.has("list") and str(_mp_ui.get("err_shown", "")) != net.recent_error():
+			_mp_fill_browser()   # a server refusal appeared or ran out
 		return
 	if tick:   # the slow layers and the HUD: on a view change at once, else MAP_REFRESH-ly while the match runs
 		hud.queue_redraw()
@@ -3122,7 +3125,7 @@ func _size_menu(w: float, h: float) -> void:   # fit the panel to the view so no
 
 
 func _fit_menu_to_contents() -> void:
-	if menu_box == null or _menu_view == "help": return
+	if menu_box == null or _menu_view in ["help", "mp", "lobby"]: return
 	var height := minf(menu_box.get_combined_minimum_size().y + 44, get_viewport_rect().size.y - 48)
 	_size_menu(menu_panel.size.x, height)
 
@@ -3141,8 +3144,11 @@ func _refresh_menu() -> void:
 		"help": _size_menu(680.0, 640.0); _menu_help()
 		"newgame": _size_menu(MENU_W, 452.0); _menu_newgame()
 		"feedback": _size_menu(480.0, 590.0); _menu_feedback()
-		"mp": _size_menu(560.0, 600.0); _menu_mp()
-		"lobby": _size_menu(640.0, 660.0); _menu_lobby()
+		"mp", "lobby":   # the whole window (minus a margin), in two columns
+			var vp := get_viewport_rect().size
+			_size_menu(maxf(560.0, vp.x - 48.0), maxf(480.0, vp.y - 48.0))
+			if _menu_view == "mp": _menu_mp()
+			else: _menu_lobby()
 		_:
 			var nb := (6 if (_t >= 0.01 and not won and not lost) else 5) + (0 if _mp_on else 1)
 			_size_menu(MENU_W, 96.0 + float(nb) * 52.0); _menu_main()
@@ -3190,7 +3196,7 @@ func _mp_on_message(m: Dictionary) -> void:
 		"turn":
 			if not _mp_on: return
 			var turn := _int(m.get("turn")); var from := _int(m.get("from"))
-			if turn < _mp_turn or not humans.has(from): return
+			if turn < _mp_turn or turn > _mp_turn + 256 or not humans.has(from): return   # far ahead: a flood, not a player
 			if not _mp_turns.has(turn): _mp_turns[turn] = {}
 			_mp_turns[turn][from] = m.get("cmds") if m.get("cmds") is Array else []
 		"drop":
@@ -3203,6 +3209,8 @@ func _mp_on_message(m: Dictionary) -> void:
 			if _mp_on and _mp_desync < 0:
 				_mp_desync = _int(m.get("turn"))
 				_flash("The players' games drifted apart (turn %d) — this match can no longer be trusted. Leave from the menu." % _mp_desync, 4)
+		"left":   # the server took you out of the match (a Leave at the last moment, or no response): back to the menu
+			if _mp_on: _mp_end_match()
 		"closed":
 			if _mp_on and not won and not lost:
 				lost = true; _end_cause = "The connection to the server was lost."
@@ -3233,6 +3241,10 @@ func _mp_start(m: Dictionary) -> void:   # the countdown ran out: everybody buil
 
 func _mp_leave() -> void:   # out of a match, back to the multiplayer menu (the server drops you: your botnet idles)
 	if net != null: net.leave()
+	_mp_end_match()
+
+
+func _mp_end_match() -> void:   # this screen leaves the match (the server already knows, or is told by _mp_leave)
 	_mp_on = false; _out = false; _mp_turns = {}; _mp_queue = []; _mp_dropped = {}
 	PLAYER = CfgFactions.PLAYER; humans = [CfgFactions.PLAYER]; _mp_names = {}
 	if _sp_size != Vector2i.ZERO: _opt_size = _sp_size
@@ -3292,10 +3304,34 @@ func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch
 
 
 # ---- the multiplayer menu: a lobby browser and the lobby itself ----
-func _mp_row() -> HBoxContainer:
+func _mp_row(parent: Control = null) -> HBoxContainer:
 	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
-	menu_box.add_child(row)
+	(parent if parent != null else menu_box).add_child(row)
 	return row
+
+
+func _mp_label(parent: Control, t: String) -> void:
+	var l := Label.new(); l.text = t
+	l.add_theme_font_size_override("font_size", 13); l.add_theme_color_override("font_color", C_DIM)
+	parent.add_child(l)
+
+
+func _mp_columns() -> Array:   # the full-window multiplayer layout: two columns filling what the title rows leave
+	var head := menu_box.get_combined_minimum_size().y + menu_box.get_theme_constant("separation") + 2.0
+	var cols := HBoxContainer.new(); cols.add_theme_constant_override("separation", 32)
+	cols.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, maxf(260.0, menu_sc.size.y - head))
+	menu_box.add_child(cols)
+	var out := []
+	for k in 2:
+		var c := VBoxContainer.new(); c.add_theme_constant_override("separation", 10)
+		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cols.add_child(c); out.append(c)
+	return out
+
+
+func _mp_spacer(parent: Control) -> void:
+	var c := Control.new(); c.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(c)
 
 
 func _mp_button(row: Control, txt: String, cb: Callable, on := false) -> Button:
@@ -3313,72 +3349,82 @@ func _mp_field(row: Control, txt: String, hint: String, max_len: int) -> LineEdi
 	return e
 
 
-func _menu_mp() -> void:   # who you are, open lobbies, create one, join by code
+func _menu_mp() -> void:   # left: who you are, create, join by code · right: the open lobbies on the official server
 	_menu_title("Multiplayer")
-	var status := Label.new(); status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status.custom_minimum_size.x = menu_box.custom_minimum_size.x; status.add_theme_font_size_override("font_size", 13)
-	menu_box.add_child(status); _mp_ui = {"status": status}
-	_menu_label("Your name")
-	var nrow := _mp_row()
-	var name_edit := _mp_field(nrow, _mp_name_draft if _mp_name_draft != "" else net.player_name, "Player", 16)
+	var cols := _mp_columns()
+	var left: VBoxContainer = cols[0]; var right: VBoxContainer = cols[1]
+	_mp_label(left, "Your name")
+	var name_edit := _mp_field(_mp_row(left), _mp_name_draft if _mp_name_draft != "" else net.player_name, "Player", 16)
 	name_edit.text_changed.connect(func(t): _mp_name_draft = t)
 	var save_name := func(_t = ""): net.rename(name_edit.text); _mp_name_draft = net.player_name
 	name_edit.text_submitted.connect(save_name); name_edit.focus_exited.connect(save_name)
-	_menu_label("Open lobbies")
-	var list := VBoxContainer.new(); list.add_theme_constant_override("separation", 4)
-	list.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 150)
-	menu_box.add_child(list); _mp_ui["list"] = list
-	var lrow := _mp_row()
-	_mp_button(lrow, "Refresh", func(): net.refresh())
-	_menu_label("Create a lobby")
-	var crow := _mp_row()
+	_mp_label(left, "Create a lobby")
+	var crow := _mp_row(left)
 	var go_public := func(): _mp_public = true; _refresh_menu()
 	var go_private := func(): _mp_public = false; _refresh_menu()
 	var create := func(): net.rename(name_edit.text); net.create(_mp_public, 3, "medium")
 	_mp_button(crow, "Public", go_public, _mp_public)
 	_mp_button(crow, "Private", go_private, not _mp_public)
-	_mp_button(crow, "Create lobby", create)
-	_menu_label("Join a private lobby by its code")
-	var jrow := _mp_row()
+	var create_b := _mp_button(crow, "Create lobby", create)
+	_mp_label(left, "Join a private lobby by its code")
+	var jrow := _mp_row(left)
 	var code := _mp_field(jrow, _mp_code_draft, "CODE", 5)
 	code.text_changed.connect(func(t): _mp_code_draft = t)
 	var join := func(_t = ""): net.rename(name_edit.text); net.join_code(code.text)
 	code.text_submitted.connect(join)
-	_mp_button(jrow, "Join", join)
-	_menu_label("Server")
-	var srow := _mp_row()
-	var server := _mp_field(srow, net.url, NetScript.OFFICIAL_URL, 200)
-	var reconnect := func():
-		net.url = server.text.strip_edges() if server.text.strip_edges() != "" else NetScript.OFFICIAL_URL
-		net.save(); net.open()
-	_mp_button(srow, "Connect", reconnect)
-	_menu_gap(4)
-	_mbtn("← Back", func(): _menu_view = "main"; _refresh_menu())
+	var join_b := _mp_button(jrow, "Join", join)
+	_mp_spacer(left)
+	var back := func(): _menu_view = "main"; _refresh_menu()
+	var back_b := _mp_button(_mp_row(left), "← Back", back)
+	back_b.custom_minimum_size.y = 42
+	var status := Label.new(); status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status.add_theme_font_size_override("font_size", 13)
+	right.add_child(status)
+	var lrow := _mp_row(right)
+	var heading := Label.new(); heading.text = "Open lobbies"; heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading.add_theme_font_size_override("font_size", 16)
+	lrow.add_child(heading)
+	var refresh := Button.new(); refresh.text = "Refresh"; refresh.custom_minimum_size = Vector2(120, 34); refresh.focus_mode = Control.FOCUS_ALL
+	refresh.pressed.connect(func(): net.refresh()); lrow.add_child(refresh)
+	var sc := ScrollContainer.new(); sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(sc)
+	var list := VBoxContainer.new(); list.add_theme_constant_override("separation", 4)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(list)
+	_mp_ui = {"status": status, "list": list, "needs_server": [create_b, join_b, refresh]}
 	_mp_fill_browser()
 
 
-func _mp_fill_browser() -> void:
+func _mp_fill_browser() -> void:   # connection state and the lobby list; no server: "Server unavailable", retried on its own
 	if not _mp_ui.has("list") or not is_instance_valid(_mp_ui.list): return
 	var status: Label = _mp_ui.status
-	match net.status:
-		"online":
-			status.text = "Online as %s  ·  %s" % [net.player_name, net.url.trim_prefix("wss://").trim_prefix("ws://").trim_suffix("/ws")]
-			status.add_theme_color_override("font_color", C_GOOD)
-		"connecting":
-			status.text = "Connecting to %s …" % net.url
-			status.add_theme_color_override("font_color", C_DIM)
-		_:
-			status.text = "Offline" + (("  ·  " + net.error) if net.error != "" else "") + "  ·  press Connect to retry"
-			status.add_theme_color_override("font_color", C_BAD)
-	if net.online() and net.error != "":
-		status.text += "\n" + net.error
-		status.add_theme_color_override("font_color", C_WARN)
+	var unavailable: bool = not net.online() and net.error == NetScript.UNAVAILABLE
+	if net.online():
+		status.text = "Online as %s" % net.player_name
+		status.add_theme_color_override("font_color", C_GOOD)
+		if net.recent_error() != "":
+			status.text += "  ·  " + net.recent_error()
+			status.add_theme_color_override("font_color", C_WARN)
+	elif unavailable:
+		status.text = "Server unavailable  ·  trying again every few seconds"
+		status.add_theme_color_override("font_color", C_BAD)
+	else:
+		status.text = "Connecting to the server…"
+		status.add_theme_color_override("font_color", C_DIM)
+	_mp_ui["err_shown"] = net.recent_error()
+	for b in _mp_ui.get("needs_server", []): (b as Button).disabled = not net.online()
 	var list: VBoxContainer = _mp_ui.list
 	for c in list.get_children(): list.remove_child(c); c.queue_free()
-	if net.lobbies.is_empty():
-		var none := Label.new(); none.text = "No open lobbies yet — create one, or join a private one by its code." if net.online() else "—"
-		none.add_theme_color_override("font_color", C_DIM); none.add_theme_font_size_override("font_size", 13)
+	if not net.online() or net.lobbies.is_empty():
+		var none := Label.new(); none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		if net.online(): none.text = "No open lobbies yet — create one, or join a private one by its code."
+		elif unavailable: none.text = "Server unavailable"
+		else: none.text = "Connecting…"
+		none.add_theme_color_override("font_color", C_BAD if unavailable else C_DIM)
+		none.add_theme_font_size_override("font_size", 18 if unavailable else 13)
 		list.add_child(none)
+		return
 	for l in net.lobbies:
 		if not (l is Dictionary): continue
 		var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
@@ -3391,42 +3437,61 @@ func _mp_fill_browser() -> void:
 		row.add_child(b); list.add_child(row)
 
 
-func _menu_lobby() -> void:   # players + ready, the host's settings, chat, the countdown
+func _menu_lobby() -> void:   # left: players, the host's settings, the countdown, Ready · right: the chat
 	var lob: Dictionary = net.lobby
-	_menu_title(str(lob.get("name", "Lobby")))
+	var title := Label.new(); title.text = str(lob.get("name", "Lobby"))
+	title.add_theme_font_size_override("font_size", 26); title.add_theme_color_override("font_color", C_TEXT)
+	menu_box.add_child(title)
 	var sub := Label.new(); sub.add_theme_font_size_override("font_size", 13); sub.add_theme_color_override("font_color", C_DIM)
 	menu_box.add_child(sub)
-	var players := VBoxContainer.new(); players.add_theme_constant_override("separation", 4)
-	menu_box.add_child(players)
-	var host: bool = net.is_host()
-	_menu_label("Players · lobby" + ("" if host else "  ·  set by the host"))
-	var prow := _mp_row()
+	var cols := _mp_columns()
+	var left: VBoxContainer = cols[0]; var right: VBoxContainer = cols[1]
+	var nrow := _mp_row(left)
+	var name_label := Label.new(); name_label.text = "Your name"; name_label.custom_minimum_size.x = 110
+	name_label.add_theme_font_size_override("font_size", 13); name_label.add_theme_color_override("font_color", C_DIM)
+	nrow.add_child(name_label)
+	var name_edit := _mp_field(nrow, net.player_name, "Player", 16)
+	var save_name := func(_t = ""):
+		if NetScript.clean_name(name_edit.text) != net.player_name: net.rename(name_edit.text)
+	name_edit.text_submitted.connect(save_name); name_edit.focus_exited.connect(save_name)
+	var players := VBoxContainer.new(); players.add_theme_constant_override("separation", 2)
+	left.add_child(players)
+	var setting_note := Label.new()
+	setting_note.add_theme_font_size_override("font_size", 13); setting_note.add_theme_color_override("font_color", C_DIM)
+	left.add_child(setting_note)
+	var prow := _mp_row(left)
 	var max_b := []
 	for n in [2, 3]: max_b.append(_mp_button(prow, "%d players" % n, func(k = n): net.settings({"max": k})))
 	var vis_b := [_mp_button(prow, "Public", func(): net.settings({"public": true})), _mp_button(prow, "Private", func(): net.settings({"public": false}))]
-	_menu_label("Map size")
-	var mrow := _mp_row()
+	var mrow := _mp_row(left)
 	var size_b := []
 	for i in 3: size_b.append(_mp_button(mrow, ["Small", "Medium", "Big"][i], func(k = MP_SIZES[i]): net.settings({"size": k})))
-	var countdown := Label.new(); countdown.add_theme_font_size_override("font_size", 22); countdown.add_theme_color_override("font_color", C_WARN)
-	countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; countdown.custom_minimum_size.x = menu_box.custom_minimum_size.x
-	menu_box.add_child(countdown)
-	var brow := _mp_row()
+	_mp_spacer(left)
+	var countdown := Label.new(); countdown.add_theme_font_size_override("font_size", 24); countdown.add_theme_color_override("font_color", C_WARN)
+	countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; countdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_child(countdown)
+	var brow := _mp_row(left)
 	var ready_b := _mp_button(brow, "Ready", func(): net.set_ready(not net.me_ready()))
-	_mp_button(brow, "Leave lobby", func(): net.leave())
-	_menu_label("Chat")
+	ready_b.custom_minimum_size.y = 46
+	var leave_b := _mp_button(brow, "Leave lobby", func(): net.leave())
+	leave_b.custom_minimum_size.y = 46
+	_mp_label(right, "Chat")
 	var chat_log := RichTextLabel.new(); chat_log.bbcode_enabled = true; chat_log.scroll_following = true
-	chat_log.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 104); chat_log.add_theme_font_size_override("normal_font_size", 13)
-	menu_box.add_child(chat_log)
-	var crow := _mp_row()
+	chat_log.custom_minimum_size = Vector2(0, 120); chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	chat_log.add_theme_font_size_override("normal_font_size", 14)
+	right.add_child(chat_log)
+	var crow := _mp_row(right)
 	var say := _mp_field(crow, _mp_chat_draft, "Say something…", 200)
 	say.text_changed.connect(func(t): _mp_chat_draft = t)
 	var send := func(_t = ""):
 		net.say(say.text); say.text = ""; _mp_chat_draft = ""; say.grab_focus()
 	say.text_submitted.connect(send)
 	var send_b := _mp_button(crow, "Send", send)
-	send_b.custom_minimum_size.x = 90
-	_mp_ui = {"sub": sub, "players": players, "max": max_b, "size": size_b, "vis": vis_b, "countdown": countdown, "log": chat_log, "ready": ready_b, "chat_n": -1}
+	send_b.custom_minimum_size.x = 90; send_b.size_flags_horizontal = Control.SIZE_SHRINK_END
+	var refusal := Label.new(); refusal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	refusal.add_theme_font_size_override("font_size", 13); refusal.add_theme_color_override("font_color", C_WARN)
+	right.add_child(refusal)
+	_mp_ui = {"title": title, "sub": sub, "note": setting_note, "players": players, "max": max_b, "size": size_b, "vis": vis_b, "countdown": countdown, "log": chat_log, "ready": ready_b, "refusal": refusal, "chat_n": -1}
 	_mp_fill_lobby()
 
 
@@ -3434,6 +3499,8 @@ func _mp_fill_lobby() -> void:
 	if not _mp_ui.has("players") or not is_instance_valid(_mp_ui.players): return
 	var lob: Dictionary = net.lobby
 	var host: bool = net.is_host()
+	(_mp_ui.title as Label).text = str(lob.get("name", "Lobby"))   # follows host changes and renames
+	(_mp_ui.note as Label).text = "Players · lobby · map size" + ("" if host else "  ·  set by the host")
 	(_mp_ui.sub as Label).text = "%s lobby  ·  code %s%s" % ["Public" if bool(lob.get("public", true)) else "Private", str(lob.get("code", "")), "" if bool(lob.get("public", true)) else "  ·  share it so friends can join"]
 	var box: VBoxContainer = _mp_ui.players
 	for c in box.get_children(): box.remove_child(c); c.queue_free()
@@ -3495,6 +3562,7 @@ func _mp_tick_countdown() -> void:   # the big "starting in 3…" line (also cal
 	elif plist.size() < 2: txt = "Waiting for at least one more player"
 	elif not all_ready: txt = "Everyone presses Ready to start"
 	(_mp_ui.countdown as Label).text = txt
+	if _mp_ui.has("refusal") and is_instance_valid(_mp_ui.refusal): (_mp_ui.refusal as Label).text = net.recent_error()
 
 
 func _menu_main() -> void:
@@ -3865,7 +3933,8 @@ func _panel_width() -> float:
 func _on_ui_resized() -> void:
 	if is_inside_tree() and get_viewport().gui_is_dragging(): _layout_ui()
 	else: _refresh_panel()
-	if menu_open: _fit_menu_to_contents.call_deferred()
+	if menu_open and _menu_view in ["mp", "lobby"]: _refresh_menu.call_deferred()   # full-window views follow the window
+	elif menu_open: _fit_menu_to_contents.call_deferred()
 
 
 func _layout_ui() -> void:
@@ -3942,8 +4011,12 @@ func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips
 			if reason == "" and scale <= 0: reason = "immune to this card family"
 			feedback_label.text = "%s · %s" % [str(hosts[target].name), reason if reason != "" else _effect_text(cd, target, scale)]
 	if _mp_on and _mp_wait > 1.0 and not won and not lost:   # the lockstep holds: someone's turn is late
+		var late := []
+		var got: Dictionary = _mp_turns.get(_mp_turn, {})
+		for fac in humans:
+			if fac != PLAYER and not got.has(fac) and not (_mp_dropped.has(fac) and _mp_turn >= int(_mp_dropped[fac])): late.append(fname(fac))
 		feedback_label.visible = true
-		feedback_label.text = "Waiting for the other players… %d s" % int(_mp_wait)
+		feedback_label.text = "Waiting for %s… %d s" % [", ".join(PackedStringArray(late)) if not late.is_empty() else "the other players", int(_mp_wait)]
 	_layout_feedback_label()
 
 

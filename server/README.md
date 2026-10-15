@@ -27,8 +27,9 @@ npm test        # end-to-end tests
 npm start       # ws://localhost:8787/ws  and  http://localhost:8787/healthz
 ```
 
-Environment: `PORT` (default 8787), `COUNTDOWN_MS` (the ready countdown, default 5000). The game can be pointed
-at a local server in its Multiplayer menu (Server field) or with the user argument `--server=ws://localhost:8787/ws`.
+Environment: `PORT` (default 8787), `COUNTDOWN_MS` (the ready countdown, default 5000). Players always connect to
+the official server; for development a build can be pointed at a local one with the launch argument
+`-- --server=ws://localhost:8787/ws`.
 
 With Docker: `docker build -t rim-lobby . && docker run --rm -p 127.0.0.1:8787:8787 rim-lobby`
 

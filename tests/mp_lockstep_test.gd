@@ -40,9 +40,10 @@ class Relay:
 		frame += 1
 
 
-class Pipe extends Node:   # stands in for scripts/botnet_net.gd: the game only calls send() and leave()
+class Pipe extends Node:   # stands in for scripts/botnet_net.gd: the game calls send() and leave() and sets auto_retry
 	var relay
 	var fac := 0
+	var auto_retry := false
 	func send(msg: Dictionary) -> void: relay.out(fac, msg)
 	func leave() -> void: pass
 
@@ -201,6 +202,21 @@ func _run() -> void:
 	check(a._mp_turn > t0 + 60 and b._mp_turn > t0 + 60, "After a drop the remaining players keep playing (turn %d → %d)" % [t0, a._mp_turn])
 	check(not mism, "The remaining players stay identical after the drop")
 	check(_owned(a, 3).size() >= mini(c_owned, 1) and a.botnets.has(3), "The dropped player's botnet stays on the map, idle")
+	_end(r)
+
+	# ---- 5. a flood of far-future turns is ignored; the server taking you out of a match ends it on your screen ----
+	r = _match(2, "small", 99, 0)
+	a = r.games[1]
+	for k in 30: _frame(r)
+	var before_keys: int = a._mp_turns.size()
+	a._mp_on_message(JSON.parse_string(JSON.stringify({"t": "turn", "turn": a._mp_turn + 1000, "from": 2, "cmds": [["halt", 1]]})))
+	check(a._mp_turns.size() == before_keys and not a._mp_turns.has(a._mp_turn + 1000), "A turn far in the future is ignored (no unbounded buffering)")
+	var pipe = a.net
+	var real = load("res://scripts/botnet_net.gd").new()   # the menu needs the real connection object (never opened here)
+	a.net = real; a.add_child(real)
+	a._mp_on_message({"t": "left"})
+	check(not a._mp_on and a.PLAYER == 1 and a.humans == [1] and a.menu_open and a._menu_view == "mp", "Taken out of the match by the server: back to the Multiplayer menu, single-player state restored")
+	pipe.free()
 	_end(r)
 
 	print(JSON.stringify({"checks": checks, "failures": failures}))

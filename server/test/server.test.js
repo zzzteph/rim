@@ -410,7 +410,7 @@ test('a rename or a leave stops the countdown too; it starts over while everyone
 });
 
 // ---- match ----
-test('turns go to every member, sender included, with its faction; stale turns and >64 commands are dropped', async () => {
+test('turns go to every member, sender included, with its faction; stale turns and >64 commands are dropped; a gap cuts the sender off', async () => {
   const { players: [a, b] } = await matchOf(2);
   const cmds = [['wire', [12, 13], 40], ['launch', 40, 'attack']];
   a.send({ t: 'turn', turn: 2, cmds });
@@ -425,8 +425,10 @@ test('turns go to every member, sender included, with its faction; stale turns a
   a.send({ t: 'turn', turn: 3, cmds: Array.from({ length: 64 }, () => ['halt', 40]) });
   const third = await b.next('turn');
   assert.deepEqual([third.turn, third.from, third.cmds.length], [3, 1, 64]);
-  a.send({ t: 'turn', turn: 5, cmds: [] }); // increasing is enough
-  assert.equal((await b.next('turn')).turn, 5);
+  a.send({ t: 'turn', turn: 5, cmds: [] }); // turn 4 skipped: the others would wait for it forever
+  assert.match((await a.next('error')).msg, /one after another/);
+  assert.equal(await a.closed, 1008);
+  assert.deepEqual(await b.next('drop'), { t: 'drop', faction: 1, from_turn: 4 }); // truthful: 4 never came
   await b.none('turn'); // nothing else was relayed
 
   const outsider = await Client.open('Outsider', freshVersion());
@@ -552,4 +554,65 @@ test('keepalive: a client that stops answering pings is closed', async () => {
   } finally {
     await quick.close();
   }
+});
+
+// ---- abuse and stalls ----
+test('a turn further ahead than the slowest member allows (a flood) cuts the sender off', async () => {
+  const { players: [a, b] } = await matchOf(2);
+  for (const turn of [2, 3, 4, 5]) a.send({ t: 'turn', turn, cmds: [] }); // b is still at delay - 1 = 1: 5 is the limit
+  await b.next('turn', (m) => m.turn === 5);
+  a.send({ t: 'turn', turn: 6, cmds: [] });
+  assert.match((await a.next('error')).msg, /ahead/);
+  assert.equal(await a.closed, 1008);
+  assert.deepEqual(await b.next('drop'), { t: 'drop', faction: 1, from_turn: 6 });
+  await b.none('turn', (m) => m.turn === 6);
+});
+
+test('a member the others wait for that stays silent leaves the match (idle botnet); stopping together is fine', async () => {
+  const stall = await startServer({ port: 0, host: '127.0.0.1', log: () => {}, countdownMs: 50, stallMs: 300 });
+  try {
+    const at = `ws://127.0.0.1:${stall.port}/ws`;
+    const version = freshVersion();
+    const a = await Client.open('A', version, { url: at });
+    a.send({ t: 'create', public: true, max: 3, size: 'small' });
+    const { lobby } = await a.next('lobby');
+    const b = await Client.open('B', version, { url: at });
+    const c = await Client.open('C', version, { url: at });
+    for (const p of [b, c]) p.send({ t: 'join', code: lobby.code });
+    await a.next('chat', (m) => m.text === 'C joined');
+    for (const p of [a, b, c]) p.send({ t: 'ready', ready: true });
+    for (const p of [a, b, c]) await p.next('start');
+    // a and c run ahead to turn 3 and then wait for b (delay 2); b, a hidden browser tab, sends nothing
+    for (const turn of [2, 3]) { a.send({ t: 'turn', turn, cmds: [] }); c.send({ t: 'turn', turn, cmds: [] }); }
+    assert.match((await b.next('error', () => true, 3000)).msg, /no response/);
+    await b.next('left');
+    for (const p of [a, c]) assert.deepEqual(await p.next('drop', () => true, 3000), { t: 'drop', faction: 2, from_turn: 2 });
+    // a and c stop together at the same turn (the match is over): nobody is waiting, nobody is removed
+    await sleep(700);
+    await a.none('drop', (m) => m.faction !== 2);
+    await c.none('drop', (m) => m.faction !== 2);
+    assert.equal(stall.hub.lobbies.get(lobby.id).players.length, 2);
+    for (const p of [a, b, c]) p.drop();
+  } finally {
+    await stall.close();
+  }
+});
+
+test('flooding any message type closes the connection', async () => {
+  const p = await Client.open('Flood', freshVersion());
+  for (let i = 0; i < 45; i++) p.send({ t: 'list' });
+  assert.match((await p.next('error', (m) => /Too many/.test(m.msg))).msg, /Too many messages/);
+  assert.equal(await p.closed, 1008);
+});
+
+test('guessing private codes: after 10 wrong codes even a right one waits', async () => {
+  const { lobby, version } = await lobbyOf(1, { public: false });
+  const guesser = await Client.open('Guesser', version);
+  for (let i = 0; i < 10; i++) {
+    guesser.send({ t: 'join', code: 'ZZZZ' + CODE_CHARS[i] });
+    assert.match((await guesser.next('error')).msg, /No lobby has that code/);
+  }
+  guesser.send({ t: 'join', code: lobby.code });
+  assert.match((await guesser.next('error')).msg, /Too many tries/);
+  await guesser.none('lobby');
 });
