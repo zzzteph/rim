@@ -8,7 +8,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && rm -rf /root/.npm
 COPY index.js lobby.js ./
-COPY public/ ./public/   # the Web export of the game (the workflow fills it; empty locally)
+# The Web export of the game (the workflow fills it; locally only .gitkeep, and / shows a placeholder).
+# A Dockerfile comment must be on its own line: after an instruction, "#" and the words are read as more arguments.
+COPY public/ ./public/
 
 USER node
 EXPOSE 8787
