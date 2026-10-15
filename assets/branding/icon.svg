@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Rim network mark</title>
+  <rect width="256" height="256" rx="48" fill="#0d0f17"/>
+  <rect x="8" y="8" width="240" height="240" rx="41" fill="none" stroke="#273c40" stroke-width="3"/>
+  <path d="M76 192V64H137L172 99V120L140 152H76M132 152L180 200" fill="none" stroke="#67efaa" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#0d0f17" stroke="#67efaa" stroke-width="9">
+    <circle cx="76" cy="64" r="12"/>
+    <circle cx="172" cy="108" r="12"/>
+    <circle cx="76" cy="192" r="12"/>
+    <circle cx="180" cy="200" r="12"/>
+  </g>
+</svg>

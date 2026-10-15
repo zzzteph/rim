@@ -241,6 +241,20 @@ versions always match). The GitHub Pages copy (`web.yml`) still works and uses t
 Both presets live in `export_presets.cfg`.
 They exclude design notes, review artifacts, tests, scratch files, and previous builds.
 
+### Startup branding
+
+The loading artwork is `assets/branding/boot_splash.png` (1280×720 PNG), with an editable
+vector source in `assets/branding/boot_splash.svg`. Replace the PNG with
+new title art or a gameplay screenshot to change both the desktop boot screen and the Web
+download screen. The image fits within the window without cropping; its background is
+`#0d0f17`, set in `project.godot`. No extra startup delay is added.
+
+The app mark's editable source is `assets/branding/icon.svg`. Keep `icon.png` (256×256)
+and `icon.ico` (16, 24, 32, 48, 64, 128, 256 pixels) in that directory in sync after editing it.
+The PNG supplies the project/window icon and Web favicon; the ICO supplies Windows taskbar,
+executable, and console wrapper icons. The default Web shell exports the splash and favicon
+beside `index.html`, so host the whole exported directory. Re-export after replacing assets.
+
 ### Desktop (Windows)
 ```bash
 mkdir -p build
