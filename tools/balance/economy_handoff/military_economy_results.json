@@ -1,0 +1,283 @@
+{
+  "model_version": "1.0.0",
+  "checks_passed": [
+    "current four-farm host stalls four attackers",
+    "capped four-farm host depletes in sixty seconds",
+    "capped ERP depletes in seventy-five seconds",
+    "three attackers are insufficient for ERP siege budget",
+    "two guards sustain capped ERP against four attackers",
+    "diminishing curve leaves ERP at two hundred forty seconds",
+    "full host spends nothing",
+    "zero Crypto gives no paid production",
+    "partial funding buys only actual output",
+    "rig allowance requires available production",
+    "starting rig can regenerate two for free",
+    "rig boost beyond allowance costs Crypto",
+    "one Crypto buys four bots"
+  ],
+  "economics": [
+    {
+      "price_per_bot": 0.15,
+      "paid_bots_per_second": 4,
+      "crypto_per_second": 0.6,
+      "outer_miners_required": 2
+    },
+    {
+      "price_per_bot": 0.15,
+      "paid_bots_per_second": 8,
+      "crypto_per_second": 1.2,
+      "outer_miners_required": 4
+    },
+    {
+      "price_per_bot": 0.15,
+      "paid_bots_per_second": 12,
+      "crypto_per_second": 1.7999999999999998,
+      "outer_miners_required": 6
+    },
+    {
+      "price_per_bot": 0.15,
+      "paid_bots_per_second": 20,
+      "crypto_per_second": 3.0,
+      "outer_miners_required": 9
+    },
+    {
+      "price_per_bot": 0.25,
+      "paid_bots_per_second": 4,
+      "crypto_per_second": 1.0,
+      "outer_miners_required": 3
+    },
+    {
+      "price_per_bot": 0.25,
+      "paid_bots_per_second": 8,
+      "crypto_per_second": 2.0,
+      "outer_miners_required": 6
+    },
+    {
+      "price_per_bot": 0.25,
+      "paid_bots_per_second": 12,
+      "crypto_per_second": 3.0,
+      "outer_miners_required": 9
+    },
+    {
+      "price_per_bot": 0.25,
+      "paid_bots_per_second": 20,
+      "crypto_per_second": 5.0,
+      "outer_miners_required": 15
+    },
+    {
+      "price_per_bot": 0.5,
+      "paid_bots_per_second": 4,
+      "crypto_per_second": 2.0,
+      "outer_miners_required": 6
+    },
+    {
+      "price_per_bot": 0.5,
+      "paid_bots_per_second": 8,
+      "crypto_per_second": 4.0,
+      "outer_miners_required": 12
+    },
+    {
+      "price_per_bot": 0.5,
+      "paid_bots_per_second": 12,
+      "crypto_per_second": 6.0,
+      "outer_miners_required": 18
+    },
+    {
+      "price_per_bot": 0.5,
+      "paid_bots_per_second": 20,
+      "crypto_per_second": 10.0,
+      "outer_miners_required": 30
+    }
+  ],
+  "combat": [
+    {
+      "host": "ordinary_3",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 0,
+      "garrison": 90,
+      "current_regen": 3,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 90.0
+    },
+    {
+      "host": "ordinary_3",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 1,
+      "garrison": 90,
+      "current_regen": 3,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "ordinary_3",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 2,
+      "garrison": 90,
+      "current_regen": 3,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "ordinary_3",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 0,
+      "garrison": 90,
+      "current_regen": 3,
+      "proposed_regen": 2,
+      "current_depletion_s": 90.0,
+      "proposed_depletion_s": 45.0
+    },
+    {
+      "host": "ordinary_3",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 1,
+      "garrison": 90,
+      "current_regen": 3,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 90.0
+    },
+    {
+      "host": "ordinary_3",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 2,
+      "garrison": 90,
+      "current_regen": 3,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "ordinary_4",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 0,
+      "garrison": 120,
+      "current_regen": 4,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 120.0
+    },
+    {
+      "host": "ordinary_4",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 1,
+      "garrison": 120,
+      "current_regen": 4,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "ordinary_4",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 2,
+      "garrison": 120,
+      "current_regen": 4,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "ordinary_4",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 0,
+      "garrison": 120,
+      "current_regen": 4,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 60.0
+    },
+    {
+      "host": "ordinary_4",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 1,
+      "garrison": 120,
+      "current_regen": 4,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 120.0
+    },
+    {
+      "host": "ordinary_4",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 2,
+      "garrison": 120,
+      "current_regen": 4,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "erp_5",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 0,
+      "garrison": 150,
+      "current_regen": 7.5,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 150.0
+    },
+    {
+      "host": "erp_5",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 1,
+      "garrison": 150,
+      "current_regen": 7.5,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "erp_5",
+      "attack_arrivals_per_s": 3,
+      "guards_per_s": 2,
+      "garrison": 150,
+      "current_regen": 7.5,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    },
+    {
+      "host": "erp_5",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 0,
+      "garrison": 150,
+      "current_regen": 7.5,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 75.0
+    },
+    {
+      "host": "erp_5",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 1,
+      "garrison": 150,
+      "current_regen": 7.5,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": 150.0
+    },
+    {
+      "host": "erp_5",
+      "attack_arrivals_per_s": 4,
+      "guards_per_s": 2,
+      "garrison": 150,
+      "current_regen": 7.5,
+      "proposed_regen": 2,
+      "current_depletion_s": null,
+      "proposed_depletion_s": null
+    }
+  ],
+  "status": "Independent continuous-rate predictions; not runtime or playtest validation.",
+  "assumptions": [
+    "Snapshot baseline: 30 bots capacity per farm, 1 base bot/s per farm, ERP bot multiplier1.5, 1 arrival/s per funded attack source.",
+    "Ordinary outer miner1/3 Crypto/s; no labs, cards, travel or other spending in miner requirements.",
+    "Regeneration cap applies after permanent host modifiers and before temporary boosts. Tables assume no boosts.",
+    "Attackers can continuously fund Intel and bots; defenders can fund any proposed paid regeneration.",
+    "No garrison outflow in combat tables. Null depletion means nonpositive net damage, not immunity to cards or alternative attacks.",
+    "paid_output checks one allocation only; shared-funding order independence still needs Godot tests."
+  ]
+}

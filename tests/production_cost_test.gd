@@ -72,7 +72,7 @@ func run() -> void:
 	game._start_job(home,"lab",0)
 	check(not game._producer_paused(home,0), "Replacing a producer clears its pause state")
 	# per-kind prices (cfg BUILD_COSTS): paid evenly over the build; a Research lab also takes Crypto
-	var prices := {"intel": {"intel": 10.0}, "bot": {"intel": 30.0}, "cash": {"intel": 50.0}, "cred": {"intel": 50.0}, "lab": {"intel": 50.0, "cash": 25.0}}
+	var prices := {"intel": {"intel": 10.0}, "bot": {"cash": 30.0}, "cash": {"intel": 50.0}, "cred": {"intel": 50.0}, "lab": {"intel": 50.0, "cash": 25.0}}
 	for kind in prices: check(game._build_cost(kind) == prices[kind], "%s price is %s" % [kind, str(prices[kind])])
 	check(game.BUILD_KINDS.cash.name == "Crypto miner", "The Crypto building is a Crypto miner")
 	home = fresh(); game.intel[game.PLAYER] = 50.0; game.cash[game.PLAYER] = 24.0
@@ -96,6 +96,99 @@ func run() -> void:
 	game.intel[game.PLAYER] = 10.0; game._start_job(home,"intel",3); game.intel[game.PLAYER] = 1.0
 	game._tick_jobs(1.0); game._tick_production(1.0)
 	check(near(game.hosts[home].jobs[3].left,9.0) and game.creds[game.PLAYER] == 0, "Construction funding precedes conversion spending")
+	candidate_a()
 	var report := {"checks":checks,"failures":failures}
 	var file := FileAccess.open("res://review/implemented_ui/production_costs.json",FileAccess.WRITE); file.store_string(JSON.stringify(report,"\t")); file.close()
 	print(JSON.stringify(report)); game.free(); quit(0 if failures.is_empty() else 1)
+
+
+# Economy candidate A (tools/balance/economy_handoff/HANDOFF.md): a Bot farm costs 30 Crypto; a harvester adds +15 Intel limit.
+func paid(job: Dictionary, res: String) -> float: return float(game._job_cost_total(job).get(res, 0.0)) - float(game._job_cost_left(job).get(res, 0.0))
+func candidate_a() -> void:
+	var P: int = game.PLAYER
+	check(near(game.INTEL_CAP_BASE, 100.0) and near(game.INTEL_CAP_PER_BUILD, 15.0), "Intel limit: base 100, +15 per harvester")
+	# 1. Intel-rich, zero Crypto: rejected without resource loss (direct and through the command door)
+	var home := fresh(); game.intel[P] = 100.0
+	check(not game._start_job(home, "bot", 0), "A farm cannot be queued with Intel only")
+	game._apply_cmd(P, ["build", home, 0, "bot"])
+	check(near(game.intel[P], 100.0) and near(game.cash[P], 0.0) and game.hosts[home].jobs.is_empty(), "A rejected farm order costs nothing and leaves no job")
+	# 2. 30 Crypto: accepted, paid evenly over ten funded seconds, no Intel
+	home = fresh(); game.intel[P] = 7.0; game.cash[P] = 30.0
+	check(game._start_job(home, "bot", 0), "30 Crypto and a free slot queue a farm")
+	game._tick_jobs(5.0)
+	check(near(game.cash[P], 15.0) and near(game.intel[P], 7.0) and near(game.hosts[home].jobs[0].left, 5.0), "Half the build pays 15 Crypto and no Intel")
+	for k in 50: game._tick_jobs(0.1)
+	check(game.hosts[home].builds[0] == "bot" and game.hosts[home].jobs.is_empty() and near(game.cash[P], 0.0) and near(game.intel[P], 7.0), "A finished farm has paid exactly 30 Crypto")
+	# 3. three farm jobs admitted against one 30-Crypto bank: they share it, none is free, nothing goes negative
+	home = fresh(); game.cash[P] = 30.0
+	var all_in := true
+	for s in 3: all_in = game._start_job(home, "bot", s) and all_in
+	check(all_in, "Quotes are not reserved: three farms queue against 30 Crypto")
+	var never_negative := true
+	for k in 600:
+		game._tick_jobs(0.1)
+		if float(game.cash[P]) < -0.000001: never_negative = false
+	var spent := 0.0
+	for s in 3: spent += paid(game.hosts[home].jobs[s], "cash")
+	check(never_negative and near(game.cash[P], 0.0) and absf(spent - 30.0) < 0.0001 and game._count_all(home, "bot") == 0, "With no income the three share 30 Crypto exactly and none finishes")
+	check(game.hosts[home].jobs[0].short == "cash" and near(game.hosts[home].jobs[0].funding, 0.0), "A starved farm job reports Crypto as its shortage")
+	game.cash[P] = 60.0
+	for k in 100: game._tick_jobs(0.1)
+	check(game._count_all(home, "bot") == 3 and game.hosts[home].jobs.is_empty() and near(game.cash[P], 0.0), "60 more Crypto finishes all three: 90 paid for three farms")
+	# 4. research and a farm compete: research is paid first, the farm gets the rest and says why it is slow
+	home = fresh(); game.cash[P] = 30.0; game.creds[P] = 100.0; game.research[P] = 100.0
+	game._start_job(home, "bot", 0)
+	game._queue_research(P, "supply:linked")
+	game.cash[P] = 2.0
+	game._tick_research(1.0); game._tick_jobs(1.0)
+	var per_s: float = 40.0 / game._card_time("supply:linked")
+	var job: Dictionary = game.hosts[home].jobs[0]
+	check(near(game.lab[P].items[0].progress, 1.0) and near(job.left, 10.0 - (2.0 - per_s) / 3.0) and job.short == "cash" and near(game.cash[P], 0.0), "Card research spends Crypto before the farm job; the farm gets the remainder")
+	game._tick_research(1.0); game._tick_jobs(1.0)
+	check(str(game.lab[P].stall) == "cash" and job.short == "cash" and near(job.funding, 0.0), "At zero Crypto both report the same shortage")
+	# 5. pause, cancel, replace
+	home = fresh(); game.cash[P] = 60.0
+	game._start_job(home, "bot", 0); game._do_toggle_job(P, home, 0); game._tick_jobs(5.0)
+	check(near(game.cash[P], 60.0) and near(game.hosts[home].jobs[0].left, 10.0), "A paused farm job spends nothing")
+	game._do_toggle_job(P, home, 0); game._tick_jobs(2.0)
+	check(near(game.cash[P], 54.0), "Resumed, it pays again (6 Crypto in 2 s)")
+	game._do_cancel_job(P, home, 0)
+	check(near(game.cash[P], 54.0) and game.hosts[home].jobs.is_empty() and game.hosts[home].builds[0] == "", "Cancelling refunds nothing and leaves the slot empty")
+	home = fresh(); game._set_builds(home, ["intel"]); game.cash[P] = 30.0
+	check(game._start_job(home, "bot", 0) and game.hosts[home].jobs[0].phase == "demolish", "Replacing a harvester with a farm demolishes first")
+	game._tick_jobs(4.9)
+	check(near(game.cash[P], 30.0) and game.hosts[home].builds[0] == "intel", "Demolition pays nothing")
+	game._tick_jobs(0.1)
+	check(game.hosts[home].builds[0] == "" and game.hosts[home].jobs[0].phase == "build" and near(game.hosts[home].jobs[0].left, 10.0), "After 5 s the slot is clear and the farm's build starts")
+	game._tick_jobs(10.0)
+	check(game.hosts[home].builds[0] == "bot" and near(game.cash[P], 0.0), "The replacement farm costs its 30 Crypto")
+	# 6. Intel limits: 8 / 10 harvesters; a loss clamps the surplus; a harvester still under construction adds nothing
+	home = fresh(); game._set_builds(home, ["intel", "intel", "intel", "intel", "intel", "intel", "intel", "intel"])
+	check(near(game._intel_cap(P), 220.0), "Eight harvesters: Intel limit 220")
+	game.hosts[home].slots = 12; game._set_builds(home, ["intel", "intel", "intel", "intel", "intel", "intel", "intel", "intel", "intel", "intel"])
+	check(near(game._intel_cap(P), 250.0), "Ten harvesters: Intel limit 250")
+	game.intel[P] = 250.0; game._tick_intel(0.001)
+	check(game.intel[P] <= 250.0 + 0.000001, "The bank stays at the limit")
+	game._set_builds(home, ["intel", "intel", "intel", "intel", "intel", "intel", "intel", "intel"]); game._tick_intel(0.001)
+	check(near(game.intel[P], 220.0), "Losing two harvesters clamps the bank to 220 at the next tick")
+	game.intel[P] = 20.0; game._start_job(home, "intel", 8); game._start_job(home, "intel", 9)
+	check(near(game._intel_cap(P), 220.0), "Harvesters under construction add no limit")
+	# 7. miners: a cut route, a capture and pending packets never make free or usable Crypto
+	home = fresh()
+	var mid := -1; var far := -1
+	for n in game.hosts[home].links:
+		for m in game.hosts[int(n)].links:
+			if int(m) != home and not game.hosts[home].links.has(m) and not game.hosts[int(m)].rig and not game.hosts[int(n)].rig and far < 0: mid = int(n); far = int(m)
+	check(far >= 0, "Fixture: a host two streets from the rig")
+	game.hosts[mid].owner = P; game.hosts[far].owner = P; game.hosts[far].type = "pc"; game.hosts[far].value = 1; game._set_builds(far, ["cash"])
+	game.intel[P] = 50.0; game.hosts[mid].route_off = 30.0
+	game._tick_production(3.0)
+	check(near(game.intel[P], 50.0) and float(game._crypto_credit.get(far, 0.0)) == 0.0, "A miner whose road home is cut spends no Intel and makes no Crypto")
+	game.hosts[mid].route_off = 0.0; game._tick_production(1.0)
+	check(near(float(game._crypto_credit[far]), 1.0 / 3.0) and near(game.intel[P], 50.0 - 1.0 / 3.0), "With the road back it converts 1 Intel per Crypto")
+	check(near(game.cash[P], 0.0) and not game._start_job(home, "bot", 0), "Crypto still in transit is not spendable: no farm")
+	game._capture(far, game.RIVAL)
+	check(not game._crypto_credit.has(far) and near(game.cash[P], 0.0) and near(game.cash[game.RIVAL], 0.0), "Capturing a miner destroys its unsent Crypto: nobody gets it free")
+	game.hosts[far].owner = P; game._set_builds(far, ["cash"]); game.intel[P] = 50.0
+	game._apply_effect(game.RIVAL, game.CARDS.ddos, far); game._tick_production(1.0)
+	check(near(game.intel[P], 50.0) and float(game._crypto_credit.get(far, 0.0)) == 0.0, "DDOS on a miner stops its Crypto and its Intel spending")

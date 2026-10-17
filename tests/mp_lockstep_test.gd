@@ -220,5 +220,68 @@ func _run() -> void:
 	pipe.free()
 	_end(r)
 
+	# ---- 6. Crypto-priced farms (economy candidate A): refused and shared identically on every screen ----
+	r = _match(2, "small", 4242, 1)
+	a = r.games[1]; b = r.games[2]
+	for k in 30: _frame(r)
+	var rig_a: int = int(a.rig[1]); var rig_b: int = int(a.rig[2])
+	var free_a: int = a._free_slot(rig_a); var free_b: int = b._free_slot(rig_b)
+	check(float(a._build_cost("bot").get("cash", 0.0)) > 0.0 and free_a >= 0 and free_b >= 0, "Fixture: farms cost Crypto and both rigs have a free slot")
+	a._drop_build(rig_a, free_a, "bot"); b._drop_build(rig_b, free_b, "bot")   # 0 Crypto: both orders are refused
+	for k in 30: _frame(r)
+	check((a.hosts[rig_a].jobs as Dictionary).is_empty() and (a.hosts[rig_b].jobs as Dictionary).is_empty() and a._mp_hash() == b._mp_hash(), "A farm ordered with no Crypto is refused on both screens alike")
+	for g in [a, b]:   # the same Crypto on both screens (as if mined): 45 for each player — enough to accept two 30-Crypto farms
+		g.cash[1] = 45.0; g.cash[2] = 45.0
+	check(a._mp_hash() == b._mp_hash(), "Fixture: both screens hold the same banks")
+	var second_a := -1
+	for i in _owned(a, 1):
+		if i != rig_a and a._free_slot(i) >= 0: second_a = i
+	a._drop_build(rig_a, free_a, "bot")
+	if second_a >= 0: a._drop_build(second_a, a._free_slot(second_a), "bot")
+	b._drop_build(rig_b, free_b, "bot")
+	var drift := -1; var turns6 := 0; var saw_short := false; var negative := false
+	for k in 900:
+		var done := _frame(r)
+		if done[1] >= 0 and done[1] == done[2]:
+			turns6 += 1
+			if a._mp_hash() != b._mp_hash() and drift < 0: drift = done[1]
+		for g in [a, b]:
+			if float(g.cash[1]) < -0.000001 or float(g.cash[2]) < -0.000001: negative = true
+			for job in (g.hosts[rig_a].jobs as Dictionary).values():
+				if str(job.get("short", "")) == "cash": saw_short = true
+	check(turns6 >= 250 and drift < 0, "Farm jobs paid in Crypto keep both screens identical for %d turns (first drift: %d)" % [turns6, drift])
+	check(not negative and float(a.cash[1]) == float(b.cash[1]) and float(a.cash[2]) == float(b.cash[2]), "Both screens agree on every Crypto bank; none goes negative")
+	check(second_a < 0 or saw_short, "Player 1's two farms share 45 Crypto: one waits for Crypto, identically on both screens")
+	check(JSON.stringify(a.hosts[rig_a].jobs) == JSON.stringify(b.hosts[rig_a].jobs) and JSON.stringify(a.hosts[rig_b].builds) == JSON.stringify(b.hosts[rig_b].builds), "Jobs and finished farms match on both screens")
+	_end(r)
+
+	# ---- 7. finite ASSAULT orders: issued, cancelled and re-issued identically on both screens ----
+	r = _match(2, "small", 4242, 2)
+	a = r.games[1]; b = r.games[2]
+	for k in 30: _frame(r)
+	var at := _neutral_next_to(a, 1)
+	a.sel = {}
+	for i in _owned(a, 1): a.sel[i] = true
+	a._wire(at)
+	for k in 12: _frame(r)
+	a._assault(at, 75)
+	var ord_seen := false; var drift7 := -1; var turns7 := 0
+	for k in 600:
+		if k == 90: a._cancel_assault(at)
+		if k == 150: a._assault(at, 50)   # a fresh order after the cancel
+		var done := _frame(r)
+		if done[1] >= 0 and done[1] == done[2]:
+			turns7 += 1
+			if a._mp_hash() != b._mp_hash() and drift7 < 0: drift7 = done[1]
+		for i in _owned(a, 1):
+			if not a._assault_of(i).is_empty(): ord_seen = true
+	check(ord_seen, "An assault order is issued through a multiplayer turn")
+	check(turns7 >= 150 and drift7 < 0, "Assault, cancel and re-issue keep both screens identical for %d turns (first drift: %d)" % [turns7, drift7])
+	var same_orders := true
+	for i in a.hosts.size():
+		if JSON.stringify(a.hosts[i].get("assault", {})) != JSON.stringify(b.hosts[i].get("assault", {})): same_orders = false
+	check(same_orders, "Every source's order (quota, sent, left) matches on both screens")
+	_end(r)
+
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	quit(0 if failures.is_empty() else 1)

@@ -1,0 +1,5958 @@
+{
+	"notes": [
+		"AIs frozen; both sides scripted through _apply_cmd under identical rules",
+		"scripted responses read exact garrisons (an upper bound on what a player could see)",
+		"Small 6x4 maps, seeds 5/11/23, sides swapped",
+		"development: every host 2 farms + 1 harvester, full garrison; 150 Intel each"
+	],
+	"rows": [
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				4,
+				9
+			],
+			"b_hosts": 10,
+			"bots_sent": 484,
+			"capture_s": null,
+			"captured": false,
+			"elapsed": 120.0,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"objective_type": "web",
+			"scenario": "local_opportunity",
+			"seed": 5,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 152,
+			"counter": "streams",
+			"counter_sources": [
+				4,
+				9,
+				10
+			],
+			"elapsed": 37.3,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 3,
+			"objective_taken": false,
+			"origin": 2,
+			"origin_bots_at_response": 59.0,
+			"origin_captured_after_s": 32.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				0.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				15.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				8.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 484,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				4,
+				9,
+				10
+			],
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 3,
+			"objective_min_bots": 88.0,
+			"scenario": "sound_defence",
+			"seed": 5,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"attack_rate_offered": 4.0,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 132,
+			"capture_s": 32.5,
+			"captured": true,
+			"elapsed": 32.5,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 5,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				1,
+				8,
+				0,
+				7
+			],
+			"street_cap_per_s": 8,
+			"street_from": 2,
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.01,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 181,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 1.0,
+			"mode": "current",
+			"orders": 1,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 2,
+			"source_farms": 2,
+			"source_min": [
+				59.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				4,
+				9
+			],
+			"b_hosts": 10,
+			"bots_sent": 136,
+			"capture_s": 10.5,
+			"captured": true,
+			"elapsed": 10.5,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"objective_type": "web",
+			"scenario": "local_opportunity",
+			"seed": 5,
+			"source_min": [
+				55.9,
+				38.0,
+				38.0,
+				38.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 187,
+			"counter": "streams",
+			"counter_sources": [
+				9,
+				10,
+				4
+			],
+			"elapsed": 20.3,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 3,
+			"objective_taken": true,
+			"origin": 8,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": 15.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				55.9,
+				29.5,
+				0.0,
+				29.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.3,
+				10.3,
+				0.3
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				7.3,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 142,
+			"counter": "assault",
+			"counter_sources": [
+				9,
+				10,
+				4
+			],
+			"elapsed": 11.1,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 3,
+			"objective_taken": false,
+			"origin": 8,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": 6.1,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				55.9,
+				37.0,
+				0.0,
+				37.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				2.9,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				1.6,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 180,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				4,
+				9,
+				10
+			],
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 3,
+			"objective_min_bots": 44.0,
+			"scenario": "sound_defence",
+			"seed": 5,
+			"source_min": [
+				40.5,
+				37.0,
+				37.0,
+				37.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 142,
+			"capture_s": 11.3,
+			"captured": true,
+			"elapsed": 11.3,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 5,
+			"source_min": [
+				55.9,
+				37.0,
+				37.0,
+				48.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				1,
+				8,
+				0,
+				7
+			],
+			"street_cap_per_s": 8,
+			"street_from": 2,
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.32,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 418,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 315,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 2,
+			"source_farms": 2,
+			"source_min": [
+				1.1
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				165.7
+			],
+			"source_secs_below_15": [
+				158.8
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.04,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 368,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 9,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 2,
+			"source_farms": 2,
+			"source_min": [
+				37.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				4,
+				9
+			],
+			"b_hosts": 10,
+			"bots_sent": 136,
+			"capture_s": 10.5,
+			"captured": true,
+			"elapsed": 10.5,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"objective_type": "web",
+			"scenario": "local_opportunity",
+			"seed": 5,
+			"source_min": [
+				53.0,
+				17.0,
+				17.0,
+				17.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				3.3,
+				3.3,
+				3.3
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 145,
+			"counter": "streams",
+			"counter_sources": [
+				9,
+				10,
+				4
+			],
+			"elapsed": 11.3,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_taken": false,
+			"origin": 8,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 6.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				53.0,
+				14.0,
+				0.0,
+				14.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				4.1,
+				4.3,
+				4.1
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.1,
+				2.1,
+				0.1
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 121,
+			"counter": "assault",
+			"counter_sources": [
+				9,
+				10,
+				4
+			],
+			"elapsed": 9.3,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_taken": false,
+			"origin": 8,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 4.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				53.0,
+				22.0,
+				0.0,
+				22.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				2.1,
+				2.8,
+				2.1
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				1.3,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 180,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				4,
+				9,
+				10
+			],
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_min_bots": 44.0,
+			"scenario": "sound_defence",
+			"seed": 5,
+			"source_min": [
+				15.0,
+				15.0,
+				15.0,
+				15.0
+			],
+			"source_secs_at_or_below_half": [
+				11.3,
+				11.3,
+				11.3,
+				11.3
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				2,
+				1,
+				8,
+				0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 142,
+			"capture_s": 11.3,
+			"captured": true,
+			"elapsed": 11.3,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 5,
+			"source_min": [
+				53.0,
+				15.0,
+				15.0,
+				15.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				4.0,
+				4.0,
+				4.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				1,
+				8,
+				0,
+				7
+			],
+			"street_cap_per_s": 8,
+			"street_from": 2,
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.06,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 370,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 314,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 2,
+			"source_farms": 2,
+			"source_min": [
+				1.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				172.8
+			],
+			"source_secs_below_15": [
+				169.0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.47,
+			"b_faction": 2,
+			"b_hosts": 10,
+			"bots_sent": 265,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				250.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 6,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 2,
+			"source_farms": 2,
+			"source_min": [
+				15.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				62.7
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 5,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				1,
+				8
+			],
+			"b_hosts": 11,
+			"bots_sent": 484,
+			"capture_s": null,
+			"captured": false,
+			"elapsed": 120.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 2,
+			"objective_bots": 60.0,
+			"objective_type": "file",
+			"scenario": "local_opportunity",
+			"seed": 5,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 155,
+			"counter": "streams",
+			"counter_sources": [
+				1,
+				8,
+				0
+			],
+			"elapsed": 39.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 2,
+			"objective_taken": false,
+			"origin": 3,
+			"origin_bots_at_response": 59.0,
+			"origin_captured_after_s": 34.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				0.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				17.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				10.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 484,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				1,
+				8,
+				0
+			],
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 2,
+			"objective_min_bots": 88.0,
+			"scenario": "sound_defence",
+			"seed": 5,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 4.0,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 136,
+			"capture_s": 33.3,
+			"captured": true,
+			"elapsed": 33.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 2,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 5,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				15
+			],
+			"street_cap_per_s": 8,
+			"street_from": 3,
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.01,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 181,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 1.0,
+			"mode": "current",
+			"orders": 1,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 3,
+			"source_farms": 2,
+			"source_min": [
+				59.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				1,
+				8
+			],
+			"b_hosts": 11,
+			"bots_sent": 127,
+			"capture_s": 10.8,
+			"captured": true,
+			"elapsed": 10.8,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 2,
+			"objective_bots": 60.0,
+			"objective_type": "file",
+			"scenario": "local_opportunity",
+			"seed": 5,
+			"source_min": [
+				55.9,
+				39.5,
+				39.5,
+				39.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 170,
+			"counter": "streams",
+			"counter_sources": [
+				8,
+				7,
+				1
+			],
+			"elapsed": 26.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 2,
+			"objective_taken": true,
+			"origin": 9,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": 21.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				55.9,
+				32.5,
+				0.0,
+				32.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				16.3,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				13.3,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 141,
+			"counter": "assault",
+			"counter_sources": [
+				8,
+				7,
+				1
+			],
+			"elapsed": 11.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 2,
+			"objective_taken": false,
+			"origin": 9,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": 6.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				55.9,
+				36.5,
+				0.0,
+				36.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				3.1,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				1.8,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 160,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				1,
+				8,
+				0
+			],
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 2,
+			"objective_min_bots": 48.5,
+			"scenario": "sound_defence",
+			"seed": 5,
+			"source_min": [
+				42.9,
+				39.5,
+				39.5,
+				39.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 134,
+			"capture_s": 11.0,
+			"captured": true,
+			"elapsed": 11.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 2,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 5,
+			"source_min": [
+				39.5,
+				54.5,
+				39.5,
+				39.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				15
+			],
+			"street_cap_per_s": 8,
+			"street_from": 3,
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.29,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 412,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 321,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 3,
+			"source_farms": 2,
+			"source_min": [
+				7.1
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				165.8
+			],
+			"source_secs_below_15": [
+				159.3
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.05,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 369,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 10,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 3,
+			"source_farms": 2,
+			"source_min": [
+				39.5
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				1,
+				8
+			],
+			"b_hosts": 11,
+			"bots_sent": 127,
+			"capture_s": 10.8,
+			"captured": true,
+			"elapsed": 10.8,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 2,
+			"objective_bots": 60.0,
+			"objective_type": "file",
+			"scenario": "local_opportunity",
+			"seed": 5,
+			"source_min": [
+				53.0,
+				20.0,
+				20.0,
+				20.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				3.5,
+				3.5,
+				3.5
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 150,
+			"counter": "streams",
+			"counter_sources": [
+				8,
+				7,
+				1
+			],
+			"elapsed": 12.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 2,
+			"objective_taken": false,
+			"origin": 9,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 7.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				53.0,
+				10.0,
+				0.0,
+				10.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				5.1,
+				5.3,
+				5.1
+			],
+			"source_secs_below_15": [
+				0.0,
+				1.1,
+				3.1,
+				1.1
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 119,
+			"counter": "assault",
+			"counter_sources": [
+				8,
+				7,
+				1
+			],
+			"elapsed": 9.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 2,
+			"objective_taken": false,
+			"origin": 9,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 4.3,
+			"scenario": "counterattack",
+			"seed": 5,
+			"source_min": [
+				53.0,
+				22.0,
+				0.0,
+				22.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				2.1,
+				2.8,
+				2.1
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				1.3,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 160,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				1,
+				8,
+				0
+			],
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 2,
+			"objective_min_bots": 48.5,
+			"scenario": "sound_defence",
+			"seed": 5,
+			"source_min": [
+				20.0,
+				20.0,
+				20.0,
+				20.0
+			],
+			"source_secs_at_or_below_half": [
+				7.5,
+				7.5,
+				7.5,
+				7.5
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				4,
+				9,
+				10
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 134,
+			"capture_s": 11.0,
+			"captured": true,
+			"elapsed": 11.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 2,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 5,
+			"source_min": [
+				20.0,
+				46.0,
+				20.0,
+				20.0
+			],
+			"source_secs_at_or_below_half": [
+				3.8,
+				0.0,
+				3.8,
+				3.8
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				15
+			],
+			"street_cap_per_s": 8,
+			"street_from": 3,
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.03,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 366,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 316,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 3,
+			"source_farms": 2,
+			"source_min": [
+				7.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				172.8
+			],
+			"source_secs_below_15": [
+				169.0
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.43,
+			"b_faction": 1,
+			"b_hosts": 11,
+			"bots_sent": 257,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 7,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 5,
+			"source": 3,
+			"source_farms": 2,
+			"source_min": [
+				20.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				42.5
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"db": 1,
+				"erp": 2,
+				"file": 2,
+				"iot": 1,
+				"pc": 5,
+				"server": 6,
+				"web": 4
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				9,
+				19
+			],
+			"b_hosts": 11,
+			"bots_sent": 484,
+			"capture_s": null,
+			"captured": false,
+			"elapsed": 120.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 13,
+			"objective_bots": 60.0,
+			"objective_type": "server",
+			"scenario": "local_opportunity",
+			"seed": 11,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 260,
+			"counter": "streams",
+			"counter_sources": [
+				9,
+				19,
+				20
+			],
+			"elapsed": 64.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 13,
+			"objective_taken": false,
+			"origin": 8,
+			"origin_bots_at_response": 59.0,
+			"origin_captured_after_s": 59.3,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				0.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				28.6,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				13.5,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 484,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				9,
+				19,
+				20
+			],
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 13,
+			"objective_min_bots": 88.0,
+			"scenario": "sound_defence",
+			"seed": 11,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"mode": "current",
+			"scenario": "chokepoint",
+			"seed": 11,
+			"skipped": "no B host reachable through exactly one A host on this layout/side",
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.01,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 181,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 1.0,
+			"mode": "current",
+			"orders": 1,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				59.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				9,
+				19
+			],
+			"b_hosts": 11,
+			"bots_sent": 104,
+			"capture_s": 6.3,
+			"captured": true,
+			"elapsed": 6.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 16.3,
+			"mode": "finite",
+			"objective": 13,
+			"objective_bots": 60.0,
+			"objective_type": "server",
+			"scenario": "local_opportunity",
+			"seed": 11,
+			"source_min": [
+				52.7,
+				46.5,
+				46.5,
+				46.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 156,
+			"counter": "streams",
+			"counter_sources": [
+				9,
+				19,
+				20
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 13,
+			"objective_taken": true,
+			"origin": 12,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				49.5,
+				28.5,
+				40.0,
+				40.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				1.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 156,
+			"counter": "assault",
+			"counter_sources": [
+				9,
+				19,
+				20
+			],
+			"elapsed": 10.8,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 4.4,
+			"mode": "finite",
+			"objective": 13,
+			"objective_taken": true,
+			"origin": 12,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": 5.8,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				49.5,
+				0.0,
+				40.0,
+				40.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				2.6,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				1.6,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 180,
+			"captured": true,
+			"elapsed": 11.0,
+			"guards": [
+				9,
+				19,
+				20
+			],
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 25.5,
+			"mode": "finite",
+			"objective": 13,
+			"objective_min_bots": 2.5,
+			"scenario": "sound_defence",
+			"seed": 11,
+			"source_min": [
+				48.0,
+				37.0,
+				37.0,
+				37.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"mode": "finite",
+			"scenario": "chokepoint",
+			"seed": 11,
+			"skipped": "no B host reachable through exactly one A host on this layout/side",
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 3.32,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 598,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 413,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				1.1
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				153.3
+			],
+			"source_secs_below_15": [
+				140.7
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 3.03,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 545,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 13,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				47.8
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				9,
+				19
+			],
+			"b_hosts": 11,
+			"bots_sent": 104,
+			"capture_s": 6.3,
+			"captured": true,
+			"elapsed": 6.3,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 16.3,
+			"mode": "exposure",
+			"objective": 13,
+			"objective_bots": 60.0,
+			"objective_type": "server",
+			"scenario": "local_opportunity",
+			"seed": 11,
+			"source_min": [
+				34.0,
+				34.0,
+				34.0,
+				34.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 156,
+			"counter": "streams",
+			"counter_sources": [
+				9,
+				19,
+				20
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 13,
+			"objective_taken": true,
+			"origin": 8,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				11.3,
+				21.0,
+				21.0,
+				21.0
+			],
+			"source_secs_at_or_below_half": [
+				10.3,
+				6.8,
+				6.8,
+				6.8
+			],
+			"source_secs_below_15": [
+				3.3,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 148,
+			"counter": "assault",
+			"counter_sources": [
+				9,
+				19,
+				20
+			],
+			"elapsed": 9.1,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 20.6,
+			"mode": "exposure",
+			"objective": 13,
+			"objective_taken": false,
+			"origin": 8,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 4.1,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				0.0,
+				23.0,
+				23.0,
+				23.0
+			],
+			"source_secs_at_or_below_half": [
+				1.9,
+				1.9,
+				1.9,
+				1.9
+			],
+			"source_secs_below_15": [
+				0.9,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 180,
+			"captured": true,
+			"elapsed": 11.0,
+			"guards": [
+				9,
+				19,
+				20
+			],
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 25.5,
+			"mode": "exposure",
+			"objective": 13,
+			"objective_min_bots": 2.5,
+			"scenario": "sound_defence",
+			"seed": 11,
+			"source_min": [
+				15.0,
+				15.0,
+				15.0,
+				15.0
+			],
+			"source_secs_at_or_below_half": [
+				3.8,
+				3.8,
+				3.8,
+				3.8
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				12,
+				7,
+				2
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"mode": "exposure",
+			"scenario": "chokepoint",
+			"seed": 11,
+			"skipped": "no B host reachable through exactly one A host on this layout/side",
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.84,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 511,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 455,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				1.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				172.8
+			],
+			"source_secs_below_15": [
+				169.0
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.76,
+			"b_faction": 2,
+			"b_hosts": 11,
+			"bots_sent": 316,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				265.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 8,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				15.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				58.8
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				2,
+				7
+			],
+			"b_hosts": 12,
+			"bots_sent": 484,
+			"capture_s": null,
+			"captured": false,
+			"elapsed": 120.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"objective_type": "iot",
+			"scenario": "local_opportunity",
+			"seed": 11,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 159,
+			"counter": "streams",
+			"counter_sources": [
+				2,
+				7,
+				6
+			],
+			"elapsed": 40.8,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 3,
+			"objective_taken": false,
+			"origin": 4,
+			"origin_bots_at_response": 59.0,
+			"origin_captured_after_s": 35.8,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				0.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				17.6,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				10.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 484,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				2,
+				7,
+				6
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 3,
+			"objective_min_bots": 87.7,
+			"scenario": "sound_defence",
+			"seed": 11,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 4.0,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 132,
+			"capture_s": 32.5,
+			"captured": true,
+			"elapsed": 32.5,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 18,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 11,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				13,
+				20,
+				9,
+				12
+			],
+			"street_cap_per_s": 8,
+			"street_from": 19,
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.01,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 181,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 1.0,
+			"mode": "current",
+			"orders": 1,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 4,
+			"source_farms": 2,
+			"source_min": [
+				59.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				2,
+				7
+			],
+			"b_hosts": 12,
+			"bots_sent": 96,
+			"capture_s": 5.8,
+			"captured": true,
+			"elapsed": 5.8,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 15.3,
+			"mode": "finite",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"objective_type": "iot",
+			"scenario": "local_opportunity",
+			"seed": 11,
+			"source_min": [
+				47.5,
+				47.5,
+				47.5,
+				47.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 152,
+			"counter": "streams",
+			"counter_sources": [
+				2,
+				7,
+				6
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 3,
+			"objective_taken": true,
+			"origin": 4,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				33.5,
+				40.5,
+				40.5,
+				40.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 152,
+			"counter": "assault",
+			"counter_sources": [
+				2,
+				7,
+				6
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 3,
+			"objective_taken": true,
+			"origin": 4,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				3.5,
+				40.5,
+				40.5,
+				40.5
+			],
+			"source_secs_at_or_below_half": [
+				17.8,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				8.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"captured": true,
+			"elapsed": 10.5,
+			"guards": [
+				2,
+				7,
+				6
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 12.5,
+			"mode": "finite",
+			"objective": 3,
+			"objective_min_bots": 0.7,
+			"scenario": "sound_defence",
+			"seed": 11,
+			"source_min": [
+				39.5,
+				39.5,
+				39.5,
+				39.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"capture_s": 10.8,
+			"captured": true,
+			"elapsed": 10.8,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 9.3,
+			"mode": "finite",
+			"objective": 18,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 11,
+			"source_min": [
+				39.5,
+				39.5,
+				39.5,
+				39.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				13,
+				20,
+				9,
+				12
+			],
+			"street_cap_per_s": 8,
+			"street_from": 19,
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.29,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 412,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 321,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 4,
+			"source_farms": 2,
+			"source_min": [
+				7.1
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				165.8
+			],
+			"source_secs_below_15": [
+				159.3
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.05,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 369,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 10,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 4,
+			"source_farms": 2,
+			"source_min": [
+				39.5
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				2,
+				7
+			],
+			"b_hosts": 12,
+			"bots_sent": 96,
+			"capture_s": 5.8,
+			"captured": true,
+			"elapsed": 5.8,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 15.3,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_bots": 60.0,
+			"objective_type": "iot",
+			"scenario": "local_opportunity",
+			"seed": 11,
+			"source_min": [
+				36.0,
+				36.0,
+				36.0,
+				36.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 152,
+			"counter": "streams",
+			"counter_sources": [
+				2,
+				7,
+				6
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_taken": true,
+			"origin": 4,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				15.1,
+				22.0,
+				22.0,
+				22.0
+			],
+			"source_secs_at_or_below_half": [
+				13.5,
+				6.0,
+				6.0,
+				6.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 152,
+			"counter": "assault",
+			"counter_sources": [
+				2,
+				7,
+				6
+			],
+			"elapsed": 11.1,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_taken": true,
+			"origin": 4,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 6.1,
+			"scenario": "counterattack",
+			"seed": 11,
+			"source_min": [
+				0.0,
+				22.0,
+				22.0,
+				22.0
+			],
+			"source_secs_at_or_below_half": [
+				3.9,
+				3.9,
+				3.9,
+				3.9
+			],
+			"source_secs_below_15": [
+				2.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"captured": true,
+			"elapsed": 10.5,
+			"guards": [
+				2,
+				7,
+				6
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 12.5,
+			"mode": "exposure",
+			"objective": 3,
+			"objective_min_bots": 0.7,
+			"scenario": "sound_defence",
+			"seed": 11,
+			"source_min": [
+				20.0,
+				20.0,
+				20.0,
+				20.0
+			],
+			"source_secs_at_or_below_half": [
+				3.3,
+				3.3,
+				3.3,
+				3.3
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				4,
+				9,
+				10,
+				13
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"capture_s": 10.8,
+			"captured": true,
+			"elapsed": 10.8,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 9.3,
+			"mode": "exposure",
+			"objective": 18,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 11,
+			"source_min": [
+				20.0,
+				20.0,
+				20.0,
+				20.0
+			],
+			"source_secs_at_or_below_half": [
+				3.5,
+				3.5,
+				3.5,
+				3.5
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				13,
+				20,
+				9,
+				12
+			],
+			"street_cap_per_s": 8,
+			"street_from": 19,
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.03,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 366,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 316,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 4,
+			"source_farms": 2,
+			"source_min": [
+				7.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				172.8
+			],
+			"source_secs_below_15": [
+				169.0
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.43,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 257,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 7,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 11,
+			"source": 4,
+			"source_farms": 2,
+			"source_min": [
+				20.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				42.5
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"db": 2,
+				"erp": 1,
+				"iot": 4,
+				"pc": 8,
+				"server": 4,
+				"web": 3
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				3,
+				9
+			],
+			"b_hosts": 12,
+			"bots_sent": 484,
+			"capture_s": null,
+			"captured": false,
+			"elapsed": 120.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 14,
+			"objective_bots": 60.0,
+			"objective_type": "erp",
+			"scenario": "local_opportunity",
+			"seed": 23,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 364,
+			"counter": "streams",
+			"counter_sources": [
+				9,
+				3,
+				4
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 14,
+			"objective_taken": false,
+			"origin": 8,
+			"origin_bots_at_response": 59.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				13.8,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				22.8,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.5,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 484,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				3,
+				9,
+				15
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 14,
+			"objective_min_bots": 88.0,
+			"scenario": "sound_defence",
+			"seed": 23,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"mode": "current",
+			"scenario": "chokepoint",
+			"seed": 23,
+			"skipped": "no B host reachable through exactly one A host on this layout/side",
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.01,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 181,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 1.0,
+			"mode": "current",
+			"orders": 1,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				59.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				3,
+				9
+			],
+			"b_hosts": 12,
+			"bots_sent": 104,
+			"capture_s": 6.3,
+			"captured": true,
+			"elapsed": 6.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 13.1,
+			"mode": "finite",
+			"objective": 14,
+			"objective_bots": 60.0,
+			"objective_type": "erp",
+			"scenario": "local_opportunity",
+			"seed": 23,
+			"source_min": [
+				52.7,
+				46.5,
+				46.5,
+				46.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 168,
+			"counter": "streams",
+			"counter_sources": [
+				19,
+				3,
+				9
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 14,
+			"objective_taken": true,
+			"origin": 13,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				48.7,
+				23.5,
+				38.5,
+				38.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				8.8,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 164,
+			"counter": "assault",
+			"counter_sources": [
+				19,
+				3,
+				9
+			],
+			"elapsed": 10.1,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 17.6,
+			"mode": "finite",
+			"objective": 14,
+			"objective_taken": false,
+			"origin": 13,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": 5.1,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				49.0,
+				0.0,
+				39.0,
+				39.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				2.3,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				1.1,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 180,
+			"captured": true,
+			"elapsed": 13.0,
+			"guards": [
+				3,
+				9,
+				15
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 14,
+			"objective_min_bots": 0.5,
+			"scenario": "sound_defence",
+			"seed": 23,
+			"source_min": [
+				48.0,
+				37.0,
+				37.0,
+				37.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"mode": "finite",
+			"scenario": "chokepoint",
+			"seed": 23,
+			"skipped": "no B host reachable through exactly one A host on this layout/side",
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 3.32,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 598,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 413,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				1.1
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				153.3
+			],
+			"source_secs_below_15": [
+				140.7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 3.03,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 545,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 13,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				47.8
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_guards_after_8s": [
+				3,
+				9
+			],
+			"b_hosts": 12,
+			"bots_sent": 104,
+			"capture_s": 6.3,
+			"captured": true,
+			"elapsed": 6.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 13.1,
+			"mode": "exposure",
+			"objective": 14,
+			"objective_bots": 60.0,
+			"objective_type": "erp",
+			"scenario": "local_opportunity",
+			"seed": 23,
+			"source_min": [
+				34.0,
+				34.0,
+				34.0,
+				34.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 168,
+			"counter": "streams",
+			"counter_sources": [
+				9,
+				3,
+				4
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 14,
+			"objective_taken": true,
+			"origin": 8,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				5.1,
+				18.0,
+				18.0,
+				18.0
+			],
+			"source_secs_at_or_below_half": [
+				29.4,
+				9.0,
+				9.0,
+				9.0
+			],
+			"source_secs_below_15": [
+				12.3,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 144,
+			"counter": "assault",
+			"counter_sources": [
+				9,
+				3,
+				4
+			],
+			"elapsed": 8.8,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 16.0,
+			"mode": "exposure",
+			"objective": 14,
+			"objective_taken": false,
+			"origin": 8,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 3.8,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				0.0,
+				24.0,
+				24.0,
+				24.0
+			],
+			"source_secs_at_or_below_half": [
+				2.3,
+				1.6,
+				1.6,
+				1.6
+			],
+			"source_secs_below_15": [
+				1.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 180,
+			"captured": true,
+			"elapsed": 13.0,
+			"guards": [
+				3,
+				9,
+				15
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 14,
+			"objective_min_bots": 0.5,
+			"scenario": "sound_defence",
+			"seed": 23,
+			"source_min": [
+				15.0,
+				15.0,
+				15.0,
+				15.0
+			],
+			"source_secs_at_or_below_half": [
+				5.8,
+				5.8,
+				5.8,
+				5.8
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				8,
+				13,
+				2,
+				7
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"mode": "exposure",
+			"scenario": "chokepoint",
+			"seed": 23,
+			"skipped": "no B host reachable through exactly one A host on this layout/side",
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.84,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 511,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 455,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				1.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				172.8
+			],
+			"source_secs_below_15": [
+				169.0
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 1,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.76,
+			"b_faction": 2,
+			"b_hosts": 12,
+			"bots_sent": 316,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 8,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 8,
+			"source_farms": 2,
+			"source_min": [
+				15.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				58.8
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": false,
+			"types": {
+				"erp": 2,
+				"file": 2,
+				"iot": 2,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				2,
+				7
+			],
+			"b_hosts": 12,
+			"bots_sent": 484,
+			"capture_s": null,
+			"captured": false,
+			"elapsed": 120.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 8,
+			"objective_bots": 60.0,
+			"objective_type": "erp",
+			"scenario": "local_opportunity",
+			"seed": 23,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 155,
+			"counter": "streams",
+			"counter_sources": [
+				2,
+				7,
+				1
+			],
+			"elapsed": 39.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 8,
+			"objective_taken": false,
+			"origin": 9,
+			"origin_bots_at_response": 59.0,
+			"origin_captured_after_s": 34.3,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				0.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				17.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				10.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 484,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				2,
+				7,
+				1
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 8,
+			"objective_min_bots": 88.0,
+			"scenario": "sound_defence",
+			"seed": 23,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 4.0,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 128,
+			"capture_s": 31.3,
+			"captured": true,
+			"elapsed": 31.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "current",
+			"objective": 13,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 23,
+			"source_min": [
+				59.0,
+				59.0,
+				59.0,
+				59.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				9,
+				15,
+				20
+			],
+			"street_cap_per_s": 8,
+			"street_from": 14,
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.01,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 181,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 1.0,
+			"mode": "current",
+			"orders": 1,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 9,
+			"source_farms": 2,
+			"source_min": [
+				59.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				2,
+				7
+			],
+			"b_hosts": 12,
+			"bots_sent": 104,
+			"capture_s": 6.3,
+			"captured": true,
+			"elapsed": 6.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 13.1,
+			"mode": "finite",
+			"objective": 8,
+			"objective_bots": 60.0,
+			"objective_type": "erp",
+			"scenario": "local_opportunity",
+			"seed": 23,
+			"source_min": [
+				46.5,
+				52.7,
+				46.5,
+				46.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 168,
+			"counter": "streams",
+			"counter_sources": [
+				2,
+				7,
+				1
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 8,
+			"objective_taken": true,
+			"origin": 9,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				26.1,
+				48.7,
+				38.5,
+				38.5
+			],
+			"source_secs_at_or_below_half": [
+				4.7,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 168,
+			"counter": "assault",
+			"counter_sources": [
+				2,
+				7,
+				1
+			],
+			"elapsed": 10.8,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 11.0,
+			"mode": "finite",
+			"objective": 8,
+			"objective_taken": true,
+			"origin": 9,
+			"origin_bots_at_response": 49.0,
+			"origin_captured_after_s": 5.8,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				0.0,
+				48.7,
+				38.5,
+				38.5
+			],
+			"source_secs_at_or_below_half": [
+				2.3,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				1.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				2,
+				7,
+				1
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 8,
+			"objective_min_bots": 10.5,
+			"scenario": "sound_defence",
+			"seed": 23,
+			"source_min": [
+				39.5,
+				49.2,
+				39.5,
+				39.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"capture_s": 11.3,
+			"captured": true,
+			"elapsed": 11.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"objective": 13,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 23,
+			"source_min": [
+				39.5,
+				39.5,
+				39.5,
+				39.5
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				9,
+				15,
+				20
+			],
+			"street_cap_per_s": 8,
+			"street_from": 14,
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.29,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 412,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 321,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 9,
+			"source_farms": 2,
+			"source_min": [
+				7.1
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				165.8
+			],
+			"source_secs_below_15": [
+				159.3
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.05,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 369,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "finite",
+			"orders": 10,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 9,
+			"source_farms": 2,
+			"source_min": [
+				39.5
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_guards_after_8s": [
+				2,
+				7
+			],
+			"b_hosts": 12,
+			"bots_sent": 104,
+			"capture_s": 6.3,
+			"captured": true,
+			"elapsed": 6.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 13.1,
+			"mode": "exposure",
+			"objective": 8,
+			"objective_bots": 60.0,
+			"objective_type": "erp",
+			"scenario": "local_opportunity",
+			"seed": 23,
+			"source_min": [
+				34.0,
+				34.0,
+				34.0,
+				34.0
+			],
+			"source_secs_at_or_below_half": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 168,
+			"counter": "streams",
+			"counter_sources": [
+				2,
+				7,
+				1
+			],
+			"elapsed": 90.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 8,
+			"objective_taken": true,
+			"origin": 9,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": null,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				5.6,
+				18.0,
+				18.0,
+				18.0
+			],
+			"source_secs_at_or_below_half": [
+				18.0,
+				7.0,
+				9.0,
+				9.0
+			],
+			"source_secs_below_15": [
+				8.3,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 154,
+			"counter": "assault",
+			"counter_sources": [
+				2,
+				7,
+				1
+			],
+			"elapsed": 9.6,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 14.9,
+			"mode": "exposure",
+			"objective": 8,
+			"objective_taken": false,
+			"origin": 9,
+			"origin_bots_at_response": 39.0,
+			"origin_captured_after_s": 4.6,
+			"scenario": "counterattack",
+			"seed": 23,
+			"source_min": [
+				0.0,
+				21.0,
+				21.0,
+				21.0
+			],
+			"source_secs_at_or_below_half": [
+				2.4,
+				2.4,
+				2.4,
+				2.4
+			],
+			"source_secs_below_15": [
+				1.1,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"captured": false,
+			"elapsed": 120.0,
+			"guards": [
+				2,
+				7,
+				1
+			],
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 8,
+			"objective_min_bots": 10.5,
+			"scenario": "sound_defence",
+			"seed": 23,
+			"source_min": [
+				20.0,
+				20.0,
+				20.0,
+				20.0
+			],
+			"source_secs_at_or_below_half": [
+				7.5,
+				5.8,
+				7.5,
+				7.5
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				9,
+				14,
+				3,
+				4
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"attack_rate_offered": 16.0,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 160,
+			"capture_s": 11.3,
+			"captured": true,
+			"elapsed": 11.3,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"objective": 13,
+			"objective_bots": 60.0,
+			"scenario": "chokepoint",
+			"seed": 23,
+			"source_min": [
+				20.0,
+				20.0,
+				20.0,
+				20.0
+			],
+			"source_secs_at_or_below_half": [
+				4.0,
+				4.0,
+				4.0,
+				4.0
+			],
+			"source_secs_below_15": [
+				0.0,
+				0.0,
+				0.0,
+				0.0
+			],
+			"sources": [
+				3,
+				9,
+				15,
+				20
+			],
+			"street_cap_per_s": 8,
+			"street_from": 14,
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 2.03,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 366,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 316,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "spent",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 9,
+			"source_farms": 2,
+			"source_min": [
+				7.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				172.8
+			],
+			"source_secs_below_15": [
+				169.0
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		},
+		{
+			"a_faction": 2,
+			"a_hosts": 10,
+			"avg_bots_per_s": 1.43,
+			"b_faction": 1,
+			"b_hosts": 12,
+			"bots_sent": 257,
+			"elapsed": 180.0,
+			"intel_cap": [
+				250.0,
+				280.0
+			],
+			"intel_spent_approx": 0.0,
+			"mode": "exposure",
+			"orders": 7,
+			"ordinary_stream_per_s": 1.0,
+			"reissue": "full",
+			"scenario": "repeated_assault",
+			"seed": 23,
+			"source": 9,
+			"source_farms": 2,
+			"source_min": [
+				20.0
+			],
+			"source_regen": 2.0,
+			"source_secs_at_or_below_half": [
+				42.5
+			],
+			"source_secs_below_15": [
+				0.0
+			],
+			"swap": true,
+			"types": {
+				"erp": 2,
+				"file": 3,
+				"iot": 1,
+				"pc": 8,
+				"server": 6,
+				"web": 2
+			}
+		}
+	]
+}

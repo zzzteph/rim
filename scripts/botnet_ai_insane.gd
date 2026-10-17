@@ -229,6 +229,7 @@ func _pick_goal() -> void:   # the rival to eliminate: near, weak, threatening o
 func _economy() -> void:
 	var tally := {"bot": 0, "intel": 0, "cash": 0, "cred": 0, "lab": 0}
 	var owed := 0.0
+	var owed_cash := 0.0                         # Crypto the accepted jobs still have to pay (a quote is not reserved)
 	var farm_hosts := 0                          # hosts with a farm: each can field one stream
 	var conv := 0.0                              # Intel/s the converters eat while they run
 	for i in _own:
@@ -240,6 +241,7 @@ func _economy() -> void:
 				var job: Dictionary = jobs[k]
 				kind = str(job.kind)
 				owed += float((job.get("cost_left", {}) as Dictionary).get("intel", 0.0))
+				owed_cash += float((job.get("cost_left", {}) as Dictionary).get("cash", 0.0))
 			if kind == "": continue
 			tally[kind] += 1
 			if kind == "bot": has_farm = true
@@ -254,6 +256,8 @@ func _economy() -> void:
 	var plan := []   # ordered wishes: [kind, where] (the site is chosen when the wish comes up)
 	if int(tally.intel) < 3: plan.append(["intel", "intel"])
 	if income < target: plan.append(["intel", "intel"])
+	if float(game._build_cost("bot").get("cash", 0.0)) > 0.0 and int(tally.cash) < 1:
+		plan.append(["cash", "cash"])            # farms are paid in Crypto: a miner before the first new farm, whatever the size
 	if n >= 4:                                   # the card core: Crypto first (the lab is paid partly in it), then Credentials, then Research
 		if int(tally.cash) < 1: plan.append(["cash", "cash"])
 		if int(tally.cred) < 1: plan.append(["cred", "cred"])
@@ -273,23 +277,27 @@ func _economy() -> void:
 	if intel > 0.85 * cap: plan.append(["bot", "swap"])   # Intel piles up unspent: turn a harvester into a farm
 	var started := 0
 	_saving = 0.0
+	var cash_free := _cash() - owed_cash - _research_cash_left()   # the running card is paid first, so its Crypto is spoken for
 	for w in plan:
 		var kind := str(w[0])
 		var price: Dictionary = game._build_cost(kind)
-		if _cash() < float(price.get("cash", 0.0)): continue          # a lab waits for its Crypto without blocking the line
+		var need_cash := float(price.get("cash", 0.0))
+		if need_cash > 0.0 and cash_free < need_cash: continue        # a farm or lab waits for its Crypto without blocking the line
 		var site := _site(str(w[1]))
+		if site.is_empty() and kind == "cash" and float(game._build_cost("bot").get("cash", 0.0)) > 0.0:
+			site = _site("cash", true)               # farms need Crypto: a miner at the front beats no miner at all
 		if site.is_empty(): continue
 		var p := float(price.get("intel", 0.0))
 		if intel - 0.5 * owed >= p + 2.0:
 			_cmd(["build", int(site[0]), int(site[1]), kind])
-			_stats.built += 1; started += 1; owed += p; intel -= p
+			_stats.built += 1; started += 1; owed += p; intel -= p; cash_free -= float(price.get("cash", 0.0))
 			if started >= 3: break
 		elif p > 10.0:
 			_saving = p; break                   # save for it (no new sieges eat the bank meanwhile)
 	_converters()
 
 
-func _site(kind: String) -> Array:   # [host, slot] where this kind of building does the most good, or []
+func _site(kind: String, front_ok := false) -> Array:   # [host, slot] where this kind of building does the most good, or []
 	var best: Array = []; var bs := -INF
 	var rig := _my_rig()
 	var rig_comp: int = int(_comp.get(rig, -1))
@@ -330,15 +338,15 @@ func _site(kind: String) -> Array:   # [host, slot] where this kind of building 
 				if _faced.has(i): continue
 				sc = _tmult(i, "research")
 			"cash":                              # needs a road home: Crypto travels to the rig as packets
-				if _faced.has(i) or (i != rig and int(_comp.get(i, -2)) != rig_comp): continue
-				sc = float(_ovalue(i)) * _tmult(i, "cash")
+				if (_faced.has(i) and not front_ok) or (i != rig and int(_comp.get(i, -2)) != rig_comp): continue
+				sc = float(_ovalue(i)) * _tmult(i, "cash") - (1.0 if _faced.has(i) else 0.0)
 		sc -= penalty
 		if sc > bs: bs = sc; best = [i, slot]
 	return best
 
 
 func _converters() -> void:   # converters eat Intel: they run while the bank can spare it and their output is wanted
-	var want_cash: float = 60.0 + _queue_cost("cash") + _queue_cost("research")
+	var want_cash: float = 60.0 + _queue_cost("cash") + _queue_cost("research") + _jobs_cash_left()   # + Crypto that farm / lab jobs still owe
 	var cash := _cash()
 	var intel := _intel()
 	var research_full: bool = _pool("research") >= _head_need("research") + 5.0   # labs would only turn Crypto the card needs into spare Research
@@ -364,6 +372,17 @@ func _head_need(res: String) -> float:   # what the card being researched still 
 	var items := _lab_items()
 	var done := float(items[0].progress) / float(game.CARDS[key.split(":")[0]].time) if not items.is_empty() else 0.0
 	return float((game.CARDS[key.split(":")[0]].cost as Dictionary).get(res, 0.0)) * (1.0 - done)
+
+
+func _research_cash_left() -> float:   # Crypto the card being researched still has to take (research pays first; later cards wait their turn)
+	return _head_need("cash")
+
+
+func _jobs_cash_left() -> float:   # Crypto this brain's own construction jobs still owe
+	var total := 0.0
+	for i in _own:
+		for job in _ojobs(i).values(): total += float((job.get("cost_left", {}) as Dictionary).get("cash", 0.0))
+	return total
 
 
 func _queue_cost(res: String) -> float:   # what the queued research still needs of a resource

@@ -1,0 +1,206 @@
+## Matches (policy faction = NYX vs 2 Normal AIs, Small 6x4, 900 s cap)
+rules  policy    seed | end    winner pol_won | caps lost | 1st cap 1st miner 1st newfarm | farms@120/300/600/end hosts@120/300/600/end | Intel ovf attack build | C prod deliv build pausedMiner_s | stall_C_s | captures:first-farm median / all-farm median
+base  original     7 |  900.0  -1 False |   66   58 |   21.4      -   34.6 | 12/26/31/31 6/9/10/10 |  2364.1 5389.0  925.6 |    0.0    0.0    0.0     0.0 |    0.0 | 11.05 / 13.7 (caps never farmed 2)
+base  original    19 |  418.9   2 True  |   37   27 |   22.4      -   34.6 | 12/31/-/39 5/10/-/12 |   505.9 2109.0 1135.1 |    0.0    0.0    0.0     0.0 |    0.0 | 11.45 / 13.9 (caps never farmed 0)
+base  original    43 |  370.3   2 True  |   22    8 |   10.4      -   28.5 | 10/30/-/39 6/10/-/16 |    17.4 1860.0 1158.8 |    0.0    0.0    0.0     0.0 |    0.0 | 12.0 / 14.899999999999999 (caps never farmed 5)
+base  adapted      7 |  900.0  -1 False |   66   58 |   21.4      -   34.6 | 12/26/31/31 6/9/10/10 |  2364.1 5389.0  925.6 |    0.0    0.0    0.0     0.0 |    0.0 | 11.05 / 13.7 (caps never farmed 2)
+base  adapted     19 |  418.9   2 True  |   37   27 |   22.4      -   34.6 | 12/31/-/39 5/10/-/12 |   505.9 2109.0 1135.1 |    0.0    0.0    0.0     0.0 |    0.0 | 11.45 / 13.9 (caps never farmed 0)
+base  adapted     43 |  370.3   2 True  |   22    8 |   10.4      -   28.5 | 10/30/-/39 6/10/-/16 |    17.4 1860.0 1158.8 |    0.0    0.0    0.0     0.0 |    0.0 | 12.0 / 14.899999999999999 (caps never farmed 5)
+base  adapted_late    7 |  900.0  -1 False |   66   58 |   21.4      -   34.6 | 12/26/31/31 6/9/10/10 |  2364.1 5389.0  925.6 |    0.0    0.0    0.0     0.0 |    0.0 | 11.05 / 13.7 (caps never farmed 2)
+base  adapted_late   19 |  418.9   2 True  |   37   27 |   22.4      -   34.6 | 12/31/-/39 5/10/-/12 |   505.9 2109.0 1135.1 |    0.0    0.0    0.0     0.0 |    0.0 | 11.45 / 13.9 (caps never farmed 0)
+base  adapted_late   43 |  370.3   2 True  |   22    8 |   10.4      -   28.5 | 10/30/-/39 6/10/-/16 |    17.4 1860.0 1158.8 |    0.0    0.0    0.0     0.0 |    0.0 | 12.0 / 14.899999999999999 (caps never farmed 5)
+cand  original     7 |  590.4   3 False |   17   18 |   21.4      -      - | 3/2/-/2 6/2/-/1 |  2209.4  906.0  100.7 |    0.0    0.0    0.0     0.0 |    0.0 | - / - (caps never farmed 5)
+cand  original    19 |  453.1   3 False |   23   22 |   22.4      -      - | 3/3/-/3 5/5/-/3 |  3196.5 1393.0   79.9 |    0.0    0.0    0.0     0.0 |    0.0 | - / - (caps never farmed 3)
+cand  original    43 |  542.9   3 False |    9   10 |   10.4      -      - | 3/2/-/2 4/1/-/1 |  1834.2  510.0   60.2 |    0.0    0.0    0.0     0.0 |    0.0 | - / - (caps never farmed 3)
+cand  adapted      7 |  900.0  -1 False |   12    7 |   85.5    3.3  168.0 | 3/7/13/11 3/6/8/7 |  5895.6 4324.0  400.0 |  406.2  403.0  300.0  3469.4 |    0.0 | 10.4 / - (caps never farmed 1)
+cand  adapted     19 |  900.0  -1 False |   10    8 |   87.5    3.3  152.9 | 3/4/7/7 2/3/4/4 |  2990.3 2376.0  140.0 |  213.9  212.8  120.0  1138.3 |    0.0 | 13.1 / - (caps never farmed 2)
+cand  adapted     43 |  453.7   3 False |    3    3 |   10.4    3.3  107.4 | 4/3/-/2 5/3/-/2 |  1285.1  917.0  220.0 |  126.0  126.0   30.0   353.8 |    0.0 | 18.9 / - (caps never farmed 2)
+cand  adapted_late    7 |  900.0  -1 False |   20   16 |   21.4   30.6  101.3 | 4/6/9/9 6/5/6/6 |  5548.9 3541.0  380.0 |  278.5  275.7  187.5  3052.1 |    0.0 | 11.2 / 11.2 (caps never farmed 2)
+cand  adapted_late   19 |  416.4   2 True  |   36   22 |   22.4   30.6   89.2 | 5/16/-/29 5/9/-/16 |   507.3 2170.0  657.0 | 1026.3  982.6  915.8   445.9 |    0.0 | 12.7 / - (caps never farmed 3)
+cand  adapted_late   43 |  542.9   3 False |    9   10 |   10.4   33.7      - | 3/2/-/2 4/1/-/1 |   934.9  510.0  151.2 |   92.7   92.7    1.4     2.5 |    0.0 | - / - (caps never farmed 3)
+c20   original     7 |  412.9   3 False |   21   22 |   21.4      -      - | 3/2/-/2 6/2/-/1 |  1585.4  880.0  100.0 |    0.0    0.0    0.0     0.0 |    0.0 | - / - (caps never farmed 5)
+c20   original    19 |  453.1   3 False |   23   22 |   22.4      -      - | 3/3/-/3 5/5/-/3 |  3196.5 1393.0   79.9 |    0.0    0.0    0.0     0.0 |    0.0 | - / - (caps never farmed 3)
+c20   original    43 |  900.0  -1 False |    6    7 |   10.4      -      - | 3/2/2/2 4/2/1/1 |  2778.4  642.0   80.7 |    0.0    0.0    0.0     0.0 |    0.0 | - / - (caps never farmed 3)
+c20   adapted      7 |  460.0   3 False |   17   14 |   85.5    3.3  168.0 | 3/9/-/9 3/5/-/5 |   987.0 1313.0  312.5 |  189.2  183.7  122.0   868.4 |    0.0 | 10.9 / - (caps never farmed 2)
+c20   adapted     19 |  727.6   3 False |   19   17 |   87.5    3.3  149.8 | 3/4/4/6 2/3/3/4 |  2051.3 1587.0  194.0 |  186.4  184.9  120.3   886.9 |    0.0 | 11.1 / - (caps never farmed 2)
+c20   adapted     43 |  900.0  -1 False |   33   28 |   10.4    3.3   86.1 | 5/6/12/15 5/6/7/7 |  4830.6 3554.0  402.7 |  460.2  452.8  372.5  2020.1 |    0.0 | 11.8 / 11.8 (caps never farmed 1)
+c20   adapted_late    7 |  900.0  -1 False |   29   20 |   21.4   30.6   86.1 | 5/16/22/23 6/8/11/11 |  4557.5 5325.0  434.5 |  527.9  521.7  462.2  3550.4 |    0.0 | 12.25 / 25.0 (caps never farmed 1)
+c20   adapted_late   19 |  317.0   2 True  |   21   10 |   22.4   30.6   83.1 | 6/26/-/29 5/13/-/13 |   201.4 1508.0  490.8 |  621.2  612.9  521.7   258.9 |    0.0 | 15.95 / 26.4 (caps never farmed 2)
+c20   adapted_late   43 |  447.7   3 False |    7    5 |   10.4   33.7  198.4 | 3/6/-/6 4/4/-/4 |   911.9 1165.0  203.5 |  125.7  122.9   62.8   240.6 |    0.0 | 12.1 / - (caps never farmed 3)
+
+## Bank trajectory (policy faction): Intel / cap / Crypto at 60,120,180,300,450,600,900 s
+base  original    7: 81/350/0  331/350/0  350/350/0  346/350/0  350/350/0  347/350/0  347/350/0
+base  original   19: 74/300/0  298/350/0  336/350/0  348/350/0  -  -  -
+base  original   43: 102/300/0  247/300/0  296/300/0  85/300/0  -  -  -
+base  adapted     7: 81/350/0  331/350/0  350/350/0  346/350/0  350/350/0  347/350/0  347/350/0
+base  adapted    19: 74/300/0  298/350/0  336/350/0  348/350/0  -  -  -
+base  adapted    43: 102/300/0  247/300/0  296/300/0  85/300/0  -  -  -
+base  adapted_late   7: 81/350/0  331/350/0  350/350/0  346/350/0  350/350/0  347/350/0  347/350/0
+base  adapted_late  19: 74/300/0  298/350/0  336/350/0  348/350/0  -  -  -
+base  adapted_late  43: 102/300/0  247/300/0  296/300/0  85/300/0  -  -  -
+cand  original    7: 175/175/0  175/175/0  173/175/0  160/160/0  115/115/0  -  -
+cand  original   19: 158/175/0  190/190/0  190/190/0  190/190/0  160/160/0  -  -
+cand  original   43: 175/175/0  190/190/0  188/190/0  115/115/0  115/115/0  -  -
+cand  adapted     7: 2/100/1  45/145/21  163/175/32  202/205/104  250/250/103  250/250/103  219/220/103
+cand  adapted    19: 2/100/1  45/130/21  145/145/27  145/145/95  160/160/48  160/160/92  159/160/92
+cand  adapted    43: 12/130/13  169/190/36  205/205/96  144/145/96  130/130/96  -  -
+cand  adapted_late   7: 102/175/4  203/205/48  220/220/100  202/205/100  205/205/96  204/205/88  205/205/88
+cand  adapted_late  19: 102/175/8  204/205/29  204/205/90  220/220/113  -  -  -
+cand  adapted_late  43: 109/175/3  175/175/41  173/175/81  115/115/91  115/115/91  -  -
+c20   original    7: 175/175/0  175/175/0  173/175/0  160/160/0  -  -  -
+c20   original   19: 158/175/0  190/190/0  190/190/0  190/190/0  160/160/0  -  -
+c20   original   43: 175/175/0  190/190/0  158/160/0  130/130/0  130/130/0  115/115/0  115/115/0
+c20   adapted     7: 2/100/1  45/145/21  160/160/22  160/160/64  160/160/61  -  -
+c20   adapted    19: 2/100/1  45/130/21  145/145/37  145/145/61  145/145/61  144/145/30  -
+c20   adapted    43: 12/130/13  190/190/17  190/190/62  190/190/62  205/205/68  220/220/79  175/175/80
+c20   adapted_late   7: 102/175/4  203/205/27  204/205/47  218/220/44  220/220/78  220/220/79  220/220/59
+c20   adapted_late  19: 102/175/8  189/190/19  204/205/41  234/235/49  -  -  -
+c20   adapted_late  43: 109/175/3  175/175/41  158/160/60  160/160/60  160/160/60  -  -
+
+## Fixtures
+-- base seed 7
+  opening direct: 10.0 [['bot', 0.0]]
+  opening harvester-first: 10.0 [['bot', 0.0]]
+  recovery direct: 40.0 [['bot', 30.0]]
+  recovery optimized: 40.0 [['bot', 30.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 9, '60.0': 9}, 'cash end', 383.5)
+  prepared_full_cap: ('start Intel', 400.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 9, '60.0': 9}, 'cash end', 383.5)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 123.5)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 153.5)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 223.5)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 1023.5)
+  card alt [card]: ('captured after', 96.1, 'target', 'web', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 95.0]])
+  card alt [farms]: ('captured after', 107.6, 'target', 'web', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 0.0], ['bot', 1.0], ['bot', 1.0], ['bot', 5.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 2.17, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 400.0, 'intel_rate': 8.5, 'miners': 2}
+-- cand seed 7
+  opening direct: 110.0 [['cash', 0.0, 'server', 1], ['bot', 100.0]]
+  opening harvester-first: 121.0 [['intel', 0.0], ['cash', 10.0, 'pc', 1], ['bot', 111.0]]
+  recovery direct: 160.0 [['cash', 50.0], ['bot', 150.0]]
+  recovery optimized: 146.0 [['intel', 10.0], ['cash', 36.0], ['bot', 136.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 7, '180.0': 9, '30.0': 1, '60.0': 3}, 'cash end', 113.5)
+  prepared_full_cap: ('start Intel', 190.0, 'farms standing', {'120.0': 7, '180.0': 9, '30.0': 1, '60.0': 3}, 'cash end', 113.5)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 0, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 33.5)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 1, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 63.5)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 133.5)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 933.5)
+  card alt [card]: ('captured after', 96.1, 'target', 'web', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 95.0]])
+  card alt [farms]: ('captured after', 107.6, 'target', 'web', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 18.0], ['bot', 33.0], ['bot', 45.0], ['bot', 60.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 2.17, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 190.0, 'intel_rate': 8.5, 'miners': 2}
+-- c20 seed 7
+  opening direct: 80.0 [['cash', 0.0, 'server', 1], ['bot', 70.0]]
+  opening harvester-first: 91.0 [['intel', 0.0], ['cash', 10.0, 'pc', 1], ['bot', 81.0]]
+  recovery direct: 130.0 [['cash', 50.0], ['bot', 120.0]]
+  recovery optimized: 116.0 [['intel', 10.0], ['cash', 36.0], ['bot', 106.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 1, '60.0': 4}, 'cash end', 203.5)
+  prepared_full_cap: ('start Intel', 190.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 1, '60.0': 4}, 'cash end', 203.5)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 0, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 63.5)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 1, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 93.5)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 163.5)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 963.5)
+  card alt [card]: ('captured after', 96.1, 'target', 'web', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 95.0]])
+  card alt [farms]: ('captured after', 107.6, 'target', 'web', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 0.0], ['bot', 15.0], ['bot', 24.0], ['bot', 33.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 2.17, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 190.0, 'intel_rate': 8.5, 'miners': 2}
+-- base seed 19
+  opening direct: 10.0 [['bot', 0.0]]
+  opening harvester-first: 10.0 [['bot', 0.0]]
+  recovery direct: 40.0 [['bot', 30.0]]
+  recovery optimized: 40.0 [['bot', 30.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 9, '60.0': 9}, 'cash end', 379.0)
+  prepared_full_cap: ('start Intel', 400.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 9, '60.0': 9}, 'cash end', 379.0)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 119.0)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 149.0)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 219.0)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 1019.0)
+  card alt [card]: ('captured after', 98.1, 'target', 'web', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 97.0]])
+  card alt [farms]: ('captured after', 106.1, 'target', 'web', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 0.0], ['bot', 1.0], ['bot', 1.0], ['bot', 5.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 2.17, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 400.0, 'intel_rate': 8.5, 'miners': 2}
+-- cand seed 19
+  opening direct: 110.0 [['cash', 0.0, 'server', 1], ['bot', 100.0]]
+  opening harvester-first: 121.0 [['intel', 0.0], ['cash', 10.0, 'pc', 1], ['bot', 111.0]]
+  recovery direct: 160.0 [['cash', 50.0], ['bot', 150.0]]
+  recovery optimized: 146.0 [['intel', 10.0], ['cash', 36.0], ['bot', 136.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 7, '180.0': 9, '30.0': 1, '60.0': 3}, 'cash end', 109.0)
+  prepared_full_cap: ('start Intel', 190.0, 'farms standing', {'120.0': 7, '180.0': 9, '30.0': 1, '60.0': 3}, 'cash end', 109.0)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 0, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 29.0)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 1, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 59.0)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 129.0)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 929.0)
+  card alt [card]: ('captured after', 98.1, 'target', 'web', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 97.0]])
+  card alt [farms]: ('captured after', 99.1, 'target', 'web', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 19.0], ['bot', 33.0], ['bot', 46.0], ['attack', 60.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 2.17, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 190.0, 'intel_rate': 8.5, 'miners': 2}
+-- c20 seed 19
+  opening direct: 80.0 [['cash', 0.0, 'server', 1], ['bot', 70.0]]
+  opening harvester-first: 91.0 [['intel', 0.0], ['cash', 10.0, 'pc', 1], ['bot', 81.0]]
+  recovery direct: 130.0 [['cash', 50.0], ['bot', 120.0]]
+  recovery optimized: 116.0 [['intel', 10.0], ['cash', 36.0], ['bot', 106.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 1, '60.0': 4}, 'cash end', 199.0)
+  prepared_full_cap: ('start Intel', 190.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 1, '60.0': 4}, 'cash end', 199.0)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 0, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 59.0)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 1, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 89.0)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 159.0)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 959.0)
+  card alt [card]: ('captured after', 98.1, 'target', 'web', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 97.0]])
+  card alt [farms]: ('captured after', 106.1, 'target', 'web', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 0.0], ['bot', 15.0], ['bot', 24.0], ['bot', 33.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 2.17, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 190.0, 'intel_rate': 8.5, 'miners': 2}
+-- base seed 43
+  opening direct: 10.0 [['bot', 0.0]]
+  opening harvester-first: 10.0 [['bot', 0.0]]
+  recovery direct: 40.0 [['bot', 30.0]]
+  recovery optimized: 40.0 [['bot', 30.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 9, '60.0': 9}, 'cash end', 295.0)
+  prepared_full_cap: ('start Intel', 400.0, 'farms standing', {'120.0': 9, '180.0': 9, '30.0': 9, '60.0': 9}, 'cash end', 295.0)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 95.0)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 125.0)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 195.0)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 995.0)
+  card alt [card]: ('captured after', 95.1, 'target', 'db', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 94.0]])
+  card alt [farms]: ('captured after', 105.3, 'target', 'db', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 0.0], ['bot', 1.0], ['bot', 1.0], ['bot', 4.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 1.67, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 400.0, 'intel_rate': 10.5, 'miners': 2}
+-- cand seed 43
+  opening direct: 110.0 [['cash', 0.0, 'server', 1], ['bot', 100.0]]
+  opening harvester-first: 121.0 [['intel', 0.0], ['cash', 10.0, 'pc', 1], ['bot', 111.0]]
+  recovery direct: 160.0 [['cash', 50.0], ['bot', 150.0]]
+  recovery optimized: 146.0 [['intel', 10.0], ['cash', 36.0], ['bot', 136.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 5, '180.0': 9, '30.0': 0, '60.0': 2}, 'cash end', 25.0)
+  prepared_full_cap: ('start Intel', 190.0, 'farms standing', {'120.0': 5, '180.0': 9, '30.0': 0, '60.0': 2}, 'cash end', 25.0)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 0, 'by 120 s', 2, 'stalled job-s', 0.0, 'cash end', 23.8)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 1, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 35.0)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 105.0)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 905.0)
+  card alt [card]: ('captured after', 95.1, 'target', 'db', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 94.0]])
+  card alt [farms]: ('captured after', 105.3, 'target', 'db', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 21.0], ['bot', 39.0], ['bot', 57.0], ['attack', 60.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 1.67, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 190.0, 'intel_rate': 10.5, 'miners': 2}
+-- c20 seed 43
+  opening direct: 80.0 [['cash', 0.0, 'server', 1], ['bot', 70.0]]
+  opening harvester-first: 91.0 [['intel', 0.0], ['cash', 10.0, 'pc', 1], ['bot', 81.0]]
+  recovery direct: 130.0 [['cash', 50.0], ['bot', 120.0]]
+  recovery optimized: 116.0 [['intel', 10.0], ['cash', 36.0], ['bot', 106.0]]
+  prepared_equal_bank: ('start Intel', 150.0, 'farms standing', {'120.0': 8, '180.0': 9, '30.0': 1, '60.0': 3}, 'cash end', 115.0)
+  prepared_full_cap: ('start Intel', 190.0, 'farms standing', {'120.0': 8, '180.0': 9, '30.0': 1, '60.0': 3}, 'cash end', 115.0)
+  outage bank 0.0 : ('miners', 2, 'farms in outage', 0, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 35.0)
+  outage bank 30.0 : ('miners', 2, 'farms in outage', 1, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 65.0)
+  outage bank 100.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 135.0)
+  outage bank 900.0 : ('miners', 2, 'farms in outage', 3, 'by 120 s', 3, 'stalled job-s', 0.0, 'cash end', 935.0)
+  card alt [card]: ('captured after', 95.1, 'target', 'db', 'orders', [['cred', 0.0], ['lab', 0.0], ['research', 10.0], ['play', 90.0], ['attack', 94.0]])
+  card alt [farms]: ('captured after', 105.3, 'target', 'db', 'orders', [['bot', 0.0], ['bot', 0.0], ['bot', 0.0], ['bot', 15.0], ['bot', 27.0], ['bot', 39.0]])
+  midgame: {'cash': 0.0, 'crypto_gross_rate': 1.67, 'farms': 7, 'harvesters': 6, 'hosts': 9, 'intel': 150.0, 'intel_cap': 190.0, 'intel_rate': 10.5, 'miners': 2}
+
+## Paired summary per seed (policy faction)
+seed 7 cand original    : end  590.4 (base  900.0, x0.66)  won False (base False)  caps  17 (base  66)  farms@300 2 (base 26)  1st farm - (base 34.6)
+seed 7 cand adapted     : end  900.0 (base  900.0, x1.00)  won False (base False)  caps  12 (base  66)  farms@300 7 (base 26)  1st farm 168.0 (base 34.6)
+seed 7 cand adapted_late: end  900.0 (base  900.0, x1.00)  won False (base False)  caps  20 (base  66)  farms@300 6 (base 26)  1st farm 101.3 (base 34.6)
+seed 7 c20  original    : end  412.9 (base  900.0, x0.46)  won False (base False)  caps  21 (base  66)  farms@300 2 (base 26)  1st farm - (base 34.6)
+seed 7 c20  adapted     : end  460.0 (base  900.0, x0.51)  won False (base False)  caps  17 (base  66)  farms@300 9 (base 26)  1st farm 168.0 (base 34.6)
+seed 7 c20  adapted_late: end  900.0 (base  900.0, x1.00)  won False (base False)  caps  29 (base  66)  farms@300 16 (base 26)  1st farm 86.1 (base 34.6)
+seed 19 cand original    : end  453.1 (base  418.9, x1.08)  won False (base True )  caps  23 (base  37)  farms@300 3 (base 31)  1st farm - (base 34.6)
+seed 19 cand adapted     : end  900.0 (base  418.9, x2.15)  won False (base True )  caps  10 (base  37)  farms@300 4 (base 31)  1st farm 152.9 (base 34.6)
+seed 19 cand adapted_late: end  416.4 (base  418.9, x0.99)  won True  (base True )  caps  36 (base  37)  farms@300 16 (base 31)  1st farm 89.2 (base 34.6)
+seed 19 c20  original    : end  453.1 (base  418.9, x1.08)  won False (base True )  caps  23 (base  37)  farms@300 3 (base 31)  1st farm - (base 34.6)
+seed 19 c20  adapted     : end  727.6 (base  418.9, x1.74)  won False (base True )  caps  19 (base  37)  farms@300 4 (base 31)  1st farm 149.8 (base 34.6)
+seed 19 c20  adapted_late: end  317.0 (base  418.9, x0.76)  won True  (base True )  caps  21 (base  37)  farms@300 26 (base 31)  1st farm 83.1 (base 34.6)
+seed 43 cand original    : end  542.9 (base  370.3, x1.47)  won False (base True )  caps   9 (base  22)  farms@300 2 (base 30)  1st farm - (base 28.5)
+seed 43 cand adapted     : end  453.7 (base  370.3, x1.23)  won False (base True )  caps   3 (base  22)  farms@300 3 (base 30)  1st farm 107.4 (base 28.5)
+seed 43 cand adapted_late: end  542.9 (base  370.3, x1.47)  won False (base True )  caps   9 (base  22)  farms@300 2 (base 30)  1st farm - (base 28.5)
+seed 43 c20  original    : end  900.0 (base  370.3, x2.43)  won False (base True )  caps   6 (base  22)  farms@300 2 (base 30)  1st farm - (base 28.5)
+seed 43 c20  adapted     : end  900.0 (base  370.3, x2.43)  won False (base True )  caps  33 (base  22)  farms@300 6 (base 30)  1st farm 86.1 (base 28.5)
+seed 43 c20  adapted_late: end  447.7 (base  370.3, x1.21)  won False (base True )  caps   7 (base  22)  farms@300 6 (base 30)  1st farm 198.4 (base 28.5)

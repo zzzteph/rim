@@ -41,6 +41,8 @@ const AI_EDGE_MEMORY := CfgFactions.AI_EDGE_MEMORY
 const AI_SIEGE_MAX := CfgFactions.AI_SIEGE_MAX
 const AI_CASH_MULT := CfgFactions.AI_CASH_MULT
 const AI_REACT := CfgFactions.AI_REACT
+const AI_CRYPTO_WAIT := CfgFactions.AI_CRYPTO_WAIT
+const AI_ASSAULT_PCT := CfgFactions.AI_ASSAULT_PCT
 
 const GRID_COLS := CfgTown.GRID_COLS
 const GRID_ROWS := CfgTown.GRID_ROWS
@@ -90,6 +92,9 @@ const SCAN_BASE := CfgTuning.SCAN_BASE
 const SCAN_PER_BUILD := CfgTuning.SCAN_PER_BUILD
 const SCAN_COSTS_INTEL := CfgTuning.SCAN_COSTS_INTEL
 const SEND_RATE := CfgTuning.SEND_RATE
+const ASSAULT_RATE := CfgTuning.ASSAULT_RATE
+const ASSAULT_COMMITS := CfgTuning.ASSAULT_COMMITS
+const ASSAULT_DEFAULT := CfgTuning.ASSAULT_DEFAULT
 const LINK_TIME := CfgTuning.LINK_TIME
 const NODE_ROUTE_DELAY := CfgTuning.NODE_ROUTE_DELAY
 const LINK_CAP := CfgTuning.LINK_CAP
@@ -106,7 +111,7 @@ const MAP_CELL := 190.0         # world size of one town cell; each host sits in
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.2.3"
+const GAME_VERSION := "0.2.6"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -142,6 +147,9 @@ var fb_version: LineEdit
 var fb_name: LineEdit
 var fb_http: HTTPRequest
 var ai_enabled := true             # probes switch the AI botnets off for fixture cases
+var assault_pause_regen: bool = CfgTuning.ASSAULT_PAUSES_REGEN   # probes compare the plain finite quota (false) with the exposure variant
+var _assault_pct: int = CfgTuning.ASSAULT_DEFAULT   # the commitment the target panel's Assault button uses (UI only)
+var ai_build_hook := {}            # probes: faction -> Callable(fac) that replaces that AI's build step (economy experiments)
 var ai_speed: float = AI_SPEED     # the think-cadence multiplier (probes vary it; the config sets the default)
 var ai_cash_mult: float = AI_CASH_MULT   # the AI botnets' Cash income multiplier — the honest handicap knob
 
@@ -531,7 +539,8 @@ func _tmult(i: int, what: String) -> float:   # the building type's multiplier f
 	return float(NODE_TYPES[str(hosts[i].get("type", "pc"))].get(what, 1.0))
 
 
-func _regen(i: int) -> float:   # bots/s the building regenerates (its working Bot farms × its type)
+func _regen(i: int) -> float:   # bots/s the building regenerates (its working Bot farms × its type; 0 while its assault rests them)
+	if _regen_paused(i): return 0.0
 	return float(_count(i, "bot")) * PROD_RATE * _tmult(i, "bot") * _production_multiplier(i)
 
 
@@ -793,6 +802,45 @@ func _link_kind(src: int, t: int) -> String:   # what a wire from src into t wou
 	return "defend" if _mine(t) else "attack"
 
 
+# every host some source could wire into — {t: true} where _link_kind(s, t) != "" for a source s — in ONE pass
+# instead of a route search per (source, host) pair (that made a big selection crawl). A route leaves its
+# source, then runs only through your hosts whose routing is up: those groups are labelled once.
+func _wire_reach(sources: Array) -> Dictionary:
+	var comp := {}; var groups := []
+	for i in hosts.size():
+		if comp.has(i) or not _mine(i) or _routing_down(i): continue
+		var q := [i]; var head := 0; comp[i] = groups.size()
+		while head < q.size():
+			var c: int = q[head]; head += 1
+			for o in hosts[c].links:
+				if not comp.has(int(o)) and _mine(int(o)) and not _routing_down(int(o)): comp[int(o)] = groups.size(); q.append(int(o))
+		groups.append(q)
+	# a source reaches every street end of itself and of each group it touches. A host never wires into itself,
+	# so per host keep the first source that reaches it and whether a different one does too.
+	var first := {}; var multi := {}; var gfirst := {}; var gmulti := {}
+	for s in sources:
+		var src := int(s)
+		if not _mine(src): continue
+		if comp.has(src): _reach_mark(gfirst, gmulti, int(comp[src]), src, false)
+		for o in hosts[src].links:
+			_reach_mark(first, multi, int(o), src, false)
+			if comp.has(int(o)): _reach_mark(gfirst, gmulti, int(comp[int(o)]), src, false)
+	for k in gfirst:
+		for c in groups[k]:
+			for o in hosts[c].links: _reach_mark(first, multi, int(o), int(gfirst[k]), gmulti.has(k))
+	var out := {}
+	for t in first:
+		if int(first[t]) != int(t) or multi.has(t): out[t] = true
+	return out
+
+
+func _reach_mark(first: Dictionary, multi: Dictionary, key: int, src: int, many: bool) -> void:
+	if not first.has(key):
+		first[key] = src
+		if many: multi[key] = true
+	elif many or int(first[key]) != src: multi[key] = true
+
+
 func _player_nodes() -> int:
 	return _faction_nodes(PLAYER)
 
@@ -830,12 +878,12 @@ func _threat_rate(t: int) -> float:   # defenders/s the hostile LIVE wires into 
 	var r := 0.0
 	for i in hosts.size():
 		if int(hosts[i].owner) != int(hosts[t].owner) and bool(hosts[i].live) and int(hosts[i].assign) == t and str(hosts[i].get("mode", "attack")) != "scan":
-			r += SEND_RATE * (ATTACK_POWER / DEFEND_POWER)
+			r += _send_rate(i) * (ATTACK_POWER / DEFEND_POWER)
 	return r
 
 
 func _drain(t: int) -> float:   # bots/s the building itself is streaming out right now
-	if _bot_target(t) >= 0 and _next_depart.has(t): return SEND_RATE * float(hosts[t].rate)
+	if _bot_target(t) >= 0 and _next_depart.has(t): return _send_rate(t)
 	return 0.0
 
 
@@ -1133,7 +1181,12 @@ func _do_build(fac: int, i: int, slot: int, kind: String) -> void:
 	if started:
 		if cur == "": _flash("Building %s in slot %d of %s — %.0f s · %s" % [BUILD_KINDS[kind].name, slot + 1, str(hosts[i].name), BUILD_TIME, _build_cost_text(kind)])
 		else: _flash("Replacing %s with %s in slot %d — %.0f s to clear, then %.0f s to build · %s" % [BUILD_KINDS[cur].name, BUILD_KINDS[kind].name, slot + 1, DEMOLISH_TIME, BUILD_TIME, _build_cost_text(kind)])
-	elif not _can_afford_build(fac, kind): _flash("Not enough to build a %s — it costs %s" % [BUILD_KINDS[kind].name, _build_cost_text(kind)])
+	elif not _can_afford_build(fac, kind):
+		var price := _build_cost(kind)
+		var hint := ""
+		if float(price.get("cash", 0.0)) > float(cash[fac]) + 0.0001: hint = " · you have %d Crypto — Crypto miners make it" % int(cash[fac])
+		elif float(price.get("intel", 0.0)) > float(intel[fac]) + 0.0001: hint = " · you have %d Intel" % int(intel[fac])
+		_flash("Not enough to build a %s — it costs %s%s" % [BUILD_KINDS[kind].name, _build_cost_text(kind), hint])
 	_refresh_panel(); queue_redraw()
 
 
@@ -1218,12 +1271,14 @@ func _tick_jobs(dt: float) -> void:
 			var work := dt
 			if str(job.phase) == "build":
 				var left := _job_cost_left(job); var total := _job_cost_total(job)
-				var fraction := 1.0
+				var fraction := 1.0; var short := ""   # short: the resource that holds this job back (its slot says so)
 				for res in left:
 					if float(left[res]) <= 0.0: continue
 					var key := "%d:%s" % [fac, res]
-					fraction = minf(fraction, float(budget.get(key, 0.0)) / maxf(0.000001, float(demand.get(key, 0.0))))
+					var f := float(budget.get(key, 0.0)) / maxf(0.000001, float(demand.get(key, 0.0)))
+					if f < fraction - 0.000001: fraction = f; short = str(res)
 				fraction = clampf(fraction, 0.0, 1.0)
+				job["short"] = short if fraction < 0.999 else ""
 				for res in left:
 					var requested := minf(float(left[res]), float(total.get(res, 0.0)) / BUILD_TIME * dt)
 					var pay := requested * fraction
@@ -1363,12 +1418,52 @@ func _bot_target(i: int) -> int:
 	return -1
 
 
+# ---- ASSAULT: a finite order. hosts[i].assault = {t, left, total, sent, at, pct} while it stands. It owns the source:
+# the wire points at its target in mode "assault" and is live. It ends — wire cleared, nothing left running, no guard —
+# when its quota is spent, it is cancelled, the target turns friendly, the source is lost or re-ordered.
+func _assault_of(i: int) -> Dictionary:   # the order that stands on source i, or {} (read-only: safe from drawing code)
+	var a: Dictionary = hosts[i].get("assault", {})
+	if a.is_empty() or int(hosts[i].assign) != int(a.t) or str(hosts[i].get("mode", "")) != "assault": return {}
+	return a
+
+
+func _assault_active(i: int) -> bool: return not _assault_of(i).is_empty()
+
+
+func _regen_paused(i: int) -> bool:   # the exposure variant: this source's farms rest while its assault stands
+	return assault_pause_regen and _assault_active(i)
+
+
+func _end_assault(i: int) -> void:   # the order is over: unsent bots stay home, the wire is gone (it never becomes a guard)
+	hosts[i].assault = {}
+	if str(hosts[i].get("mode", "")) == "assault":
+		hosts[i].assign = -1; hosts[i].live = false; hosts[i].mode = "attack"; _next_depart.erase(i)
+
+
+func _assault_check() -> void:   # once per step, before departures: drop orders that were replaced, emptied or made moot
+	for i in hosts.size():
+		var a: Dictionary = hosts[i].get("assault", {})
+		if a.is_empty(): continue
+		if int(hosts[i].assign) != int(a.t) or str(hosts[i].get("mode", "")) != "assault" or int(hosts[i].owner) == NEUTRAL:
+			hosts[i].assault = {}          # another order took the source: nothing of this one survives
+		elif int(a.left) <= 0 or int(hosts[int(a.t)].owner) == int(hosts[i].owner):
+			_end_assault(i)
+
+
+func _assault_quota(i: int, pct: int) -> int:   # bots an order of pct % commits from source i right now
+	return int(floor(float(pct) / 100.0 * floor(maxf(0.0, float(hosts[i].bots) - _reserve_of(i)))))
+
+
+func _send_rate(i: int) -> float:   # bots/s source i releases while it is sending
+	return ASSAULT_RATE if _assault_active(i) else SEND_RATE * float(hosts[i].rate)
+
+
 func _attack_demand(fac: int) -> float:   # Intel/s a faction's LIVE attack flows would spend
 	var n := 0.0
 	for i in hosts.size():
 		var t := int(hosts[i].assign)
 		if int(hosts[i].owner) == fac and bool(hosts[i].live) and t >= 0 and int(hosts[t].owner) != fac and not _route(i, t).is_empty():
-			n += SEND_RATE * float(hosts[i].rate)
+			n += _send_rate(i)
 	return n
 
 
@@ -1380,6 +1475,11 @@ func _src_state(s: int) -> String:
 	if a >= 0:
 		var rt := _route(s, a)
 		if rt.is_empty(): return "no route"
+		if _assault_active(s):   # a finite order: say what holds it, never that it is merely "wired"
+			if float(hosts[s].bots) - 1.0 < _reserve_of(s): return "no bots"
+			if float(intel[fac]) < 1.0: return "no Intel"
+			if _first_wait(rt) > MAX_QUEUE: return "link busy"
+			return "assaulting"
 		if int(hosts[a].owner) == fac:                        # guard wire: the STATUS does the work
 			if not bool(hosts[s].live): return "guarding (standby)"
 			return "defending" if float(hosts[s].bots) - 1.0 >= _reserve_of(s) else "defending · no bots"
@@ -1464,7 +1564,7 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	_t += dt                        # the shared clock only advances while playing → pause freezes everything
 	for i in hosts.size():
 		var nb := _count(i, "bot")
-		if nb <= 0: continue
+		if nb <= 0 or _regen_paused(i): continue   # an assault's source rests its farms until the order ends
 		var cap := _cap_of(i)
 		if float(hosts[i].bots) < cap:
 			hosts[i].bots = minf(cap, float(hosts[i].bots) + float(nb) * PROD_RATE * _tmult(i, "bot") * _production_multiplier(i) * dt)   # = _regen(i)
@@ -1475,6 +1575,7 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	for h in humans: _ai_remember(h)   # a person's memory of a scanned building stays as fresh as the AI's
 	_prune_res()
 	_route_memo = {}    # owners and route cuts hold still from here to production: each route is searched once
+	_assault_check()    # finite orders that were emptied, replaced or made moot end before anything departs
 	_auto_guards()      # guard wires arm themselves while their building is threatened, stand down after
 	_emit_due()
 	_tick_jobs(dt)
@@ -1521,7 +1622,7 @@ func _auto_guards() -> void:
 		var fac := int(hosts[s].owner)
 		if fac == NEUTRAL: continue
 		var t := int(hosts[s].assign)
-		if t < 0 or int(hosts[t].owner) != fac: continue
+		if t < 0 or int(hosts[t].owner) != fac or str(hosts[s].get("mode", "")) == "assault": continue   # a finite order never turns guard
 		var by: Dictionary = inbound.get(t, {})
 		var hostile := false
 		for o in by:
@@ -1538,6 +1639,7 @@ func _can_emit(i: int) -> bool:
 	var tgt := _bot_target(i)
 	if tgt < 0 or not _next_depart.has(i) or _routing_down(i): return false
 	if float(_next_depart[i]) > _t: return false
+	if str(hosts[i].get("mode", "")) == "assault" and int(_assault_of(i).get("left", 0)) <= 0: return false
 	if float(hosts[i].bots) - 1.0 < _reserve_of(i): return false
 	var fac := int(hosts[i].owner)
 	var hostile: bool = int(hosts[tgt].owner) != fac
@@ -1570,7 +1672,7 @@ func _emit_due() -> void:
 	var n := hosts.size()
 	for i in n:                                     # validate LIVE wires & seed departure clocks
 		var a := int(hosts[i].assign)
-		if a >= 0 and bool(hosts[i].live) and _route(i, a).is_empty():
+		if a >= 0 and bool(hosts[i].live) and _route(i, a).is_empty() and not _assault_active(i):
 			hosts[i].live = false; _next_depart.erase(i)   # flow pauses; the WIRE stays — relaunch when routed
 			if _mine(i): _flash("%s's flow stopped — no route (connection kept; launch again when routed)" % str(hosts[i].name))
 		var tgt := _bot_target(i)
@@ -1605,8 +1707,14 @@ func _emit_due() -> void:
 			if hostile and (pk == "bot" or SCAN_COSTS_INTEL): intel[fac] = float(intel[fac]) - 1.0   # spends Intel
 			flights.append(_schedule(_route(best, tgt), best_t, fac, pk))
 			if fac == PLAYER: _departures.append({"at": _t, "source": best, "target": tgt, "kind": pk})
-			_next_depart[best] = best_t + 1.0 / (SEND_RATE * float(hosts[best].rate))
-			if float(_next_depart[best]) > _t: due.erase(best)
+			_next_depart[best] = best_t + 1.0 / _send_rate(best)
+			var order := _assault_of(best)
+			if not order.is_empty():   # a finite order: exactly its quota leaves, then it is over
+				order.left = int(order.left) - 1; order.sent = int(order.sent) + 1
+				if int(order.left) <= 0:
+					_end_assault(best)
+					if fac == PLAYER: _flash("%s's assault is spent — %d bots sent" % [str(hosts[best].name), int(order.sent)], 0)
+			if not _next_depart.has(best) or float(_next_depart[best]) > _t: due.erase(best)
 		else:
 			var rg := int(rig[fac])
 			var amount := _crypto_packet_amount(best)
@@ -1685,7 +1793,10 @@ func _capture(t: int, fac: int) -> void:
 		var old: Dictionary = (scans[f] as Dictionary).get(t, {})
 		scans[f][t] = {"key": str(old.get("key", "")), "done": bool(old.get("done", false)), "progress": 0.0, "bots": 0.0, "cap": NODE_CAP, "at": _t}
 	hosts[t].bots = minf(NODE_CAP, -float(hosts[t].bots))
-	hosts[t].assign = -1; hosts[t].live = false; hosts[t].jobs = {}; hosts[t].rate = 1.0
+	hosts[t].assign = -1; hosts[t].live = false; hosts[t].jobs = {}; hosts[t].rate = 1.0; hosts[t].assault = {}; hosts[t].mode = "attack"   # a lost source's order is void
+	for i in hosts.size():   # the target is ours now: assaults on it stop sending (what is in the air lands as usual) — no guards
+		var order: Dictionary = hosts[i].get("assault", {})
+		if not order.is_empty() and int(order.t) == t and int(hosts[i].owner) == fac: _end_assault(i)
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # a captured building is empty inside: the new owner builds from scratch
 	hosts[t].prod_off = 0.0; hosts[t].route_off = 0.0; hosts[t].steal_until = -100.0; hosts[t].steal_by = -1; hosts[t].hit_t = -100.0   # a new owner, a clean slate
 	_next_depart.erase(t); _next_cash.erase(t)
@@ -1776,7 +1887,7 @@ func _resist_line(_i: int) -> String:
 	return "Card effects are fixed across building types."
 
 
-func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, else why not
+func _can_play(fac: int, key: String, t: int, rig_reach: Variant = null) -> String:   # "" if playable, else why not; rig_reach = _wire_reach([rig]) when a caller checks many hosts
 	if won or lost: return "match finished"
 	if not CARDS.has(_card_of(key)): return "unknown card"
 	if not rig.has(fac) or _eliminated.has(fac) or int(hosts[int(rig[fac])].owner) != fac: return "your rig is not under your control"
@@ -1789,7 +1900,8 @@ func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, els
 	if not defense and int(hosts[t].owner) == fac: return "ATTACK needs a foreign host"
 	if bool(cd.get("needs_link", false)) and not _linked(fac, t): return "%s needs one of your connections into this host" % str(cd.name)
 	if _held(fac, key) <= 0: return "none held"
-	if t != int(rig[fac]) and _route(int(rig[fac]), t).is_empty(): return "no route from your rig — capture a path toward it first"
+	var routed: bool = (rig_reach as Dictionary).has(t) if rig_reach != null and fac == PLAYER else not _route(int(rig[fac]), t).is_empty()
+	if t != int(rig[fac]) and not routed: return "no route from your rig — capture a path toward it first"
 	return ""
 
 
@@ -2047,8 +2159,111 @@ func _ai_borders_botnet(e: int) -> bool:   # borders another BOTNET (a live thre
 	return false
 
 
+# ---- an AI's Crypto budget: what it owes, what is coming, where a miner pays (its own hosts only: fair view) ----
+func _ai_cash_owed(fac: int) -> float:   # Crypto its accepted construction jobs still have to pay (quotes are not reserved)
+	var owed := 0.0
+	for h in hosts:
+		if int(h.owner) != fac: continue
+		for job in (h.jobs as Dictionary).values(): owed += float(_job_cost_left(job).get("cash", 0.0))
+	return owed
+
+
+func _ai_cash_free(fac: int) -> float:   # the Crypto bank less running jobs' debts and the research still queued to run
+	var free := float(cash[fac]) - _ai_cash_owed(fac)
+	if bool(lab[fac].paused): return free
+	var items := _research_items(fac); var queue: Array = lab[fac].queue
+	for k in queue.size():
+		if bool(items[k].paused): continue
+		var key := str(queue[k])
+		free -= float(_card_cost(key).get("cash", 0.0)) * (1.0 - float(items[k].progress) / _card_time(key))
+	return free
+
+
+func _ai_crypto_flow(fac: int) -> Dictionary:   # {rate: Crypto/s its standing miners send home, jobs: miner jobs under way}
+	var rate := 0.0; var jobs := 0
+	var home := int(rig.get(fac, -1))
+	var home_ok := home >= 0 and int(hosts[home].owner) == fac
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac: continue
+		var jd: Dictionary = hosts[i].jobs
+		for job in jd.values():
+			if str(job.kind) == "cash": jobs += 1
+		# a miner it paused itself still counts; one switched off by a card, stolen, or cut off from the rig does not
+		if not home_ok or _prod_down(i) or _stolen(i) or not (hosts[i].builds as Array).has("cash"): continue
+		if i != home and _route(i, home).is_empty(): continue
+		var n := 0
+		for k in (hosts[i].builds as Array).size():
+			if str(hosts[i].builds[k]) == "cash" and not jd.has(k): n += 1
+		rate += float(n) * float(hosts[i].value) * _tmult(i, "cash") / CASH_INTERVAL * _production_multiplier(i) * ai_cash_mult
+	return {"rate": rate, "jobs": jobs}
+
+
+func _ai_miner_site(fac: int, free_slot: Array) -> int:   # the richest free host with a road home (Crypto travels to the rig)
+	var home := int(rig.get(fac, -1))
+	if home < 0 or int(hosts[home].owner) != fac: return -1
+	var site := -1; var bestv := -INF
+	for e in free_slot:
+		if int(e) != home and _route(int(e), home).is_empty(): continue
+		var v := float(hosts[e].value) * 2.0 * _tmult(e, "cash") + float(int(hosts[e].slots) - _built_kinds(e).size()) * 0.3 - (1.0 if _ai_borders_botnet(e) else 0.0)
+		if v > bestv: bestv = v; site = int(e)
+	return site
+
+
+# Saving Crypto for a build: the AI pauses its labs and queued research with the player's own clicks (producer
+# pause, research item pause) and resumes exactly what it paused once the build is covered.
+func _ai_hold_crypto(fac: int, st: Dictionary, hold: bool) -> void:
+	var held: Dictionary = st.get("crypto_hold", {})
+	if hold:
+		for i in hosts.size():
+			if int(hosts[i].owner) != fac or not (hosts[i].builds as Array).has("lab"): continue
+			for slot in (hosts[i].builds as Array).size():
+				if str(hosts[i].builds[slot]) != "lab" or (hosts[i].jobs as Dictionary).has(slot) or _producer_paused(i, slot): continue
+				if not hosts[i].has("producer_paused"): hosts[i].producer_paused = {}
+				hosts[i].producer_paused[slot] = true; held["lab:%d:%d" % [i, slot]] = [i, slot]
+		var items := _research_items(fac); var queue: Array = lab[fac].queue
+		for k in queue.size():
+			if not bool(items[k].paused): _toggle_research_item(fac, k); held["card:" + str(queue[k])] = str(queue[k])
+	elif not held.is_empty():
+		for key in held:
+			var v: Variant = held[key]
+			if v is Array:
+				var i := int(v[0]); var slot := int(v[1])
+				if int(hosts[i].owner) == fac and str(hosts[i].builds[slot]) == "lab" and _producer_paused(i, slot): (hosts[i].producer_paused as Dictionary).erase(slot)
+			else:
+				var k := (lab[fac].queue as Array).find(str(v))
+				if k >= 0 and bool(_research_items(fac)[k].paused): _toggle_research_item(fac, k)
+		held = {}
+	st.crypto_hold = held
+
+
+# ---- the finite assault, for an AI: the same commands a player gives, sized from what the AI knows ----
+func _ai_assault_plan(fac: int, c: int, cands: Array) -> Dictionary:   # cands = [[route size, source], …] nearest first; {} = no
+	var srcs := []; var bots := 0; var lasts := {}; var hops := 99
+	for pair in cands:
+		if srcs.size() >= AI_MAX_STREAMS: break
+		var e := int(pair[1])
+		if _assault_active(e) or float(hosts[e].bots) < AI_RESERVE + 10.0: continue
+		var quota := _assault_quota(e, AI_ASSAULT_PCT)
+		var rt := _route(e, c)
+		if quota < 5 or rt.size() < 2: continue
+		srcs.append(e); bots += quota; lasts[int(rt[rt.size() - 2])] = true; hops = mini(hops, rt.size() - 1)
+	if srcs.size() < 2: return {}
+	var burst := minf(float(srcs.size()) * ASSAULT_RATE, float(LINK_CAP) * float(lasts.size()))   # the last streets cap the burst
+	var travel := float(hops) * LINK_TIME + float(maxi(0, hops - 1)) * NODE_ROUTE_DELAY
+	var need := _ai_known_bots(fac, c) + _ai_known_regen(fac, c) * (float(bots) / burst + travel) + 4.0
+	if float(bots) < need * 1.2: return {}                                                     # it must win with room to spare
+	if float(intel[fac]) + _intel_rate(fac) * (need / burst) < need: return {}                 # every landing bot costs 1 Intel
+	return {"srcs": srcs, "secs": need / burst + travel, "bots": bots}
+
+
+func _ai_launch_assault(fac: int, c: int, plan: Dictionary) -> void:
+	_do_wire(fac, plan.srcs, c)
+	_do_assault(fac, c, AI_ASSAULT_PCT)
+	if _mine(c): _flash("%s launches an ASSAULT on %s from %d host(s) — their farms rest while it runs" % [fname(fac), str(hosts[c].name), (plan.srcs as Array).size()])
+
+
 func _ai_release(e: int) -> void:
-	hosts[e].assign = -1; hosts[e].live = false; _next_depart.erase(e)
+	hosts[e].assign = -1; hosts[e].live = false; _next_depart.erase(e); hosts[e].assault = {}
 
 
 # ---- knowledge: what an AI may know about a building it does not own ----
@@ -2085,6 +2300,7 @@ func _ai_known_builds(fac: int, i: int) -> Array:   # THE builds gate: live when
 
 func _ai_known_regen(fac: int, i: int) -> float:   # bots/s it believes i regenerates (the OFF frame is public)
 	if _prod_down(i): return 0.0
+	if _regen_paused(i) and _visible_to(fac, i): return 0.0   # "ASSAULT · rest" is drawn on the map
 	var kinds := _ai_known_builds(fac, i)
 	var n := 0
 	for k in kinds:   # every Bot farm it knows of works, whatever the garrison
@@ -2095,7 +2311,7 @@ func _ai_known_regen(fac: int, i: int) -> float:   # bots/s it believes i regene
 func _ai_seen_drain(i: int) -> float:   # bots/s visibly leaving i: a drawn live flow (never a quiet scan), or its bot packets in flight
 	var d := _bot_target(i)
 	if d >= 0 and _next_depart.has(i) and _route(i, d).size() >= 2:   # mirrors the draw path: a live non-scan route is drawn solid
-		if not (int(hosts[i].assign) >= 0 and str(hosts[i].get("mode", "attack")) == "scan"): return SEND_RATE
+		if not (int(hosts[i].assign) >= 0 and str(hosts[i].get("mode", "attack")) == "scan"): return _send_rate(i)
 	for fl in flights:
 		if str(fl.kind) == "bot" and int((fl.route as Array)[0]) == i and int(fl.owner) == int(hosts[i].owner): return SEND_RATE
 	return 0.0
@@ -2225,15 +2441,32 @@ func _ai_think(fac: int) -> void:
 		for i in hosts.size():
 			if int(hosts[i].owner) == fac or int(hosts[i].owner) == NEUTRAL or not bool(hosts[i].live) or int(hosts[i].assign) != t: continue
 			if str(hosts[i].get("mode", "attack")) == "scan": continue
-			var cs := _ai_fall_secs(fac, i, 2)
-			if ops.has(i) or float(intel[fac]) < 20.0 or cs > AI_PATIENCE or 2.0 * SEND_RATE * cs > float(intel[fac]) + _intel_rate(fac) * cs: continue
+			if ops.has(i): continue
 			var free := []
 			for e in mine:
-				if int(hosts[e].assign) >= 0 or _under_attack(e) or float(hosts[e].bots) < AI_RESERVE + 4.0: continue
+				if _under_attack(e) or float(hosts[e].bots) < AI_RESERVE + 4.0 or _assault_active(e): continue
+				var ea := int(hosts[e].assign)   # a source on a quiet errand (a scan, a neutral siege) may be pulled onto the attacker
+				if ea >= 0 and not (str(hosts[e].get("mode", "attack")) == "scan" or (int(hosts[ea].owner) == NEUTRAL and bool(hosts[e].live))): continue
 				var rt := _route(e, i)
 				if not rt.is_empty(): free.append([rt.size(), e])
-			if free.size() < 2: continue
 			free.sort_custom(func(a, b): return a[0] < b[0])
+			if str(hosts[i].get("mode", "")) == "assault" and _scanned(fac, i):   # a known, draining origin: stand the errands down, keep Intel for it
+				for pair in free:
+					var e := int(pair[1])
+					if int(hosts[e].assign) >= 0 and int(hosts[e].assign) != i: _ai_release(e)
+			if float(intel[fac]) < 20.0: continue
+			if str(hosts[i].get("mode", "")) == "assault" and not _scanned(fac, i) and not _scan_pending(fac, i) and not free.is_empty():
+				var scout := int(free[0][1])   # an assault's origin may be thin now: learn it with one quiet scan
+				hosts[scout].assign = i; hosts[scout].live = true; hosts[scout].mode = "scan"; _next_depart[scout] = _t
+				continue
+			var cs := _ai_fall_secs(fac, i, 2)
+			if cs > AI_PATIENCE or 2.0 * SEND_RATE * cs > float(intel[fac]) + _intel_rate(fac) * cs:
+				var punish := _ai_assault_plan(fac, i, free)   # too strong for two streams: a concentrated blow, if one fits
+				if punish.is_empty() or float(punish.secs) > AI_PATIENCE: continue
+				_ai_launch_assault(fac, i, punish)
+				ops[i] = punish.srcs; recs[i] = {"since": _t, "bots": _ai_known_bots(fac, i), "prog": _scan_progress(fac, i)}
+				continue
+			if free.size() < 2: continue
 			for h in free.slice(0, 2):
 				hosts[int(h[1])].assign = i; hosts[int(h[1])].live = true; hosts[int(h[1])].mode = "attack"; _next_depart[int(h[1])] = _t
 			ops[i] = [int(free[0][1]), int(free[1][1])]
@@ -2248,8 +2481,11 @@ func _ai_think(fac: int) -> void:
 		for node in mine: hosts[node].producer_paused = {}
 		st.economy_paused = false; st.saving_for = 0.0
 	var free_slot := []
-	for e in mine:
-		if _free_slot(e) >= 0: free_slot.append(e)
+	if ai_build_hook.has(fac): (ai_build_hook[fac] as Callable).call(fac)   # a probe decides this faction's builds
+	else:
+		for e in mine:
+			if _free_slot(e) >= 0: free_slot.append(e)
+	var crypto_wait := false   # this think saves Crypto for a Crypto-priced build: its labs and research wait
 	if not free_slot.is_empty():
 		var site := -1; var kind := ""
 		var want_intel: bool = _intel_rate(fac) < 1.0 + float(ops.size()) + _production_input_rate(fac, "intel") or float(intel[fac]) < 15.0
@@ -2273,6 +2509,18 @@ func _ai_think(fac: int) -> void:
 			for e in free_slot:
 				var v := float(hosts[e].value) * 2.0 * _tmult(e, "cash") + float(int(hosts[e].slots) - _built_kinds(e).size()) * 0.3 - (1.0 if _ai_borders_botnet(e) else 0.0)
 				if v > bestv: bestv = v; site = e; kind = "cash"
+		if site >= 0:   # a Crypto-priced build (farm, lab) the free Crypto can't cover: bootstrap a miner, or save for it
+			var cash_need := float(_build_cost(kind).get("cash", 0.0))
+			var cash_free := _ai_cash_free(fac)
+			if cash_need > 0.0 and cash_free < cash_need - 0.0001:
+				var flow := _ai_crypto_flow(fac)
+				var eta: float = INF if float(flow.rate) <= 0.0 else (cash_need - cash_free) / float(flow.rate)
+				if int(flow.jobs) == 0 and eta > AI_CRYPTO_WAIT:   # no miner on the way and too little mining: build one first
+					var ms := _ai_miner_site(fac, free_slot)
+					if ms >= 0: site = ms; kind = "cash"
+				if kind != "cash":   # Crypto is coming: wait for it rather than re-ordering the same build every think
+					crypto_wait = float(flow.rate) > 0.0 or int(flow.jobs) > 0
+					site = -1
 		if site >= 0:
 			if _can_afford_build(fac, kind): _start_job(site, kind)
 			else:
@@ -2284,6 +2532,9 @@ func _ai_think(fac: int) -> void:
 								if not hosts[node].has("producer_paused"): hosts[node].producer_paused = {}
 								hosts[node].producer_paused[slot] = true
 					st.economy_paused = true; st.saving_for = need
+	# accepted Crypto-priced jobs are not reserved and card research is paid first: keep it waiting until they're covered
+	if not crypto_wait and _ai_cash_owed(fac) > float(cash[fac]) + 0.0001: crypto_wait = float(_ai_crypto_flow(fac).rate) > 0.0
+	_ai_hold_crypto(fac, st, crypto_wait)
 	# ── 2b. research: a cheap card of each useful kind; phishing first when a rival leads the Cash race ──
 	var L: Dictionary = lab[fac]
 	# Recover ongoing attacks first, then maintain shields on the home network.
@@ -2304,7 +2555,7 @@ func _ai_think(fac: int) -> void:
 			if not pending: _play_card(fac, defense_key, node)
 	var leader := _ai_leader(fac)
 	var chased: bool = leader >= 0 and _faction_nodes(leader) >= _faction_nodes(fac) + int(AI_CHOKE_LEAD)
-	if (L.queue as Array).is_empty() and _kind_total(fac, "lab") > 0 and _kind_total(fac, "cred") > 0:
+	if (L.queue as Array).is_empty() and _kind_total(fac, "lab") > 0 and _kind_total(fac, "cred") > 0 and not crypto_wait:
 		var want := ""
 		if defensive_need != "" and (_prod_down(int(rig[fac])) or _stolen(int(rig[fac])) or _hand_size(fac) >= 2): want = defensive_need
 		elif chased and _held(fac, "ddos:linked") < 1: want = "ddos:linked"
@@ -2353,7 +2604,7 @@ func _ai_think(fac: int) -> void:
 		if int(hosts[e].assign) >= 0 and bool(hosts[e].live): continue
 		if _under_attack(e) or float(hosts[e].bots) < AI_RESERVE + 4.0: continue
 		free.append(e)
-	var pick := -1; var pick_srcs := []; var best := 0.0; var pick_known := false
+	var pick := -1; var pick_srcs := []; var best := 0.0; var pick_known := false; var pick_plan := {}
 	if ops.size() < max_ops and float(intel[fac]) >= 12.0:
 		for c in cands:
 			var srcs := []
@@ -2371,9 +2622,14 @@ func _ai_think(fac: int) -> void:
 			var n := mini(need, srcs.size())
 			var travel := float(int(srcs[0][0]) - 1) * (LINK_TIME + NODE_ROUTE_DELAY)
 			var secs := _ai_fall_secs(fac, c, n) + travel
-			if secs > AI_SIEGE_MAX: continue                       # know your limits: a siege it cannot finish in its budget is not started
-			var quiet_c: bool = not known and pressure == 0
+			var plan := {}
+			if secs > AI_SIEGE_MAX:                                # streams cannot finish it: would a concentrated assault?
+				plan = _ai_assault_plan(fac, c, srcs)
+				if plan.is_empty(): continue                       # know your limits: a siege it cannot finish in its budget is not started
+				secs = float(plan.secs)
+			var quiet_c: bool = not known and pressure == 0 and plan.is_empty()
 			var cost := secs * float(n) * SEND_RATE if not quiet_c else SCAN_BASE + SCAN_PER_BUILD * float(kinds.size()) + 0.5 * secs * float(n) * SEND_RATE
+			if not plan.is_empty(): cost = 0.0                     # the plan already checked its Intel
 			if cost > float(intel[fac]) + _intel_rate(fac) * secs: continue
 			var o := int(hosts[c].owner)
 			var benefit := float(hosts[c].value) * 3.0 + float(hosts[c].slots) + float(kinds.size()) + 2.0 * (_tmult(c, "intel") + _tmult(c, "cash") + _tmult(c, "bot") - 3.0)
@@ -2388,8 +2644,12 @@ func _ai_think(fac: int) -> void:
 			for p in hosts[c].links:
 				if int(hosts[p].owner) == fac and bool(hosts[p].rig): benefit += 3.0   # it sits on our doorstep
 			var score := benefit / (secs + 8.0)
-			if score > best: best = score; pick = c; pick_srcs = srcs.slice(0, n); pick_known = known
-	if pick >= 0:
+			if not plan.is_empty(): score *= 0.85                  # an assault leaves its sources resting and thin
+			if score > best: best = score; pick = c; pick_srcs = srcs.slice(0, n); pick_known = known; pick_plan = plan
+	if pick >= 0 and not pick_plan.is_empty():
+		_ai_launch_assault(fac, pick, pick_plan)
+		recs[pick] = {"since": _t, "bots": _ai_known_bots(fac, pick), "prog": _scan_progress(fac, pick)}
+	elif pick >= 0:
 		var quiet: bool = not pick_known and _ai_others_on(fac, pick) == 0   # an alarmed target has nothing left to keep quiet for
 		var launch: Array = pick_srcs.slice(0, 2) if quiet else pick_srcs
 		for s in launch:
@@ -2666,7 +2926,8 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if _panning: _pan += event.position - _pan_last; _pan_last = event.position; queue_redraw(); return
 		if _drag_from >= 0 and event.position.distance_to(_press_pos) > 8.0: _dragging = true
-		if _boxing or _dragging or not sel.is_empty(): queue_redraw()
+		# no repaint here: a hover change repaints through _view_key, and the rubber band / box select ride the
+		# over layer, which _over_fast repaints every frame (a full-map repaint per motion made selections lag)
 		return
 	if not (event is InputEventMouseButton): return
 	if _pointer_over_panel(): return   # the sidebar eats wheel/clicks — never zoom or command through it
@@ -2815,7 +3076,7 @@ func _do_wire(fac: int, sources: Array, dest: int) -> void:
 		if not _owns(fac, i) or i == dest: continue
 		if _route(i, dest).is_empty(): nopath += 1; continue
 		if int(hosts[i].assign) != dest:
-			hosts[i].assign = dest; hosts[i].live = join_attack; hosts[i].mode = "attack"; _next_depart.erase(i)
+			hosts[i].assign = dest; hosts[i].live = join_attack; hosts[i].mode = "attack"; _next_depart.erase(i); hosts[i].assault = {}
 		done += 1
 	if fac != PLAYER: return
 	if done > 0:
@@ -2855,6 +3116,53 @@ func _do_launch(fac: int, t: int, mode: String) -> void:
 	_refresh_panel(); queue_redraw()
 
 
+# ASSAULT: every source of yours wired into `t` (dormant, or streaming at it) that has no order of its own gets one:
+# pct % of the garrison it can send RIGHT NOW — a fixed number that later regeneration, reinforcements, more wires or
+# pressing again never enlarge. It replaces that source's stream into t. A source already under an order keeps it.
+func _assault(t: int, pct := -1) -> void: _cmd(["assault", t, _assault_pct if pct < 0 else pct])
+func _cancel_assault(t: int) -> void: _cmd(["unassault", t])
+
+
+func _do_assault(fac: int, t: int, pct: int) -> void:
+	if not _host_ok(t) or not ASSAULT_COMMITS.has(pct): return
+	if int(hosts[t].owner) == fac:
+		if fac == PLAYER: _flash("An assault needs a hostile target")
+		return
+	var started := 0; var bots := 0; var kept := 0; var unrouted := 0; var empty := 0
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac or int(hosts[i].assign) != t: continue
+		if _assault_active(i): kept += 1; continue
+		if _route(i, t).is_empty(): unrouted += 1; continue
+		var quota := _assault_quota(i, pct)
+		if quota < 1: empty += 1; continue
+		hosts[i].assault = {"t": t, "left": quota, "total": quota, "sent": 0, "at": _t, "pct": pct}
+		hosts[i].mode = "assault"; hosts[i].live = true; _next_depart[i] = _t
+		started += 1; bots += quota
+	if fac != PLAYER: return
+	if started > 0:
+		var why := ("  ·  %d already assaulting" % kept if kept > 0 else "") + ("  ·  %d without a route" % unrouted if unrouted > 0 else "")
+		_flash("Assault on %s: %d bots from %d source(s) at %d/s each · %d Intel · their farms rest until it ends%s" % [str(hosts[t].name), bots, started, int(ASSAULT_RATE), bots, why])
+	elif kept > 0: _flash("Already assaulting %s — cancel it to give a new order" % str(hosts[t].name))
+	elif unrouted > 0: _flash("No route to %s — links can only run through your own buildings" % str(hosts[t].name))
+	elif empty > 0: _flash("No bots to commit — the connected sources are empty")
+	else: _flash("Nothing to assault with — connect sources to %s first" % str(hosts[t].name))
+	_refresh_panel(); queue_redraw()
+
+
+func _do_unassault(fac: int, t: int) -> void:   # cancel: unsent bots stay home, packets already out fly on
+	if not _host_ok(t): return
+	var n := 0; var kept := 0
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac: continue
+		var order := _assault_of(i)
+		if order.is_empty() or int(order.t) != t: continue
+		kept += int(order.left); n += 1
+		_end_assault(i)
+	if fac != PLAYER: return
+	if n > 0: _flash("Assault on %s cancelled — %d unsent bots stay home" % [str(hosts[t].name), kept])
+	_refresh_panel(); queue_redraw()
+
+
 # STOP: pause every live attack flow into `t` — the wires stay, ready to launch again
 func _halt(t: int) -> void: _cmd(["halt", t])
 
@@ -2864,7 +3172,9 @@ func _do_halt(fac: int, t: int) -> void:   # pause every live flow of fac's into
 	var n := 0
 	for i in hosts.size():
 		if int(hosts[i].owner) == fac and int(hosts[i].assign) == t and bool(hosts[i].live):
-			hosts[i].live = false; _next_depart.erase(i); n += 1
+			if _assault_active(i): _end_assault(i)
+			else: hosts[i].live = false; _next_depart.erase(i)
+			n += 1
 	if fac != PLAYER: return
 	if n > 0: _flash("Stopped %d flow(s) into %s (connections kept)" % [n, str(hosts[t].name)])
 	else: _flash("No live flows into %s" % str(hosts[t].name))
@@ -2911,6 +3221,8 @@ func _apply_cmd(fac: int, c: Array) -> void:
 	match str(c[0]):
 		"wire": if n == 3 and c[1] is Array: _do_wire(fac, (c[1] as Array).slice(0, 64), _int(c[2]))
 		"launch": if n == 3: _do_launch(fac, _int(c[1]), str(c[2]))
+		"assault": if n == 3: _do_assault(fac, _int(c[1]), _int(c[2]))
+		"unassault": if n == 2: _do_unassault(fac, _int(c[1]))
 		"halt": if n == 2: _do_halt(fac, _int(c[1]))
 		"unwire": if n == 2: _do_unwire(fac, _int(c[1]))
 		"build": if n == 4: _do_build(fac, _int(c[1]), _int(c[2]), str(c[3]))
@@ -3021,15 +3333,15 @@ func _action_button(action: String, callback: Callable, parent: Control = null, 
 	(parent if parent != null else panel_box).add_child(column)
 	var button := Button.new(); button.name = action
 	var icon := ActionGlyph.new(); icon.action = action
-	icon.col = C_BAD if action in ["Disconnect", "Stop"] else (BANK_COL["attack"] if action == "Attack" else C_GOOD)   # attack = red everywhere
+	icon.col = C_BAD if action in ["Disconnect", "Stop", "Cancel assault"] else (BANK_COL["attack"] if action in ["Attack", "Assault"] or action.ends_with("%") else C_GOOD)   # attack = red everywhere
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button.add_child(icon)
 	button.custom_minimum_size = Vector2(96, 44)
 	button.disabled = not enabled
 	button.add_theme_font_size_override("font_size", 20)
 	button.clip_text = true
-	button.add_theme_color_override("font_color", C_BAD if action in ["Disconnect", "Stop"] else (C_WARN if action == "Attack" else C_GOOD))
-	if action in ["Disconnect", "Stop"]:
+	button.add_theme_color_override("font_color", C_BAD if action in ["Disconnect", "Stop", "Cancel assault"] else (C_WARN if action == "Attack" else C_GOOD))
+	if action in ["Disconnect", "Stop", "Cancel assault"]:
 		for state in ["normal", "hover", "pressed"]:
 			var style := StyleBoxFlat.new()
 			style.bg_color = Color(0.3, 0.08, 0.1) if state == "normal" else Color(0.45, 0.1, 0.13)
@@ -3297,7 +3609,7 @@ func _mp_end_turn() -> void:
 func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
 	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size())])
 	for h in hosts:
-		parts.append("%d,%d,%d,%d,%d,%s,%s,%s" % [int(h.owner), roundi(float(h.bots) * 1000.0), roundi(float(h.sec) * 1000.0), int(h.assign), int(bool(h.live)), str(h.get("mode", "")), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs)])
+		parts.append("%d,%d,%d,%d,%d,%s,%s,%s,%s" % [int(h.owner), roundi(float(h.bots) * 1000.0), roundi(float(h.sec) * 1000.0), int(h.assign), int(bool(h.live)), str(h.get("mode", "")), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.get("assault", {}))])
 	for fac in botnets:
 		parts.append("%d:%d:%d:%d:%d" % [fac, roundi(float(intel[fac]) * 1000.0), roundi(float(cash[fac]) * 1000.0), roundi(float(creds[fac]) * 1000.0), roundi(float(research[fac]) * 1000.0)])
 		parts.append(JSON.stringify(cards[fac]) + JSON.stringify(lab[fac]))   # held cards, research queue and progress
@@ -4106,7 +4418,13 @@ func _stage_line(i: int) -> String:   # one line that says what the building is 
 		return "Security %d/%d · %s" % [int(h.bots), int(h.sec), tname]
 	if not _mine(i):
 		return "%d/%d bots · %s" % [int(h.bots), int(_cap_of(i)), tname]
-	return "%d/%d bots · %d/%d slots built" % [int(h.bots), int(_cap_of(i)), _built(i).size(), int(h.slots)]
+	var line := "%d/%d bots · %d/%d slots built" % [int(h.bots), int(_cap_of(i)), _built(i).size(), int(h.slots)]
+	var order := _assault_of(i)
+	if not order.is_empty():
+		line += "
+ASSAULT → %s: %d of %d left · %d sent%s · %s" % [str(hosts[int(order.t)].name), int(order.left), int(order.total), int(order.sent),
+			" · farms resting" if _regen_paused(i) else "", _src_state(i)]
+	return line
 
 
 func _panel_build(i: int) -> void:
@@ -4155,7 +4473,7 @@ func _disconnect_source(source: int) -> void: _cmd(["unwire", source])
 
 func _do_unwire(fac: int, source: int) -> void:
 	if not _owns(fac, source): return
-	hosts[source].assign = -1; hosts[source].live = false; _next_depart.erase(source)
+	hosts[source].assign = -1; hosts[source].live = false; _next_depart.erase(source); hosts[source].assault = {}
 	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
 
@@ -4271,34 +4589,84 @@ func _panel_node_in(t: int) -> void:
 	if _mine(t):
 		_connection_list(conns)
 		return
-	var live := 0; var attacks := 0
+	var live := 0; var attacks := 0; var assaults := 0; var left := 0; var sent := 0; var total := 0
 	var waiting := {}
 	for source in conns:
-		if bool(hosts[source].live):
+		var order := _assault_of(source)
+		if not order.is_empty():
+			assaults += 1; left += int(order.left); sent += int(order.sent); total += int(order.total)
+		elif bool(hosts[source].live):
 			live += 1
 			if str(hosts[source].mode) == "attack": attacks += 1
 		var state := _src_state(source)
 		if state in ["no Intel", "no bots", "no route", "routing cut", "link busy"]: waiting[state] = true
-	var dormant := conns.size() - live
+	var unordered := conns.size() - assaults   # sources an Assault would give an order to
 	var title := "Connected"
-	if attacks > 0: title = "Attacking" if _scanned(PLAYER, t) else "Attacking blind"
+	if assaults > 0: title = "Assault"
+	elif attacks > 0: title = "Attacking" if _scanned(PLAYER, t) else "Attacking blind"
 	elif live > 0: title = "Scanning · no damage"
 	_plabel(title, 18, C_TEXT)
 	var actions := HBoxContainer.new(); actions.add_theme_constant_override("separation", 12); panel_box.add_child(actions)
 	if live > 0:
 		_action_button("Stop", _halt.bind(t), actions)
-	elif _scanned(PLAYER, t):
+	elif unordered > 0 and _scanned(PLAYER, t):
 		_action_button("Attack", _launch.bind(t, "attack"), actions)
-	else:
+	elif unordered > 0:
 		_action_button("Scan", _launch.bind(t, "scan"), actions)
+	if assaults > 0: _action_button("Cancel assault", _cancel_assault.bind(t), actions)
+	elif unordered > 0:
+		_action_button("Assault", _assault.bind(t, -1), actions)
+		_action_button("%d%%" % _assault_pct, _cycle_assault_pct, actions)
 	var status := " "
 	if waiting.has("no Intel"): status = "Waiting for Intel · add a harvester or stop another attack."
 	elif waiting.has("no bots"): status = "Waiting for bots to regenerate"
 	elif not waiting.is_empty(): status = ", ".join(waiting.keys())
 	# Keep the command tree stable when resource blockers appear or clear.
 	_plabel(status, 14, C_WARN)
+	if assaults > 0: _plabel(_assault_progress(t, conns, left, sent, total), 14, C_TEXT)
+	elif unordered > 0: _plabel(_assault_forecast(t, conns), 13, C_DIM)
 	_connection_list(conns)
 	_plabel(_operation_observation(t), 14, C_TEXT)
+
+
+func _cycle_assault_pct() -> void:   # UI only: the share the next Assault commits
+	var k := ASSAULT_COMMITS.find(_assault_pct)
+	_assault_pct = int(ASSAULT_COMMITS[(k + 1) % ASSAULT_COMMITS.size()])
+	_refresh_panel()
+
+
+func _assault_progress(t: int, conns: Array, left: int, sent: int, total: int) -> String:
+	var air := 0
+	for f in flights:
+		if int(f.owner) == PLAYER and int(f.route.back()) == t and str(f.kind) == "bot": air += 1
+	var homes := []
+	for source in conns:
+		var order := _assault_of(source)
+		if not order.is_empty(): homes.append("%s %d home · %d left" % [str(hosts[source].name), int(hosts[source].bots), int(order.left)])
+	return "%d of %d bots left to send · %d sent · %d in the air
+%s" % [left, total, sent, air, "
+".join(homes)]
+
+
+func _assault_forecast(t: int, conns: Array) -> String:   # what pressing Assault would commit, and what it might leave
+	var bots := 0; var home := 0; var n := 0; var hops := 99
+	for source in conns:
+		if _assault_active(source): continue
+		var rt := _route(source, t)
+		if rt.is_empty(): continue
+		var q := _assault_quota(source, _assault_pct)
+		if q < 1: continue
+		bots += q; home += int(float(hosts[source].bots)) - q; n += 1; hops = mini(hops, rt.size() - 1)
+	if n == 0: return "Assault: no connected source has bots and a route"
+	var line := "Assault %d%%: %d bots from %d source(s) · %d stay home · %d Intel (you have %d) · farms rest until it ends" % [_assault_pct, bots, n, home, bots, int(intel[PLAYER])]
+	if _scanned(PLAYER, t):   # what you know of the target: its garrison and farms, live
+		var secs := float(bots) / (float(n) * ASSAULT_RATE) + float(hops) * LINK_TIME + float(maxi(0, hops - 1)) * NODE_ROUTE_DELAY
+		var after := float(hosts[t].bots) + _regen(t) * secs - float(bots)
+		line += "
+Predicted: %s (no guards, full Intel, free streets)" % ("captured, ~%d spare" % int(-after) if after < 0.0 else "~%d defenders left" % int(ceil(after)))
+	else: line += "
+Scan it to predict the defenders left"
+	return line
 
 
 func _operation_observation(t: int) -> String:
@@ -4734,11 +5102,9 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 			pass # selected target already has a readable screen-space name
 	elif not sel.is_empty():   # connect step: glow where a wire could go + hover preview
 		var src_keys: Array = sel.keys()
+		var reach := _wire_reach(src_keys)
 		for i in hosts.size():
-			var ok := false
-			for s in src_keys:
-				if _link_kind(int(s), i) != "": ok = true; break
-			if ok: _frame(hosts[i].pos, _r(i) + 7.0, Color(1, 0.8, 0.4, 0.55), 2.0)
+			if reach.has(i): _frame(hosts[i].pos, _r(i) + 7.0, Color(1, 0.8, 0.4, 0.55), 2.0)
 		var hov := _host_at(get_local_mouse_position())
 		if hov >= 0 and not sel.has(hov):
 			var elig := 0
@@ -4750,8 +5116,9 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 	if dk != "":   # a hand card in the air: where it can land, and what it would do there
 		var cd: Dictionary = CARDS[_card_of(dk)]
 		var cc: Color = FAMILY_COL[str(cd.fam)]
+		var rig_reach: Variant = _wire_reach([int(rig[PLAYER])]) if rig.has(PLAYER) else null   # one pass, not a route per host
 		for i in hosts.size():
-			if _can_play(PLAYER, dk, i) == "" and _card_scale(str(cd.fam), i) > 0.0: _frame(hosts[i].pos, _r(i) + 7.0, Color(cc.r, cc.g, cc.b, 0.7), 2.0)
+			if _can_play(PLAYER, dk, i, rig_reach) == "" and _card_scale(str(cd.fam), i) > 0.0: _frame(hosts[i].pos, _r(i) + 7.0, Color(cc.r, cc.g, cc.b, 0.7), 2.0)
 		var hov := _host_at(get_local_mouse_position())
 		if hov >= 0:
 			var sc := _card_scale(str(cd.fam), hov)
@@ -4766,10 +5133,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		var lcol2 := Color(1, 0.95, 0.55, 0.95)
 		if hv >= 0 and hv != _drag_from:
 			to = hosts[hv].pos
-			var ok := false
-			for s in _aim_sources():
-				if _link_kind(int(s), hv) != "": ok = true; break
-			if not ok: lcol2 = Color(1, 0.4, 0.35, 0.95)
+			if not _wire_reach(_aim_sources()).has(hv): lcol2 = Color(1, 0.4, 0.35, 0.95)
 		_cv.draw_line(hosts[_drag_from].pos, to, lcol2, 1.8, true)
 		_cv.draw_circle(to, 3.0, lcol2)
 	if _boxing:
@@ -5028,6 +5392,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	var sub := ""   # ONE warning under the glyph, most urgent first; the rest is in the panel
 	if bool(hosts[i].get("junction", false)): sub = "junction"
 	if _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
+	elif _assault_active(i): sub = ("ASSAULT %d" % int(_assault_of(i).left) if _mine(i) else "ASSAULT") + (" · rest" if _regen_paused(i) else "")
 	elif _stolen(i): sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))   # its output goes to the caster
 	elif _prod_down(i): sub = "OFF %ds" % int(ceil(float(hosts[i].prod_off)))
 	elif float(hosts[i].get("patch_until", 0.0)) > _t: sub = "PATCH %ds" % int(ceil(float(hosts[i].patch_until) - _t))
@@ -5038,6 +5403,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if sub == "junction": subcol = Color(0.7, 0.85, 1.0, 0.8 * a)
 	if sub.begins_with("PHISHED"): subcol = Color(FAMILY_COL["phish"].r, FAMILY_COL["phish"].g, FAMILY_COL["phish"].b, a)
 	if sub.begins_with("OFF"): subcol = Color(1, 0.62, 0.2, a)
+	elif sub.begins_with("ASSAULT"): subcol = Color(1, 0.45, 0.35, a)
 	elif sub.begins_with("CUT"): subcol = Color(1, 0.4, 0.65, a)
 	if focused and _mine(i):   # details only while you look at it: what is built, the send rate
 		var bi := ""
@@ -5312,7 +5678,11 @@ class ActionGlyph extends Control:   # operation icons also render without syste
 	func _draw() -> void:
 		var centre := size * 0.5
 		match action:
-			"Stop": draw_rect(Rect2(centre - Vector2(7, 7), Vector2(14, 14)), col)
+			"Stop", "Cancel assault": draw_rect(Rect2(centre - Vector2(7, 7), Vector2(14, 14)), col)
+			"Assault":   # three chevrons: a burst, not a stream
+				for k in 3:
+					var x := -10.0 + 8.0 * k
+					draw_polyline(PackedVector2Array([centre + Vector2(x, -8), centre + Vector2(x + 7, 0), centre + Vector2(x, 8)]), col, 2.5, true)
 			"Scan":
 				draw_arc(centre - Vector2(2, 2), 8, 0, TAU, 32, col, 2, true)
 				draw_line(centre + Vector2(4, 4), centre + Vector2(11, 11), col, 2, true)
@@ -5330,6 +5700,11 @@ class ActionGlyph extends Control:   # operation icons also render without syste
 				draw_polyline(PackedVector2Array([centre + Vector2(-10, 5), centre + Vector2(0, -5), centre + Vector2(10, 5)]), col, 3, true)
 			"DeckClose":   # push them back down
 				draw_polyline(PackedVector2Array([centre + Vector2(-10, -5), centre + Vector2(0, 5), centre + Vector2(10, -5)]), col, 3, true)
+			_:
+				if action.ends_with("%"):   # the commitment: a gauge filled to that share
+					var share := float(action.trim_suffix("%")) / 100.0
+					draw_rect(Rect2(centre - Vector2(18, 6), Vector2(36, 12)), col, false, 1.5)
+					draw_rect(Rect2(centre - Vector2(16, 4), Vector2(32.0 * share, 8)), col)
 
 
 class HelpGlyph extends Control:   # a big icon for the Help screen: a building kind, or a card family glyph
@@ -5535,7 +5910,7 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 # A building card (palette and slots share it), in fixed bands so nothing overlaps at 112 x 140:
 # title 4-28 · icon 32-72 · two effect lines (88, 101) · bottom band 108-136: the price as icons (palette) or a status (slots).
 const BUILD_EFFECT := {
-	"bot": ["+1 bot/s", "+30 bot cap"], "intel": ["+1 Intel/s", "+50 Intel cap"], "cash": ["+0.33 Crypto/s", "1 Intel each"],   # 1 Crypto every CASH_INTERVAL (3 s), like the others: the base rate
+	"bot": ["+1 bot/s", "+30 bot cap"], "intel": ["+1 Intel/s", "+15 Intel cap"], "cash": ["+0.33 Crypto/s", "1 Intel each"],   # 1 Crypto every CASH_INTERVAL (3 s), like the others: the base rate
 	"cred": ["+0.5 Creds/s", "1 Intel each"], "lab": ["+0.5 Research/s", "1 Crypto each"],
 }
 func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:
@@ -5655,6 +6030,14 @@ class SlotBox extends Control:
 		if not job.is_empty():
 			var total: float = game.DEMOLISH_TIME if str(job.phase) == "demolish" else game.BUILD_TIME
 			draw_rect(Rect2(6, 106, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
+			var short := str(job.get("short", ""))
+			if str(job.phase) == "build" and not bool(job.get("paused", false)) and short != "":   # construction waits for a resource
+				var price: float = float(game._job_cost_total(job).get(short, 0.0))
+				var paid: float = price - float(game._job_cost_left(job).get(short, 0.0))
+				var res_name: String = "Crypto" if short == "cash" else "Intel"
+				draw_rect(Rect2(4, 77, size.x - 8, 28), Color(0.12, 0.07, 0.03))
+				game._fit_text(self, "Needs %s" % res_name, Rect2(6, 89, size.x - 12, 0), 12, game.C_WARN)
+				game._fit_text(self, "%d / %d paid" % [int(paid), int(price)], Rect2(6, 102, size.x - 12, 0), 11, game.C_TEXT)
 
 
 

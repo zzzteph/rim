@@ -133,7 +133,7 @@ func _run() -> void:
 	check(game.lab[game.PLAYER].queue.is_empty(), "Dragging an empty card off the tray does not queue research on release")
 	fresh(); source = game.rig[game.PLAYER]; game._set_deck_open(true)   # pulled-up cards leave the sidebar short
 	game.hosts[source].slots = 5; game._set_builds(source, [])
-	game.intel[game.PLAYER] = 100
+	game.intel[game.PLAYER] = 100; game.cash[game.PLAYER] = 100   # the first palette card (Bot farm) is paid in Crypto
 	game._left_click(source, false); game._refresh_panel(); await settle()
 	var available_cards := scripted_nodes(game.panel, game.BuildCard)
 	check(game.panel_scroll.get_v_scroll_bar().visible, "Shorter sidebar exposes scrolling for its building palette")

@@ -1,0 +1,289 @@
+{
+	"bootstrap_direct": {
+		"first_additional_farm_s": 110.0,
+		"orders": [
+			[
+				"cash",
+				0.0,
+				"server",
+				1
+			],
+			[
+				"bot",
+				100.0
+			]
+		],
+		"plan": "direct"
+	},
+	"bootstrap_harvester_first": {
+		"first_additional_farm_s": 121.0,
+		"orders": [
+			[
+				"intel",
+				0.0
+			],
+			[
+				"cash",
+				10.0,
+				"pc",
+				1
+			],
+			[
+				"bot",
+				111.0
+			]
+		],
+		"plan": "harvester_first"
+	},
+	"card_alternative": {
+		"card": {
+			"captured_after_s": 95.1,
+			"midgame": {
+				"cash": 60.0,
+				"crypto_gross_rate": 1.67,
+				"farms": 7,
+				"harvesters": 6,
+				"hosts": 9,
+				"intel": 150.0,
+				"intel_cap": 190.0,
+				"intel_rate": 10.5,
+				"miners": 2
+			},
+			"orders": [
+				[
+					"cred",
+					0.0
+				],
+				[
+					"lab",
+					0.0
+				],
+				[
+					"research",
+					10.0
+				],
+				[
+					"play",
+					90.0
+				],
+				[
+					"attack",
+					94.0
+				]
+			],
+			"target_type": "db"
+		},
+		"farms": {
+			"captured_after_s": 105.3,
+			"midgame": {
+				"cash": 60.0,
+				"crypto_gross_rate": 1.67,
+				"farms": 7,
+				"harvesters": 6,
+				"hosts": 9,
+				"intel": 150.0,
+				"intel_cap": 190.0,
+				"intel_rate": 10.5,
+				"miners": 2
+			},
+			"orders": [
+				[
+					"bot",
+					0.0
+				],
+				[
+					"bot",
+					0.0
+				],
+				[
+					"bot",
+					21.0
+				],
+				[
+					"bot",
+					39.0
+				],
+				[
+					"bot",
+					57.0
+				],
+				[
+					"attack",
+					60.0
+				],
+				[
+					"bot",
+					75.0
+				],
+				[
+					"bot",
+					93.0
+				]
+			],
+			"target_type": "db"
+		}
+	},
+	"interruption": [
+		{
+			"cash_end": 23.8,
+			"crypto_bank": 0.0,
+			"farms_done_by_120s": 2,
+			"farms_done_in_outage": 0,
+			"midgame": {
+				"cash": 0.0,
+				"crypto_gross_rate": 1.67,
+				"farms": 7,
+				"harvesters": 6,
+				"hosts": 9,
+				"intel": 150.0,
+				"intel_cap": 190.0,
+				"intel_rate": 10.5,
+				"miners": 2
+			},
+			"miners_paused": 2,
+			"stalled_job_seconds": 0.0
+		},
+		{
+			"cash_end": 35.0,
+			"crypto_bank": 30.0,
+			"farms_done_by_120s": 3,
+			"farms_done_in_outage": 1,
+			"midgame": {
+				"cash": 0.0,
+				"crypto_gross_rate": 1.67,
+				"farms": 7,
+				"harvesters": 6,
+				"hosts": 9,
+				"intel": 150.0,
+				"intel_cap": 190.0,
+				"intel_rate": 10.5,
+				"miners": 2
+			},
+			"miners_paused": 2,
+			"stalled_job_seconds": 0.0
+		},
+		{
+			"cash_end": 105.0,
+			"crypto_bank": 100.0,
+			"farms_done_by_120s": 3,
+			"farms_done_in_outage": 3,
+			"midgame": {
+				"cash": 0.0,
+				"crypto_gross_rate": 1.67,
+				"farms": 7,
+				"harvesters": 6,
+				"hosts": 9,
+				"intel": 150.0,
+				"intel_cap": 190.0,
+				"intel_rate": 10.5,
+				"miners": 2
+			},
+			"miners_paused": 2,
+			"stalled_job_seconds": 0.0
+		},
+		{
+			"cash_end": 905.0,
+			"crypto_bank": 900.0,
+			"farms_done_by_120s": 3,
+			"farms_done_in_outage": 3,
+			"midgame": {
+				"cash": 0.0,
+				"crypto_gross_rate": 1.67,
+				"farms": 7,
+				"harvesters": 6,
+				"hosts": 9,
+				"intel": 150.0,
+				"intel_cap": 190.0,
+				"intel_rate": 10.5,
+				"miners": 2
+			},
+			"miners_paused": 2,
+			"stalled_job_seconds": 0.0
+		}
+	],
+	"mode": "fixtures",
+	"prepared_equal_bank": {
+		"bank": "equal",
+		"cash_end": 25.0,
+		"farms_standing_after_s": {
+			"120.0": 5,
+			"180.0": 9,
+			"30.0": 0,
+			"60.0": 2
+		},
+		"intel_start": 150.0,
+		"midgame": {
+			"cash": 0.0,
+			"crypto_gross_rate": 1.67,
+			"farms": 7,
+			"harvesters": 6,
+			"hosts": 9,
+			"intel": 150.0,
+			"intel_cap": 190.0,
+			"intel_rate": 10.5,
+			"miners": 2
+		}
+	},
+	"prepared_full_cap": {
+		"bank": "full_cap",
+		"cash_end": 25.0,
+		"farms_standing_after_s": {
+			"120.0": 5,
+			"180.0": 9,
+			"30.0": 0,
+			"60.0": 2
+		},
+		"intel_start": 190.0,
+		"midgame": {
+			"cash": 0.0,
+			"crypto_gross_rate": 1.67,
+			"farms": 7,
+			"harvesters": 6,
+			"hosts": 9,
+			"intel": 150.0,
+			"intel_cap": 190.0,
+			"intel_rate": 10.5,
+			"miners": 2
+		}
+	},
+	"recovery_direct": {
+		"first_farm_s": 160.0,
+		"orders": [
+			[
+				"cash",
+				50.0
+			],
+			[
+				"bot",
+				150.0
+			]
+		],
+		"plan": "direct"
+	},
+	"recovery_optimized": {
+		"first_farm_s": 146.0,
+		"orders": [
+			[
+				"intel",
+				10.0
+			],
+			[
+				"cash",
+				36.0
+			],
+			[
+				"bot",
+				136.0
+			]
+		],
+		"plan": "optimized"
+	},
+	"ruleset": {
+		"farm_cost": {
+			"cash": 30.0
+		},
+		"intel_cap_per_harvester": 15.0,
+		"version": "0.2.5"
+	},
+	"seed": 43
+}

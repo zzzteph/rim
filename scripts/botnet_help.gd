@@ -96,7 +96,8 @@ func _network() -> void:
 	_arrow(Vector2(426, 273), Vector2(494, 273), RED)
 	_host(Vector2(548, 273), GREEN, "0 = captured", "server", 42)
 	_text("Reveal defenders + installed buildings", Rect2(12, 345, 280, 25), 11, DIM)
-	_text("Each launched bot costs 1 Intel", Rect2(328, 345, 280, 25), 12, DIM)
+	_text("Each launched bot costs 1 Intel", Rect2(328, 340, 280, 22), 12, DIM)
+	_text("ASSAULT: a fixed share, %d/s; farms rest till done" % int(game.ASSAULT_RATE), Rect2(328, 358, 284, 20), 11, RED)
 
 func _build() -> void:
 	_tile(Rect2(0, 0, 620, 188))
@@ -115,7 +116,7 @@ func _build() -> void:
 			_kind("intel", rect.get_center(), 38)
 			_bar(Rect2(rect.position.x + 6, 129, 70, 5), 0.5, BLUE)
 		else: _text("+", Rect2(rect.position + Vector2(0, 23), Vector2(82, 40)), 28, DIM)
-	_text("10-50 Intel, paid over %ds of funded work" % int(game.BUILD_TIME), Rect2(285, 151, 294, 22), 12, TEXT)
+	_text("Intel or Crypto, paid over %ds of funded work" % int(game.BUILD_TIME), Rect2(285, 151, 294, 22), 12, TEXT)
 	_tile(Rect2(0, 200, 304, 180))
 	_tile(Rect2(316, 200, 304, 180))
 	_text("BOT FARM", Rect2(16, 212, 272, 22), 14, GREEN, false)
@@ -128,6 +129,8 @@ func _build() -> void:
 	_arrow(Vector2(440, 281), Vector2(490, 281))
 	_text("+%.0f Intel/s" % game.INTEL_PER_BUILD, Rect2(494, 255, 112, 23), 13, BLUE)
 	_text("+%.0f limit" % game.INTEL_CAP_PER_BUILD, Rect2(494, 282, 112, 23), 12, DIM)
+	_text("Costs " + game._build_cost_text("bot"), Rect2(12, 314, 280, 22), 13, game.BUILD_KINDS["cash"].col)
+	_text("Costs " + game._build_cost_text("intel"), Rect2(328, 314, 280, 22), 13, BLUE)
 	_text("PC example: replenish defenders", Rect2(12, 344, 280, 22), 11, DIM)
 	_text("PC example: fuel your network", Rect2(328, 344, 280, 22), 11, DIM)
 
@@ -146,7 +149,7 @@ func _resources() -> void:
 	_resource_row(0, "intel", "cred", "HARVESTER", "Intel", "Credential")
 	_resource_row(117, "intel", "cash", "MINER", "Intel", "Crypto")
 	_resource_row(234, "cash", "lab", "LAB", "Crypto", "Research")
-	_text("No input = no output. Crypto packets travel home before spending.", Rect2(0, 347, 620, 17), 11, DIM)
+	_text("No input = no output. Crypto travels home, then pays farms, labs and cards.", Rect2(0, 347, 620, 17), 11, DIM)
 	_text("Click an installed producer to pause / resume.", Rect2(0, 365, 620, 15), 11, BLUE)
 
 func _example_card(rect: Rect2, owned: int, progress: float) -> void:

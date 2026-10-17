@@ -61,6 +61,7 @@ func _run() -> void:
 	_determinism()
 	_cost_and_long_match()
 	_idle_human_seat()
+	_zero_stock_opening()
 	_fog_fairness()
 	for kind in ["wire", "launch", "build", "research", "card", "produce"]:
 		check(int(tally.get(kind, 0)) > 0, "the brain issues '%s' commands (%d over the suite)" % [kind, int(tally.get(kind, 0))])
@@ -251,6 +252,63 @@ func _idle_human_seat() -> void:
 	check(g.lost and w in [2, 3], "Insane AIs finish an idle human (%s, by %d at %.0f s)" % [str(g._end_cause), w, float(g._t)])
 	_count(g)
 	g.free()
+
+
+# ------------------------------------------------------------ 5b. zero-Crypto opening (farms cost Crypto: economy candidate A)
+# No circular farm/miner prerequisite: a miner comes before the first new farm and farms do get built from a normal
+# 0-Crypto start; every farm the brain orders is covered by Crypto that no job or queued research already claims.
+func _farms_of(g, f: int) -> int:
+	var n := 0
+	for h in g.hosts:
+		if int(h.owner) != f: continue
+		n += (h.builds as Array).count("bot")
+		for job in (h.jobs as Dictionary).values():
+			if str(job.kind) == "bot" and str(job.phase) == "build": n += 1
+	return n
+
+
+func _miners_of(g, f: int) -> int:
+	var n := 0
+	for h in g.hosts:
+		if int(h.owner) != f: continue
+		n += (h.builds as Array).count("cash")
+		for job in (h.jobs as Dictionary).values():
+			if str(job.kind) == "cash": n += 1
+	return n
+
+
+func _zero_stock_opening() -> void:
+	var rows := []
+	for seed in [7, 19, 43]:
+		var g = _game("s", 2, seed, {2: "insane", 3: "insane"})
+		var start := {}; var first_miner := {}; var first_farm := {}; var overcommit := 0; var negative := false
+		for f in _insane(g):
+			start[f] = _farms_of(g, f)
+			check(float(g.cash[f]) == 0.0, "zero-stock seed %d: faction %d starts with 0 Crypto" % [seed, f])
+		while not g.won and not g.lost and g._t < 300.0:
+			var before := {}
+			for f in _insane(g): before[f] = _farms_of(g, f)
+			_step(g)
+			for f in _insane(g):
+				if g._eliminated.has(f): continue
+				if not first_miner.has(f) and _miners_of(g, f) > 0: first_miner[f] = snappedf(g._t, 0.1)
+				var now := _farms_of(g, f)
+				if now > int(before[f]):   # it ordered a farm this step: the order must have been covered
+					if not first_farm.has(f) and now > int(start[f]): first_farm[f] = snappedf(g._t, 0.1)
+					var b = _brain(g, f)
+					if float(g.cash[f]) - b._jobs_cash_left() - b._research_cash_left() < -0.0001: overcommit += 1
+				if float(g.cash[f]) < -0.00001 or float(g.intel[f]) < -0.00001: negative = true
+		for f in _insane(g):
+			# no circular prerequisite: Crypto income starts from nothing; a farm (when it chooses one) never comes first.
+			# Whether it then spends the Crypto on farms or on cards is its strategy, recorded below, not a pass/fail.
+			check(first_miner.has(f) and float(first_miner[f]) <= 120.0, "zero-stock seed %d: faction %d starts a miner by 120 s from 0 Crypto (at %s s)" % [seed, f, str(first_miner.get(f, "-"))])
+			check(not first_farm.has(f) or float(first_miner.get(f, INF)) <= float(first_farm[f]), "zero-stock seed %d: faction %d has a miner before any new farm" % [seed, f])
+		check(overcommit == 0, "zero-stock seed %d: no farm ordered against Crypto already claimed by jobs or research (%d)" % [seed, overcommit])
+		check(not negative, "zero-stock seed %d: Insane Intel and Crypto stay nonnegative" % seed)
+		rows.append({"seed": seed, "first_miner_s": first_miner, "first_new_farm_s": first_farm, "end_t": snappedf(g._t, 0.1), "cause": str(g._end_cause)})
+		_count(g)
+		g.free()
+	report["zero_stock_opening"] = rows
 
 
 # ------------------------------------------------------------ 6. fog fairness: scramble what it must not see, decide the same
