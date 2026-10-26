@@ -23,7 +23,7 @@ func fresh(pause := true) -> void:
 	if g != null and is_instance_valid(g): g.free()
 	g = load("res://scripts/botnet_proto.gd").new()
 	g.theme = load("res://assets/ui_theme.tres")
-	g._opt_size = Vector2i(8, 6); g._opt_enemies = 1; g._opt_seed = 7
+	g._opt_size = Vector2i(8, 6); g._opt_enemies = 1; g._opt_seed = 7; g._opt_shape = "grid"   # fixed-seed fixtures on the grid town
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._open_menu(false)
 	g.panel_box = null
 	g.assault_pause_regen = pause

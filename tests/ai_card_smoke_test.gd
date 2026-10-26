@@ -17,12 +17,15 @@ func check(ok: bool, description: String) -> void:
 func _run() -> void:
 	var scenarios := []
 	for scenario in [
-		{"size": Vector2i(6, 4), "enemies": 1, "seed": 7},
-		{"size": Vector2i(8, 6), "enemies": 3, "seed": 33},
+		{"size": Vector2i(6, 4), "enemies": 1, "seed": 7, "shape": "grid"},
+		{"size": Vector2i(8, 6), "enemies": 3, "seed": 33, "shape": "grid"},
+		{"size": Vector2i(8, 6), "enemies": 2, "seed": 11, "shape": "spiral"},
+		{"size": Vector2i(8, 6), "enemies": 2, "seed": 12, "shape": "elliptical"},
+		{"size": Vector2i(8, 6), "enemies": 2, "seed": 13, "shape": "ring"},
 	]:
 		var game = load("res://scripts/botnet_proto.gd").new()
 		game.theme = load("res://assets/ui_theme.tres")
-		game._opt_size = scenario.size; game._opt_enemies = scenario.enemies; game._opt_seed = scenario.seed
+		game._opt_size = scenario.size; game._opt_enemies = scenario.enemies; game._opt_seed = scenario.seed; game._opt_shape = scenario.shape
 		root.add_child(game); game.set_process(false); game._open_menu(false)
 		for faction in game.ais:
 			game.cash[faction] = 200.0; game.creds[faction] = 100.0; game.research[faction] = 100.0
@@ -46,7 +49,7 @@ func _run() -> void:
 		check(queues_valid, "AI research uses the current eight-card catalogue: seed %d" % scenario.seed)
 		check(plays > 0, "AI can cast retained cards: seed %d" % scenario.seed)
 		check(defensive_cast, "AI applies protection to its own network: seed %d" % scenario.seed)
-		scenarios.append({"seed": scenario.seed, "map": str(scenario.size), "enemies": scenario.enemies, "simulated_seconds": game._t, "ai_card_plays": plays, "won": game.won, "lost": game.lost})
+		scenarios.append({"seed": scenario.seed, "map": "%s %s" % [scenario.shape, str(scenario.size)], "enemies": scenario.enemies, "simulated_seconds": game._t, "ai_card_plays": plays, "won": game.won, "lost": game.lost})
 		game.free()
 	_zero_crypto_fixture()
 	var bootstrap := _zero_crypto_matches()
@@ -80,7 +83,7 @@ func _built_of(g, fac: int, kind: String) -> int:
 func _zero_crypto_fixture() -> void:
 	var g = load("res://scripts/botnet_proto.gd").new()
 	g.theme = load("res://assets/ui_theme.tres")
-	g._opt_size = Vector2i(6, 4); g._opt_enemies = 2; g._opt_seed = 7
+	g._opt_size = Vector2i(6, 4); g._opt_enemies = 2; g._opt_seed = 7; g._opt_shape = "grid"
 	root.add_child(g); g.set_process(false); g._open_menu(false)
 	var f: int = int(g.ais[0]); var r: int = int(g.rig[f]); var p := -1
 	for o in g.hosts[r].links:
@@ -140,7 +143,7 @@ func _zero_crypto_matches() -> Array:
 	for seed in [7, 19, 43]:
 		var g = load("res://scripts/botnet_proto.gd").new()
 		g.theme = load("res://assets/ui_theme.tres")
-		g._opt_size = Vector2i(6, 4); g._opt_enemies = 2; g._opt_seed = seed
+		g._opt_size = Vector2i(6, 4); g._opt_enemies = 2; g._opt_seed = seed; g._opt_shape = "grid"
 		root.add_child(g); g.set_process(false); g._open_menu(false)
 		var start_farms := {}; var first_miner := {}; var first_farm := {}; var stacked := false; var negative := false
 		for f in g.ais: start_farms[f] = _built_of(g, int(f), "bot"); check(float(g.cash[f]) == 0.0, "Seed %d: AI %d starts with 0 Crypto" % [seed, int(f)])

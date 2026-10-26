@@ -20,7 +20,7 @@ func fresh(map_size := Vector2i(6, 4), enemy_count := 2) -> void:
 	if is_instance_valid(game): game.free()
 	game = load("res://scripts/botnet_proto.gd").new()
 	game.theme = load("res://assets/ui_theme.tres")
-	game._opt_seed = 7; game._opt_size = map_size; game._opt_enemies = enemy_count
+	game._opt_seed = 7; game._opt_shape = "grid"; game._opt_size = map_size; game._opt_enemies = enemy_count
 	viewport.add_child(game)
 	game.set_process(false); game.ai_enabled = false
 	game.set_anchors_preset(Control.PRESET_TOP_LEFT); game.size = Vector2(viewport.size)
@@ -191,9 +191,7 @@ func _run() -> void:
 		game._menu_view = menu; game._refresh_menu(); await settle()
 		check(menu_fits() and not game.menu_sc.get_v_scroll_bar().visible, "%s menu fits inside its panel with the bundled font" % menu)
 		check(viewport.get_visible_rect().encloses(game.menu_panel.get_global_rect()), "%s menu stays inside the viewport" % menu)
-	game._opt_mission = true; game._menu_view = "newgame"; game._refresh_menu(); await settle()
-	check(menu_fits(), "New game with the Records mission selected fits inside its panel")
-	game._opt_mission = false; set_onboarded(false)
+	set_onboarded(false)
 	viewport.size = Vector2i(1280, 720)
 	for enemy_count in [1, 2, 3]:
 		fresh(Vector2i(8, 6), enemy_count); await settle()

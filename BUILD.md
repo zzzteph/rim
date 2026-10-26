@@ -88,6 +88,9 @@ godot --headless --path . --script tests/four_card_effect_test.gd
 godot --headless --path . --script tests/production_cost_test.gd
 godot --headless --path . --script tests/ai_card_smoke_test.gd
 godot --headless --path . --script tests/botnet_help_test.gd
+godot --headless --path . --script tests/assault_test.gd
+godot --headless --path . --script tests/takeover_test.gd        # takeover, upkeep, sight, map shapes, roads
+godot --headless --path . --script tests/campaign_test.gd
 godot --headless --path . --script tests/mp_lockstep_test.gd      # multiplayer lockstep, no server needed
 godot --headless --path . --script tests/mp_server_e2e_test.gd    # needs Node.js + `npm ci` in server/ (starts it)
 ```
@@ -118,7 +121,7 @@ name (buildings in their card colour, ATTACK red, DEFENCE blue, your pieces gree
 Winning: hold at least 51% of ALL buildings (rounded up) for 51 continuous seconds
 (`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig.
 
-Fog of war (one rule for the player's screen and for the Insane AI): a faction's real sight is
+Fog of war (one rule for every botnet): a faction's real sight is
 its own hosts and every host one street away from them (`_in_sight`/`_sight_set`); on top of
 that every rig is visible as a landmark (`_visible_to`/`_visible_set`). A rig seen only through
 fog is drawn and clickable, but nothing around it shows: rival packets, wires, worm jumps, card
@@ -144,10 +147,21 @@ Click an installed miner, credential harvester or lab to pause/resume; capacity 
 installed. Attacks and construction take priority over conversion spending; card research
 spends before labs.
 
-AI difficulty (New game menu): Normal is the original `_ai_think`; Insane is
-`scripts/botnet_ai_insane.gd` (one brain per AI faction, created by `_ai_tick`, ticked every
-simulation step). Insane plays fair: same fog, same actions and income, foreign details only through
-scans; it models opponents from what it can see and plans a win. The tutorial always uses Normal.
+The AI botnets all play `_ai_think` (there is one AI and no difficulty setting).
+
+Map layouts (New game → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
+and **Grid**. The three galaxies (`_place_galaxy`) fill a shape with about as many computers as the
+same-size grid, each the best of `STAR_CANDIDATES` random spots and never closer than `STAR_SPACING`,
+so spacing is even: a spiral has one arm per botnet winding out of a core with every rig at an arm's
+tip; an elliptical galaxy is a wide disc, denser in the middle; a ring has an empty middle. The rigs
+sit at even angles round the centre (you top-left), so every botnet starts alike, and computers far
+from every rig (the core, the stretch between two rigs) are the rich, well-defended ones. A shape too
+small for its computers grows and is filled again. Multiplayer takes the galaxy from the match seed
+(`GALAXIES[seed % 3]`), so every screen builds the same one; the guided campaign stays on its grid.
+
+The hidden network (`LINK_REACH`) is never drawn as such. A link a botnet has used — connected along
+(`_do_wire`) or sent any packet over (`_schedule`) — becomes a road on its own map for the rest of the
+match (`_roads`, `_establish`, drawn faintly under the wires); rivals' roads are never shown.
 
 Performance rules (0.1.3–0.1.4): the simulation runs in fixed `SIM_DT` = 1/30 s steps
 (`_sim_step`); `_process` only feeds it real time and decides what to repaint, with packets drawn

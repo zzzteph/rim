@@ -21,7 +21,7 @@ func fresh(map_size := Vector2i(6, 4)) -> void:
 	if is_instance_valid(game): game.free()
 	game = load("res://scripts/botnet_proto.gd").new()
 	game.theme = load("res://assets/ui_theme.tres")
-	game._opt_seed = 7; game._opt_size = map_size
+	game._opt_seed = 7; game._opt_shape = "grid"; game._opt_size = map_size
 	vp.add_child(game)
 	game.set_process(false); game.ai_enabled = false
 	game.set_anchors_preset(Control.PRESET_TOP_LEFT); game.size = Vector2(vp.size)

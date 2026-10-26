@@ -10,7 +10,7 @@ func check(ok: bool, label: String) -> void:
 func near(a: float, b: float) -> bool: return absf(a - b) < 0.00001
 func fresh() -> int:
 	if is_instance_valid(game): game.free()
-	game = load("res://scripts/botnet_proto.gd").new(); game._opt_seed = 7
+	game = load("res://scripts/botnet_proto.gd").new(); game._opt_seed = 7; game._opt_shape = "grid"
 	root.add_child(game); game.set_process(false); game.ai_enabled = false; game._open_menu(false)
 	for i in game.hosts.size():
 		game.hosts[i].jobs = {}; game._set_builds(i, [])

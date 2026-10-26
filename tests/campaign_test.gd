@@ -33,8 +33,7 @@ func run() -> void:
 	chapter1()
 	chapter2()
 	chapter3()
-	chapter4()
-	chapter5()
+	open_chapter()
 	reading_pause()
 	banner()
 	outcome_beat()
@@ -233,62 +232,25 @@ func chapter3() -> void:
 	check(g._mine(prac2), "Ch3 s6: after one recorded miss the campaign's retry always lands")
 
 
-func chapter4() -> void:
-	fresh(); g._start_campaign(4)
-	var vault: int = g._camp_vault
-	check(g._is_mission(vault) and int(g.hosts[vault].owner) == R, "Ch4: the vault carries the objective and is the rival's")
-	var neg := 0
-	for i in g.hosts.size():
-		if g._mine(i) and float(g.hosts[i].bots) < 0.0: neg += 1
-	check(neg == 0 and g._camp_foothold >= 0 and g._mine(g._camp_foothold), "Ch4: every computer the campaign hands you starts garrisoned (no negative bots); the vault foothold is yours")
-	g._camp_set_pause(false)
-	# step 0 scan
-	check(not done(4, 0), "Ch4 s0: not done before scanning")
-	g._mark_scanned(P, vault)
-	check(done(4, 0), "Ch4 s0: scanning advances it")
-	# step 1 access (not ownership)
-	g.intel[P] = 500.0; g.creds[P] = 500.0
-	check(not done(4, 1), "Ch4 s1: not done before access")
-	g._do_access(P, vault)
-	check(g._access_live(P, vault) and not g._mine(vault) and done(4, 1), "Ch4 s1: temporary access (vault still the rival's) advances it")
-	# step 2 extract — drive the sim until a record lands (hold the reading pause off, as acting would)
-	for k in int(60.0 / g.SIM_DT):
-		g._camp_paused = false
-		g._sim_step(g.SIM_DT)
-		if g._records_got(P, vault) >= 1.0: break
-	check(done(4, 2), "Ch4 s2: a record delivered home advances it (%d)" % int(g._records_got(P, vault)))
-	# step 3 detection — entering it fires ch4_detect (snapshot progress + cut the route); it must NOT auto-complete on entry
-	g._tut_stage = 2; g._camp_next()
-	check(g._tut_stage == 3 and bool(g._camp_events.get("ch4_detect", false)), "Ch4 s3: entering the step fires the detection beat")
-	check(not done(4, 3), "Ch4 s3: does not auto-complete on entry (needs one more record past the trace)")
-	g.records_home[g._mkey(P, vault)] = g._camp_detect_mark + 1.0
-	check(done(4, 3), "Ch4 s3: recovering another record after the trace advances it")
-	# step 4 resolve (complete then choose)
-	g.records_home[g._mkey(P, vault)] = float(g.hosts[vault].records_total)
-	check(not done(4, 4), "Ch4 s4: complete but unresolved → not done")
-	g._do_resolve(P, vault, "sell")
-	check(done(4, 4), "Ch4 s4: resolving (sell) advances it")
-
-
-func chapter5() -> void:
-	fresh(); g._start_campaign(5)
-	check(not g._ai_paused, "Ch5 runs with the rival active")
-	check(g._camp_target() == -1, "Ch5 highlights no solution")
-	check(not done(5, 0), "Ch5: not done before winning")
+func open_chapter() -> void:   # the last chapter: open play against an active rival
+	fresh(); g._start_campaign(g.CAMP_OPEN)
+	check(not g._ai_paused, "Open chapter runs with the rival active")
+	check(g._camp_target() == -1, "Open chapter highlights no solution")
+	check(not done(g.CAMP_OPEN, 0), "Open chapter: not done before winning")
 	g.won = true
-	check(done(5, 0), "Ch5: a genuine win completes the campaign")
+	check(done(g.CAMP_OPEN, 0), "Open chapter: a genuine win completes the campaign")
 	# the win is set synchronously inside _sim_step, which then halts the sim — completion must fire on that same step, not only on a 0.25s panel tick
 	fresh(false)
 	var def_enemies: int = g._opt_enemies
-	g._start_campaign(5); g._camp_set_pause(false)
+	g._start_campaign(g.CAMP_OPEN); g._camp_set_pause(false)
 	g.won = true; g._sim_step(g.SIM_DT)
-	check(not g._camp and g._camp_done.count(true) >= g.CAMP_CHAPTERS, "Ch5: a win inside _sim_step finishes the campaign (not stranded on the panel-tick gate)")
+	check(not g._camp and g._camp_done.count(true) >= g.CAMP_CHAPTERS, "Open chapter: a win inside _sim_step finishes the campaign (not stranded on the panel-tick gate)")
 	check(g._opt_enemies == def_enemies, "Finishing restores the player's New-game enemy count (not left at the campaign's 1)")
 	# a loss keeps the player inside the mandatory flow with a Retry affordance, instead of _reset into free play
-	fresh(false); g._start_campaign(5); g._camp_set_pause(false)
+	fresh(false); g._start_campaign(g.CAMP_OPEN); g._camp_set_pause(false)
 	g.lost = true; g._process(1.0 / 30.0)
 	g._refresh_panel()
-	check(g._camp and has_button(g.panel_box, "Retry chapter") and not has_button(g.panel_box, "Restart in a new town"), "Ch5: a loss stays in the campaign: the only way on is Retry chapter")
+	check(g._camp and has_button(g.panel_box, "Retry chapter") and not has_button(g.panel_box, "Restart in a new town"), "Open chapter: a loss stays in the campaign: the only way on is Retry chapter")
 
 
 func reading_pause() -> void:
@@ -348,12 +310,6 @@ func review_fixes() -> void:   # regressions for the dead ends the 2026-10-23 ad
 	fresh(); g._start_campaign(1, true); g.cash[P] = 2.0
 	g._tut_stage = 2; g._camp_next()
 	check(g._tut_stage == 3 and float(g.cash[P]) >= 30.0, "Ch1 s3: Crypto is topped up to the farm's price")
-	# Ch4: a captured vault goes back to its owner (records only flow through access)
-	fresh(); g._start_campaign(4, true)
-	var vault: int = g._camp_vault
-	check(str(g.hosts[vault].name) == "Records vault", "Ch4: the map names the vault as the lesson does")
-	g._capture(vault, P); g._camp_tick()
-	check(int(g.hosts[vault].owner) == R and g._can_access(P, vault) != "you own this computer", "Ch4: capturing the vault hands it back so access can still be taught")
 	# mid-chapter menu: Resume only, no second button that silently restarts the chapter
 	fresh(); g._start_campaign(2, true); g._open_menu(true); g._menu_view = "main"; g._refresh_menu()
 	check(has_button(g.menu_box, "Resume") and not has_button(g.menu_box, "▶ Continue the guided campaign"), "Mid-chapter, the menu offers Resume and no restart-in-disguise")
@@ -379,18 +335,11 @@ func outcome_beat() -> void:   # playtest: "steps are very fast" — a finished 
 	check(g._camp_ui_targets().is_empty() and g._camp_from() == -1, "Nothing blinks while the result shows")
 	for k in int((g.CAMP_HOLD_STEP + 0.2) * 30): g._process(1.0 / 30.0)
 	check(g._tut_stage == 1 and g._camp_hold_left == 0.0, "After the result, the next step begins")
-	# the records decision: its consequence shows, and the board is not rebuilt until the longer chapter-end beat is over
-	fresh(); g._start_campaign(4, true)
-	var vault: int = g._camp_vault
-	g._tut_stage = 4; g.records_home[g._mkey(P, vault)] = float(g.hosts[vault].records_total)
-	g._do_resolve(P, vault, "sell"); g._camp_tick()
-	check(g._camp_chapter == 4 and g._camp_hold_text.contains("+%d Crypto" % int(g.MIS_SELL_CRYPTO)), "Selling the records shows the Crypto it earned before the chapter ends")
-	check(is_equal_approx(g._camp_hold_left, g.CAMP_HOLD_CHAPTER), "The end of a chapter holds longer than a step")
-	fresh(); g._start_campaign(4, true)
-	vault = g._camp_vault
-	g._tut_stage = 4; g.records_home[g._mkey(P, vault)] = float(g.hosts[vault].records_total)
-	g._do_resolve(P, vault, "publish"); g._camp_tick()
-	check(g._camp_hold_text.contains("Community Relay") and g._camp_target() == g._camp_commrelay, "Publishing shows its effect and rings the Community Relay")
+	# the end of a chapter: its result shows longer than a step's, before the board is rebuilt for the next one
+	fresh(); g._start_campaign(1, true)
+	relay = g._camp_relay
+	g._tut_stage = 3; g._set_builds(relay, ["intel", "cash", "bot"]); g._camp_tick()
+	check(g._camp_chapter == 1 and is_equal_approx(g._camp_hold_left, g.CAMP_HOLD_CHAPTER), "The end of a chapter holds longer than a step")
 	# a scripted answer plays during the result, not after it
 	fresh(); g._start_campaign(3, true)
 	g._tut_stage = 7; g._apply_effect(P, g.CARDS["patch"], g._camp_support, 1); g._camp_tick()
@@ -461,7 +410,7 @@ func rich_text() -> void:   # every training text renders exactly as written (no
 			n += 1
 			rtl.text = strip.sub(g._tut_rich(s), "", true)
 			if rtl.get_parsed_text() != s: bad += 1; print("  corrupted: ", s)
-	check(n > 50 and bad == 0, "All %d campaign texts render exactly as written" % n)
+	check(n > 40 and bad == 0, "All %d campaign texts render exactly as written" % n)
 	var odd := "a [b] bracket [lb] 30 Crypto 0day 51% 7"
 	rtl.text = strip.sub(g._tut_rich(odd), "", true)
 	check(rtl.get_parsed_text() == odd, "Brackets and digits survive the colouring")
@@ -504,12 +453,19 @@ func persistence() -> void:
 	# replay does not reset completion or move the resume point
 	g._start_campaign(1, true)
 	check(g._camp_replay and g._camp_has_onboarded(), "Replaying a chapter keeps completion")
+	# a 0.3.5 save (six chapters, the records one at index 4) still loads: its open chapter becomes the last one
+	for old in [[5, 0, [true, true, true, true, true, false]], [4, 3, [true, true, true, true, false, false]]]:
+		var f := FileAccess.open(g._camp_save_path(), FileAccess.WRITE)
+		f.store_line(JSON.stringify({"schema": 1, "campaign_seed": g.CAMP_SEED, "chapter": old[0], "step": old[1], "completed": false, "chapters_completed": old[2]})); f.close()
+		var sv: Dictionary = g._camp_load()
+		check(int(sv.chapter) == g.CAMP_OPEN and int(sv.step) == 0 and (sv.chapters_completed as Array).size() == g.CAMP_CHAPTERS and bool((sv.chapters_completed as Array)[3]),
+			"An old six-chapter save at chapter %d resumes at the open chapter with its earlier chapters kept" % (int(old[0]) + 1))
 
 
 func no_leak() -> void:
 	fresh(false); g._start_campaign(3)
 	check(g._camp and g._camp_relay >= 0 and not g._camp_supplied.is_empty(), "Campaign state is set during a chapter")
-	g._opt_mission = false; g._opt_seed = 0
+	g._opt_seed = 0
 	g._reset()
 	check(not g._camp and not g._camp_paused and g._camp_chapter == 0 and g._camp_relay == -1 and g._camp_supplied.is_empty() and g._camp_cash_landed == 0, "A normal _reset clears every campaign flag — no training state leaks into play")
 

@@ -10,7 +10,7 @@ func check(ok: bool, label: String) -> void:
 func fresh() -> void:
 	if is_instance_valid(game): game.free()
 	game = load("res://scripts/botnet_proto.gd").new()
-	game.theme = load("res://assets/ui_theme.tres"); game._opt_seed = 7
+	game.theme = load("res://assets/ui_theme.tres"); game._opt_seed = 7; game._opt_shape = "grid"
 	root.add_child(game); game.set_process(false); game.ai_enabled = false; game._open_menu(false)
 func fixture(i: int, owner: int, type := "pc") -> void:
 	game.hosts[i].owner = owner; game.hosts[i].type = type; game.hosts[i].bots = 30.0

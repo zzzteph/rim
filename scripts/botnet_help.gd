@@ -83,7 +83,7 @@ func _network() -> void:
 	_host(Vector2(490, 85), RED, "TARGET", "server")
 	_arrow(Vector2(184, 85), Vector2(436, 85), BLUE, true)
 	_cursor(Vector2(322, 72))
-	_text("You see and reach only what is near your computers. A link drains a little Intel.", Rect2(20, 145, 580, 22), 12, DIM)
+	_text("You see and reach only what is near you. A route you use stays drawn. A link drains a little Intel.", Rect2(20, 145, 580, 22), 12, DIM)
 	_tile(Rect2(0, 186, 304, 194))
 	_tile(Rect2(316, 186, 304, 194))
 	_text("2  SCAN", Rect2(16, 198, 272, 22), 15, BLUE, false)

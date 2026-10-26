@@ -37,7 +37,7 @@ func _run() -> void:
 	root.add_child(view)
 	game = load("res://scripts/botnet_proto.gd").new()
 	game.theme = load("res://assets/ui_theme.tres")
-	game._opt_seed = 7
+	game._opt_seed = 7; game._opt_shape = "grid"
 	view.add_child(game)
 	game.set_process(false)
 	game.set_anchors_preset(Control.PRESET_TOP_LEFT)

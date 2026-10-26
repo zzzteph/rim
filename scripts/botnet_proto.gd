@@ -13,11 +13,7 @@ const CfgTypes := preload("res://scripts/botnet_cfg/types.gd")
 const CfgBuildings := preload("res://scripts/botnet_cfg/buildings.gd")
 const CfgCards := preload("res://scripts/botnet_cfg/cards.gd")
 const CfgTuning := preload("res://scripts/botnet_cfg/tuning.gd")
-const CfgMission := preload("res://scripts/botnet_cfg/mission.gd")
 const HelpIllustration := preload("res://scripts/botnet_help.gd")
-const AiInsane := preload("res://scripts/botnet_ai_insane.gd")   # the Insane difficulty's brain (one per AI faction)
-const AI_LEVELS := ["normal", "insane"]
-const INSANE_READY := false   # the Insane brain is still being built: its menu button stays disabled until it lands
 
 const NEUTRAL := CfgFactions.NEUTRAL
 var PLAYER: int = CfgFactions.PLAYER   # the faction this screen plays (multiplayer: yours, 1–3)
@@ -51,6 +47,15 @@ const EMPTY_CELL := CfgTown.EMPTY_CELL
 const LINK_REACH := CfgTown.LINK_REACH
 const LINK_INTEL := CfgTown.LINK_INTEL
 const SHAPES := CfgTown.SHAPES
+const GALAXIES := CfgTown.GALAXIES
+const STAR_SPACING := CfgTown.STAR_SPACING
+const STAR_AREA := CfgTown.STAR_AREA
+const STAR_CANDIDATES := CfgTown.STAR_CANDIDATES
+const SPIRAL_TWIST := CfgTown.SPIRAL_TWIST
+const SPIRAL_ARM := CfgTown.SPIRAL_ARM
+const ELLIPSE_X := CfgTown.ELLIPSE_X
+const ELLIPSE_Y := CfgTown.ELLIPSE_Y
+const RING_HOLE := CfgTown.RING_HOLE
 const TOWN_WORDS := CfgTown.TOWN_WORDS
 const JUNCTIONS := CfgTown.JUNCTIONS
 const JUNCTION_CAP_MULT := CfgTown.JUNCTION_CAP_MULT
@@ -96,20 +101,6 @@ const SEND_RATE := CfgTuning.SEND_RATE
 const ASSAULT_RATE := CfgTuning.ASSAULT_RATE
 const REGEN_PRICE := CfgTuning.REGEN_PRICE
 const RIG_FREE_REGEN := CfgTuning.RIG_FREE_REGEN
-const MIS_RECORD_INTERVAL := CfgMission.RECORD_INTERVAL
-const MIS_RECORD_HOME_STEP := CfgMission.RECORD_HOME_STEP
-const MIS_ACCESS_SECS := CfgMission.ACCESS_SECS
-const MIS_ACCESS_BASE := CfgMission.ACCESS_BASE
-const MIS_ACCESS_PER_RECORD := CfgMission.ACCESS_PER_RECORD
-const MIS_ACCESS_PER_SEC := CfgMission.ACCESS_PER_SEC
-const MIS_ALERT_PER_RECORD := CfgMission.ALERT_PER_RECORD
-const MIS_ALERT_MAX := CfgMission.ALERT_MAX
-const MIS_ALERT_DECAY := CfgMission.ALERT_DECAY
-const MIS_ALERT_RESPOND := CfgMission.ALERT_RESPOND
-const MIS_RESPOND_COOLDOWN := CfgMission.RESPOND_COOLDOWN
-const MIS_RESPOND_CUT := CfgMission.RESPOND_CUT_SECS
-const MIS_SELL_CRYPTO := CfgMission.SELL_CRYPTO
-const MIS_RELAY_SECS := CfgMission.RELAY_ACCESS_SECS
 const ASSAULT_COMMITS := CfgTuning.ASSAULT_COMMITS
 const ASSAULT_DEFAULT := CfgTuning.ASSAULT_DEFAULT
 const ASSAULT_OVERCHARGE_INTEL := CfgTuning.ASSAULT_OVERCHARGE_INTEL
@@ -139,7 +130,7 @@ const MAP_CELL := 190.0         # world size of one town cell; each host sits in
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.3.5"
+const GAME_VERSION := "0.3.6"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -157,13 +148,9 @@ var _rows := GRID_ROWS
 # new-game options (chosen in the menu): size preset (cols, rows) and enemy count
 const SIZE_PRESETS := [Vector2i(6, 4), Vector2i(8, 6), Vector2i(10, 8)]   # Small · Medium · Big
 var _opt_size := Vector2i(8, 6)    # default: Medium
-var _opt_shape := "grid"           # the New-game layout: "grid" or "circle"
+var _opt_shape: String = SHAPES[0]   # the New-game layout: a galaxy (spiral, elliptical, ring) or the grid
 var _layout := "grid"              # the live layout of this match
 var _opt_enemies := 2
-var _opt_ai_level := "normal"      # the New-game difficulty: every AI faction plays at this level
-var _opt_mission := false          # New-game toggle: author a "Recover the Corporate Records" objective into the town
-var ai_level := {}                 # faction -> "normal" | "insane" (set from the option; probes may mix levels)
-var _brains := {}                  # faction -> its Insane brain, created on its first tick
 var _seen := {}                    # fog memory: faction -> {host: Vector2(last-known owner, time seen)}
 var _hover_host := -1              # the visible host under the mouse, found once per drawn frame
 var _opt_seed := 0                 # 0 = random town
@@ -181,10 +168,6 @@ var ai_enabled := true             # probes switch the AI botnets off for fixtur
 var paid_regen: bool = CfgTuning.PAID_REGEN   # the paid-replenishment rule (probes compare it with free regeneration)
 var regen_hold := {}     # faction -> true: its paid replenishment is paused (the rig's free allowance still works)
 var regen_stats := {}    # faction -> {free, paid, unfunded, crypto}: bots and Crypto of replenishment so far (accounting, UI)
-var records_home := {}   # "fac:target" -> objective packets this faction has delivered home from that target
-var mission_done := {}   # "fac:target" -> the resolve choice ("sell" / "publish") once a mission is completed
-var _next_record := {}   # target -> absolute time its next objective packet is due while access is live
-var _respond_t := {}     # target -> next time its owner may interrupt an extraction route
 var assault_pause_regen: bool = CfgTuning.ASSAULT_PAUSES_REGEN   # probes compare the plain finite quota (false) with the exposure variant
 var _assault_pct: int = CfgTuning.ASSAULT_DEFAULT   # the commitment the target panel's Assault button uses (UI only)
 var ai_build_hook := {}            # probes: faction -> Callable(fac) that replaces that AI's build step (economy experiments)
@@ -222,6 +205,7 @@ var hub := -1
 var rig := {}          # faction -> index of its rig (the Cash sink)
 var _cell := {}        # Vector2i grid cell -> host index (gaps have no entry)
 var _highways := {}    # "a_b" (a<b) -> true: a street that bridges a gap — a second path across the town
+var _roads := {}       # faction -> {"a_b": Vector2i(a, b)}: links it has used (connected along, sent packets over) — drawn on its map for good
 var intel := {}        # faction -> Intel reserve
 var cash := {}         # faction -> Cash (fuels cards; no longer the win)
 var _hold := {}        # faction -> seconds it has continuously held the majority
@@ -324,33 +308,30 @@ const CAMP_SEED := 69
 const CAMP_SIZE := Vector2i(8, 6)
 const CAMP_SAVE := "user://campaign.json"
 const CAMP_SAVE_HARNESS := "user://campaign_harness.json"   # tests/probes build the script by hand: they never touch a player's real progress
-const CAMP_CHAPTERS := 6
+const CAMP_CHAPTERS := 5
+const CAMP_OPEN := CAMP_CHAPTERS - 1   # the last chapter: open play against an active rival
 const CAMP_CUT_SECS := 10.0        # Ch2: how long the Gateway's retaliation cuts Support's routing
 const CAMP_HOLD_STEP := 4.0        # seconds a finished step shows what it did (the game keeps running) before the next one
 const CAMP_HOLD_CHAPTER := 8.0     # ... and the end of a chapter, before the board is rebuilt for the next
 var _camp := false                # master flag; cleared in _reset(). _camp => _tut.
-var _camp_chapter := 0            # 0..5
+var _camp_chapter := 0            # 0..CAMP_OPEN
 var _camp_paused := false         # a TRUE full-simulation pause for reading (gates _sim_step), distinct from paused/_ai_paused
 var _camp_clock := 0.0            # wall clock advanced OUTSIDE the sim gate (the cues keep pulsing through the reading pause)
 var _camp_replay := false         # replaying a finished chapter: don't move the resume point or completion
-var _camp_done := [false, false, false, false, false, false]
+var _camp_done := [false, false, false, false, false]
 var _camp_supplied := {}          # "chapter:key" -> true: a training supply granted once (idempotent)
 var _camp_events := {}            # scripted-beat name -> true (armed/fired)
 var _camp_cash_landed := 0        # Ch1: Crypto packets banked home since the delivery lesson began
-var _camp_detect_mark := 0.0      # Ch4: records delivered at the moment the route was first cut
 var _camp_cancelled := false      # Ch2: a finite assault of the player's was cancelled
 var _camp_src := -1               # Ch2: the assault source being taught
 var _camp_home := -1
 var _camp_support := -1
 var _camp_relay := -1
 var _camp_gateway := -1
-var _camp_vault := -1
-var _camp_commrelay := -1
 var _camp_rivalhq := -1
 var _camp_practice := -1          # a rival practice computer for the card lessons
 var _camp_practice2 := -1
 var _camp_guard := -1             # Ch2: the FROM computer of the guard lesson (never the Assault source, so the next lesson can't undo it)
-var _camp_foothold := -1          # Ch4: the owned neighbour of the vault that scans it
 var _camp_spot: Control           # the pulsing ring on the UI element a step names (CampSpot)
 var _camp_hold_left := 0.0        # >0: the step is done; its result is on screen for this many more seconds
 var _camp_hold_text := ""         # what the finished step did
@@ -484,13 +465,12 @@ func _gen() -> void:
 		rng.randomize(); town_seed = int(rng.randi() % 900000) + 1
 	rng.seed = town_seed
 	var sz := get_viewport_rect().size
-	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}; _crypto_credit = {}
-	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []; _hold = {}; regen_hold = {}; regen_stats = {}; records_home = {}; mission_done = {}; _next_record = {}; _respond_t = {}
+	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; _roads = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}; _crypto_credit = {}
+	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []; _hold = {}; regen_hold = {}; regen_stats = {}
 	for fac in botnets:
 		intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}; creds[fac] = CREDS_START; research[fac] = RESEARCH_START
 		cards[fac] = {}; lab[fac] = {"queue": [], "progress": 0.0, "paused": false, "stall": ""}; card_plays[fac] = 0; _hold[fac] = 0.0
 	for fac in ais: _ai[fac] = {"timer": float(AI_PROFILE[fac].cadence) * (0.5 + 0.3 * float(fac)), "ops": {}, "avoid": -1, "dead": false, "lost": {}, "edges": {}, "threat_seen": {}}
-	_brains = {}   # a new town gets fresh Insane brains (created on their first tick)
 	_seen = {}     # and a fresh fog memory (filled once the town exists)
 	# fixed WORLD spacing between cells → the map never crowds; the view is fit around it afterwards (_fit_view)
 	var cell := MAP_CELL
@@ -507,11 +487,12 @@ func _gen() -> void:
 	}
 	var starts := {}
 	for fac in botnets: starts[fac] = corner[fac]
-	var forced := [hub_cell]
-	for fac in starts.keys(): forced += starts[fac]
-	var home := {}   # fac -> [rig, second building]
-	if _layout == "circle": home = _place_circle(cell, centre)
+	var forced := []   # grid cells that are never gaps: downtown and the starts
+	var home := {}     # fac -> [rig, second building]
+	if GALAXIES.has(_layout): home = _place_galaxy(_layout, cell, centre)
 	else:
+		forced = [hub_cell]
+		for fac in starts.keys(): forced += starts[fac]
 		for gy in _rows:
 			for gx in _cols:
 				var c := Vector2i(gx, gy)
@@ -574,42 +555,156 @@ func _add_host(p: Vector2, c: Vector2i, is_hub: bool, value: int, ntype: String,
 	return hosts.size() - 1
 
 
-func _place_circle(cell: float, centre: Vector2) -> Dictionary:   # rings of buildings round a downtown hub; the rigs on the rim
-	var c := centre * cell   # the same centre as the grid, so "how far from downtown" reads the same
-	var total := float(_cols * _rows) * (1.0 - EMPTY_CELL)   # about as many buildings as the same-size grid
-	var rings := 1; var cum := 1 + 6
-	while float(cum) < 0.9 * total:
-		rings += 1; cum += maxi(6, int(round(TAU * float(rings))))
-	rings = maxi(2, rings)
-	_add_host(c, Vector2i(int(round(centre.x)), int(round(centre.y))), true, 3, "erp", 30.0)
-	var rim := []   # [angle, host] on the outer ring
-	for k in range(1, rings + 1):
-		var n := maxi(6, int(round(TAU * float(k))))
-		var a0 := rng.randf() * TAU / float(n)
-		for slot in n:
-			if k < rings and rng.randf() < EMPTY_CELL: continue   # a gap; the rim stays whole for the rigs
-			var ang := a0 + TAU * float(slot) / float(n)
-			var p := c + Vector2(cos(ang), sin(ang)) * float(k) * cell + Vector2(rng.randf_range(-0.12, 0.12), rng.randf_range(-0.12, 0.12)) * cell
-			var dist := float(k) / float(rings)
-			var value := 3 if dist < 0.38 else (2 if dist < 0.72 else 1)
-			var ntype := _pick_type(value)
-			var sec := clampf(float(2 + value * 5 + int(rng.randi() % 6) + int(NODE_TYPES[ntype].sec)), 4.0, 28.0)
-			var g := Vector2i(int(round(p.x / cell)), int(round(p.y / cell)))   # a pseudo cell: what the grid-minded code reads
-			var idx := _add_host(p, g, false, value, ntype, sec)
-			if not _cell.has(g): _cell[g] = idx
-			if k == rings: rim.append([ang, idx])
-	var corner := {CfgFactions.PLAYER: deg_to_rad(225.0), RIVAL: deg_to_rad(45.0), RIVAL2: deg_to_rad(135.0), RIVAL3: deg_to_rad(315.0)}   # same corners as the grid
-	var home := {}; var used := {}
-	for fac in botnets:
-		var best := -1; var bd := INF
-		for k in rim.size():
-			var d := absf(angle_difference(float(rim[k][0]), float(corner[fac])))
-			if not used.has(k) and d < bd: bd = d; best = k
-		var nxt := (best + 1) % rim.size()
-		if used.has(nxt): nxt = (best - 1 + rim.size()) % rim.size()
-		used[best] = true; used[nxt] = true
-		home[fac] = [int(rim[best][1]), int(rim[nxt][1])]
+# ---- GALAXY layouts (Stellaris-like). One sampler fills a shape with evenly spaced computers (each the best of
+# STAR_CANDIDATES random spots, never closer than STAR_SPACING): SPIRAL — one arm per botnet winding out of a core,
+# every rig at an arm's tip; ELLIPTICAL — a wide disc, denser towards the middle; RING — an annulus round an empty
+# middle. The rigs sit at even angles, so every botnet starts alike; the ground far from every rig (the core, the
+# stretch between two rigs) is the rich, well-defended part. Everything below is in MAP_CELL units round the
+# galaxy's centre and draws only from rng, so every multiplayer screen builds the same galaxy.
+func _place_galaxy(shape: String, cell: float, centre: Vector2) -> Dictionary:
+	var c := centre * cell   # the same centre as the grid, so "how far from the middle" reads the same
+	var n := maxi(12, int(round(float(_cols * _rows) * (1.0 - EMPTY_CELL))))   # about as many computers as the same-size grid
+	var geo := {}; var pts := []   # [local position, kind]: "hub", "rig", "home" (the second start building), "star"
+	for attempt in 4:   # a shape that cannot hold n computers grows a little and is filled again
+		geo = _galaxy_geo(shape, n, botnets.size(), 1.0 + 0.15 * float(attempt))
+		pts = []
+		if bool(geo.hub): pts.append([Vector2.ZERO, "hub"])
+		for k in botnets.size():
+			pts.append([geo.anchors[k], "rig"])
+			pts.append([_galaxy_second(geo, k), "home"])
+		var bound := float(geo.r) + 0.5
+		var tries := 0
+		while pts.size() < n and tries < n * 80:
+			var best := Vector2.ZERO; var room := -1.0; var got := 0
+			while got < STAR_CANDIDATES and tries < n * 80:
+				tries += 1
+				var p := Vector2(rng.randf_range(-bound, bound), rng.randf_range(-bound, bound))
+				if rng.randf() >= _galaxy_density(geo, p): continue
+				got += 1
+				var d := INF
+				for q in pts: d = minf(d, p.distance_to(q[0]))
+				if d > room: room = d; best = p
+			if room >= STAR_SPACING: pts.append([best, "star"])
+		if pts.size() >= n: break
+	var far := 0.001   # value: how far from every start, as a share of the farthest computer's distance
+	var dist := []
+	for q in pts:
+		var d := INF
+		for a in geo.anchors: d = minf(d, (q[0] as Vector2).distance_to(a))
+		dist.append(d); far = maxf(far, d)
+	var home := {}; var fac := -1
+	for k in pts.size():
+		var p: Vector2 = c + (pts[k][0] as Vector2) * cell
+		var kind := str(pts[k][1])
+		var frac := float(dist[k]) / far
+		var value := 3 if frac > 0.66 else (2 if frac > 0.33 else 1)
+		if kind == "star" and rng.randf() < 0.2: value = clampi(value + (1 if rng.randf() < 0.5 else -1), 1, 3)
+		var is_hub := kind == "hub"
+		var ntype := "erp" if is_hub else _pick_type(value)
+		var sec := 30.0 if is_hub else clampf(float(2 + value * 5 + int(rng.randi() % 6) + int(NODE_TYPES[ntype].sec)), 4.0, 28.0)
+		var g := Vector2i(int(round(p.x / cell)), int(round(p.y / cell)))   # a pseudo cell: what the grid-minded code reads
+		var idx := _add_host(p, g, is_hub, 3 if is_hub else value, ntype, sec)
+		if not _cell.has(g): _cell[g] = idx
+		if kind == "rig": fac = int(botnets[home.size()]); home[fac] = [idx, -1]   # rigs come in botnet order, each before its second building
+		elif kind == "home": home[fac][1] = idx
 	return home
+
+
+func _galaxy_geo(shape: String, n: int, starts: int, grow := 1.0) -> Dictionary:   # the shape's size and its start points (anchors)
+	var area := float(n) * STAR_AREA * grow
+	var base := deg_to_rad(225.0)   # you start top-left, as on the grid; the others follow at even angles
+	var geo := {"shape": shape, "hub": shape != "ring", "anchors": []}
+	match shape:
+		"elliptical":
+			var s := sqrt(area / (PI * ELLIPSE_X * ELLIPSE_Y))
+			geo.ax = s * ELLIPSE_X; geo.ay = s * ELLIPSE_Y; geo.r = geo.ax
+			for k in starts:
+				var t := base + TAU * float(k) / float(starts)
+				geo.anchors.append(Vector2(cos(t) * float(geo.ax), sin(t) * float(geo.ay)) * 0.85)
+		"ring":
+			geo.ro = sqrt(area / (PI * (1.0 - RING_HOLE * RING_HOLE))); geo.ri = float(geo.ro) * RING_HOLE; geo.r = geo.ro
+			for k in starts:
+				var t := base + TAU * float(k) / float(starts)
+				geo.anchors.append(Vector2(cos(t), sin(t)) * (float(geo.ro) + float(geo.ri)) * 0.5)
+		_:   # spiral: one arm per botnet; grow the arms until the core and the arms hold the computers
+			geo.core = 1.1 + 0.3 * sqrt(float(n) / 10.0)
+			geo.arm = SPIRAL_ARM * sqrt(2.0 / float(starts)); geo.twist = SPIRAL_TWIST * PI * (1.0 + 0.1 * float(starts - 2))
+			var lo := float(geo.core) + 1.0; var hi := 40.0
+			for it in 24:
+				var mid := (lo + hi) * 0.5
+				var arm: Array = _spiral_arms(geo, mid, 1, base)[0]
+				var room := PI * float(geo.core) * float(geo.core) + 2.0 * float(geo.arm) * _arm_length_beyond(arm, float(geo.core)) * float(starts)
+				if room < area: lo = mid
+				else: hi = mid
+			geo.r = lo; geo.arms = _spiral_arms(geo, lo, starts, base)
+			for arm in geo.arms:
+				var tip: Vector2 = (arm as Array).back()
+				geo.anchors.append(tip * (lo - 0.3) / lo)
+	return geo
+
+
+func _spiral_arms(geo: Dictionary, r: float, count: int, base: float) -> Array:   # one polyline per arm, core -> tip; tip k sits at base + k turns/count
+	var arms := []
+	var r0 := float(geo.core) * 0.6
+	for k in count:
+		var tip_angle := base + TAU * float(k) / float(count)
+		var line := []
+		for j in 25:
+			var u := float(j) / 24.0
+			var a := tip_angle - float(geo.twist) * (1.0 - u)
+			line.append(Vector2(cos(a), sin(a)) * (r0 + (r - r0) * u))
+		arms.append(line)
+	return arms
+
+
+func _arm_length_beyond(line: Array, core: float) -> float:   # the arm's length outside the core (inside, it overlaps the core)
+	var l := 0.0
+	for j in range(1, line.size()):
+		if (line[j - 1] as Vector2).length() >= core: l += (line[j] as Vector2).distance_to(line[j - 1])
+	return l
+
+
+func _polyline_dist(line: Array, p: Vector2) -> float:
+	var d := INF
+	for j in range(1, line.size()):
+		var a: Vector2 = line[j - 1]; var b: Vector2 = line[j]
+		var ab := b - a
+		var u := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.000001), 0.0, 1.0)
+		d = minf(d, p.distance_to(a + ab * u))
+	return d
+
+
+func _galaxy_density(geo: Dictionary, p: Vector2) -> float:   # 0..1: the chance a computer may stand at p
+	match str(geo.shape):
+		"elliptical":
+			var q := pow(p.x / float(geo.ax), 2.0) + pow(p.y / float(geo.ay), 2.0)
+			return 0.0 if q > 1.0 else 1.0 - 0.45 * q   # denser towards the middle
+		"ring":
+			var r := p.length()
+			return 1.0 if r >= float(geo.ri) and r <= float(geo.ro) else 0.0
+	var rad := p.length()
+	if rad > float(geo.r): return 0.0
+	if rad <= float(geo.core): return 1.0
+	for arm in geo.arms:
+		if _polyline_dist(arm, p) <= float(geo.arm): return 1.0
+	return 0.0
+
+
+func _galaxy_second(geo: Dictionary, k: int) -> Vector2:   # the second start building: one step from the rig, the same way for everyone
+	var a: Vector2 = geo.anchors[k]
+	match str(geo.shape):
+		"spiral":   # back along its arm, towards the core
+			var line: Array = geo.arms[k]
+			var left := 1.0; var at := a
+			for j in range(line.size() - 1, 0, -1):
+				var nxt: Vector2 = line[j - 1]
+				var step := at.distance_to(nxt)
+				if step >= left: return at.move_toward(nxt, left)
+				left -= step; at = nxt
+			return at
+		"ring":   # along the ring, counter-clockwise
+			return a.rotated(-1.0 / maxf(a.length(), 0.5))
+	return a - a.normalized()   # elliptical: one step towards the middle
 
 
 func _components() -> Array:   # connected groups of buildings over the street network, ownership ignored
@@ -920,175 +1015,8 @@ func _prune_res() -> void:
 
 # schedule a packet along rt departing at dep: every hop waits for room on its link (queue at the
 # building), then crosses it; intermediate buildings add NODE_ROUTE_DELAY. The timeline is fixed here.
-# ============================================================ NETWORK OBJECTIVE MISSION (fictional game state)
-# A target computer carries records_total objective items. A faction reaches them one of two ways: capture a route
-# the ordinary way, or buy TEMPORARY ACCESS (a timed status, no ownership change) and let the target stream
-# objective packets home. Delivered packets are progress and raise ALERT; a high alert lets the owner cut the route.
-func _setup_mission(target: int, records: int, corp := "", stake := "") -> void:   # scripts / campaign author one
-	hosts[target].records_total = records
-	hosts[target].corp = corp
-	hosts[target].stake = stake
-	hosts[target].access_until = 0.0; hosts[target].access_by = -1; hosts[target].alert = 0.0
-
-
-func _is_mission(i: int) -> bool: return i >= 0 and i < hosts.size() and int(hosts[i].get("records_total", 0)) > 0
-
-
-func _mkey(fac: int, target: int) -> String: return "%d:%d" % [fac, target]
-func _records_got(fac: int, target: int) -> float: return float(records_home.get(_mkey(fac, target), 0.0))
-func _mission_complete(fac: int, target: int) -> bool: return _is_mission(target) and _records_got(fac, target) >= float(hosts[target].records_total) - 0.001
-
-
-func _access_live(fac: int, target: int) -> bool:   # this faction's temporary access to the target is in force
-	return _is_mission(target) and int(hosts[target].get("access_by", -1)) == fac and float(hosts[target].get("access_until", 0.0)) > _t
-
-
-func _access_cost(target: int) -> Dictionary:   # target-specific: a flat part + parts that scale with records and the type's security
-	var sec := float(NODE_TYPES[str(hosts[target].get("type", "pc"))].get("sec", 0))
-	var rec := float(hosts[target].get("records_total", 0))
-	return {"intel": float(MIS_ACCESS_BASE.intel) + MIS_ACCESS_PER_RECORD.intel * rec,
-		"creds": float(MIS_ACCESS_BASE.creds) + MIS_ACCESS_PER_RECORD.creds * rec + MIS_ACCESS_PER_SEC * maxf(0.0, sec)}
-
-
-func _access_foothold(fac: int, target: int) -> int:   # a reachable owned computer to run the access from, or -1
-	for i in hosts.size():
-		if int(hosts[i].owner) == fac and i != target and not _route(i, target).is_empty(): return i
-	return -1
-
-
-func _extract_route(fac: int, target: int) -> Array:   # target → an owned neighbour → … → the faction's rig
-	var home := int(rig.get(fac, -1))
-	if home < 0 or int(hosts[home].owner) != fac: return []
-	var best := []
-	for nb in hosts[target].links:
-		if int(hosts[int(nb)].owner) != fac or _routing_down(int(nb)): continue   # an isolated foothold cannot carry records
-		var r := _route(int(nb), home)   # through this faction's own computers
-		if r.is_empty(): continue
-		var route := [target] + r
-		if best.is_empty() or route.size() < best.size(): best = route
-	return best
-
-
-func _can_access(fac: int, target: int) -> String:   # "" if access can be bought now, else why not
-	if not _is_mission(target): return "no objective here"
-	if int(hosts[target].owner) == fac: return "you own this computer — records only flow through access to a computer you don't own"
-	if not _scanned(fac, target): return "scan it first to find the service opening"
-	if _access_foothold(fac, target) < 0: return "need one of your computers with a route to it"
-	var cost := _access_cost(target)
-	for r in cost:
-		if _pool(fac, str(r)) < float(cost[r]) - 0.0001: return "need %s" % _res_cost_text(cost)
-	return ""
-
-
-func _establish_access(target: int) -> void: _cmd(["access", target])
-
-
-func _do_access(fac: int, target: int) -> void:
-	if not _is_mission(target) or int(hosts[target].owner) == fac: return
-	if not _scanned(fac, target) or _access_foothold(fac, target) < 0:
-		if fac == PLAYER: _flash("Cannot open access to %s: %s" % [str(hosts[target].name), _can_access(fac, target)])
-		return
-	var cost := _access_cost(target)
-	for r in cost:
-		if _pool(fac, str(r)) < float(cost[r]) - 0.0001:
-			if fac == PLAYER: _flash("Cannot open access — it costs %s" % _res_cost_text(cost))
-			return
-	for r in cost: _pool_add(fac, str(r), -float(cost[r]))
-	hosts[target].access_until = _t + MIS_ACCESS_SECS; hosts[target].access_by = fac
-	_next_record[target] = _t
-	if fac == PLAYER: _flash("Temporary access to %s for %ds — records now stream to your rig while a route holds" % [str(hosts[target].name), int(MIS_ACCESS_SECS)])
-	_refresh_panel(); queue_redraw()
-
-
-func _record_landed(fac: int, src: int) -> void:
-	if not _is_mission(src): return
-	var k := _mkey(fac, src)
-	records_home[k] = minf(float(hosts[src].records_total), _records_got(fac, src) + MIS_RECORD_HOME_STEP)
-	hosts[src].alert = minf(MIS_ALERT_MAX, float(hosts[src].get("alert", 0.0)) + MIS_ALERT_PER_RECORD)
-	if _mission_complete(fac, src):
-		hosts[src].access_until = 0.0; _next_record.erase(src)
-		if fac == PLAYER: _flash("Records recovered from %s — choose: sell for Crypto, or publish to the community relay" % str(hosts[src].name), 0)
-	elif fac == PLAYER:
-		_flash("Records: %d / %d from %s" % [int(_records_got(fac, src)), int(hosts[src].records_total), str(hosts[src].name)], 1)
-	_refresh_panel()
-
-
-func _tick_mission(dt: float) -> void:
-	for i in hosts.size():
-		var h: Dictionary = hosts[i]
-		if float(h.get("revert_at", 0.0)) > 0.0 and _t >= float(h.revert_at):   # a community relay's loan is up
-			h.revert_at = 0.0
-			if int(h.owner) != NEUTRAL: _capture(i, NEUTRAL)
-			continue
-		if not _is_mission(i): continue
-		if float(h.get("alert", 0.0)) > 0.0: h.alert = maxf(0.0, float(h.alert) - MIS_ALERT_DECAY * dt)   # cools when quiet
-		var fac := int(h.get("access_by", -1))
-		if not _access_live(fac, i) or _eliminated.has(fac) or _mission_complete(fac, i): continue
-		var rt := _extract_route(fac, i)
-		if rt.size() < 2: continue                                       # no route home: extraction pauses, no catch-up
-		if not _next_record.has(i): _next_record[i] = _t
-		if float(_next_record[i]) > _t: continue
-		if _first_wait(rt) > MAX_QUEUE: continue                         # the street is busy: wait, no backlog
-		var fl := _schedule(rt, _t, fac, "record"); fl["src"] = i
-		flights.append(fl)
-		_next_record[i] = _t + MIS_RECORD_INTERVAL
-	_mission_response(dt)
-	for target in _next_record.keys():                                  # anti-backlog: a paused extractor does not accumulate
-		if _next_record.has(target) and float(_next_record[target]) < _t: _next_record[target] = _t
-
-
-func _mission_response(_dt: float) -> void:   # the target's owner (an AI) cuts the extraction route when its alert is high
-	for target in hosts.size():
-		if not _is_mission(target) or float(hosts[target].get("alert", 0.0)) < MIS_ALERT_RESPOND: continue
-		var owner := int(hosts[target].owner)
-		if owner == NEUTRAL or not ais.has(owner): continue        # only an AI owner responds this way
-		var fac := int(hosts[target].get("access_by", -1))
-		if not _access_live(fac, target): continue
-		if _t < float(_respond_t.get(target, 0.0)): continue
-		var rt := _extract_route(fac, target)
-		if rt.size() < 2: continue
-		# cut one intermediate node the extractor routes through (isolating it also stops that node's own service)
-		for k in range(rt.size() - 2, 0, -1):
-			var node := int(rt[k])
-			if int(hosts[node].owner) == fac:
-				hosts[node].route_off = maxf(float(hosts[node].get("route_off", 0.0)), MIS_RESPOND_CUT)
-				hosts[node].hit_t = _t
-				_respond_t[target] = _t + MIS_RESPOND_COOLDOWN
-				if fac == PLAYER: _flash("%s traced the records route and isolated %s for %ds" % [fname(owner), str(hosts[node].name), int(MIS_RESPOND_CUT)], 1)
-				break
-
-
-func _resolve_mission(target: int, choice: String) -> void: _cmd(["resolve", target, choice])
-
-
-func _do_resolve(fac: int, target: int, choice: String) -> void:
-	if not _mission_complete(fac, target) or mission_done.has(_mkey(fac, target)): return
-	mission_done[_mkey(fac, target)] = choice
-	if choice == "sell":
-		_pool_add(fac, "cash", MIS_SELL_CRYPTO)
-		if fac == PLAYER: _flash("Records sold for %d Crypto — a rival now holds them" % int(MIS_SELL_CRYPTO), 0)
-	elif choice == "publish":
-		var relay := -1
-		for i in hosts.size():
-			if bool(hosts[i].get("relay", false)) and int(hosts[i].owner) != fac: relay = i; break
-		if relay >= 0:   # temporary use of the community relay: timed ownership that reverts on its own
-			var garrison := maxf(0.0, float(hosts[relay].bots))
-			_capture(relay, fac)
-			hosts[relay].bots = garrison   # its own defenders now back you (not _capture's negative overflow)
-			hosts[relay].revert_at = _t + MIS_RELAY_SECS
-			if fac == PLAYER: _flash("Records published — the community relay %s backs you for %ds" % [str(hosts[relay].name), int(MIS_RELAY_SECS)], 0)
-		elif fac == PLAYER: _flash("Records published to the community.", 0)
-	_refresh_panel(); queue_redraw()
-
-
-func _res_cost_text(cost: Dictionary) -> String:
-	var parts := []
-	for r in ["intel", "cash", "creds", "research"]:
-		if cost.has(r) and float(cost[r]) > 0.0: parts.append("%d %s" % [int(ceil(float(cost[r]))), {"intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}[r]])
-	return " + ".join(parts)
-
-
 func _schedule(rt: Array, dep: float, fac: int, kind: String, amount := 1.0) -> Dictionary:
+	_establish(fac, rt)
 	var hops := []
 	var t := dep
 	for k in range(rt.size() - 1):
@@ -1099,6 +1027,15 @@ func _schedule(rt: Array, dep: float, fac: int, kind: String, amount := 1.0) -> 
 		t = e + LINK_TIME
 		if k < rt.size() - 2: t += NODE_ROUTE_DELAY
 	return {"route": rt, "hops": hops, "depart_t": dep, "arrive_t": t, "owner": fac, "kind": kind, "amount": amount}
+
+
+func _establish(fac: int, rt: Array) -> void:   # the network stays hidden, but a route a botnet has used stays on its map: a road it built
+	if fac == NEUTRAL: return
+	var known: Dictionary = _roads.get(fac, {})
+	for k in range(rt.size() - 1):
+		var a := int(rt[k]); var b := int(rt[k + 1])
+		known[_lk(a, b)] = Vector2i(mini(a, b), maxi(a, b))
+	_roads[fac] = known
 
 
 func _first_wait(rt: Array) -> float:   # how long the first link would make this packet wait right now
@@ -1948,7 +1885,6 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	_tick_production(dt)
 	_tick_rig_trickle(dt)
 	_tick_intel(dt)     # income + limit AFTER this step's Intel spending (departures, jobs, miners): a full bank ends the step AT its limit, only the true surplus is lost
-	_tick_mission(dt)   # objective packets, alert, the owner's route response, timed relay reverts
 	_route_memo = null
 	for i in hosts.size():
 		hosts[i].prod_off = maxf(0.0, float(hosts[i].prod_off) - dt)
@@ -2148,9 +2084,6 @@ func _deliver(f: Dictionary) -> void:
 	if str(f.kind) == "card":   # a card packet: its effect lands now
 		_land_card(fac, str(f.get("card", "phishworm:linked")), t)
 		return
-	if str(f.kind) == "record":   # an objective packet reached home: mission progress, and the source's alert rises
-		_record_landed(fac, int(f.get("src", -1)))
-		return
 	if int(hosts[t].owner) == fac:
 		hosts[t].bots = minf(_cap_of(t), float(hosts[t].bots) + 1.0)
 		return
@@ -2181,8 +2114,7 @@ func _capture(t: int, fac: int) -> void:
 		hosts[i].assign = -1; hosts[i].live = false; hosts[i].mode = "attack"; _next_depart.erase(i); ended += 1
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # a captured building is empty inside: the new owner builds from scratch
 	hosts[t].prod_off = 0.0; hosts[t].route_off = 0.0; hosts[t].steal_until = -100.0; hosts[t].steal_by = -1; hosts[t].hit_t = -100.0   # a new owner, a clean slate
-	if _is_mission(t): hosts[t].access_until = 0.0; hosts[t].access_by = -1; hosts[t].alert = 0.0   # access ends if the target changes hands
-	_next_depart.erase(t); _next_cash.erase(t); _next_record.erase(t)
+	_next_depart.erase(t); _next_cash.erase(t)
 	if fac != PLAYER:
 		if sel.has(t): sel.erase(t)          # a selected building lost to a rival is uncontrollable
 	var stood := 0                           # the loser's wires into it stand down, kept
@@ -2582,11 +2514,6 @@ func _worm(fac: int, cd: Dictionary, start: int) -> Array:
 func _ai_tick(dt: float) -> void:
 	if not ai_enabled: return
 	for fac in ais:
-		if str(ai_level.get(fac, "normal")) == "insane":   # the Insane brain keeps its own clocks (thinking and micro)
-			if bool(_ai[fac].get("dead", false)) or _eliminated.has(fac): continue
-			if not _brains.has(fac): _brains[fac] = AiInsane.new(self, fac)
-			_brains[fac].tick(dt)
-			continue
 		var st: Dictionary = _ai[fac]
 		st.timer = float(st.timer) - dt
 		if float(st.timer) > 0.0: continue
@@ -3534,7 +3461,9 @@ func _do_wire(fac: int, sources: Array, dest: int) -> void:
 	for s in sources:
 		var i := int(s)
 		if not _owns(fac, i) or i == dest: continue
-		if _route(i, dest).is_empty(): nopath += 1; continue
+		var rt := _route(i, dest)
+		if rt.is_empty(): nopath += 1; continue
+		_establish(fac, rt)
 		if int(hosts[i].assign) != dest:
 			hosts[i].assign = dest; hosts[i].live = join_attack; hosts[i].mode = "attack"; _next_depart.erase(i); hosts[i].assault = {}
 		done += 1
@@ -3688,8 +3617,6 @@ func _apply_cmd(fac: int, c: Array) -> void:
 		"assault": if n == 3: _do_assault(fac, _int(c[1]), _int(c[2]))
 		"unassault": if n == 2: _do_unassault(fac, _int(c[1]))
 		"regenhold": if n == 1: _do_regen_hold(fac)
-		"access": if n == 2: _do_access(fac, _int(c[1]))
-		"resolve": if n == 3: _do_resolve(fac, _int(c[1]), str(c[2]))
 		"halt": if n == 2: _do_halt(fac, _int(c[1]))
 		"unwire": if n == 2: _do_unwire(fac, _int(c[1]))
 		"build": if n == 4: _do_build(fac, _int(c[1]), _int(c[2]), str(c[3]))
@@ -3736,17 +3663,17 @@ func _cancel_to(dest: int) -> void:
 
 func _apply_options() -> void:   # turn the menu choices into the live grid + faction set + seed
 	_cols = _opt_size.x; _rows = _opt_size.y
-	_layout = "grid" if (_mp_on or _camp or not SHAPES.has(_opt_shape)) else _opt_shape   # every lockstep screen must build the same town
+	if _camp: _layout = "grid"   # the campaign's chapters are authored on its grid
+	elif _mp_on: _layout = GALAXIES[maxi(0, _opt_seed) % GALAXIES.size()]   # every lockstep screen must build the same town: the seed picks the galaxy
+	else: _layout = _opt_shape if SHAPES.has(_opt_shape) else str(SHAPES[0])
 	if _mp_on:   # people only: every faction in the match is a player, no AI
-		ais = []; botnets = humans.duplicate(); town_seed = _opt_seed; ai_level = {}
+		ais = []; botnets = humans.duplicate(); town_seed = _opt_seed
 		return
 	var pool := [RIVAL, RIVAL2, RIVAL3]
 	ais = []
 	for k in clampi(_opt_enemies, 1, 3): ais.append(pool[k])
 	botnets = [PLAYER] + ais
 	town_seed = _opt_seed   # 0 = random
-	ai_level = {}
-	for fac in ais: ai_level[fac] = _opt_ai_level if AI_LEVELS.has(_opt_ai_level) else "normal"
 
 
 func _reset() -> void:   # a NEW town every restart, with the current options
@@ -3758,36 +3685,13 @@ func _reset() -> void:   # a NEW town every restart, with the current options
 	_tut = false; _ai_paused = false
 	_tut_stage = 0; _tut_connected = false; _tut_attacked = false; _tut_combined = false; _tut_captured = false; _tut_target = -1; _tut_second = -1
 	_camp = false; _camp_paused = false; _camp_chapter = 0; _camp_clock = 0.0; _camp_replay = false
-	_camp_supplied = {}; _camp_events = {}; _camp_cash_landed = 0; _camp_detect_mark = 0.0; _camp_cancelled = false; _camp_src = -1
-	_camp_home = -1; _camp_support = -1; _camp_relay = -1; _camp_gateway = -1; _camp_vault = -1; _camp_commrelay = -1; _camp_rivalhq = -1; _camp_practice = -1; _camp_practice2 = -1; _camp_guard = -1; _camp_foothold = -1; _camp_hold_left = 0.0; _camp_hold_text = ""; _camp_hold_target = -1; _camp_acted_in_hold = false
+	_camp_supplied = {}; _camp_events = {}; _camp_cash_landed = 0; _camp_cancelled = false; _camp_src = -1
+	_camp_home = -1; _camp_support = -1; _camp_relay = -1; _camp_gateway = -1; _camp_rivalhq = -1; _camp_practice = -1; _camp_practice2 = -1; _camp_guard = -1; _camp_hold_left = 0.0; _camp_hold_text = ""; _camp_hold_target = -1; _camp_acted_in_hold = false
 	if tut_panel != null: tut_panel.visible = false
 	_apply_options()
 	_clear_all()
 	_gen()
-	if _opt_mission: _author_scenario_mission()
 	_refresh_sight(); _fit_view(); _refresh_panel(); _refresh_hand(); _refresh_top_tabs()
-
-
-# Author one records objective into a freshly generated town: the richest neutral non-rig computer holds the records,
-# and a rim neutral computer is the community relay the Publish choice can borrow. Entirely game state.
-const SCENARIO_CORPS := ["Kessler Finance", "Halcyon Mutual", "Ostrava Credit Union", "Brightline Holdings"]
-func _author_scenario_mission() -> void:
-	var best := -1; var bv := -1.0
-	for i in hosts.size():
-		if int(hosts[i].owner) != NEUTRAL or bool(hosts[i].rig) or bool(hosts[i].hub): continue
-		var v := float(hosts[i].value) * 2.0 + float(int(hosts[i].slots)) + (2.0 if str(hosts[i].type) in ["db", "file", "erp"] else 0.0)
-		if v > bv: bv = v; best = i
-	if best < 0: return
-	hosts[best].sec = maxf(float(hosts[best].sec), 90.0); hosts[best].bots = float(hosts[best].sec)   # a defended vault
-	_setup_mission(best, 8, SCENARIO_CORPS[town_seed % SCENARIO_CORPS.size()], "A neighbourhood's debt records are held here.")
-	hosts[best].name = "%s · Records" % str(hosts[best].get("corp", "Vault"))
-	var relay := -1; var rd := INF
-	for i in hosts.size():
-		if int(hosts[i].owner) != NEUTRAL or bool(hosts[i].rig) or i == best or _is_mission(i): continue
-		if float(hosts[i].value) > 1.5: continue   # a rim (low-value) computer
-		var d: float = (hosts[i].pos as Vector2).distance_to(hosts[int(rig[PLAYER])].pos)
-		if d < rd: rd = d; relay = i
-	if relay >= 0: hosts[relay].relay = true; hosts[relay].name = "Community Relay"
 
 
 func _build_names(builds: Array) -> String:
@@ -4115,11 +4019,10 @@ func _mp_end_turn() -> void:
 func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
 	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size())])
 	for h in hosts:
-		parts.append("%d,%d,%d,%d,%d,%s,%s,%s,%s,%d,%d,%d" % [int(h.owner), roundi(float(h.bots) * 1000.0), roundi(float(h.sec) * 1000.0), int(h.assign), int(bool(h.live)), str(h.get("mode", "")), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.get("assault", {})), int(h.get("access_by", -1)), roundi(float(h.get("access_until", 0.0)) * 1000.0), roundi(float(h.get("alert", 0.0)) * 100.0)])
+		parts.append("%d,%d,%d,%d,%d,%s,%s,%s,%s" % [int(h.owner), roundi(float(h.bots) * 1000.0), roundi(float(h.sec) * 1000.0), int(h.assign), int(bool(h.live)), str(h.get("mode", "")), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.get("assault", {}))])
 	for fac in botnets:
 		parts.append("%d:%d:%d:%d:%d:%d" % [fac, roundi(float(intel[fac]) * 1000.0), roundi(float(cash[fac]) * 1000.0), roundi(float(creds[fac]) * 1000.0), roundi(float(research[fac]) * 1000.0), int(bool(regen_hold.get(fac, false)))])
 		parts.append(JSON.stringify(cards[fac]) + JSON.stringify(lab[fac]))   # held cards, research queue and progress
-	parts.append(JSON.stringify(records_home) + JSON.stringify(mission_done))
 	return "|".join(parts).md5_text()
 
 
@@ -4428,9 +4331,9 @@ func _menu_newgame() -> void:
 	var mrow0 := HBoxContainer.new(); mrow0.add_theme_constant_override("separation", 6)   # "Map · 8 × 6" ... [Layout: Grid]
 	var ml := Label.new(); ml.text = "Map  ·  %d × %d" % [_opt_size.x, _opt_size.y]; ml.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ml.add_theme_font_size_override("font_size", 13); ml.add_theme_color_override("font_color", C_DIM); mrow0.add_child(ml)
-	var shape := Button.new(); shape.name = "Shape"; shape.text = "Layout: " + ("Circle" if _opt_shape == "circle" else "Grid")   # click to switch
+	var shape := Button.new(); shape.name = "Shape"; shape.text = "Layout: " + _opt_shape.capitalize()   # click to switch
 	shape.focus_mode = Control.FOCUS_ALL; shape.add_theme_font_size_override("font_size", 13); shape.add_theme_color_override("font_color", C_WARN)
-	shape.pressed.connect(func(): _opt_shape = SHAPES[(SHAPES.find(_opt_shape) + 1) % SHAPES.size()]; _refresh_menu())
+	shape.pressed.connect(func(): _opt_shape = str(SHAPES[(SHAPES.find(_opt_shape) + 1) % SHAPES.size()]); _refresh_menu())
 	mrow0.add_child(shape); menu_box.add_child(mrow0)
 	var names := ["Small", "Medium", "Big"]
 	var srow := HBoxContainer.new(); srow.add_theme_constant_override("separation", 6)
@@ -4450,26 +4353,6 @@ func _menu_newgame() -> void:
 		b.pressed.connect(func(k = n): _opt_enemies = k; _refresh_menu())
 		erow.add_child(b)
 	menu_box.add_child(erow)
-	_menu_label("AI difficulty")
-	var drow := HBoxContainer.new(); drow.add_theme_constant_override("separation", 6)
-	for level in AI_LEVELS:
-		var b := Button.new(); b.text = str(level).capitalize(); b.name = "AI_%s" % level
-		b.custom_minimum_size = Vector2(0, 36); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
-		if _opt_ai_level == level: b.add_theme_color_override("font_color", C_BAD if level == "insane" else C_GOOD)
-		if level == "insane" and not INSANE_READY: b.disabled = true; b.text = "Insane · in progress"
-		b.pressed.connect(func(l = level): _opt_ai_level = l; _refresh_menu())
-		drow.add_child(b)
-	menu_box.add_child(drow)
-	if _opt_ai_level == "insane": _menu_label("Insane plays fair (same fog, same rules) but scouts, models your economy from what it sees, plans a win and micro-manages every attack.")
-	_menu_label("Objective")
-	var mrow := HBoxContainer.new(); mrow.add_theme_constant_override("separation", 6)
-	for opt in [[false, "Conquest"], [true, "+ Records mission"]]:
-		var b := Button.new(); b.text = str(opt[1]); b.custom_minimum_size = Vector2(0, 36)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
-		if _opt_mission == bool(opt[0]): b.add_theme_color_override("font_color", C_GOOD)
-		b.pressed.connect(func(v = bool(opt[0])): _opt_mission = v; _refresh_menu())
-		mrow.add_child(b)
-	menu_box.add_child(mrow)
 	_menu_label("Seed (blank = random)")
 	menu_seed_edit = LineEdit.new(); menu_seed_edit.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 34); _inset_focus(menu_seed_edit)
 	menu_seed_edit.placeholder_text = "random"
@@ -4559,7 +4442,6 @@ func _submit_feedback() -> void:
 		"name": (fb_name.text if fb_name != null else ""),
 		"when": Time.get_datetime_string_from_system(),
 		"town": town_seed, "outcome": ("win" if won else ("loss" if lost else "in-progress")),
-		"ai": _opt_ai_level,
 	}
 	var exists := FileAccess.file_exists("user://feedback.jsonl")
 	var f := FileAccess.open("user://feedback.jsonl", FileAccess.READ_WRITE if exists else FileAccess.WRITE)
@@ -4607,11 +4489,11 @@ const RICH_TERMS := {
 	"ATTACK": "bank:attack", "DEFENCE": "bank:defense",
 	# panel buttons: the button's colour (+ its glyph where one exists)
 	"Scan": "act:Scan", "Attack": "act:Attack", "Assault": "act:Assault", "Cancel assault": "act:Cancel assault",
-	"Establish access": "act:Establish access", "Sell": "act:Sell", "Publish": "act:Publish", "CUT": "cut", "breached": "breach", "BREACHED": "breach",
+	"CUT": "cut", "breached": "breach", "BREACHED": "breach",
 	# computers: their CURRENT owner's colour (neutral = the gold highlight ring), no icon
 	"YOUR RIG": "rig:p", "rival rig": "rig:r", "rival's rig": "rig:r", "Support": "role:support", "Neighborhood Relay": "role:relay",
-	"relay": "role:relay", "Community Relay": "role:commrelay", "Corporate Gateway": "role:gateway", "Gateway": "role:gateway",
-	"Practice host": "role:practice", "Practice host 2": "role:practice2", "Records vault": "role:vault", "vault": "role:vault",
+	"relay": "role:relay", "Corporate Gateway": "role:gateway", "Gateway": "role:gateway",
+	"Practice host": "role:practice", "Practice host 2": "role:practice2",
 	# the old free-play tutorial and the win numbers
 	"TRAINING TARGET": "warn", "TARGET": "warn", "TRAINING SUPPORT": "fac:p", "Training support": "fac:p", "SUPPORT": "fac:p",
 	"green": "fac:p", "51%": "warn", "51 seconds": "warn",
@@ -4651,9 +4533,8 @@ func _rich_spec(spec: String) -> Array:   # -> [text colour, icon id ("" = none)
 		"bank": return [BANK_COL[k], "", Color.WHITE]
 		"act":
 			var col: Color = BANK_COL["attack"]
-			if k in ["Scan", "Establish access", "Publish"]: col = C_GOOD
+			if k == "Scan": col = C_GOOD
 			elif k == "Cancel assault": col = C_BAD
-			elif k == "Sell": col = BUILD_KINDS.cash.col
 			return [col, ("a:" + k) if k in ["Scan", "Attack", "Assault", "Cancel assault"] else "", col]
 		"role":
 			var h := _camp_role_host(k) if _camp else -1
@@ -4714,7 +4595,6 @@ func _bake_rich_icons() -> void:   # the HUD/palette pictograms, drawn once into
 func _start_tutorial() -> void:
 	_opt_size = SIZE_PRESETS[0]; _opt_enemies = 1; _opt_seed = 7
 	_reset()
-	for fac in ais: ai_level[fac] = "normal"   # the tutorial's rival is always the Normal one
 	_tut = true; _tut_stage = 0; _ai_paused = true
 	_tut_connected = false; _tut_attacked = false; _tut_combined = false; _tut_captured = false
 	var source := int(rig[PLAYER])
@@ -4804,11 +4684,11 @@ func _tut_finish() -> void:
 
 
 # ============================================================ GUIDED CAMPAIGN
-# Six chapters of ONE continuous game on CAMP_SEED. Chapters are phases; the step within a chapter reuses _tut_stage.
+# Five chapters of ONE continuous game on CAMP_SEED. Chapters are phases; the step within a chapter reuses _tut_stage.
 # Advancement is gated on real game-state outcomes (never a click, a timer, or a card launched-but-not-arrived).
 # A reading pause (_camp_paused) freezes the WHOLE simulation; the player resumes with Space or by taking the action.
 func _camp_chapters() -> Array:
-	return ["Get Connected", "Establish Income", "Protect the Network", "Use Special Actions", "Recover the Records", "Choose Your Approach"]
+	return ["Get Connected", "Establish Income", "Protect the Network", "Use Special Actions", "Choose Your Approach"]
 
 
 # Each step: t title · r RESULT (what it did, shown for a few seconds once done) · a ACTION (what to do, shown bold) · w WHY (one short reason)
@@ -4849,13 +4729,6 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Supply chain attack", "r": "The Practice host lost its installations and bots — but it still belongs to the rival.", "a": "Drag Supply chain attack onto the Practice host.", "w": "It wipes a computer's installations and bots, and halves the bots next to it. The owner keeps them.", "role": "practice", "ui": "card:supply", "card": "supply:linked", "pause": true},
 			{"t": "SCA", "r": "Support is shielded. Watch: the rival's Supply chain attack bounces off.", "a": "Drag SCA onto Support.", "w": "SCA shields a computer from Supply chain attacks.", "role": "support", "ui": "card:sca", "card": "sca:linked", "pause": true, "fire_leave": "ch3_supply"},
 		]
-		4: return [
-			{"t": "Find the opening", "r": "The vault holds records you can copy out once you have access.", "a": "Drag from {from} onto the Records vault, then press the blinking Scan button.", "w": "Scanning shows what the vault holds and how to get in.", "role": "vault", "from": "foothold", "ui": "btn:Scan", "pause": true},
-			{"t": "Get access", "r": "Access is open: records start flowing toward YOUR RIG.", "a": "Press the blinking Establish access button.", "w": "Access lets records flow out. The vault still belongs to its owner.", "role": "vault", "ui": "btn:Establish access", "pause": true},
-			{"t": "Extract", "r": "The first record is home.", "a": "Wait for a record to reach YOUR RIG.", "w": "A record counts only when it arrives home.", "role": "vault", "pause": false},
-			{"t": "They notice", "r": "The records kept flowing despite the cut.", "a": "Wait for the cut route to recover, then bring home one more record.", "w": "Taking records raises an alarm, so the owner cuts your route for a while.", "role": "vault", "pause": false, "fire": "ch4_detect"},
-			{"t": "Decide", "r": "Done.", "a": "Bring home all the records, then press Sell or Publish.", "w": "Sell pays Crypto. Publish opens the Community Relay to you.", "role": "vault", "ui": ["btn:Sell", "btn:Publish"], "pause": false},
-		]
 		_: return [
 			{"t": "Your move", "r": "Victory.", "a": "Win the district your way — any route, any tools.", "w": "Hold over half the computers for 51 seconds, or capture the rival rig. Lose your rig and you lose.", "role": "", "pause": true},
 		]
@@ -4867,14 +4740,11 @@ func _camp_role_host(role: String) -> int:
 		"support": return _camp_support
 		"relay", "income": return _camp_relay
 		"gateway", "frontier": return _camp_gateway
-		"vault": return _camp_vault
-		"commrelay": return _camp_commrelay
 		"rivalhq": return _camp_rivalhq
 		"practice": return _camp_practice
 		"practice2": return _camp_practice2
 		"guard": return _camp_guard
 		"src": return _camp_src
-		"foothold": return _camp_foothold
 	return -1
 
 
@@ -4883,7 +4753,7 @@ func _camp_target() -> int:
 	if _camp_hold_left > 0.0: return _camp_hold_target
 	var steps := _camp_steps(_camp_chapter)
 	if _tut_stage < 0 or _tut_stage >= steps.size(): return -1
-	if _camp_chapter == 5: return -1   # the open chapter highlights nothing
+	if _camp_chapter == CAMP_OPEN: return -1   # the open chapter highlights nothing
 	return _camp_role_host(str(steps[_tut_stage].get("role", "")))
 
 
@@ -4899,7 +4769,7 @@ func _camp_pulse() -> float:   # 0..1 on the wall clock, so cues keep beating th
 
 func _camp_from() -> int:   # the FROM computer of the step's drag guide; -1 once that wire exists
 	var st := _camp_step()
-	if st.is_empty() or _camp_chapter == 5 or _camp_hold_left > 0.0: return -1
+	if st.is_empty() or _camp_chapter == CAMP_OPEN or _camp_hold_left > 0.0: return -1
 	var f := _camp_role_host(str(st.get("from", ""))); var t := _camp_target()
 	if f < 0 or t < 0 or f == t or not _mine(f) or int(hosts[f].assign) == t: return -1
 	return f
@@ -4978,19 +4848,9 @@ func _camp_roles() -> void:
 	# relay: a neutral neighbour of home or support, lowest [sec, index]
 	_camp_relay = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and (hosts[_camp_home].links.has(i) or (_camp_support >= 0 and hosts[_camp_support].links.has(i))),
 		func(i): return [float(hosts[i].sec), i])
-	# vault: a high-value neutral db/file/erp, far-ish; max [value, dist], min index
-	_camp_vault = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and str(hosts[i].type) in ["db", "file", "erp"] and i != _camp_relay,
-		func(i): return [-float(hosts[i].value), -int(dist.get(i, 0)), i])
-	# gateway: a neutral neighbour of the vault reachable from home avoiding the vault (so vault->gateway->home routes)
-	_camp_gateway = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and i not in [_camp_relay, _camp_vault] and hosts[_camp_vault].links.has(i) and _camp_bfs(_camp_home, _camp_vault).has(i),
-		func(i): return [int(_camp_bfs(_camp_home, _camp_vault).get(i, 99)), float(hosts[i].sec), i])
-	if _camp_gateway < 0:   # fallback: any neutral neighbour of the vault
-		_camp_gateway = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and i not in [_camp_relay, _camp_vault] and hosts[_camp_vault].links.has(i), func(i): return [i])
-	# community relay: a rim (value 1) neutral, nearest
-	_camp_commrelay = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and int(hosts[i].value) == 1 and i not in [_camp_relay, _camp_vault, _camp_gateway],
-		func(i): return [int(dist.get(i, 99)), i])
+	_camp_gateway = -1   # chapter 2 authors the Corporate Gateway next to your network
 	# two rival practice computers for the card lessons: neutrals near home (chapter 3 makes them rival-owned)
-	var prac := _camp_all(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and i not in [_camp_relay, _camp_vault, _camp_gateway, _camp_commrelay],
+	var prac := _camp_all(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and i != _camp_relay,
 		func(i): return [int(dist.get(i, 99)), i])
 	_camp_practice = prac[0] if prac.size() > 0 else -1
 	_camp_practice2 = prac[1] if prac.size() > 1 else -1
@@ -5085,50 +4945,12 @@ func _camp_setup(chapter: int) -> void:
 					hosts[own0].assign = _camp_practice2; hosts[own0].mode = "attack"; hosts[own0].live = false   # dormant: never fires on its own
 			_camp_grant(200.0, 200.0, 200.0, 200.0)
 			for key in ["ddos:linked", "zeroday:linked", "supply:linked", "cdn:linked", "patch:linked", "response:linked", "sca:linked"]: _camp_supply(key)
-		4:
-			_camp_own(_camp_relay); _camp_slots(_camp_relay, 5); _set_builds(_camp_relay, ["intel", "cash", "bot", "cred", "lab"])   # the card workshop carries over
-			_setup_mission(_camp_vault, 6, "Kessler Finance", "A neighbourhood's debt records are held here.")
-			hosts[_camp_vault].owner = RIVAL; hosts[_camp_vault].bots = 50.0; hosts[_camp_vault].sec = 50.0; hosts[_camp_vault].name = "Records vault"
-			# own the whole corridor from home to a vault-neighbour (avoiding the vault) so records can travel home
-			var foothold := _camp_gateway if (_camp_gateway >= 0 and hosts[_camp_vault].links.has(_camp_gateway)) else -1
-			if foothold < 0:
-				for o in hosts[_camp_vault].links:
-					if int(hosts[int(o)].owner) != RIVAL: foothold = int(o); break
-			if foothold >= 0: _camp_own_path(_camp_home, foothold, _camp_vault)
-			_camp_foothold = foothold
-			hosts[_camp_relay].name = "Neighborhood Relay"
-			if _camp_commrelay >= 0: hosts[_camp_commrelay].relay = true; hosts[_camp_commrelay].name = "Community Relay"
-			_camp_grant(80.0, 40.0, 80.0, 40.0)
-		5:
+		CAMP_OPEN:
 			_camp_own(_camp_relay); _camp_slots(_camp_relay, 5); _set_builds(_camp_relay, ["intel", "cash", "bot", "cred", "lab"]); hosts[_camp_relay].bots = _cap_of(_camp_relay)
 			hosts[_camp_relay].name = "Neighborhood Relay"
 			_camp_grant(120.0, 120.0, 120.0, 120.0)
 	_msg_t = 0.0; _msg_priority = 0   # the setup's own captures are not news (they named computers before their campaign names)
 	_refresh_sight()
-
-
-func _camp_own_path(a: int, b: int, avoid := -1) -> void:   # own every computer on a route a->b (so a route exists through our network)
-	if a < 0 or b < 0: return
-	var prev := {a: a}; var q := [a]; var head := 0
-	while head < q.size():
-		var c: int = q[head]; head += 1
-		if c == b: break
-		for o in hosts[c].links:
-			var oi := int(o)
-			if oi == avoid or prev.has(oi): continue
-			prev[oi] = c; q.append(oi)
-	if not prev.has(b): return
-	var n := b
-	while n != a:
-		if int(hosts[n].owner) != RIVAL or n == b: _camp_own(n)
-		n = int(prev[n])
-
-
-func _camp_gateway_prev() -> int:   # a home-side neutral on the way to the gateway, owned to form a corridor
-	if _camp_gateway < 0: return -1
-	for o in hosts[_camp_gateway].links:
-		if int(hosts[int(o)].owner) != RIVAL and int(o) != _camp_gateway: return int(o)
-	return -1
 
 
 func _nearest_owned(t: int) -> int:
@@ -5144,16 +4966,15 @@ func _nearest_owned(t: int) -> int:
 var _opt_backup := {}
 func _start_campaign(chapter: int, replay := false) -> void:
 	if _opt_backup.is_empty() and not _camp:   # remember the player's own New-game choices once
-		_opt_backup = {"size": _opt_size, "enemies": _opt_enemies, "ai": _opt_ai_level, "mission": _opt_mission, "seed": _opt_seed, "shape": _opt_shape}
-	_opt_size = CAMP_SIZE; _opt_enemies = 1; _opt_ai_level = "normal"; _opt_mission = false; _opt_seed = CAMP_SEED; _opt_shape = "grid"
+		_opt_backup = {"size": _opt_size, "enemies": _opt_enemies, "seed": _opt_seed, "shape": _opt_shape}
+	_opt_size = CAMP_SIZE; _opt_enemies = 1; _opt_seed = CAMP_SEED; _opt_shape = "grid"
 	_reset()
-	for fac in ais: ai_level[fac] = "normal"
 	_camp_roles()
 	_camp_chapter = clampi(chapter, 0, CAMP_CHAPTERS - 1)
-	_camp_supplied = {}; _camp_events = {}; _camp_cash_landed = 0; _camp_detect_mark = 0.0; _camp_cancelled = false
+	_camp_supplied = {}; _camp_events = {}; _camp_cash_landed = 0; _camp_cancelled = false
 	_camp_setup(_camp_chapter)
 	_camp = true; _tut = true; _tut_stage = 0; _camp_replay = replay
-	_ai_paused = _camp_chapter < 5
+	_ai_paused = _camp_chapter < CAMP_OPEN
 	var steps := _camp_steps(_camp_chapter)
 	_camp_paused = bool(steps[0].get("pause", false))
 	_open_menu(false); _show_tut(); _fit_view()
@@ -5181,10 +5002,15 @@ func _camp_load() -> Dictionary:
 	if f == null: return {}
 	var d = JSON.parse_string(f.get_as_text()); f.close()
 	if not (d is Dictionary) or int((d as Dictionary).get("schema", 0)) != 1: return {}
+	var none := []; none.resize(CAMP_CHAPTERS); none.fill(false)
 	if int((d as Dictionary).get("campaign_seed", -1)) != CAMP_SEED:   # authoring changed: a veteran isn't re-forced, but an old checkpoint can't rebuild
-		return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": 0, "step": 0, "chapters_completed": [false, false, false, false, false, false]}
-	var cc = (d as Dictionary).get("chapters_completed", [false, false, false, false, false, false])
-	return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": int((d as Dictionary).get("chapter", 0)), "step": int((d as Dictionary).get("step", 0)), "chapters_completed": cc}
+		return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": 0, "step": 0, "chapters_completed": none}
+	var cc = (d as Dictionary).get("chapters_completed", none)
+	var chapter := int((d as Dictionary).get("chapter", 0)); var step := int((d as Dictionary).get("step", 0))
+	if cc is Array and (cc as Array).size() == 6:   # a 0.3.5 save: its chapter 5 (records) is gone, its open chapter is now the 5th
+		cc = (cc as Array).slice(0, 4) + [(cc as Array)[5]]
+		if chapter >= 4: step = 0 if chapter == 4 else step; chapter = CAMP_OPEN
+	return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": clampi(chapter, 0, CAMP_OPEN), "step": step, "chapters_completed": cc}
 
 
 func _camp_has_onboarded() -> bool:
@@ -5210,8 +5036,6 @@ func _camp_restore_opts() -> void:   # put back the player's own New-game choice
 	if _opt_backup.is_empty(): return
 	_opt_size = _opt_backup.get("size", _opt_size)
 	_opt_enemies = int(_opt_backup.get("enemies", _opt_enemies))
-	_opt_ai_level = str(_opt_backup.get("ai", _opt_ai_level))
-	_opt_mission = bool(_opt_backup.get("mission", _opt_mission))
 	_opt_seed = int(_opt_backup.get("seed", _opt_seed))
 	_opt_shape = str(_opt_backup.get("shape", _opt_shape))
 	_opt_backup = {}
@@ -5267,16 +5091,6 @@ func _camp_fire(name: String) -> void:   # beat flashes use priority 3 so the pl
 		"ch3_supply":
 			if _camp_support >= 0: _apply_effect(RIVAL, CARDS["supply"], _camp_support, 1)
 			_flash("A rival Supply chain attack hit Support — SCA bounced it.", 3)
-		"ch4_detect":   # the owner traces the extraction and cuts an owned node on the records route; it recovers
-			_camp_detect_mark = _records_got(PLAYER, _camp_vault)
-			var rt := _extract_route(PLAYER, _camp_vault)
-			for k in range(rt.size() - 2, 0, -1):   # skip the vault (0) and the rig (last); cut an owned relay in between
-				var node := int(rt[k])
-				if _mine(node):
-					hosts[node].route_off = maxf(float(hosts[node].get("route_off", 0.0)), MIS_RESPOND_CUT)
-					hosts[node].hit_t = _t
-					break
-			_flash("They traced the records route and cut it — it recovers. Keep extracting.", 3)
 
 
 # ---- advancement (outcome-gated) ----
@@ -5315,14 +5129,7 @@ func _camp_step_done(chapter: int, step: int) -> bool:
 				7: return _camp_support >= 0 and float(hosts[_camp_support].get("patch_until", 0.0)) > _t
 				8: return _camp_practice >= 0 and int(hosts[_camp_practice].owner) == RIVAL and _built_kinds(_camp_practice).is_empty()
 				9: return _camp_support >= 0 and float(hosts[_camp_support].get("sca_until", 0.0)) > _t
-		4:
-			match step:
-				0: return _scanned(PLAYER, _camp_vault)
-				1: return _access_live(PLAYER, _camp_vault) and not _mine(_camp_vault)
-				2: return _records_got(PLAYER, _camp_vault) >= 1.0
-				3: return bool(_camp_events.get("ch4_detect", false)) and _records_got(PLAYER, _camp_vault) > _camp_detect_mark + 0.5
-				4: return _mission_complete(PLAYER, _camp_vault) and mission_done.has(_mkey(PLAYER, _camp_vault))
-		5:
+		CAMP_OPEN:
 			return won
 	return false
 
@@ -5374,12 +5181,6 @@ func _camp_tick() -> void:
 		_capture(_camp_practice, RIVAL); hosts[_camp_practice].bots = 30.0; _set_builds(_camp_practice, ["intel", "bot"])
 		hosts[_camp_practice].name = "Practice host"
 		_flash("The rival took the Practice host back — it is this lesson's target.", 3)
-	# Ch4: owning the vault blocks the lesson (records only flow through access): its owner takes it back
-	if _camp_chapter == 4 and _camp_vault >= 0 and _mine(_camp_vault) and not mission_done.has(_mkey(PLAYER, _camp_vault)):
-		_capture(_camp_vault, RIVAL)
-		hosts[_camp_vault].bots = 50.0; hosts[_camp_vault].sec = 50.0; hosts[_camp_vault].name = "Records vault"
-		_refresh_panel(); queue_redraw()
-		_flash("Kessler Finance took the vault back — you don't need to own it. Open access instead: records flow while you have it.", 3)
 	# Ch2 retaliation: Support must survive the lesson (game-first: no unrecoverable state)
 	if _camp_chapter == 2 and _tut_stage == 3 and _camp_support >= 0 and not _mine(_camp_support):
 		_camp_own(_camp_support); hosts[_camp_support].name = "Support"
@@ -5388,7 +5189,7 @@ func _camp_tick() -> void:
 
 
 func _camp_complete_step() -> void:   # the outcome happened: show what it did (the game keeps running so it can be seen), then go on
-	if _camp_chapter == 5: _camp_next(); return   # the open chapter ends in VICTORY, which says it all
+	if _camp_chapter == CAMP_OPEN: _camp_next(); return   # the open chapter ends in VICTORY, which says it all
 	var st := _camp_step()
 	if str(st.get("fire_leave", "")) != "": _camp_fire(str(st.fire_leave))   # its scripted answer plays DURING the result
 	var last := _tut_stage + 1 >= _camp_steps(_camp_chapter).size()
@@ -5404,12 +5205,6 @@ func _camp_outcome() -> String:   # what the finished step did, in plain words
 	var st := _camp_step()
 	if _camp_chapter == 2 and _tut_stage == 2 and not _camp_cancelled:   # the order ran out before Cancel was pressed
 		return "The Assault had already sent every bot — Cancel only keeps the bots that haven't left at home."
-	if _camp_chapter == 4 and _tut_stage == 4 and _camp_vault >= 0:   # the decision: say what that choice changed
-		match str(mission_done.get(_mkey(PLAYER, _camp_vault), "")):
-			"sell": return "Sold: +%d Crypto went to your bank — and a rival now holds the records." % int(MIS_SELL_CRYPTO)
-			"publish":
-				if _camp_commrelay >= 0: _camp_hold_target = _camp_commrelay
-				return "Published: the Community Relay works for you for %d seconds — your traffic can pass through it." % int(MIS_RELAY_SECS)
 	return _camp_fill(str(st.get("r", "Done.")))
 
 
@@ -5460,7 +5255,7 @@ func _camp_show() -> void:
 	if step.is_empty(): return
 	var chapters := _camp_chapters()
 	var row := HBoxContainer.new(); tut_box.add_child(row)
-	var head := "Ch %d/6 · %s — %d/%d · %s" % [_camp_chapter + 1, chapters[_camp_chapter], _tut_stage + 1, _camp_steps(_camp_chapter).size(), str(step.t)]
+	var head := "Ch %d/%d · %s — %d/%d · %s" % [_camp_chapter + 1, CAMP_CHAPTERS, chapters[_camp_chapter], _tut_stage + 1, _camp_steps(_camp_chapter).size(), str(step.t)]
 	if _camp_hold_left > 0.0: head += "   ✓ done"
 	elif _camp_paused: head += "   ⏸ the clock starts when you act"
 	_lbl(row, head, 15, C_WARN, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -6036,44 +5831,8 @@ func _panel_inspect() -> void:
 	_plabel(_stage_line(i), 14, C_DIM)
 	var price_ok := _can_take_over(PLAYER, i)
 	_plabel(("Breached — " if _breached_by(i) == PLAYER else "") + "Take over: %s (you have %d / %d)" % [_takeover_text(PLAYER, i), int(creds[PLAYER]), int(research[PLAYER])], 13, C_GOOD if price_ok else C_WARN)
-	if _is_mission(i): _panel_mission(i)
 	_panel_enemy_slots(i)
 	_panel_node_in(i)
-
-
-func _panel_mission(t: int) -> void:   # the "Recover the Corporate Records" objective on a foreign computer
-	_gap(2.0)
-	_kicker("Objective · Corporate Records")
-	var corp := str(hosts[t].get("corp", ""))
-	if corp != "": _plabel(corp, 15, C_WARN)
-	if str(hosts[t].get("stake", "")) != "": _plabel(str(hosts[t].stake), 12, C_DIM)
-	if not _scanned(PLAYER, t):
-		_plabel("Scan this computer to find the records and a way in.", 13, C_TEXT)
-		return
-	var got := int(_records_got(PLAYER, t)); var total := int(hosts[t].records_total)
-	_plabel("Records recovered: %d / %d" % [got, total], 14, C_TEXT)
-	var bar := ProgressBar.new(); bar.max_value = total; bar.value = got; bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(0, 10); panel_box.add_child(bar)
-	if _mission_complete(PLAYER, t):
-		if mission_done.has(_mkey(PLAYER, t)):
-			_plabel("Resolved: %s" % str(mission_done[_mkey(PLAYER, t)]), 13, C_GOOD)
-			return
-		_plabel("Delivered. Decide who benefits:", 13, C_TEXT)
-		_btn_row([["Sell · +%d Crypto" % int(MIS_SELL_CRYPTO), _resolve_mission.bind(t, "sell"), true],
-			["Publish · community relay", _resolve_mission.bind(t, "publish"), true]])
-		return
-	var alert := int(hosts[t].get("alert", 0.0))
-	if _access_live(PLAYER, t):
-		_plabel("ACCESS LIVE · %ds left — records stream to your rig while a route holds" % int(ceil(float(hosts[t].access_until) - _t)), 13, C_GOOD)
-		if alert > 0: _plabel("Trace alert %d%% — a high alert lets %s isolate your route" % [alert, fname(int(hosts[t].owner))], 12, C_WARN)
-		if _extract_route(PLAYER, t).size() < 2: _plabel("No route home right now — the records wait.", 12, C_WARN)
-	else:
-		var why := _can_access(PLAYER, t)
-		_plabel("Temporary access (not ownership) lets the records flow out. Costs %s for %ds." % [_res_cost_text(_access_cost(t)), int(MIS_ACCESS_SECS)], 12, C_DIM)
-		_btn("Establish access", _establish_access.bind(t), why == "")
-		if why != "": _plabel(why.capitalize(), 12, C_WARN)
-	_plabel("Or capture a route the ordinary way: access and ownership are different.", 11, C_DIM)
-	_gap(2.0)
 
 
 func _panel_attack_diag(t: int, _feeders: Array, _sending: Array) -> void:
@@ -6092,7 +5851,7 @@ func _panel_idle() -> void:
 
 
 func _panel_board() -> void:
-	_plabel("Leaderboard · Insane AI" if ai_level.values().has("insane") else "Leaderboard", 18, C_BAD if ai_level.values().has("insane") else C_TEXT)
+	_plabel("Leaderboard", 18, C_TEXT)
 	_plabel("Control %d / %d to win" % [_control_need() + 1, hosts.size()], 12, C_DIM)
 	var standings := []
 	for fac in botnets: standings.append([fac, _faction_nodes(fac)])
@@ -6202,7 +5961,7 @@ func _aim_sources() -> Array:
 func _lk(a: int, b: int) -> String: return "%d_%d" % [mini(a, b), maxi(a, b)]
 
 
-# ---- fog of war: ONE rule for the player's screen and for every AI that plays fair (the Insane brain) ----
+# ---- fog of war: ONE rule for the player's screen and for every botnet ----
 # A faction sees its own hosts, every host one link away from them, and every rig. What it saw before is
 # remembered (_seen: last-known owner and time); the player's map draws those as dim outlines.
 func _in_sight(fac: int, i: int) -> bool:   # real sight: fac's own buildings and every building one street away
@@ -6356,11 +6115,14 @@ func _paint(c: CanvasItem, part: String) -> void:   # one MapLayer; together, in
 	_cv = self
 
 
-func _paint_ground(cx: Dictionary) -> void:   # territories, streets, wires
+const ROAD_COL := Color(0.55, 0.72, 0.95, 0.24)   # a link you have used: faint, under every wire and packet
+func _paint_ground(cx: Dictionary) -> void:   # territories, roads, wires
 	var vis: Dictionary = cx.vis; var sight: Dictionary = cx.sight; var seen: Dictionary = cx.seen; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes; var flinks: Dictionary = cx.flinks
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	_draw_territories(vis)
-	# the network itself is hidden: routes are never drawn — only your own connections below
+	# the network itself is hidden; a link you have used (connected along, sent packets over) stays drawn: your roads
+	for ab in (_roads.get(PLAYER, {}) as Dictionary).values():
+		_cv.draw_line(hosts[ab.x].pos, hosts[ab.y].pos, ROAD_COL, 2.0, true)
 	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent);
 	# Strict fog: only the focused building's own connections stay bright.
 	for i in hosts.size():
@@ -6807,8 +6569,6 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	_text(_cv, f, Vector2(x0, p.y - rr - 8.0), nm, 12, ncol)
 	var sub := ""   # ONE warning under the glyph, most urgent first; the rest is in the panel
 	if bool(hosts[i].get("junction", false)): sub = "junction"
-	if _is_mission(i) and _access_live(PLAYER, i): sub = "RECORDS %d/%d" % [int(_records_got(PLAYER, i)), int(hosts[i].records_total)]
-	elif _is_mission(i) and _scanned(PLAYER, i) and not _mission_complete(PLAYER, i): sub = "OBJECTIVE"
 	if _breached_by(i) >= 0: sub = "BREACHED"
 	elif _mine(i) and _routing_down(i) and not _prod_down(i): sub = "CUT %ds" % int(ceil(float(hosts[i].route_off)))   # your cut outranks FULL
 	elif _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
@@ -6823,7 +6583,6 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if sub == "junction": subcol = Color(0.7, 0.85, 1.0, 0.8 * a)
 	if sub.begins_with("PHISHED"): subcol = Color(FAMILY_COL["phish"].r, FAMILY_COL["phish"].g, FAMILY_COL["phish"].b, a)
 	if sub.begins_with("OFF"): subcol = Color(1, 0.62, 0.2, a)
-	elif sub.begins_with("RECORDS") or sub == "OBJECTIVE": subcol = Color(1, 0.8, 0.35, a)
 	elif sub.begins_with("ASSAULT"): subcol = Color(1, 0.45, 0.35, a)
 	elif sub.begins_with("CUT"): subcol = Color(1, 0.4, 0.65, a)
 	elif sub == "BREACHED": subcol = Color(1, 0.55, 0.25, a)

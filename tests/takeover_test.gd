@@ -183,16 +183,52 @@ func sight_and_shapes() -> void:
 	for o in g.hosts[rig].links:
 		if int(g.hosts[int(o)].owner) == g.NEUTRAL: a = int(o); break
 	check(a >= 0 and g._link_kind(rig, a) == "attack", "Anything within reach can be connected to")
-	for shape in ["grid", "circle"]:
+	fresh()   # routes are hidden until you use them; then they stay drawn (roads you built)
+	var home: int = int(g.rig[P]); var tgt: int = pair()[1]
+	check((g._roads.get(P, {}) as Dictionary).is_empty(), "A new map draws no routes: the network is hidden")
+	g._do_wire(P, [home], tgt)
+	check((g._roads.get(P, {}) as Dictionary).has(g._lk(home, tgt)), "Connecting establishes the route: it is drawn from now on")
+	g._do_unwire(P, home)
+	check((g._roads.get(P, {}) as Dictionary).has(g._lk(home, tgt)) and not g._roads.has(R), "The road stays after the connection is gone, and only on your map")
+	var probe = load("res://scripts/botnet_proto.gd").new()
+	check(str(probe._opt_shape) == "spiral" and g.GALAXIES.has(str(probe._opt_shape)), "New game defaults to a galaxy (spiral), not the grid")
+	probe.free()
+	for shape in g.SHAPES:
 		fresh(shape)
 		check(g._layout == shape and g._components().size() == 1, "%s map: one connected network (%d computers)" % [shape, g.hosts.size()])
-		if shape == "circle":
+		if not g.GALAXIES.has(shape): continue
+		var layout: Array = []
+		for h in g.hosts: layout.append(h.pos)
+		fresh(shape)
+		var again: Array = []
+		for h in g.hosts: again.append(h.pos)
+		check(JSON.stringify(layout) == JSON.stringify(again), "%s: the same seed builds the same galaxy" % shape)
+		for enemies in [1, 2, 3]:
+			g._opt_enemies = enemies; g._opt_seed = 7 + enemies; g._reset()
 			var centre: Vector2 = Vector2(float(g._cols - 1) * 0.5, float(g._rows - 1) * 0.5) * g.MAP_CELL
-			var far := 0.0
-			for h in g.hosts: far = maxf(far, (h.pos as Vector2).distance_to(centre))
-			var rim_ok := true
+			var expect := int(round(float(g._cols * g._rows) * (1.0 - g.EMPTY_CELL)))
+			var close := INF
+			for i in g.hosts.size():
+				for j in range(i + 1, g.hosts.size()): close = minf(close, (g.hosts[i].pos as Vector2).distance_to(g.hosts[j].pos))
+			var tag := "%s, %d botnets" % [shape, g.botnets.size()]
+			check(g._components().size() == 1 and g.hosts.size() >= expect - 2 and g.hosts.size() <= expect and close >= g.STAR_SPACING * g.MAP_CELL - 0.01,
+				"%s: one network of %d computers (the grid has ~%d), none closer than %.2f cells" % [tag, g.hosts.size(), expect, close / g.MAP_CELL])
+			var balance := Vector2.ZERO; var radii := []; var homes_ok := true
 			for f in g.botnets:
-				if (g.hosts[int(g.rig[f])].pos as Vector2).distance_to(centre) < far - 0.6 * g.MAP_CELL: rim_ok = false
-			check(rim_ok, "Circle map: every rig sits on the rim")
-	g._mp_on = true; g._opt_shape = "circle"; g._apply_options(); g._mp_on = false
-	check(g._layout == "grid", "Multiplayer always builds the grid (every screen must match)")
+				var r: int = int(g.rig[f])
+				balance += (g.hosts[r].pos as Vector2) - centre; radii.append((g.hosts[r].pos as Vector2).distance_to(centre))
+				var second := false
+				for o in g.hosts[r].links:
+					if int(g.hosts[int(o)].owner) == f and not g.hosts[int(o)].rig: second = true
+				if not second: homes_ok = false
+			check(homes_ok, "%s: every botnet starts with its rig and a second computer next to it" % tag)
+			check(balance.length() < 0.01 * g.MAP_CELL and (shape == "elliptical" or float(radii.max()) - float(radii.min()) < 0.01 * g.MAP_CELL), "%s: the rigs sit at even angles round the centre" % tag)
+			var you: Vector2 = g.hosts[int(g.rig[P])].pos
+			check(you.x < centre.x and you.y < centre.y, "%s: you start top-left, as on the grid" % tag)
+			var inner := INF
+			for h in g.hosts: inner = minf(inner, (h.pos as Vector2).distance_to(centre))
+			if shape == "ring": check(g.hub < 0 and inner > 1.5 * g.MAP_CELL, "%s: an empty middle (nearest computer %.1f cells out)" % [tag, inner / g.MAP_CELL])
+			else: check(g.hub >= 0 and (g.hosts[g.hub].pos as Vector2).distance_to(centre) < 0.01 and int(g.hosts[g.hub].value) == 3, "%s: the hub is the rich core" % tag)
+	for s in [4242, 4243, 4244]:
+		g._mp_on = true; g._opt_shape = "grid"; g._opt_seed = s; g._apply_options(); g._mp_on = false
+		check(g._layout == g.GALAXIES[s % g.GALAXIES.size()], "Multiplayer seed %d builds the %s galaxy on every screen, whatever the local menu says" % [s, g._layout])
