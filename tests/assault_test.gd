@@ -187,14 +187,15 @@ func intel_route_link_cases() -> void:
 	var z := step(5.0, [s])
 	check(int(z.sent[s]) == 0 and not z.neg and not order(s).is_empty(), "Zero Intel: nothing departs, no debt, the order waits")
 	check(g._src_state(s) == "no Intel", "The blocker reads 'no Intel' (%s)" % g._src_state(s))
-	g.intel[P] = 5.0
+	g.intel[P] = 5.0 + g.LINK_INTEL * 5.0 + 0.01   # five bots, plus the connection's own small drain over those 5 s
 	var p5 := step(5.0, [s])
 	check(int(p5.sent[s]) == 5 and float(g.intel[P]) >= 0.0, "Partial Intel buys exactly that many departures (%d of 5)" % int(p5.sent[s]))
 	g.intel[P] = 100.0
 	var burst := step(1.0, [s])
 	check(int(burst.sent[s]) <= int(g.ASSAULT_RATE) + 1, "No catch-up burst after the wait (%d in the first second)" % int(burst.sent[s]))
 	var finish := step(40.0, [s])
-	check(5 + int(burst.sent[s]) + int(finish.sent[s]) == q, "Across the stall the total is still the quota (%d of %d)" % [5 + int(burst.sent[s]) + int(finish.sent[s]), q])
+	var total_sent := int(p5.sent[s]) + int(burst.sent[s]) + int(finish.sent[s])
+	check(total_sent == q, "Across the stall the total is still the quota (%d of %d)" % [total_sent, q])
 	# a cut route pauses without catch-up; the order survives
 	fresh()
 	var th := two_hop()
@@ -393,7 +394,7 @@ func ai_cases() -> void:
 		g._sim_step(g.SIM_DT)
 		if k % 15 == 0: g._ai_think(D)
 		for i in g.hosts.size():
-			if int(g.hosts[i].owner) == D and int(g.hosts[i].assign) == a:
+			if int(g.hosts[i].owner) == D and (int(g.hosts[i].assign) == a or int(g.hosts[i].assign) == int(g.rig[P])):   # the origin, or the rig behind it
 				if str(g.hosts[i].mode) == "scan": scouted = true
 				elif bool(g.hosts[i].live): punished = true
 		if punished: break

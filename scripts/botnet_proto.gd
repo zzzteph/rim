@@ -48,10 +48,10 @@ const AI_ASSAULT_PCT := CfgFactions.AI_ASSAULT_PCT
 const GRID_COLS := CfgTown.GRID_COLS
 const GRID_ROWS := CfgTown.GRID_ROWS
 const EMPTY_CELL := CfgTown.EMPTY_CELL
-const LINK_KEEP := CfgTown.LINK_KEEP
-const DIAG_P := CfgTown.DIAG_P
+const LINK_REACH := CfgTown.LINK_REACH
+const LINK_INTEL := CfgTown.LINK_INTEL
+const SHAPES := CfgTown.SHAPES
 const TOWN_WORDS := CfgTown.TOWN_WORDS
-const HIGHWAY_P := CfgTown.HIGHWAY_P
 const JUNCTIONS := CfgTown.JUNCTIONS
 const JUNCTION_CAP_MULT := CfgTown.JUNCTION_CAP_MULT
 
@@ -113,6 +113,16 @@ const MIS_RELAY_SECS := CfgMission.RELAY_ACCESS_SECS
 const ASSAULT_COMMITS := CfgTuning.ASSAULT_COMMITS
 const ASSAULT_DEFAULT := CfgTuning.ASSAULT_DEFAULT
 const ASSAULT_OVERCHARGE_INTEL := CfgTuning.ASSAULT_OVERCHARGE_INTEL
+const SUPPLY_SPLASH := 3   # Supply chain attack: how many neighbouring computers of the owner lose half their bots
+const TAKEOVER_CREDS_BASE := CfgTuning.TAKEOVER_CREDS_BASE
+const TAKEOVER_CREDS_PER_SEC := CfgTuning.TAKEOVER_CREDS_PER_SEC
+const TAKEOVER_CREDS_MIN := CfgTuning.TAKEOVER_CREDS_MIN
+const TAKEOVER_RESEARCH_BASE := CfgTuning.TAKEOVER_RESEARCH_BASE
+const TAKEOVER_RESEARCH_GROWTH := CfgTuning.TAKEOVER_RESEARCH_GROWTH
+const CREDS_START := CfgTuning.CREDS_START
+const RESEARCH_START := CfgTuning.RESEARCH_START
+const RIG_CREDS := CfgTuning.RIG_CREDS
+const RIG_RESEARCH := CfgTuning.RIG_RESEARCH
 const LINK_TIME := CfgTuning.LINK_TIME
 const NODE_ROUTE_DELAY := CfgTuning.NODE_ROUTE_DELAY
 const LINK_CAP := CfgTuning.LINK_CAP
@@ -129,7 +139,7 @@ const MAP_CELL := 190.0         # world size of one town cell; each host sits in
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.3.4"
+const GAME_VERSION := "0.3.5"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -147,6 +157,8 @@ var _rows := GRID_ROWS
 # new-game options (chosen in the menu): size preset (cols, rows) and enemy count
 const SIZE_PRESETS := [Vector2i(6, 4), Vector2i(8, 6), Vector2i(10, 8)]   # Small · Medium · Big
 var _opt_size := Vector2i(8, 6)    # default: Medium
+var _opt_shape := "grid"           # the New-game layout: "grid" or "circle"
+var _layout := "grid"              # the live layout of this match
 var _opt_enemies := 2
 var _opt_ai_level := "normal"      # the New-game difficulty: every AI faction plays at this level
 var _opt_mission := false          # New-game toggle: author a "Recover the Corporate Records" objective into the town
@@ -475,7 +487,7 @@ func _gen() -> void:
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}; _crypto_credit = {}
 	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []; _hold = {}; regen_hold = {}; regen_stats = {}; records_home = {}; mission_done = {}; _next_record = {}; _respond_t = {}
 	for fac in botnets:
-		intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}; creds[fac] = 0.0; research[fac] = 0.0
+		intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}; creds[fac] = CREDS_START; research[fac] = RESEARCH_START
 		cards[fac] = {}; lab[fac] = {"queue": [], "progress": 0.0, "paused": false, "stall": ""}; card_plays[fac] = 0; _hold[fac] = 0.0
 	for fac in ais: _ai[fac] = {"timer": float(AI_PROFILE[fac].cadence) * (0.5 + 0.3 * float(fac)), "ops": {}, "avoid": -1, "dead": false, "lost": {}, "edges": {}, "threat_seen": {}}
 	_brains = {}   # a new town gets fresh Insane brains (created on their first tick)
@@ -497,53 +509,31 @@ func _gen() -> void:
 	for fac in botnets: starts[fac] = corner[fac]
 	var forced := [hub_cell]
 	for fac in starts.keys(): forced += starts[fac]
-	for gy in _rows:
-		for gx in _cols:
-			var c := Vector2i(gx, gy)
-			if not forced.has(c) and rng.randf() < EMPTY_CELL: continue   # a park, a lot, a void
-			var is_hub: bool = c == hub_cell
-			var dist: float = Vector2(gx, gy).distance_to(centre) / centre.length()   # 0 downtown … 1 corner
-			var value := 3 if (is_hub or dist < 0.38) else (2 if dist < 0.72 else 1)
-			if not is_hub and rng.randf() < 0.2: value = clampi(value + (1 if rng.randf() < 0.5 else -1), 1, 3)
-			var ntype := "erp" if is_hub else _pick_type(value)
-			var tp: Dictionary = NODE_TYPES[ntype]
-			var sec := 30.0 if is_hub else clampf(float(2 + value * 5 + int(rng.randi() % 6) + int(tp.sec)), 4.0, 28.0)   # 4…28 defenders
-			var slots := int(tp.slots)
-			var p := Vector2(ax + sx * float(gx), ay + sy * float(gy)) + Vector2(rng.randf_range(-0.18, 0.18) * sx, rng.randf_range(-0.09, 0.09) * sy)
-			_cell[c] = hosts.size()
-			if is_hub: hub = hosts.size()
-			hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
-				"name": "HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
-				"links": [], "owner": NEUTRAL, "bots": sec, "sec": sec, "value": value, "slots": slots,
-				"builds": _slot_array(["bot", "bot"] if is_hub else ["bot"], slots), "jobs": {}, "assign": -1, "live": false, "mode": "attack", "rate": 1.0,
-				"prod_off": 0.0, "route_off": 0.0, "steal_until": -100.0, "steal_by": -1, "hit_t": -100.0, "junction": false})
-	for c in _cell.keys():   # streets: grid neighbours (some missing), a few diagonals (never crossing)
-		for d in [Vector2i(1, 0), Vector2i(0, 1)]:
-			var nb: Vector2i = c + d
-			if not _cell.has(nb): continue
-			var must := false
-			for fac in starts.keys():
-				if (starts[fac] as Array).has(c) and (starts[fac] as Array).has(nb): must = true
-			if must or rng.randf() < LINK_KEEP: _link(_cell[c], _cell[nb])
-		var se: Vector2i = c + Vector2i(1, 1)
-		if _cell.has(se) and rng.randf() < DIAG_P: _link(_cell[c], _cell[se])
-		var ne: Vector2i = c + Vector2i(1, -1)
-		var up: Vector2i = c + Vector2i(0, -1)
-		var rt: Vector2i = c + Vector2i(1, 0)
-		if _cell.has(ne) and rng.randf() < DIAG_P:
-			var crosses: bool = _cell.has(up) and _cell.has(rt) and (hosts[_cell[up]].links as Array).has(_cell[rt])
-			if not crosses: _link(_cell[c], _cell[ne])
-	for gy in _rows:   # HIGHWAYS: a street across a gap, joining the buildings on either side — nothing to cross
-		for gx in _cols:
-			var g := Vector2i(gx, gy)
-			if _cell.has(g): continue
-			for d in [Vector2i(1, 0), Vector2i(0, 1)]:
-				var a: Vector2i = g - d; var b: Vector2i = g + d
-				if _cell.has(a) and _cell.has(b) and rng.randf() < HIGHWAY_P:
-					_link(_cell[a], _cell[b]); _highways[_lk(_cell[a], _cell[b])] = true
+	var home := {}   # fac -> [rig, second building]
+	if _layout == "circle": home = _place_circle(cell, centre)
+	else:
+		for gy in _rows:
+			for gx in _cols:
+				var c := Vector2i(gx, gy)
+				if not forced.has(c) and rng.randf() < EMPTY_CELL: continue   # a park, a lot, a void
+				var is_hub: bool = c == hub_cell
+				var dist: float = Vector2(gx, gy).distance_to(centre) / centre.length()   # 0 downtown … 1 corner
+				var value := 3 if (is_hub or dist < 0.38) else (2 if dist < 0.72 else 1)
+				if not is_hub and rng.randf() < 0.2: value = clampi(value + (1 if rng.randf() < 0.5 else -1), 1, 3)
+				var ntype := "erp" if is_hub else _pick_type(value)
+				var sec := 30.0 if is_hub else clampf(float(2 + value * 5 + int(rng.randi() % 6) + int(NODE_TYPES[ntype].sec)), 4.0, 28.0)   # 4…28 defenders
+				var p := Vector2(ax + sx * float(gx), ay + sy * float(gy)) + Vector2(rng.randf_range(-0.18, 0.18) * sx, rng.randf_range(-0.09, 0.09) * sy)
+				_cell[c] = _add_host(p, c, is_hub, value, ntype, sec)
+		for fac in starts.keys(): home[fac] = [_cell[starts[fac][0]], _cell[starts[fac][1]]]
+	# the HIDDEN NETWORK: every two buildings within reach are linked. Nobody sees it; a building sees, and can
+	# connect to, what is within reach of its owner's buildings — so any layout works
+	var reach := LINK_REACH * MAP_CELL
+	for i in hosts.size():
+		for j in range(i + 1, hosts.size()):
+			if (hosts[i].pos as Vector2).distance_to(hosts[j].pos) <= reach: _link(i, j)
 	var cands := []   # JUNCTIONS: the best-connected crossroads of the mid town — their streets carry double traffic
 	for i in hosts.size():
-		if bool(hosts[i].hub) or forced.has(hosts[i].grid) or int(hosts[i].value) < 2 or (hosts[i].links as Array).size() < 3: continue
+		if bool(hosts[i].hub) or forced.has(hosts[i].grid) or int(hosts[i].value) < 2 or (hosts[i].links as Array).size() < 3 or _is_home(home, i): continue
 		cands.append([(hosts[i].links as Array).size() + rng.randf() * 0.5, i])
 	cands.sort_custom(func(a, b): return a[0] > b[0])
 	for k in mini(JUNCTIONS, cands.size()): hosts[int(cands[k][1])].junction = true
@@ -562,8 +552,64 @@ func _gen() -> void:
 		if pa >= 0: _link(pa, pb)
 	# every botnet starts with a rig (its Cash sink) and one more building
 	for fac in botnets:   # each botnet claims its corner rig + a second building
-		_claim(_cell[starts[fac][0]], fac, true, "YOUR RIG" if fac == PLAYER else "%s RIG" % fname(fac))
-		_claim(_cell[starts[fac][1]], fac, false, "")
+		_claim(int(home[fac][0]), fac, true, "YOUR RIG" if fac == PLAYER else "%s RIG" % fname(fac))
+		_claim(int(home[fac][1]), fac, false, "")
+
+
+func _is_home(home: Dictionary, i: int) -> bool:
+	for fac in home:
+		if (home[fac] as Array).has(i): return true
+	return false
+
+
+func _add_host(p: Vector2, c: Vector2i, is_hub: bool, value: int, ntype: String, sec: float) -> int:
+	var tp: Dictionary = NODE_TYPES[ntype]
+	var slots := int(tp.slots)
+	if is_hub: hub = hosts.size()
+	hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
+		"name": "HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
+		"links": [], "owner": NEUTRAL, "bots": sec, "sec": sec, "value": value, "slots": slots,
+		"builds": _slot_array(["bot", "bot"] if is_hub else ["bot"], slots), "jobs": {}, "assign": -1, "live": false, "mode": "attack", "rate": 1.0,
+		"prod_off": 0.0, "route_off": 0.0, "steal_until": -100.0, "steal_by": -1, "hit_t": -100.0, "junction": false})
+	return hosts.size() - 1
+
+
+func _place_circle(cell: float, centre: Vector2) -> Dictionary:   # rings of buildings round a downtown hub; the rigs on the rim
+	var c := centre * cell   # the same centre as the grid, so "how far from downtown" reads the same
+	var total := float(_cols * _rows) * (1.0 - EMPTY_CELL)   # about as many buildings as the same-size grid
+	var rings := 1; var cum := 1 + 6
+	while float(cum) < 0.9 * total:
+		rings += 1; cum += maxi(6, int(round(TAU * float(rings))))
+	rings = maxi(2, rings)
+	_add_host(c, Vector2i(int(round(centre.x)), int(round(centre.y))), true, 3, "erp", 30.0)
+	var rim := []   # [angle, host] on the outer ring
+	for k in range(1, rings + 1):
+		var n := maxi(6, int(round(TAU * float(k))))
+		var a0 := rng.randf() * TAU / float(n)
+		for slot in n:
+			if k < rings and rng.randf() < EMPTY_CELL: continue   # a gap; the rim stays whole for the rigs
+			var ang := a0 + TAU * float(slot) / float(n)
+			var p := c + Vector2(cos(ang), sin(ang)) * float(k) * cell + Vector2(rng.randf_range(-0.12, 0.12), rng.randf_range(-0.12, 0.12)) * cell
+			var dist := float(k) / float(rings)
+			var value := 3 if dist < 0.38 else (2 if dist < 0.72 else 1)
+			var ntype := _pick_type(value)
+			var sec := clampf(float(2 + value * 5 + int(rng.randi() % 6) + int(NODE_TYPES[ntype].sec)), 4.0, 28.0)
+			var g := Vector2i(int(round(p.x / cell)), int(round(p.y / cell)))   # a pseudo cell: what the grid-minded code reads
+			var idx := _add_host(p, g, false, value, ntype, sec)
+			if not _cell.has(g): _cell[g] = idx
+			if k == rings: rim.append([ang, idx])
+	var corner := {CfgFactions.PLAYER: deg_to_rad(225.0), RIVAL: deg_to_rad(45.0), RIVAL2: deg_to_rad(135.0), RIVAL3: deg_to_rad(315.0)}   # same corners as the grid
+	var home := {}; var used := {}
+	for fac in botnets:
+		var best := -1; var bd := INF
+		for k in rim.size():
+			var d := absf(angle_difference(float(rim[k][0]), float(corner[fac])))
+			if not used.has(k) and d < bd: bd = d; best = k
+		var nxt := (best + 1) % rim.size()
+		if used.has(nxt): nxt = (best - 1 + rim.size()) % rim.size()
+		used[best] = true; used[nxt] = true
+		home[fac] = [int(rim[best][1]), int(rim[nxt][1])]
+	return home
 
 
 func _components() -> Array:   # connected groups of buildings over the street network, ownership ignored
@@ -605,8 +651,8 @@ func _tmult(i: int, what: String) -> float:   # the building type's multiplier f
 	return float(NODE_TYPES[str(hosts[i].get("type", "pc"))].get(what, 1.0))
 
 
-# ---- PAID REPLENISHMENT (experiment). A working rig regenerates up to RIG_FREE_REGEN bots/s free (limited by its
-# own farms); every other bot actually added below a garrison's limit costs REGEN_PRICE Crypto. All of a faction's
+# ---- UPKEEP (paid replenishment). A working rig regenerates up to RIG_FREE_REGEN bots/s free (limited by its
+# own farms); every other bot actually added below a garrison's limit costs REGEN_PRICE Intel. All of a faction's
 # demand is summed first, then funded in one proportion, so no computer wins scarce Crypto by its index.
 func _regen_step(i: int, dt: float) -> float:   # bots i's farms would add this step, never above its garrison limit
 	var nb := _count(i, "bot")
@@ -631,20 +677,20 @@ func _tick_regen_paid(dt: float) -> void:
 	var share := {}
 	for o in demand:
 		var cost := float(demand[o]) * REGEN_PRICE
-		share[o] = 1.0 if cost <= 0.000001 else clampf(maxf(0.0, float(cash[o])) / cost, 0.0, 1.0)
+		share[o] = 1.0 if cost <= 0.000001 else clampf(maxf(0.0, float(intel[o]) - _attack_reserve(o)) / cost, 0.0, 1.0)   # Intel upkeep; a waiting attack keeps its own
 	for i in want:
 		var o := int(hosts[i].owner)
 		var w: Array = want[i]
 		var bought := float(w[1]) * float(share.get(o, 1.0))
 		hosts[i].bots = float(hosts[i].bots) + float(w[0]) + bought
-		cash[o] = maxf(0.0, float(cash[o]) - bought * REGEN_PRICE)
+		intel[o] = maxf(0.0, float(intel[o]) - bought * REGEN_PRICE)
 		var st: Dictionary = regen_stats.get(o, {"free": 0.0, "paid": 0.0, "unfunded": 0.0, "held": 0.0, "crypto": 0.0})
 		st.free = float(st.free) + float(w[0]); st.paid = float(st.paid) + bought; st.crypto = float(st.crypto) + bought * REGEN_PRICE
 		st.unfunded = float(st.unfunded) + (float(w[1]) - bought); st.held = float(st.held) + float(w[2])
 		regen_stats[o] = st
 
 
-func _regen_cost_rate(fac: int) -> float:   # Crypto/s this faction's replenishment would cost right now if fully funded
+func _regen_cost_rate(fac: int) -> float:   # Intel/s this faction's replenishment would cost right now if fully funded
 	if not paid_regen or bool(regen_hold.get(fac, false)): return 0.0
 	var bots := 0.0
 	for i in hosts.size():
@@ -1304,9 +1350,10 @@ func _intel_rate(fac: int) -> float:   # harvesters, plus the rig's own trickle 
 
 
 func _tick_intel(dt: float) -> void:   # every botnet's Intel income and limit in one pass (= _intel_rate / _intel_cap, same order)
-	var rate := {}; var harvesters := {}
+	var rate := {}; var harvesters := {}; var wires := {}
 	for fac in botnets: rate[fac] = 0.0; harvesters[fac] = 0
 	for i in hosts.size():
+		if int(hosts[i].assign) >= 0: wires[int(hosts[i].owner)] = int(wires.get(int(hosts[i].owner), 0)) + 1
 		var b: Array = hosts[i].builds
 		if not b.has("intel"): continue
 		var o := int(hosts[i].owner)
@@ -1318,7 +1365,8 @@ func _tick_intel(dt: float) -> void:   # every botnet's Intel income and limit i
 		for owner in botnets:
 			var home := int(rig.get(owner, -1))
 			if home >= 0 and int(hosts[home].owner) == int(owner) and _benef(home) == fac and not _prod_down(home): r += RIG_INTEL * _production_multiplier(home)
-		intel[fac] = minf(INTEL_CAP_BASE + INTEL_CAP_PER_BUILD * float(harvesters[fac]), float(intel[fac]) + r * dt)
+		r -= LINK_INTEL * float(wires.get(fac, 0))   # every connection drains a little
+		intel[fac] = clampf(float(intel[fac]) + r * dt, 0.0, INTEL_CAP_BASE + INTEL_CAP_PER_BUILD * float(harvesters[fac]))
 
 
 func _cash_rate(fac: int) -> float:   # Cash/s a faction's active markets emit (a stolen market feeds the thief)
@@ -1784,6 +1832,7 @@ func _src_state(s: int) -> String:
 		if _assault_active(s):   # a finite order: say what holds it, never that it is merely "wired"
 			if float(hosts[s].bots) - 1.0 < _reserve_of(s): return "no bots"
 			if float(intel[fac]) < _bot_intel(s): return "no Intel"
+			if _breached_by(a) == fac: return "breached — paying"
 			if _first_wait(rt) > MAX_QUEUE: return "link busy"
 			return "assaulting"
 		if int(hosts[a].owner) == fac:                        # guard wire: the STATUS does the work
@@ -1793,6 +1842,7 @@ func _src_state(s: int) -> String:
 		if float(hosts[s].bots) - 1.0 < _reserve_of(s): return "no bots"
 		if str(hosts[s].mode) == "scan" and _scan_pending(fac, a): return "scan in transit"
 		if float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or str(hosts[s].mode) != "scan"): return "no Intel"
+		if str(hosts[s].mode) != "scan" and _breached_by(a) == fac: return "breached — paying"
 		if _first_wait(rt) > MAX_QUEUE: return "link busy"
 		return "scanning" if str(hosts[s].get("mode", "attack")) == "scan" else "sending"
 	var tgt := _bot_target(s)
@@ -1896,6 +1946,7 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	_tick_jobs(dt)
 	if paid_regen: _tick_regen_paid(dt)   # after card preparation and construction, before labs convert Crypto
 	_tick_production(dt)
+	_tick_rig_trickle(dt)
 	_tick_intel(dt)     # income + limit AFTER this step's Intel spending (departures, jobs, miners): a full bank ends the step AT its limit, only the true surplus is lost
 	_tick_mission(dt)   # objective packets, alert, the owner's route response, timed relay reverts
 	_route_memo = null
@@ -1903,6 +1954,7 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 		hosts[i].prod_off = maxf(0.0, float(hosts[i].prod_off) - dt)
 		hosts[i].route_off = maxf(0.0, float(hosts[i].route_off) - dt)
 	if not won and not lost: _deliver_due()      # chronological; may set won/lost and then stops
+	if not won and not lost: _tick_breaches()
 	if not won and not lost and not _ai_paused: _ai_tick(dt)   # the tutorial freezes the AI early on
 	_check_rigs()
 	if not won and not lost: _tick_domination(dt)
@@ -1967,6 +2019,7 @@ func _can_emit(i: int) -> bool:
 	var hostile: bool = int(hosts[tgt].owner) != fac
 	if hostile and str(hosts[i].get("mode", "attack")) == "scan" and (_scanned(fac, tgt) or _scan_pending(fac, tgt)): return false   # scan done
 	if hostile and float(intel[fac]) < _bot_intel(i) and (SCAN_COSTS_INTEL or str(hosts[i].mode) != "scan"): return false   # an overcharged bot needs its full price
+	if hostile and _breached_by(tgt) == fac and str(hosts[i].get("mode", "attack")) != "scan": return false   # breached by us: bots wait, the takeover is a payment
 	if not hostile and int(hosts[i].assign) < 0:   # an unwired building sends nothing; kept as a guard
 		if float(hosts[tgt].bots) + _incoming(tgt, fac) >= NODE_CAP - 0.001: return false
 	var rt := _route(i, tgt)
@@ -2103,16 +2156,16 @@ func _deliver(f: Dictionary) -> void:
 		return
 	if not _scanned(fac, t): _scan_land(fac, t)   # any attack scans as it goes — loudly
 	hosts[t].bots = float(hosts[t].bots) - (ATTACK_POWER / DEFEND_POWER) * float(f.get("amount", 1.0))   # an overcharged bot hits x1.25 / x1.5
-	if float(hosts[t].bots) <= 0.0: _capture(t, fac)
+	if float(hosts[t].bots) <= 0.0: _breach(t, fac)
 
 
-# ownership changes: attack flows into a building the attacker CAPTURES become guards that top it up and
-# stand down; wires of the LOSER into it stand down (kept, dormant) — retaking it is an explicit call
+# ownership changes: the CAPTURER's connections into it end (a conquered target needs no link); wires of the
+# LOSER into it stand down (kept, dormant) — retaking it is an explicit call
 func _capture(t: int, fac: int) -> void:
 	var prev := int(hosts[t].owner)
 	var nm := str(hosts[t].name)
 	if ais.has(prev): _ai[prev].lost[t] = {"to": fac, "at": _t}   # an AI remembers what it lost
-	hosts[t].owner = fac
+	hosts[t].owner = fac; hosts[t].breached_by = -1
 	hosts[t].producer_paused = {}; hosts[t].boost_until = 0.0; hosts[t].patch_until = 0.0; hosts[t].sca_until = 0.0
 	_crypto_credit.erase(t)
 	for f in botnets:   # the capture is announced to everyone: a just-taken building is known to be near empty
@@ -2121,9 +2174,11 @@ func _capture(t: int, fac: int) -> void:
 		scans[f][t] = {"key": str(old.get("key", "")), "done": bool(old.get("done", false)), "progress": 0.0, "bots": 0.0, "cap": NODE_CAP, "at": _t}
 	hosts[t].bots = minf(NODE_CAP, -float(hosts[t].bots))
 	hosts[t].assign = -1; hosts[t].live = false; hosts[t].jobs = {}; hosts[t].rate = 1.0; hosts[t].assault = {}; hosts[t].mode = "attack"   # a lost source's order is void
-	for i in hosts.size():   # the target is ours now: assaults on it stop sending (what is in the air lands as usual) — no guards
-		var order: Dictionary = hosts[i].get("assault", {})
-		if not order.is_empty() and int(order.t) == t and int(hosts[i].owner) == fac: _end_assault(i)
+	var ended := 0
+	for i in hosts.size():   # the target is ours now: the connections we ran into it end (what is in the air lands as usual)
+		if int(hosts[i].owner) != fac or int(hosts[i].assign) != t or i == t: continue
+		if _assault_active(i): _end_assault(i)
+		hosts[i].assign = -1; hosts[i].live = false; hosts[i].mode = "attack"; _next_depart.erase(i); ended += 1
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # a captured building is empty inside: the new owner builds from scratch
 	hosts[t].prod_off = 0.0; hosts[t].route_off = 0.0; hosts[t].steal_until = -100.0; hosts[t].steal_by = -1; hosts[t].hit_t = -100.0   # a new owner, a clean slate
 	if _is_mission(t): hosts[t].access_until = 0.0; hosts[t].access_by = -1; hosts[t].alert = 0.0   # access ends if the target changes hands
@@ -2136,12 +2191,8 @@ func _capture(t: int, fac: int) -> void:
 			if int(hosts[i].owner) == prev and int(hosts[i].assign) == t and bool(hosts[i].live):
 				hosts[i].live = false; _next_depart.erase(i); stood += 1
 	if fac == PLAYER:
-		var flowing := 0
-		for i in hosts.size():
-			if _mine(i) and int(hosts[i].assign) == t and bool(hosts[i].live): flowing += 1
 		var from := "" if prev == NEUTRAL else " from %s" % fname(prev)
-		if flowing > 0: _flash("Captured %s%s — %d flow(s) now top it up as guards" % [nm, from, flowing])
-		else: _flash("Captured %s%s" % [nm, from])
+		_flash("Captured %s%s%s" % [nm, from, (" — %d connection(s) into it ended" % ended) if ended > 0 else ""])
 	elif prev == PLAYER:
 		if stood > 0: _flash("Lost %s to %s — %d connection(s) stand down (press ATTACK there to retake)" % [nm, fname(fac), stood])
 		else: _flash("Lost %s to %s" % [nm, fname(fac)])
@@ -2157,6 +2208,60 @@ func _capture(t: int, fac: int) -> void:
 			if _faction_nodes(f) > 0: alive.append(f)
 		if alive.size() == 1: _win_for(int(alive[0]), "You are the last botnet standing." if int(alive[0]) == PLAYER else "%s wiped out the other botnets." % fname(int(alive[0])))
 	_refresh_panel()
+
+
+# ============================================================ TAKEOVER
+# Bots only BREACH a computer. Owning it costs Credentials (by its type) + Research (rising with your botnet's size).
+func _takeover_cost(fac: int, t: int) -> Dictionary:
+	var sec := float(NODE_TYPES[str(hosts[t].get("type", "pc"))].get("sec", 0))
+	return {"creds": maxf(TAKEOVER_CREDS_MIN, TAKEOVER_CREDS_BASE + TAKEOVER_CREDS_PER_SEC * sec),
+		"research": TAKEOVER_RESEARCH_BASE * (1.0 + TAKEOVER_RESEARCH_GROWTH * float(_faction_nodes(fac)))}
+
+
+func _can_take_over(fac: int, t: int) -> bool:
+	var c := _takeover_cost(fac, t)
+	return float(creds[fac]) >= float(c.creds) - 0.0001 and float(research[fac]) >= float(c.research) - 0.0001
+
+
+func _takeover_text(fac: int, t: int) -> String:   # "14 Credentials + 6 Research"
+	var c := _takeover_cost(fac, t)
+	return "%d Credentials + %d Research" % [int(ceil(float(c.creds))), int(ceil(float(c.research)))]
+
+
+func _breach(t: int, fac: int) -> void:   # defenders at zero: take it over now if fac can pay, else it waits breached
+	if _can_take_over(fac, t): _take_over(t, fac); return
+	hosts[t].bots = 0.0
+	var was := int(hosts[t].get("breached_by", -1))
+	hosts[t].breached_by = fac
+	if fac == PLAYER and was != PLAYER: _flash("%s is breached — taking it over needs %s" % [str(hosts[t].name), _takeover_text(fac, t)], 3)
+
+
+func _take_over(t: int, fac: int) -> void:
+	var c := _takeover_cost(fac, t)
+	creds[fac] = maxf(0.0, float(creds[fac]) - float(c.creds)); research[fac] = maxf(0.0, float(research[fac]) - float(c.research))
+	var nm := str(hosts[t].name)
+	_capture(t, fac)
+	if fac == PLAYER: _flash("Took over %s for %d Credentials + %d Research" % [nm, int(ceil(float(c.creds))), int(ceil(float(c.research)))], 3)
+
+
+func _tick_breaches() -> void:   # a breach ends when its farms refill it; it flips the moment the breacher can pay
+	for t in hosts.size():
+		var b := int(hosts[t].get("breached_by", -1))
+		if b < 0: continue
+		if float(hosts[t].bots) > 0.5 or int(hosts[t].owner) == b or not botnets.has(b) or _eliminated.has(b):
+			hosts[t].breached_by = -1; continue
+		if _can_take_over(b, t): _take_over(t, b)
+
+
+func _breached_by(t: int) -> int: return int(hosts[t].get("breached_by", -1)) if float(hosts[t].bots) <= 0.5 else -1
+
+
+func _tick_rig_trickle(dt: float) -> void:   # a working rig yields a little Credentials + Research: never stuck at a breach
+	for fac in botnets:
+		var home := int(rig.get(fac, -1))
+		if home < 0 or int(hosts[home].owner) != int(fac) or _prod_down(home): continue
+		creds[fac] = maxf(float(creds[fac]), minf(_res_cap(fac, "cred"), float(creds[fac]) + RIG_CREDS * dt))
+		research[fac] = maxf(float(research[fac]), minf(_res_cap(fac, "lab"), float(research[fac]) + RIG_RESEARCH * dt))
 
 
 # ============================================================ CARDS
@@ -2411,10 +2516,13 @@ func _apply_effect(fac: int, cd: Dictionary, i: int, level := 1) -> float:
 			if _camp and fac == PLAYER: _camp_events["0day_missed"] = true
 			return -2.0
 		hosts[i].bots = 0.0; _capture(i, fac)
-	if effect == "deny":
-		hosts[i].prod_off = maxf(float(hosts[i].prod_off), duration)
-		hosts[i].route_off = maxf(float(hosts[i].route_off), duration)
-	if effect == "campaign":
+	if effect == "deny":   # longer against a big garrison (up to ×2): a bot blob is frozen in place
+		var d := duration * clampf(float(hosts[i].bots) / NODE_CAP, 1.0, 2.0)
+		hosts[i].prod_off = maxf(float(hosts[i].prod_off), d)
+		hosts[i].route_off = maxf(float(hosts[i].route_off), d)
+	if effect == "campaign":   # longer against a big network (up to ×2)
+		var victim := int(hosts[i].owner)
+		if victim != NEUTRAL: duration *= clampf(1.0 + float(_faction_nodes(victim)) / 20.0, 1.0, 2.0)
 		var expires := _t + duration
 		if int(hosts[i].steal_by) == fac: expires = maxf(float(hosts[i].steal_until), expires)
 		hosts[i].steal_until = expires; hosts[i].steal_by = fac
@@ -2422,6 +2530,7 @@ func _apply_effect(fac: int, cd: Dictionary, i: int, level := 1) -> float:
 		hosts[i].builds = _slot_array([], int(hosts[i].slots))
 		hosts[i].jobs = {}; hosts[i].bots = 0.0; hosts[i].producer_paused = {}
 		_next_cash.erase(i); _crypto_credit.erase(i)
+		_supply_splash(i)
 	if effect == "cdn":
 		if _prod_down(i) or _routing_down(i):   # DDOS: production and routing both come back
 			hosts[i].prod_off = 0.0; hosts[i].route_off = 0.0; hosts[i].card_result = "cleared"
@@ -2432,6 +2541,20 @@ func _apply_effect(fac: int, cd: Dictionary, i: int, level := 1) -> float:
 	hosts[i].hit_t = _t
 	_mark_scanned(fac, i)
 	return 1.0
+
+
+func _supply_splash(i: int) -> void:   # Supply also halves the bots on up to SUPPLY_SPLASH of the owner's computers next to it
+	var owner := int(hosts[i].owner)
+	if owner == NEUTRAL: return
+	var near := []
+	for n in hosts[i].links:
+		var k := int(n)
+		if int(hosts[k].owner) != owner or float(hosts[k].get("patch_until", 0.0)) > _t or float(hosts[k].get("sca_until", 0.0)) > _t: continue
+		near.append([-float(hosts[k].bots), k])   # the biggest garrisons first; index breaks ties (deterministic)
+	near.sort_custom(func(a, b): return _less(a, b))
+	for pair in near.slice(0, SUPPLY_SPLASH):
+		var k := int(pair[1])
+		hosts[k].bots = float(hosts[k].bots) * 0.5; hosts[k].hit_t = _t
 
 
 func _worm(fac: int, cd: Dictionary, start: int) -> Array:
@@ -2829,9 +2952,10 @@ func _ai_think(fac: int) -> void:
 		if site < 0:   # a frontier building facing a botnet with a single farm gets a second
 			for e in free_slot:
 				if _ai_borders_botnet(e) and _count_all(e, "bot") < 2: site = e; kind = "bot"; break
-		if site < 0 and mine.size() >= 3 and _kind_total(fac, "cash") > 0:   # the card economy: one harvester, then one lab, in the rear
+		if site < 0 and mine.size() >= 2:   # the takeover economy: Credential harvesters + labs, one pair per ~5 computers, in the rear
+			var want := 1 + int(mine.size() / 5)
 			for kind2 in ["cred", "lab"]:
-				if site >= 0 or _kind_total(fac, str(kind2)) > 0: continue
+				if site >= 0 or _kind_total(fac, str(kind2)) >= want: continue
 				var best2 := -INF
 				for e in free_slot:
 					var sc2 := _tmult(e, "cred" if str(kind2) == "cred" else "research") * 2.0 - (3.0 if _ai_borders_botnet(e) else 0.0) - (1.0 if _ai_frontier(e) else 0.0)
@@ -3612,6 +3736,7 @@ func _cancel_to(dest: int) -> void:
 
 func _apply_options() -> void:   # turn the menu choices into the live grid + faction set + seed
 	_cols = _opt_size.x; _rows = _opt_size.y
+	_layout = "grid" if (_mp_on or _camp or not SHAPES.has(_opt_shape)) else _opt_shape   # every lockstep screen must build the same town
 	if _mp_on:   # people only: every faction in the match is a player, no AI
 		ais = []; botnets = humans.duplicate(); town_seed = _opt_seed; ai_level = {}
 		return
@@ -4300,7 +4425,13 @@ func _menu_campaign() -> void:
 
 func _menu_newgame() -> void:
 	_menu_title("New game")
-	_menu_label("Map size  ·  %d × %d cells" % [_opt_size.x, _opt_size.y])
+	var mrow0 := HBoxContainer.new(); mrow0.add_theme_constant_override("separation", 6)   # "Map · 8 × 6" ... [Layout: Grid]
+	var ml := Label.new(); ml.text = "Map  ·  %d × %d" % [_opt_size.x, _opt_size.y]; ml.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ml.add_theme_font_size_override("font_size", 13); ml.add_theme_color_override("font_color", C_DIM); mrow0.add_child(ml)
+	var shape := Button.new(); shape.name = "Shape"; shape.text = "Layout: " + ("Circle" if _opt_shape == "circle" else "Grid")   # click to switch
+	shape.focus_mode = Control.FOCUS_ALL; shape.add_theme_font_size_override("font_size", 13); shape.add_theme_color_override("font_color", C_WARN)
+	shape.pressed.connect(func(): _opt_shape = SHAPES[(SHAPES.find(_opt_shape) + 1) % SHAPES.size()]; _refresh_menu())
+	mrow0.add_child(shape); menu_box.add_child(mrow0)
 	var names := ["Small", "Medium", "Big"]
 	var srow := HBoxContainer.new(); srow.add_theme_constant_override("separation", 6)
 	for i in 3:
@@ -4362,8 +4493,8 @@ func _help_text(t: String, col := C_DIM) -> void:
 	menu_box.add_child(l)
 
 
-const HELP_PAGES := ["network", "build", "resources", "cards", "protection", "goal"]
-const HELP_TITLES := ["Connect. Scan. Attack.", "Turn empty slots into production.", "Three production chains.", "ATTACK cards: research below, drag to play.", "DEFENCE cards protect your own hosts.", "Grow your network. Protect your rig."]
+const HELP_PAGES := ["network", "takeover", "build", "resources", "cards", "protection", "goal"]
+const HELP_TITLES := ["Connect. Scan. Attack.", "Bots breach. Credentials + Research take over.", "Turn empty slots into production.", "Three production chains.", "ATTACK cards: research below, drag to play.", "DEFENCE cards protect your own hosts.", "Grow your network. Protect your rig."]
 
 func _menu_help() -> void:
 	_help_page = clampi(_help_page, 0, HELP_PAGES.size() - 1)
@@ -4476,7 +4607,7 @@ const RICH_TERMS := {
 	"ATTACK": "bank:attack", "DEFENCE": "bank:defense",
 	# panel buttons: the button's colour (+ its glyph where one exists)
 	"Scan": "act:Scan", "Attack": "act:Attack", "Assault": "act:Assault", "Cancel assault": "act:Cancel assault",
-	"Establish access": "act:Establish access", "Sell": "act:Sell", "Publish": "act:Publish", "CUT": "cut",
+	"Establish access": "act:Establish access", "Sell": "act:Sell", "Publish": "act:Publish", "CUT": "cut", "breached": "breach", "BREACHED": "breach",
 	# computers: their CURRENT owner's colour (neutral = the gold highlight ring), no icon
 	"YOUR RIG": "rig:p", "rival rig": "rig:r", "rival's rig": "rig:r", "Support": "role:support", "Neighborhood Relay": "role:relay",
 	"relay": "role:relay", "Community Relay": "role:commrelay", "Corporate Gateway": "role:gateway", "Gateway": "role:gateway",
@@ -4531,6 +4662,7 @@ func _rich_spec(spec: String) -> Array:   # -> [text colour, icon id ("" = none)
 			return [c, "", Color.WHITE]
 		"rig", "fac": return [fcol(PLAYER if k == "p" else RIVAL), "", Color.WHITE]
 		"cut": return [Color(1, 0.4, 0.65), "", Color.WHITE]   # the map's CUT timer colour
+		"breach": return [Color(1, 0.55, 0.25), "", Color.WHITE]   # the map's BREACHED label
 	return [C_WARN, "", Color.WHITE]   # "warn"
 
 
@@ -4688,16 +4820,16 @@ func _camp_chapters() -> Array:
 func _camp_steps(chapter: int) -> Array:
 	match chapter:
 		0: return [
-			{"t": "Your home computer", "r": "Connected. Your bots can now travel from YOUR RIG to the relay.", "a": "Drag from YOUR RIG onto the Neighborhood Relay to connect them.", "w": "YOUR RIG is your home base. Lose it and you lose the game.", "role": "relay", "from": "home", "pause": true},
+			{"t": "Your home computer", "r": "Connected. A connection drains a little Intel while it exists.", "a": "Drag from YOUR RIG onto the Neighborhood Relay to connect them.", "w": "You can only see — and connect to — computers near your own.", "role": "relay", "from": "home", "pause": true},
 			{"t": "Scan the relay", "r": "Scanned. The number on the relay now shows its real defenders.", "a": "Press the blinking Scan button, then wait for the scan to finish.", "w": "You can't see a computer's defenders until you scan it.", "role": "relay", "ui": "btn:Scan", "pause": true},
 			{"t": "Attack with two", "r": "Your bots are wearing the relay down — watch its number fall.", "a": "Press Attack, then drag from Support onto the relay to add its bots.", "w": "Bots fight defenders one for one. Two attackers win faster.", "role": "relay", "from": "support", "ui": "btn:Attack", "pause": true},
-			{"t": "Capture", "r": "The Neighborhood Relay is yours. Its slots can now hold your installations.", "a": "Keep attacking until the relay turns green.", "w": "When its defenders reach zero, the computer becomes yours.", "role": "relay", "pause": false},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours, and the link into it ended. Each takeover costs a little more Research than the last.", "a": "Keep attacking until the relay's defenders reach zero.", "w": "At zero it is breached; Credentials and Research then take it over — paid for you when you have them.", "role": "relay", "pause": false},
 		]
 		1: return [
-			{"t": "Make Intel", "r": "The Intel harvester is running — your Intel income went up.", "a": "Select the relay, then click the blinking Intel harvester card.", "w": "Computers have slots for installations. An Intel harvester makes Intel.", "role": "relay", "ui": "build:intel", "pause": true},
+			{"t": "Make Intel", "r": "The Intel harvester is running — your Intel income went up.", "a": "Select the relay, then click the blinking Intel harvester card.", "w": "Intel pays for attacks, connections and regrown bots. An Intel harvester makes it.", "role": "relay", "ui": "build:intel", "pause": true},
 			{"t": "Make Crypto", "r": "The Crypto miner is turning Intel into Crypto packets.", "a": "Click the blinking Crypto miner card.", "w": "A Crypto miner turns Intel into Crypto, the money for farms and cards.", "role": "relay", "ui": "build:cash", "pause": true},
 			{"t": "Bring it home", "r": "Crypto arrived home — see your Crypto at the top of the screen.", "a": "Wait for a Crypto packet to reach YOUR RIG.", "w": "Crypto counts only when it arrives home.", "role": "home", "pause": false},
-			{"t": "Spend it", "r": "The Bot farm will now refill the relay's defenders over time.", "a": "Click the blinking Bot farm card (30 Crypto).", "w": "A Bot farm grows new defenders on the relay over time.", "role": "relay", "ui": "build:bot", "pause": true, "fire": "ch1_cash"},
+			{"t": "Spend it", "r": "The Bot farm will refill the relay's defenders, at a little Intel per bot.", "a": "Click the blinking Bot farm card (30 Crypto).", "w": "A Bot farm regrows defenders here — each regrown bot costs a little Intel.", "role": "relay", "ui": "build:bot", "pause": true, "fire": "ch1_cash"},
 		]
 		2: return [
 			{"t": "Guard Support", "r": "Support is guarded: if it is attacked, {from} sends help.", "a": "Drag from {from} onto Support (follow the green arrow).", "w": "A connection between two of your computers is a guard: it sends bots only when Support is attacked.", "role": "support", "from": "guard", "pause": true},
@@ -4706,15 +4838,15 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Hold through a cut", "r": "Support held, and its route is back. Your guard kept working through the cut.", "a": "Keep Support guarded and hold until the CUT timer under it runs out.", "w": "The Corporate Gateway hit back and cut Support's routing. Your guard still sends help, and the cut wears off.", "role": "support", "from": "guard", "pause": false, "fire": "ch2_cut"},
 		]
 		3: return [
-			{"t": "Card workshop", "r": "The workshop is running: Credentials and Research now flow in.", "a": "Select the relay, then click the blinking Credential harvester and Research lab cards.", "w": "Cards cost Crypto, Credentials and Research. The harvester makes Credentials; the lab turns Crypto into Research.", "role": "relay", "ui": ["build:cred", "build:lab"], "pause": true, "fire_leave": "ch3_stock"},
+			{"t": "Card workshop", "r": "The workshop is running: Credentials and Research now flow in.", "a": "Select the relay, then click the blinking Credential harvester and Research lab cards.", "w": "Takeovers and cards cost Credentials and Research. The harvester makes Credentials; the lab turns Crypto into Research.", "role": "relay", "ui": ["build:cred", "build:lab"], "pause": true, "fire_leave": "ch3_stock"},
 			{"t": "Prepare Phishing", "r": "Phishing is ready. A prepared card waits at the bottom until you play it.", "a": "Click the blinking Phishing card at the bottom and wait for its bar to fill.", "w": "A card must be prepared before you can play it. Phishing lets you steal a rival's output.", "role": "", "ui": "card:phishworm", "pause": true},
 			{"t": "Phishing", "r": "The Practice host's output now comes to you — and it still pays the costs.", "a": "Drag Phishing onto the Practice host.", "w": "Its output now comes to you, but the computer stays theirs.", "role": "practice", "ui": "card:phishworm", "card": "phishworm:linked", "pause": true},
 			{"t": "Incident response", "r": "The theft stopped. Your relay's output is yours again.", "a": "Drag the blinking Incident response card onto the Neighborhood Relay.", "w": "A rival is phishing your relay. Incident response stops the theft.", "role": "relay", "ui": "card:response", "card": "response:linked", "pause": true, "fire": "ch3_phish"},
-			{"t": "DDOS", "r": "The Practice host is frozen: no production and no traffic for a while.", "a": "Drag DDOS onto the Practice host.", "w": "DDOS stops a computer's production and traffic for a while. It does not capture it.", "role": "practice", "ui": "card:ddos", "card": "ddos:linked", "pause": true},
+			{"t": "DDOS", "r": "The Practice host is frozen: no production and no traffic for a while.", "a": "Drag DDOS onto the Practice host.", "w": "DDOS stops a computer's production and traffic for a while — longer against a big garrison.", "role": "practice", "ui": "card:ddos", "card": "ddos:linked", "pause": true},
 			{"t": "CDN", "r": "Your relay is back online.", "a": "Drag CDN onto the Neighborhood Relay.", "w": "A rival DDOSed your relay. CDN brings it back online.", "role": "relay", "ui": "card:cdn", "card": "cdn:linked", "pause": true, "fire": "ch3_ddos"},
 			{"t": "0day", "r": "Practice host 2 is yours — taken without sending a single bot.", "a": "Drag 0day onto Practice host 2.", "w": "0day tries to take a computer you are connected to. It can miss; you'll get another copy.", "role": "practice2", "ui": "card:zeroday", "card": "zeroday:linked", "pause": true},
 			{"t": "Patch day", "r": "Support is shielded. Watch: the rival's 0day bounces off.", "a": "Drag Patch day onto Support.", "w": "Patch day shields a computer from 0day and Supply chain attacks for a while.", "role": "support", "ui": "card:patch", "card": "patch:linked", "pause": true, "fire_leave": "ch3_0day"},
-			{"t": "Supply chain attack", "r": "The Practice host lost its installations and bots — but it still belongs to the rival.", "a": "Drag Supply chain attack onto the Practice host.", "w": "It wipes a computer's installations and bots. The owner keeps the computer.", "role": "practice", "ui": "card:supply", "card": "supply:linked", "pause": true},
+			{"t": "Supply chain attack", "r": "The Practice host lost its installations and bots — but it still belongs to the rival.", "a": "Drag Supply chain attack onto the Practice host.", "w": "It wipes a computer's installations and bots, and halves the bots next to it. The owner keeps them.", "role": "practice", "ui": "card:supply", "card": "supply:linked", "pause": true},
 			{"t": "SCA", "r": "Support is shielded. Watch: the rival's Supply chain attack bounces off.", "a": "Drag SCA onto Support.", "w": "SCA shields a computer from Supply chain attacks.", "role": "support", "ui": "card:sca", "card": "sca:linked", "pause": true, "fire_leave": "ch3_supply"},
 		]
 		4: return [
@@ -5012,8 +5144,8 @@ func _nearest_owned(t: int) -> int:
 var _opt_backup := {}
 func _start_campaign(chapter: int, replay := false) -> void:
 	if _opt_backup.is_empty() and not _camp:   # remember the player's own New-game choices once
-		_opt_backup = {"size": _opt_size, "enemies": _opt_enemies, "ai": _opt_ai_level, "mission": _opt_mission, "seed": _opt_seed}
-	_opt_size = CAMP_SIZE; _opt_enemies = 1; _opt_ai_level = "normal"; _opt_mission = false; _opt_seed = CAMP_SEED
+		_opt_backup = {"size": _opt_size, "enemies": _opt_enemies, "ai": _opt_ai_level, "mission": _opt_mission, "seed": _opt_seed, "shape": _opt_shape}
+	_opt_size = CAMP_SIZE; _opt_enemies = 1; _opt_ai_level = "normal"; _opt_mission = false; _opt_seed = CAMP_SEED; _opt_shape = "grid"
 	_reset()
 	for fac in ais: ai_level[fac] = "normal"
 	_camp_roles()
@@ -5081,6 +5213,7 @@ func _camp_restore_opts() -> void:   # put back the player's own New-game choice
 	_opt_ai_level = str(_opt_backup.get("ai", _opt_ai_level))
 	_opt_mission = bool(_opt_backup.get("mission", _opt_mission))
 	_opt_seed = int(_opt_backup.get("seed", _opt_seed))
+	_opt_shape = str(_opt_backup.get("shape", _opt_shape))
 	_opt_backup = {}
 
 
@@ -5874,7 +6007,7 @@ func _assault_forecast(t: int, conns: Array) -> String:   # what pressing Assaul
 		var secs := float(bots) / (float(n) * ASSAULT_RATE) + float(hops) * LINK_TIME + float(maxi(0, hops - 1)) * NODE_ROUTE_DELAY
 		var after := float(hosts[t].bots) + _regen(t) * secs - float(bots) * power
 		line += "
-Predicted: %s (no guards, full Intel, free streets)" % ("captured, ~%d spare" % int(-after) if after < 0.0 else "~%d defenders left" % int(ceil(after)))
+Predicted: %s (no guards, full Intel, free links)" % (("breached — takeover %s" % _takeover_text(PLAYER, t)) if after < 0.0 else "~%d defenders left" % int(ceil(after)))
 	else: line += "
 Scan it to predict the defenders left"
 	return line
@@ -5901,6 +6034,8 @@ func _panel_inspect() -> void:
 		return
 	_plabel(str(hosts[i].name), 20, C_TEXT)
 	_plabel(_stage_line(i), 14, C_DIM)
+	var price_ok := _can_take_over(PLAYER, i)
+	_plabel(("Breached — " if _breached_by(i) == PLAYER else "") + "Take over: %s (you have %d / %d)" % [_takeover_text(PLAYER, i), int(creds[PLAYER]), int(research[PLAYER])], 13, C_GOOD if price_ok else C_WARN)
 	if _is_mission(i): _panel_mission(i)
 	_panel_enemy_slots(i)
 	_panel_node_in(i)
@@ -6225,37 +6360,18 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, streets, wires
 	var vis: Dictionary = cx.vis; var sight: Dictionary = cx.sight; var seen: Dictionary = cx.seen; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes; var flinks: Dictionary = cx.flinks
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
 	_draw_territories(vis)
-	var traffic := _street_traffic(sight)
-	for i in hosts.size():   # streets, tinted by the botnet holding both ends; amber when at capacity
-		for j in hosts[i].links:
-			if j < i: continue
-			var vi := vis.has(i); var vj := vis.has(int(j))
-			if not ((vi or seen.has(i)) and (vj or seen.has(int(j)))): continue   # an unexplored end: fog
-			if not (vi and vj):   # a remembered street at the edge of sight: faint, owners unknown
-				_cv.draw_line(hosts[i].pos, hosts[int(j)].pos, Color(0.35, 0.5, 0.7, 0.08), 1.0, true)
-				continue
-			var oi := int(hosts[i].owner); var oj := int(hosts[j].owner)
-			var key := _lk(i, int(j))
-			var lcol := Color(0.35, 0.5, 0.7, 0.18); var w := 1.0
-			if _highways.has(key): lcol = Color(0.55, 0.7, 0.85, 0.3); w = 2.2   # a highway across a gap
-			if oi == oj and oi != NEUTRAL: lcol = fcol(oi); lcol.a = 0.35; w = (2.4 if _highways.has(key) else 1.3)
-			if int(traffic.get(key, 0)) >= _link_cap(i, int(j)): lcol = Color(1, 0.75, 0.3, 0.65); w = 1.8   # at capacity, by the packets you can see
-			if focus_on and not flinks.has(key): lcol.a *= 0.6
-			_cv.draw_line(hosts[i].pos, hosts[int(j)].pos, lcol, w, true)
+	# the network itself is hidden: routes are never drawn — only your own connections below
 	# connections. LIVE = solid flowing route; DORMANT = the dashed plan (nothing moving, nothing spent);
 	# Strict fog: only the focused building's own connections stay bright.
 	for i in hosts.size():
 		var a := int(hosts[i].assign)
 		if a < 0:
 			var d := _bot_target(i)
-			if d >= 0 and _next_depart.has(i): _draw_route_line(_route(i, d), i, d, true)
+			if d >= 0 and _next_depart.has(i) and _mine(i): _draw_route_line(_route(i, d), i, d, true)
 			continue
 		var dimmed: bool = focus_on and not (fnodes.has(i) and fnodes.has(a))
-		if not _mine(i) and not _wire_visible(i): continue   # others' quiet scans and dormant plans are invisible — to you and to them
-		if not _mine(i) and not sight.has(i): continue       # a foreign source out of sight (fog, or a rig seen from afar): no wire
-		if bool(hosts[i].live) and not _mine(i):              # a foreign wire shows only along streets you can see
-			for run in _sighted_runs(_route(i, a), sight): _draw_route_line(run, i, a, dimmed, int(run.back()) == a)
-		elif bool(hosts[i].live):
+		if not _mine(i): continue   # a rival's connections are invisible (you see only the packets that reach your sight)
+		if bool(hosts[i].live):
 			_draw_route_line(_route(i, a), i, a, dimmed)
 		else:
 			var kcol: Color = Color(0.45, 0.95, 0.7, 0.8) if int(hosts[a].owner) == int(hosts[i].owner) else Color(1, 0.85, 0.4, 0.8)
@@ -6693,7 +6809,8 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if bool(hosts[i].get("junction", false)): sub = "junction"
 	if _is_mission(i) and _access_live(PLAYER, i): sub = "RECORDS %d/%d" % [int(_records_got(PLAYER, i)), int(hosts[i].records_total)]
 	elif _is_mission(i) and _scanned(PLAYER, i) and not _mission_complete(PLAYER, i): sub = "OBJECTIVE"
-	if _mine(i) and _routing_down(i) and not _prod_down(i): sub = "CUT %ds" % int(ceil(float(hosts[i].route_off)))   # your cut outranks FULL
+	if _breached_by(i) >= 0: sub = "BREACHED"
+	elif _mine(i) and _routing_down(i) and not _prod_down(i): sub = "CUT %ds" % int(ceil(float(hosts[i].route_off)))   # your cut outranks FULL
 	elif _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
 	elif _assault_active(i): sub = ("ASSAULT %d" % int(_assault_of(i).left) if _mine(i) else "ASSAULT") + (" · rest" if _regen_paused(i) else "")
 	elif _stolen(i): sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))   # its output goes to the caster
@@ -6709,6 +6826,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	elif sub.begins_with("RECORDS") or sub == "OBJECTIVE": subcol = Color(1, 0.8, 0.35, a)
 	elif sub.begins_with("ASSAULT"): subcol = Color(1, 0.45, 0.35, a)
 	elif sub.begins_with("CUT"): subcol = Color(1, 0.4, 0.65, a)
+	elif sub == "BREACHED": subcol = Color(1, 0.55, 0.25, a)
 	if focused and _mine(i):   # details only while you look at it: what is built, the send rate
 		var bi := ""
 		var bl := _built(i); var act := _active_slots(i)

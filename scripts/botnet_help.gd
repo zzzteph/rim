@@ -69,6 +69,7 @@ func _draw() -> void:
 	if game == null: return
 	match page:
 		"network": _network()
+		"takeover": _takeover()
 		"build": _build()
 		"resources": _resources()
 		"cards": _cards()
@@ -82,7 +83,7 @@ func _network() -> void:
 	_host(Vector2(490, 85), RED, "TARGET", "server")
 	_arrow(Vector2(184, 85), Vector2(436, 85), BLUE, true)
 	_cursor(Vector2(322, 72))
-	_text("A wire is ready. Scan the target, then Attack.", Rect2(20, 145, 580, 22), 12, DIM)
+	_text("You see and reach only what is near your computers. A link drains a little Intel.", Rect2(20, 145, 580, 22), 12, DIM)
 	_tile(Rect2(0, 186, 304, 194))
 	_tile(Rect2(316, 186, 304, 194))
 	_text("2  SCAN", Rect2(16, 198, 272, 22), 15, BLUE, false)
@@ -94,10 +95,36 @@ func _network() -> void:
 	for index in 3:
 		draw_circle(Vector2(356 + index * 23, 271), 5, GREEN)
 	_arrow(Vector2(426, 273), Vector2(494, 273), RED)
-	_host(Vector2(548, 273), GREEN, "0 = captured", "server", 42)
+	_host(Vector2(548, 273), GOLD, "0 = breached", "server", 42)
 	_text("Reveal defenders + installed buildings", Rect2(12, 345, 280, 25), 11, DIM)
 	_text("1 Intel per bot (more above 100%)", Rect2(328, 340, 280, 22), 12, DIM)
 	_text("ASSAULT: fixed share, %d/s; farms rest" % int(game.ASSAULT_RATE), Rect2(328, 358, 284, 20), 11, RED)
+
+func _takeover() -> void:
+	_tile(Rect2(0, 0, 620, 176))
+	_text("1  YOUR BOTS BREACH IT", Rect2(16, 12, 588, 22), 15, RED, false)
+	_host(Vector2(130, 85), RED, "20 defenders", "server")
+	for index in 3:
+		draw_circle(Vector2(232 + index * 23, 85), 5, GREEN)
+	_arrow(Vector2(310, 85), Vector2(436, 85), RED)
+	_host(Vector2(490, 85), GOLD, "0 = BREACHED", "server")
+	_text("At zero your bots stop. It is not yours yet.", Rect2(20, 145, 580, 22), 12, DIM)
+	_tile(Rect2(0, 188, 304, 192))
+	_tile(Rect2(316, 188, 304, 192))
+	_text("2  PAY TO TAKE IT OVER", Rect2(16, 200, 272, 22), 15, GOLD, false)
+	_kind("cred", Vector2(52, 254), 40)
+	_text("Credentials: by its type", Rect2(82, 241, 210, 22), 13, game.BUILD_KINDS["cred"].col, false)
+	var c_pc: float = game.TAKEOVER_CREDS_BASE; var c_erp: float = game.TAKEOVER_CREDS_BASE + game.TAKEOVER_CREDS_PER_SEC * 6.0
+	_text("PC %d  ·  ERP %d" % [int(c_pc), int(c_erp)], Rect2(82, 264, 210, 20), 12, DIM, false)
+	_kind("lab", Vector2(52, 322), 40)
+	_text("Research: grows with you", Rect2(82, 309, 210, 22), 13, game.BUILD_KINDS["lab"].col, false)
+	var r2: float = game.TAKEOVER_RESEARCH_BASE * (1.0 + game.TAKEOVER_RESEARCH_GROWTH * 2.0); var r20: float = game.TAKEOVER_RESEARCH_BASE * (1.0 + game.TAKEOVER_RESEARCH_GROWTH * 20.0)
+	_text("%d at 2 computers · %d at 20" % [int(round(r2)), int(round(r20))], Rect2(82, 332, 210, 20), 12, DIM, false)
+	_text("3  IT IS YOURS", Rect2(332, 200, 272, 22), 15, GREEN, false)
+	_host(Vector2(468, 280), GREEN, "TAKEN OVER", "server", 42)
+	_text("Paid for you when you have both.", Rect2(328, 336, 284, 20), 12, DIM)
+	_text("The link into it ends.", Rect2(328, 356, 284, 20), 12, DIM)
+
 
 func _build() -> void:
 	_tile(Rect2(0, 0, 620, 188))
@@ -131,7 +158,7 @@ func _build() -> void:
 	_text("+%.0f limit" % game.INTEL_CAP_PER_BUILD, Rect2(494, 282, 112, 23), 12, DIM)
 	_text("Costs " + game._build_cost_text("bot"), Rect2(12, 314, 280, 22), 13, game.BUILD_KINDS["cash"].col)
 	_text("Costs " + game._build_cost_text("intel"), Rect2(328, 314, 280, 22), 13, BLUE)
-	_text("PC example: replenish defenders", Rect2(12, 344, 280, 22), 11, DIM)
+	_text("Each regrown bot costs %s Intel" % str(snappedf(game.REGEN_PRICE, 0.01)), Rect2(12, 344, 280, 22), 11, DIM)
 	_text("PC example: fuel your network", Rect2(328, 344, 280, 22), 11, DIM)
 
 func _resource_row(y: float, input: String, output: String, producer: String, input_name: String, output_name: String) -> void:
@@ -149,7 +176,7 @@ func _resources() -> void:
 	_resource_row(0, "intel", "cred", "HARVESTER", "Intel", "Credential")
 	_resource_row(117, "intel", "cash", "MINER", "Intel", "Crypto")
 	_resource_row(234, "cash", "lab", "LAB", "Crypto", "Research")
-	_text("No input = no output. Crypto travels home, then pays farms, labs and cards.", Rect2(0, 347, 620, 17), 11, DIM)
+	_text("No input = no output. Crypto pays farms; Credentials + Research pay takeovers and cards.", Rect2(0, 347, 620, 17), 11, DIM)
 	_text("Click an installed producer to pause / resume.", Rect2(0, 365, 620, 15), 11, BLUE)
 
 func _example_card(rect: Rect2, owned: int, progress: float) -> void:
@@ -181,7 +208,7 @@ func _cards() -> void:
 	_arrow(Vector2(175, 303), Vector2(447, 303), GREEN)
 	_cursor(Vector2(284, 289))
 	_host(Vector2(514, 301), RED, "REACHABLE TARGET", "server", 42)
-	_text("DRAG a held copy to play it · ATTACK / DEFENCE or C pulls the deck up", Rect2(20, 344, 580, 20), 12, DIM)
+	_text("DRAG a held copy to play it · DDOS, Supply and Phishing hit big armies harder", Rect2(20, 344, 580, 20), 12, DIM)
 
 func _goal() -> void:
 	_tile(Rect2(0, 0, 620, 176))

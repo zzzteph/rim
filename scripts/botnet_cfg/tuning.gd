@@ -8,12 +8,24 @@ const PROD_RATE := 1.0             # bots/sec PER active Bot farm
 # bots/s free (limited by its own farms); every other bot actually added below a garrison's limit costs
 # REGEN_PRICE Crypto, paid from Crypto left after card preparation and construction, before labs convert any.
 # Full garrisons cost nothing; short funding slows replenishment for all of a faction's computers alike.
-const PAID_REGEN := false
-const REGEN_PRICE := 0.25          # Crypto per replenished bot (provisional)
+const PAID_REGEN := true           # upkeep: every bot a farm regrows costs Intel (a full army at rest costs nothing)
+const REGEN_PRICE := 0.25          # Intel per regrown bot
 const RIG_FREE_REGEN := 2.0        # free bots/s at a working rig (its two starting farms)
 
 # combat power — attack equals defence (A = D): an arriving attack bot removes exactly one defender
 const ATTACK_POWER := 1.0
+# ── TAKEOVER. Bots only BREACH a computer (defenders at zero); owning it costs Credentials (by the computer's
+# type: a soft camera is cheap, an ERP dear) + Research (rising with the size of your botnet). Unpaid, it stays
+# breached until you can pay or its farms refill it. A rig trickles a little of both so no takeover is out of reach.
+const TAKEOVER_CREDS_BASE := 8.0      # Credentials: base + per point of the type's security rating
+const TAKEOVER_CREDS_PER_SEC := 3.0
+const TAKEOVER_CREDS_MIN := 4.0
+const TAKEOVER_RESEARCH_BASE := 5.0   # Research: base × (1 + growth × computers you already own): 7.5 at 2, 30 at 20
+const TAKEOVER_RESEARCH_GROWTH := 0.25
+const CREDS_START := 30.0             # every botnet's opening stock
+const RESEARCH_START := 15.0
+const RIG_CREDS := 0.2                # per second from a working rig
+const RIG_RESEARCH := 0.1
 const DEFEND_POWER := 1.0
 const INTEL_START := 50.0
 const RIG_INTEL := 1.0             # Intel/s a botnet's own rig produces by itself, so there is always something to build with

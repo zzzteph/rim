@@ -258,11 +258,12 @@ func _economy() -> void:
 	if income < target: plan.append(["intel", "intel"])
 	if float(game._build_cost("bot").get("cash", 0.0)) > 0.0 and int(tally.cash) < 1:
 		plan.append(["cash", "cash"])            # farms are paid in Crypto: a miner before the first new farm, whatever the size
-	if n >= 4:                                   # the card core: Crypto first (the lab is paid partly in it), then Credentials, then Research
+	var shops := 1 + int(n / 5)                 # takeovers are paid in Credentials + Research: the workshop grows with the network
+	if n >= 2:                                   # the card + takeover core: Crypto first (the lab is paid partly in it), then Credentials, then Research
 		if int(tally.cash) < 1: plan.append(["cash", "cash"])
-		if int(tally.cred) < 1: plan.append(["cred", "cred"])
-		if int(tally.lab) < 1: plan.append(["lab", "lab"])
-		if int(tally.cash) < 2: plan.append(["cash", "cash"])
+		if int(tally.cred) < shops: plan.append(["cred", "cred"])
+		if int(tally.lab) < shops: plan.append(["lab", "lab"])
+		if n >= 4 and int(tally.cash) < 2: plan.append(["cash", "cash"])
 	plan.append(["bot", "bot_faced"])
 	plan.append(["bot", "bot"])                  # every host a 1 bot/s source: the tempo of the whole game
 	if n >= 9:
@@ -349,8 +350,8 @@ func _converters() -> void:   # converters eat Intel: they run while the bank ca
 	var want_cash: float = 60.0 + _queue_cost("cash") + _queue_cost("research") + _jobs_cash_left()   # + Crypto that farm / lab jobs still owe
 	var cash := _cash()
 	var intel := _intel()
-	var research_full: bool = _pool("research") >= _head_need("research") + 5.0   # labs would only turn Crypto the card needs into spare Research
-	var creds_full: bool = _pool("creds") >= _head_need("creds") + 40.0
+	var research_full: bool = _pool("research") >= _head_need("research") + _takeover_need("research") + 5.0   # labs: the card, plus the next takeovers
+	var creds_full: bool = _pool("creds") >= _head_need("creds") + _takeover_need("creds") + 40.0
 	for i in _own:
 		var b := _obuilds(i)
 		for k in b.size():
@@ -363,6 +364,12 @@ func _converters() -> void:   # converters eat Intel: they run while the bank ca
 			elif cash > want_cash + 40.0: stop = true            # a miner: only while Crypto is wanted (hysteresis between)
 			elif cash < want_cash and intel >= 25.0: stop = false
 			if stop != _opaused(i, k): _cmd(["produce", i, k])
+
+
+func _takeover_need(res: String) -> float:   # two takeovers' worth in the bank: bots only breach, owning is paid for
+	var n := float(_own.size())
+	if res == "research": return 2.0 * float(game.TAKEOVER_RESEARCH_BASE) * (1.0 + float(game.TAKEOVER_RESEARCH_GROWTH) * n)
+	return 2.0 * (float(game.TAKEOVER_CREDS_BASE) + float(game.TAKEOVER_CREDS_PER_SEC) * 3.0)   # a database or file server's price
 
 
 func _head_need(res: String) -> float:   # what the card being researched still needs of a resource
@@ -424,6 +431,7 @@ func _offence() -> void:
 		if _own_set.has(t): _ops.erase(t); _stats.captures += 1; continue
 		if not live.has(t):
 			_ops.erase(t); continue              # nothing flows any more: a scan landed, the route broke, or a halt
+		if game._breached_by(t) == fac: op.prog_t = now; continue   # breached by us: the takeover is a payment on its way, not a stall
 		var kb := _known_bots(t)
 		if kb < float(op.low) - 0.5: op.low = kb; op.prog_t = now
 		elif now - float(op.prog_t) > STALL_SECS and not (_strike.get("rig", -1) == t):

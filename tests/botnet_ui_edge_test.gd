@@ -114,7 +114,7 @@ func _run() -> void:
 	fresh()
 	var fixture := attack_fixture()
 	game._capture(fixture[1], game.PLAYER); game._refresh_panel(); await settle()
-	check(find_button(game.panel, "Disconnect_%d" % fixture[0]) != null, "Captured inspected target keeps connection management")
+	check(find_button(game.panel, "Disconnect_%d" % fixture[0]) == null and int(game.hosts[fixture[0]].assign) == -1, "A captured target needs no link: the connection into it ends")
 
 	viewport.size = Vector2i(1920, 1080); fresh(); game._set_deck_open(true)
 	game.paused = true; await settle()

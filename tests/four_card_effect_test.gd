@@ -42,6 +42,7 @@ func run() -> void:
 		var durations: Array = [30.0, 20.0, 10.0] if card == "phishworm" else [30.0, 20.0, 10.0, 5.0, 2.0]
 		for k in nodes.size():
 			var expected: float = durations[k] if k < durations.size() else 0.0
+			if card == "phishworm" and expected > 0.0: expected *= clampf(1.0 + float(game._faction_nodes(game.RIVAL)) / 20.0, 1.0, 2.0)   # longer on a big network
 			var actual: float = game.hosts[nodes[k]].steal_until if card == "phishworm" else game.hosts[nodes[k]].prod_off
 			check(is_equal_approx(actual, expected), "%s duration on successive host %d" % [card,k])
 			var route_expected: float = expected if card == "ddos" else 0.0
