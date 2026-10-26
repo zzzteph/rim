@@ -12,6 +12,7 @@ review/
 docs/
 notes/
 logs/
+tools/
 *.log
 *.jsonl
 

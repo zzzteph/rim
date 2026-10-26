@@ -283,5 +283,30 @@ func _run() -> void:
 	check(same_orders, "Every source's order (quota, sent, left) matches on both screens")
 	_end(r)
 
+	# ---- 8. the records mission stays identical on both screens (access, delivery, resolve) ----
+	r = _match(2, "small", 4242, 1)
+	a = r.games[1]; b = r.games[2]
+	for k in 20: _frame(r)
+	var mt := -1
+	for i in a.hosts.size():
+		if int(a.hosts[i].owner) == a.NEUTRAL and not a.hosts[i].rig and not a.hosts[i].hub:
+			var near := false
+			for o in a.hosts[i].links:
+				if int(a.hosts[int(o)].owner) == 1: near = true
+			if near: mt = i; break
+	if mt >= 0:
+		for g in [a, b]:   # author the same mission on both screens (a scenario would do this at generation)
+			g._setup_mission(mt, 4, "Testco", "stake"); g._mark_scanned(1, mt); g.intel[1] = 400.0; g.creds[1] = 400.0
+		a._establish_access(mt)   # only player 1 acts; it flows through the turn queue
+		var drift8 := -1; var turns8 := 0
+		for k in 900:
+			var done := _frame(r)
+			if done[1] >= 0 and done[1] == done[2]:
+				turns8 += 1
+				if a._mp_hash() != b._mp_hash() and drift8 < 0: drift8 = done[1]
+		check(turns8 >= 150 and drift8 < 0, "The records mission keeps both screens identical for %d turns (first drift: %d)" % [turns8, drift8])
+		check(a._records_got(1, mt) == b._records_got(1, mt), "Both screens agree on records delivered (%d)" % int(a._records_got(1, mt)))
+	_end(r)
+
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	quit(0 if failures.is_empty() else 1)

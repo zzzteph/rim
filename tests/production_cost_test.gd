@@ -97,6 +97,7 @@ func run() -> void:
 	game._tick_jobs(1.0); game._tick_production(1.0)
 	check(near(game.hosts[home].jobs[3].left,9.0) and game.creds[game.PLAYER] == 0, "Construction funding precedes conversion spending")
 	candidate_a()
+	intel_full_cases()
 	var report := {"checks":checks,"failures":failures}
 	var file := FileAccess.open("res://review/implemented_ui/production_costs.json",FileAccess.WRITE); file.store_string(JSON.stringify(report,"\t")); file.close()
 	print(JSON.stringify(report)); game.free(); quit(0 if failures.is_empty() else 1)
@@ -192,3 +193,19 @@ func candidate_a() -> void:
 	game.hosts[far].owner = P; game._set_builds(far, ["cash"]); game.intel[P] = 50.0
 	game._apply_effect(game.RIVAL, game.CARDS.ddos, far); game._tick_production(1.0)
 	check(near(game.intel[P], 50.0) and float(game._crypto_credit.get(far, 0.0)) == 0.0, "DDOS on a miner stops its Crypto and its Intel spending")
+
+
+func intel_full_cases() -> void:   # playtest #3: a full bank read "114/115 +0.0/s"
+	var P: int = game.PLAYER
+	var home := fresh(); game._set_builds(home, ["intel", "cash"])
+	var cap: float = game._intel_cap(P)
+	game.intel[P] = cap
+	for k in int(6.0 / game.SIM_DT): game._sim_step(game.SIM_DT)
+	var hud := str(game._hud_items()[0][1])
+	check(near(game.intel[P], cap), "A full Intel bank ends every step exactly at its limit while a miner draws on it (%.5f of %d)" % [game.intel[P], int(cap)])
+	check(hud.begins_with("%d/%d" % [int(cap), int(cap)]) and hud.contains("full") and not hud.contains("+0.0/s"), "The HUD reads 'full' at the limit, not 'limit-1 +0.0/s' (%s)" % hud)
+	game.intel[P] = cap; game.cash[P] = 500.0
+	check(game._start_job(home, "lab", 2) and game._start_job(home, "lab", 3), "Fixture: two labs under construction draw Intel")
+	for k in int(5.0 / game.SIM_DT): game._sim_step(game.SIM_DT)
+	hud = str(game._hud_items()[0][1])
+	check(game.intel[P] < cap - 1.0 and not hud.contains("full"), "While Intel drains the HUD shows a rate, not 'full' (%s)" % hud)

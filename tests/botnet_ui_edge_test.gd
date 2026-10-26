@@ -29,6 +29,27 @@ func fresh(map_size := Vector2i(6, 4), enemy_count := 2) -> void:
 func settle() -> void:
 	for frame in 4: await process_frame
 
+func set_onboarded(flag: bool) -> void:   # the harness's own campaign save (never the player's)
+	var path: String = game._camp_save_path()
+	if FileAccess.file_exists(path): DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	if flag:
+		for k in game.CAMP_CHAPTERS: game._camp_done[k] = true
+		game._camp_save()
+
+
+func menu_fits() -> bool:   # the scroll box keeps the panel's width, and every visible row lies inside the panel
+	var pr: Rect2 = game.menu_panel.get_global_rect().grow(0.5)
+	if game.menu_sc.size.x > game.menu_panel.size.x - 48.0 + 0.5:
+		print("  scroll box wider than the panel: ", game.menu_sc.size.x, " vs ", game.menu_panel.size.x); return false
+	var stack: Array = game.menu_box.get_children()
+	while not stack.is_empty():
+		var c = stack.pop_back()
+		if c is Control and c.is_visible_in_tree() and not pr.encloses(c.get_global_rect()):
+			print("  sticks out: ", c, " ", c.get_global_rect(), " panel ", pr); return false
+		stack.append_array(c.get_children())
+	return true
+
+
 func find_button(node: Node, name: String) -> Button:
 	if node is Button and (str(node.name) == name or name in node.text): return node
 	for child in node.get_children():
@@ -153,17 +174,26 @@ func _run() -> void:
 	game._refresh_panel()
 	await mouse(build_point, false)
 	check(game.hosts[source].jobs.size() == 1, "A palette click after scrolling still starts construction across refresh")
-	for has_resume in [false, true]:
-		fresh(); game._t = 1.0 if has_resume else 0.0
-		game._open_menu(true); await settle()
-		check(game.menu_sc.get_global_rect().encloses(game.menu_box.get_global_rect()) and not game.menu_sc.get_v_scroll_bar().visible, "Main menu fits without scrolling, Resume %s" % has_resume)
-		var exit_button := find_button(game.menu_box, "Exit")
-		check(exit_button != null and game.menu_sc.get_global_rect().encloses(exit_button.get_global_rect()), "Exit remains visible inside the main menu")
-	fresh(); game._open_menu(true)
-	for menu in ["newgame", "feedback"]:
+	# every menu row must sit inside the PANEL (the scroll box grows with its widest child, so checking against it can never fail)
+	for onboarded in [false, true]:
+		for has_resume in [false, true]:
+			fresh(); set_onboarded(onboarded); game._t = 1.0 if has_resume else 0.0
+			game._open_menu(true); await settle()
+			check(menu_fits() and not game.menu_sc.get_v_scroll_bar().visible, "Main menu fits inside its panel, onboarded %s, Resume %s" % [onboarded, has_resume])
+			var exit_button := find_button(game.menu_box, "Exit")
+			check(exit_button != null and game.menu_panel.get_global_rect().encloses(exit_button.get_global_rect()), "Exit remains visible inside the main menu")
+	fresh(); set_onboarded(false); game._start_campaign(3, true); game._open_menu(true); await settle()
+	check(menu_fits(), "The mid-campaign main menu (Resume + the unlock note) fits inside its panel")
+	game._menu_view = "campaign"; game._refresh_menu(); await settle()
+	check(menu_fits(), "The mid-campaign Campaign menu (resume note + chapter rows) fits inside its panel")
+	fresh(); set_onboarded(true); game._open_menu(true)
+	for menu in ["newgame", "feedback", "campaign"]:
 		game._menu_view = menu; game._refresh_menu(); await settle()
-		check(game.menu_sc.get_global_rect().encloses(game.menu_box.get_global_rect()) and not game.menu_sc.get_v_scroll_bar().visible, "%s menu fits without scrolling with the bundled font" % menu)
+		check(menu_fits() and not game.menu_sc.get_v_scroll_bar().visible, "%s menu fits inside its panel with the bundled font" % menu)
 		check(viewport.get_visible_rect().encloses(game.menu_panel.get_global_rect()), "%s menu stays inside the viewport" % menu)
+	game._opt_mission = true; game._menu_view = "newgame"; game._refresh_menu(); await settle()
+	check(menu_fits(), "New game with the Records mission selected fits inside its panel")
+	game._opt_mission = false; set_onboarded(false)
 	viewport.size = Vector2i(1280, 720)
 	for enemy_count in [1, 2, 3]:
 		fresh(Vector2i(8, 6), enemy_count); await settle()

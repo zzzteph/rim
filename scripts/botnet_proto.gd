@@ -13,6 +13,7 @@ const CfgTypes := preload("res://scripts/botnet_cfg/types.gd")
 const CfgBuildings := preload("res://scripts/botnet_cfg/buildings.gd")
 const CfgCards := preload("res://scripts/botnet_cfg/cards.gd")
 const CfgTuning := preload("res://scripts/botnet_cfg/tuning.gd")
+const CfgMission := preload("res://scripts/botnet_cfg/mission.gd")
 const HelpIllustration := preload("res://scripts/botnet_help.gd")
 const AiInsane := preload("res://scripts/botnet_ai_insane.gd")   # the Insane difficulty's brain (one per AI faction)
 const AI_LEVELS := ["normal", "insane"]
@@ -93,8 +94,25 @@ const SCAN_PER_BUILD := CfgTuning.SCAN_PER_BUILD
 const SCAN_COSTS_INTEL := CfgTuning.SCAN_COSTS_INTEL
 const SEND_RATE := CfgTuning.SEND_RATE
 const ASSAULT_RATE := CfgTuning.ASSAULT_RATE
+const REGEN_PRICE := CfgTuning.REGEN_PRICE
+const RIG_FREE_REGEN := CfgTuning.RIG_FREE_REGEN
+const MIS_RECORD_INTERVAL := CfgMission.RECORD_INTERVAL
+const MIS_RECORD_HOME_STEP := CfgMission.RECORD_HOME_STEP
+const MIS_ACCESS_SECS := CfgMission.ACCESS_SECS
+const MIS_ACCESS_BASE := CfgMission.ACCESS_BASE
+const MIS_ACCESS_PER_RECORD := CfgMission.ACCESS_PER_RECORD
+const MIS_ACCESS_PER_SEC := CfgMission.ACCESS_PER_SEC
+const MIS_ALERT_PER_RECORD := CfgMission.ALERT_PER_RECORD
+const MIS_ALERT_MAX := CfgMission.ALERT_MAX
+const MIS_ALERT_DECAY := CfgMission.ALERT_DECAY
+const MIS_ALERT_RESPOND := CfgMission.ALERT_RESPOND
+const MIS_RESPOND_COOLDOWN := CfgMission.RESPOND_COOLDOWN
+const MIS_RESPOND_CUT := CfgMission.RESPOND_CUT_SECS
+const MIS_SELL_CRYPTO := CfgMission.SELL_CRYPTO
+const MIS_RELAY_SECS := CfgMission.RELAY_ACCESS_SECS
 const ASSAULT_COMMITS := CfgTuning.ASSAULT_COMMITS
 const ASSAULT_DEFAULT := CfgTuning.ASSAULT_DEFAULT
+const ASSAULT_OVERCHARGE_INTEL := CfgTuning.ASSAULT_OVERCHARGE_INTEL
 const LINK_TIME := CfgTuning.LINK_TIME
 const NODE_ROUTE_DELAY := CfgTuning.NODE_ROUTE_DELAY
 const LINK_CAP := CfgTuning.LINK_CAP
@@ -111,7 +129,7 @@ const MAP_CELL := 190.0         # world size of one town cell; each host sits in
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.2.6"
+const GAME_VERSION := "0.3.4"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -131,6 +149,7 @@ const SIZE_PRESETS := [Vector2i(6, 4), Vector2i(8, 6), Vector2i(10, 8)]   # Smal
 var _opt_size := Vector2i(8, 6)    # default: Medium
 var _opt_enemies := 2
 var _opt_ai_level := "normal"      # the New-game difficulty: every AI faction plays at this level
+var _opt_mission := false          # New-game toggle: author a "Recover the Corporate Records" objective into the town
 var ai_level := {}                 # faction -> "normal" | "insane" (set from the option; probes may mix levels)
 var _brains := {}                  # faction -> its Insane brain, created on its first tick
 var _seen := {}                    # fog memory: faction -> {host: Vector2(last-known owner, time seen)}
@@ -147,6 +166,13 @@ var fb_version: LineEdit
 var fb_name: LineEdit
 var fb_http: HTTPRequest
 var ai_enabled := true             # probes switch the AI botnets off for fixture cases
+var paid_regen: bool = CfgTuning.PAID_REGEN   # the paid-replenishment rule (probes compare it with free regeneration)
+var regen_hold := {}     # faction -> true: its paid replenishment is paused (the rig's free allowance still works)
+var regen_stats := {}    # faction -> {free, paid, unfunded, crypto}: bots and Crypto of replenishment so far (accounting, UI)
+var records_home := {}   # "fac:target" -> objective packets this faction has delivered home from that target
+var mission_done := {}   # "fac:target" -> the resolve choice ("sell" / "publish") once a mission is completed
+var _next_record := {}   # target -> absolute time its next objective packet is due while access is live
+var _respond_t := {}     # target -> next time its owner may interrupt an extraction route
 var assault_pause_regen: bool = CfgTuning.ASSAULT_PAUSES_REGEN   # probes compare the plain finite quota (false) with the exposure variant
 var _assault_pct: int = CfgTuning.ASSAULT_DEFAULT   # the commitment the target panel's Assault button uses (UI only)
 var ai_build_hook := {}            # probes: faction -> Callable(fac) that replaces that AI's build step (economy experiments)
@@ -279,8 +305,45 @@ var _menu_view := "main"          # "main" · "newgame" · "help" · "feedback"
 var _help_page := 0
 # tutorial
 var _tut := false
-var _tut_stage := 0
+var _tut_stage := 0                # reused by the campaign as the in-chapter step index
 var _ai_paused := false           # the tutorial freezes the AI until the last stage
+# ── GUIDED CAMPAIGN (6 chapters on a fixed seed; extends the _tut_* scaffold). _camp implies _tut.
+const CAMP_SEED := 69
+const CAMP_SIZE := Vector2i(8, 6)
+const CAMP_SAVE := "user://campaign.json"
+const CAMP_SAVE_HARNESS := "user://campaign_harness.json"   # tests/probes build the script by hand: they never touch a player's real progress
+const CAMP_CHAPTERS := 6
+const CAMP_CUT_SECS := 10.0        # Ch2: how long the Gateway's retaliation cuts Support's routing
+const CAMP_HOLD_STEP := 4.0        # seconds a finished step shows what it did (the game keeps running) before the next one
+const CAMP_HOLD_CHAPTER := 8.0     # ... and the end of a chapter, before the board is rebuilt for the next
+var _camp := false                # master flag; cleared in _reset(). _camp => _tut.
+var _camp_chapter := 0            # 0..5
+var _camp_paused := false         # a TRUE full-simulation pause for reading (gates _sim_step), distinct from paused/_ai_paused
+var _camp_clock := 0.0            # wall clock advanced OUTSIDE the sim gate (the cues keep pulsing through the reading pause)
+var _camp_replay := false         # replaying a finished chapter: don't move the resume point or completion
+var _camp_done := [false, false, false, false, false, false]
+var _camp_supplied := {}          # "chapter:key" -> true: a training supply granted once (idempotent)
+var _camp_events := {}            # scripted-beat name -> true (armed/fired)
+var _camp_cash_landed := 0        # Ch1: Crypto packets banked home since the delivery lesson began
+var _camp_detect_mark := 0.0      # Ch4: records delivered at the moment the route was first cut
+var _camp_cancelled := false      # Ch2: a finite assault of the player's was cancelled
+var _camp_src := -1               # Ch2: the assault source being taught
+var _camp_home := -1
+var _camp_support := -1
+var _camp_relay := -1
+var _camp_gateway := -1
+var _camp_vault := -1
+var _camp_commrelay := -1
+var _camp_rivalhq := -1
+var _camp_practice := -1          # a rival practice computer for the card lessons
+var _camp_practice2 := -1
+var _camp_guard := -1             # Ch2: the FROM computer of the guard lesson (never the Assault source, so the next lesson can't undo it)
+var _camp_foothold := -1          # Ch4: the owned neighbour of the vault that scans it
+var _camp_spot: Control           # the pulsing ring on the UI element a step names (CampSpot)
+var _camp_hold_left := 0.0        # >0: the step is done; its result is on screen for this many more seconds
+var _camp_hold_text := ""         # what the finished step did
+var _camp_hold_target := -1       # the computer that result is about (ringed while it shows)
+var _camp_acted_in_hold := false  # the player already acted while the result showed: the next step must not freeze them
 var tut_panel: Panel
 var tut_box: VBoxContainer
 var top_tabs: HBoxContainer       # Menu; standings occupy the idle sidebar
@@ -385,11 +448,14 @@ func _ready() -> void:
 	feedback_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	feedback_label.mouse_filter = Control.MOUSE_FILTER_IGNORE; add_child(feedback_label)
 	feedback_label.minimum_size_changed.connect(_layout_feedback_label.call_deferred)
+	_camp_spot = CampSpot.new(); _camp_spot.game = self; add_child(_camp_spot)   # campaign cue ring: over every other control
 	resized.connect(_on_ui_resized)
 	_layout_ui()
+	_bake_rich_icons()                                         # inline icons for the training text (not awaited; headless skips it)
 	_refresh_panel()
 	_fit_view()                                                # fit the opening town in view
 	_open_menu(true)                                           # the game opens on the start menu
+	_camp_first_run.call_deferred()                           # first run: the guided campaign is mandatory (real game only)
 	set_process(true)
 
 
@@ -407,7 +473,7 @@ func _gen() -> void:
 	rng.seed = town_seed
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; flights = []; _res = {}; _next_depart = {}; _next_cash = {}; _crypto_credit = {}
-	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []; _hold = {}
+	intel = {}; cash = {}; _ai = {}; creds = {}; research = {}; cards = {}; lab = {}; _fx = []; _worms = []; _hold = {}; regen_hold = {}; regen_stats = {}; records_home = {}; mission_done = {}; _next_record = {}; _respond_t = {}
 	for fac in botnets:
 		intel[fac] = INTEL_START; cash[fac] = 0.0; scans[fac] = {}; creds[fac] = 0.0; research[fac] = 0.0
 		cards[fac] = {}; lab[fac] = {"queue": [], "progress": 0.0, "paused": false, "stall": ""}; card_plays[fac] = 0; _hold[fac] = 0.0
@@ -537,6 +603,63 @@ func _pick_type(value: int) -> String:   # weighted by district: soft IoT and PC
 
 func _tmult(i: int, what: String) -> float:   # the building type's multiplier for "bot", "intel", "cash", "cred" or "research"
 	return float(NODE_TYPES[str(hosts[i].get("type", "pc"))].get(what, 1.0))
+
+
+# ---- PAID REPLENISHMENT (experiment). A working rig regenerates up to RIG_FREE_REGEN bots/s free (limited by its
+# own farms); every other bot actually added below a garrison's limit costs REGEN_PRICE Crypto. All of a faction's
+# demand is summed first, then funded in one proportion, so no computer wins scarce Crypto by its index.
+func _regen_step(i: int, dt: float) -> float:   # bots i's farms would add this step, never above its garrison limit
+	var nb := _count(i, "bot")
+	if nb <= 0 or _regen_paused(i): return 0.0
+	var room := _cap_of(i) - float(hosts[i].bots)
+	if room <= 0.0: return 0.0
+	return minf(room, float(nb) * PROD_RATE * _tmult(i, "bot") * _production_multiplier(i) * dt)
+
+
+func _tick_regen_paid(dt: float) -> void:
+	var want := {}; var demand := {}
+	for i in hosts.size():
+		var o := int(hosts[i].owner)
+		var add := _regen_step(i, dt)
+		if add <= 0.0: continue
+		if o == NEUTRAL or not botnets.has(o): hosts[i].bots = float(hosts[i].bots) + add; continue   # unowned: nobody pays
+		var free := minf(add, RIG_FREE_REGEN * dt) if i == int(rig.get(o, -1)) else 0.0
+		var paid := add - free
+		var held := paid > 0.0 and bool(regen_hold.get(o, false))
+		want[i] = [free, 0.0 if held else paid, paid if held else 0.0]
+		demand[o] = float(demand.get(o, 0.0)) + (0.0 if held else paid)
+	var share := {}
+	for o in demand:
+		var cost := float(demand[o]) * REGEN_PRICE
+		share[o] = 1.0 if cost <= 0.000001 else clampf(maxf(0.0, float(cash[o])) / cost, 0.0, 1.0)
+	for i in want:
+		var o := int(hosts[i].owner)
+		var w: Array = want[i]
+		var bought := float(w[1]) * float(share.get(o, 1.0))
+		hosts[i].bots = float(hosts[i].bots) + float(w[0]) + bought
+		cash[o] = maxf(0.0, float(cash[o]) - bought * REGEN_PRICE)
+		var st: Dictionary = regen_stats.get(o, {"free": 0.0, "paid": 0.0, "unfunded": 0.0, "held": 0.0, "crypto": 0.0})
+		st.free = float(st.free) + float(w[0]); st.paid = float(st.paid) + bought; st.crypto = float(st.crypto) + bought * REGEN_PRICE
+		st.unfunded = float(st.unfunded) + (float(w[1]) - bought); st.held = float(st.held) + float(w[2])
+		regen_stats[o] = st
+
+
+func _regen_cost_rate(fac: int) -> float:   # Crypto/s this faction's replenishment would cost right now if fully funded
+	if not paid_regen or bool(regen_hold.get(fac, false)): return 0.0
+	var bots := 0.0
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac: continue
+		var r := _regen_step(i, 1.0)
+		if i == int(rig.get(fac, -1)): r = maxf(0.0, r - RIG_FREE_REGEN)
+		bots += r
+	return bots * REGEN_PRICE
+
+
+func _do_regen_hold(fac: int) -> void:   # pause / resume paid replenishment (the rig's free allowance keeps working)
+	regen_hold[fac] = not bool(regen_hold.get(fac, false))
+	if fac == PLAYER:
+		_flash("Paid bot replenishment %s" % ("paused — only Home's free %d bots/s regenerate; Crypto is saved" % int(RIG_FREE_REGEN) if bool(regen_hold[fac]) else "resumed"))
+		_refresh_panel()
 
 
 func _regen(i: int) -> float:   # bots/s the building regenerates (its working Bot farms × its type; 0 while its assault rests them)
@@ -751,6 +874,174 @@ func _prune_res() -> void:
 
 # schedule a packet along rt departing at dep: every hop waits for room on its link (queue at the
 # building), then crosses it; intermediate buildings add NODE_ROUTE_DELAY. The timeline is fixed here.
+# ============================================================ NETWORK OBJECTIVE MISSION (fictional game state)
+# A target computer carries records_total objective items. A faction reaches them one of two ways: capture a route
+# the ordinary way, or buy TEMPORARY ACCESS (a timed status, no ownership change) and let the target stream
+# objective packets home. Delivered packets are progress and raise ALERT; a high alert lets the owner cut the route.
+func _setup_mission(target: int, records: int, corp := "", stake := "") -> void:   # scripts / campaign author one
+	hosts[target].records_total = records
+	hosts[target].corp = corp
+	hosts[target].stake = stake
+	hosts[target].access_until = 0.0; hosts[target].access_by = -1; hosts[target].alert = 0.0
+
+
+func _is_mission(i: int) -> bool: return i >= 0 and i < hosts.size() and int(hosts[i].get("records_total", 0)) > 0
+
+
+func _mkey(fac: int, target: int) -> String: return "%d:%d" % [fac, target]
+func _records_got(fac: int, target: int) -> float: return float(records_home.get(_mkey(fac, target), 0.0))
+func _mission_complete(fac: int, target: int) -> bool: return _is_mission(target) and _records_got(fac, target) >= float(hosts[target].records_total) - 0.001
+
+
+func _access_live(fac: int, target: int) -> bool:   # this faction's temporary access to the target is in force
+	return _is_mission(target) and int(hosts[target].get("access_by", -1)) == fac and float(hosts[target].get("access_until", 0.0)) > _t
+
+
+func _access_cost(target: int) -> Dictionary:   # target-specific: a flat part + parts that scale with records and the type's security
+	var sec := float(NODE_TYPES[str(hosts[target].get("type", "pc"))].get("sec", 0))
+	var rec := float(hosts[target].get("records_total", 0))
+	return {"intel": float(MIS_ACCESS_BASE.intel) + MIS_ACCESS_PER_RECORD.intel * rec,
+		"creds": float(MIS_ACCESS_BASE.creds) + MIS_ACCESS_PER_RECORD.creds * rec + MIS_ACCESS_PER_SEC * maxf(0.0, sec)}
+
+
+func _access_foothold(fac: int, target: int) -> int:   # a reachable owned computer to run the access from, or -1
+	for i in hosts.size():
+		if int(hosts[i].owner) == fac and i != target and not _route(i, target).is_empty(): return i
+	return -1
+
+
+func _extract_route(fac: int, target: int) -> Array:   # target → an owned neighbour → … → the faction's rig
+	var home := int(rig.get(fac, -1))
+	if home < 0 or int(hosts[home].owner) != fac: return []
+	var best := []
+	for nb in hosts[target].links:
+		if int(hosts[int(nb)].owner) != fac or _routing_down(int(nb)): continue   # an isolated foothold cannot carry records
+		var r := _route(int(nb), home)   # through this faction's own computers
+		if r.is_empty(): continue
+		var route := [target] + r
+		if best.is_empty() or route.size() < best.size(): best = route
+	return best
+
+
+func _can_access(fac: int, target: int) -> String:   # "" if access can be bought now, else why not
+	if not _is_mission(target): return "no objective here"
+	if int(hosts[target].owner) == fac: return "you own this computer — records only flow through access to a computer you don't own"
+	if not _scanned(fac, target): return "scan it first to find the service opening"
+	if _access_foothold(fac, target) < 0: return "need one of your computers with a route to it"
+	var cost := _access_cost(target)
+	for r in cost:
+		if _pool(fac, str(r)) < float(cost[r]) - 0.0001: return "need %s" % _res_cost_text(cost)
+	return ""
+
+
+func _establish_access(target: int) -> void: _cmd(["access", target])
+
+
+func _do_access(fac: int, target: int) -> void:
+	if not _is_mission(target) or int(hosts[target].owner) == fac: return
+	if not _scanned(fac, target) or _access_foothold(fac, target) < 0:
+		if fac == PLAYER: _flash("Cannot open access to %s: %s" % [str(hosts[target].name), _can_access(fac, target)])
+		return
+	var cost := _access_cost(target)
+	for r in cost:
+		if _pool(fac, str(r)) < float(cost[r]) - 0.0001:
+			if fac == PLAYER: _flash("Cannot open access — it costs %s" % _res_cost_text(cost))
+			return
+	for r in cost: _pool_add(fac, str(r), -float(cost[r]))
+	hosts[target].access_until = _t + MIS_ACCESS_SECS; hosts[target].access_by = fac
+	_next_record[target] = _t
+	if fac == PLAYER: _flash("Temporary access to %s for %ds — records now stream to your rig while a route holds" % [str(hosts[target].name), int(MIS_ACCESS_SECS)])
+	_refresh_panel(); queue_redraw()
+
+
+func _record_landed(fac: int, src: int) -> void:
+	if not _is_mission(src): return
+	var k := _mkey(fac, src)
+	records_home[k] = minf(float(hosts[src].records_total), _records_got(fac, src) + MIS_RECORD_HOME_STEP)
+	hosts[src].alert = minf(MIS_ALERT_MAX, float(hosts[src].get("alert", 0.0)) + MIS_ALERT_PER_RECORD)
+	if _mission_complete(fac, src):
+		hosts[src].access_until = 0.0; _next_record.erase(src)
+		if fac == PLAYER: _flash("Records recovered from %s — choose: sell for Crypto, or publish to the community relay" % str(hosts[src].name), 0)
+	elif fac == PLAYER:
+		_flash("Records: %d / %d from %s" % [int(_records_got(fac, src)), int(hosts[src].records_total), str(hosts[src].name)], 1)
+	_refresh_panel()
+
+
+func _tick_mission(dt: float) -> void:
+	for i in hosts.size():
+		var h: Dictionary = hosts[i]
+		if float(h.get("revert_at", 0.0)) > 0.0 and _t >= float(h.revert_at):   # a community relay's loan is up
+			h.revert_at = 0.0
+			if int(h.owner) != NEUTRAL: _capture(i, NEUTRAL)
+			continue
+		if not _is_mission(i): continue
+		if float(h.get("alert", 0.0)) > 0.0: h.alert = maxf(0.0, float(h.alert) - MIS_ALERT_DECAY * dt)   # cools when quiet
+		var fac := int(h.get("access_by", -1))
+		if not _access_live(fac, i) or _eliminated.has(fac) or _mission_complete(fac, i): continue
+		var rt := _extract_route(fac, i)
+		if rt.size() < 2: continue                                       # no route home: extraction pauses, no catch-up
+		if not _next_record.has(i): _next_record[i] = _t
+		if float(_next_record[i]) > _t: continue
+		if _first_wait(rt) > MAX_QUEUE: continue                         # the street is busy: wait, no backlog
+		var fl := _schedule(rt, _t, fac, "record"); fl["src"] = i
+		flights.append(fl)
+		_next_record[i] = _t + MIS_RECORD_INTERVAL
+	_mission_response(dt)
+	for target in _next_record.keys():                                  # anti-backlog: a paused extractor does not accumulate
+		if _next_record.has(target) and float(_next_record[target]) < _t: _next_record[target] = _t
+
+
+func _mission_response(_dt: float) -> void:   # the target's owner (an AI) cuts the extraction route when its alert is high
+	for target in hosts.size():
+		if not _is_mission(target) or float(hosts[target].get("alert", 0.0)) < MIS_ALERT_RESPOND: continue
+		var owner := int(hosts[target].owner)
+		if owner == NEUTRAL or not ais.has(owner): continue        # only an AI owner responds this way
+		var fac := int(hosts[target].get("access_by", -1))
+		if not _access_live(fac, target): continue
+		if _t < float(_respond_t.get(target, 0.0)): continue
+		var rt := _extract_route(fac, target)
+		if rt.size() < 2: continue
+		# cut one intermediate node the extractor routes through (isolating it also stops that node's own service)
+		for k in range(rt.size() - 2, 0, -1):
+			var node := int(rt[k])
+			if int(hosts[node].owner) == fac:
+				hosts[node].route_off = maxf(float(hosts[node].get("route_off", 0.0)), MIS_RESPOND_CUT)
+				hosts[node].hit_t = _t
+				_respond_t[target] = _t + MIS_RESPOND_COOLDOWN
+				if fac == PLAYER: _flash("%s traced the records route and isolated %s for %ds" % [fname(owner), str(hosts[node].name), int(MIS_RESPOND_CUT)], 1)
+				break
+
+
+func _resolve_mission(target: int, choice: String) -> void: _cmd(["resolve", target, choice])
+
+
+func _do_resolve(fac: int, target: int, choice: String) -> void:
+	if not _mission_complete(fac, target) or mission_done.has(_mkey(fac, target)): return
+	mission_done[_mkey(fac, target)] = choice
+	if choice == "sell":
+		_pool_add(fac, "cash", MIS_SELL_CRYPTO)
+		if fac == PLAYER: _flash("Records sold for %d Crypto — a rival now holds them" % int(MIS_SELL_CRYPTO), 0)
+	elif choice == "publish":
+		var relay := -1
+		for i in hosts.size():
+			if bool(hosts[i].get("relay", false)) and int(hosts[i].owner) != fac: relay = i; break
+		if relay >= 0:   # temporary use of the community relay: timed ownership that reverts on its own
+			var garrison := maxf(0.0, float(hosts[relay].bots))
+			_capture(relay, fac)
+			hosts[relay].bots = garrison   # its own defenders now back you (not _capture's negative overflow)
+			hosts[relay].revert_at = _t + MIS_RELAY_SECS
+			if fac == PLAYER: _flash("Records published — the community relay %s backs you for %ds" % [str(hosts[relay].name), int(MIS_RELAY_SECS)], 0)
+		elif fac == PLAYER: _flash("Records published to the community.", 0)
+	_refresh_panel(); queue_redraw()
+
+
+func _res_cost_text(cost: Dictionary) -> String:
+	var parts := []
+	for r in ["intel", "cash", "creds", "research"]:
+		if cost.has(r) and float(cost[r]) > 0.0: parts.append("%d %s" % [int(ceil(float(cost[r]))), {"intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}[r]])
+	return " + ".join(parts)
+
+
 func _schedule(rt: Array, dep: float, fac: int, kind: String, amount := 1.0) -> Dictionary:
 	var hops := []
 	var t := dep
@@ -878,7 +1169,7 @@ func _threat_rate(t: int) -> float:   # defenders/s the hostile LIVE wires into 
 	var r := 0.0
 	for i in hosts.size():
 		if int(hosts[i].owner) != int(hosts[t].owner) and bool(hosts[i].live) and int(hosts[i].assign) == t and str(hosts[i].get("mode", "attack")) != "scan":
-			r += _send_rate(i) * (ATTACK_POWER / DEFEND_POWER)
+			r += _send_rate(i) * _bot_power(i) * (ATTACK_POWER / DEFEND_POWER)   # an overcharged assault drains harder
 	return r
 
 
@@ -1301,14 +1592,15 @@ func _tick_jobs(dt: float) -> void:
 
 
 func _attack_reserve(fac: int) -> float:
+	var need := 0.0
 	for i in hosts.size():
 		if int(hosts[i].owner) != fac or not bool(hosts[i].live) or _routing_down(i): continue
 		var t := _bot_target(i)
 		if t < 0 or int(hosts[t].owner) == fac or _route(i, t).is_empty(): continue
 		if float(hosts[i].bots) - 1.0 < _reserve_of(i): continue
 		if str(hosts[i].mode) == "scan" and (_scanned(fac, t) or _scan_pending(fac, t)): continue
-		return 1.0
-	return 0.0
+		need = maxf(need, _bot_intel(i))   # an overcharged bot costs 1.5 / 2 Intel: hold back that much, or converters starve it
+	return need
 
 
 func _scan_pending(fac: int, target: int) -> bool:
@@ -1450,8 +1742,22 @@ func _assault_check() -> void:   # once per step, before departures: drop orders
 			_end_assault(i)
 
 
-func _assault_quota(i: int, pct: int) -> int:   # bots an order of pct % commits from source i right now
-	return int(floor(float(pct) / 100.0 * floor(maxf(0.0, float(hosts[i].bots) - _reserve_of(i)))))
+func _assault_quota(i: int, pct: int) -> int:   # bots an order of pct % commits from source i right now (an overcharge commits the whole garrison)
+	return int(floor(float(mini(pct, 100)) / 100.0 * floor(maxf(0.0, float(hosts[i].bots) - _reserve_of(i)))))
+
+
+func _assault_power(pct: int) -> float: return maxf(1.0, float(pct) / 100.0)   # defenders one landed bot removes: x1.25 / x1.5 above 100 %
+func _assault_intel(pct: int) -> float: return 1.0 + ASSAULT_OVERCHARGE_INTEL * maxf(0.0, float(pct) - 100.0) / 100.0   # Intel per departing bot
+
+
+func _bot_intel(i: int) -> float:   # Intel one bot leaving source i costs (an overcharged assault pays more)
+	var o := _assault_of(i)
+	return 1.0 if o.is_empty() else _assault_intel(int(o.get("pct", 100)))
+
+
+func _bot_power(i: int) -> float:   # defenders one bot from source i removes when it lands
+	var o := _assault_of(i)
+	return 1.0 if o.is_empty() else _assault_power(int(o.get("pct", 100)))
 
 
 func _send_rate(i: int) -> float:   # bots/s source i releases while it is sending
@@ -1463,7 +1769,7 @@ func _attack_demand(fac: int) -> float:   # Intel/s a faction's LIVE attack flow
 	for i in hosts.size():
 		var t := int(hosts[i].assign)
 		if int(hosts[i].owner) == fac and bool(hosts[i].live) and t >= 0 and int(hosts[t].owner) != fac and not _route(i, t).is_empty():
-			n += _send_rate(i)
+			n += _send_rate(i) * _bot_intel(i)
 	return n
 
 
@@ -1477,7 +1783,7 @@ func _src_state(s: int) -> String:
 		if rt.is_empty(): return "no route"
 		if _assault_active(s):   # a finite order: say what holds it, never that it is merely "wired"
 			if float(hosts[s].bots) - 1.0 < _reserve_of(s): return "no bots"
-			if float(intel[fac]) < 1.0: return "no Intel"
+			if float(intel[fac]) < _bot_intel(s): return "no Intel"
 			if _first_wait(rt) > MAX_QUEUE: return "link busy"
 			return "assaulting"
 		if int(hosts[a].owner) == fac:                        # guard wire: the STATUS does the work
@@ -1503,9 +1809,16 @@ func _process(dt: float) -> void:
 	_pace_frames()
 	if net != null: net.auto_retry = menu_open and _menu_view in ["mp", "lobby"]   # keep trying the server while you look at it
 	if _msg_t > 0.0: _msg_t -= dt
+	if _camp: _camp_clock += dt   # a wall clock for the cues, outside the frozen simulation
+	if _camp and _camp_paused and _camp_hold_left <= 0.0 and _camp_step_done(_camp_chapter, _tut_stage): _camp_set_pause(false)   # safety: a done step never sits frozen
+	if _camp and _camp_hold_left > 0.0 and not menu_open:   # a finished step's result is showing: count down, then move on
+		var shown := int(ceil(_camp_hold_left))
+		_camp_hold_left -= dt
+		if _camp_hold_left <= 0.0: _camp_hold_left = 0.0; _camp_hold_text = ""; _camp_hold_target = -1; _camp_next()   # _camp_next reads (then clears) _camp_acted_in_hold
+		elif int(ceil(_camp_hold_left)) != shown: _show_tut()
 	if _mp_on:
 		if not won and not lost: _mp_advance(dt)
-	elif not paused and not menu_open and not won and not lost:
+	elif not paused and not menu_open and not _camp_paused and not won and not lost:
 		_sim_acc += dt
 		var steps := 0
 		while _sim_acc >= SIM_DT - 0.000001 and steps < SIM_MAX_STEPS and not won and not lost:
@@ -1548,6 +1861,7 @@ func _view_key() -> Array:   # what the slow map layers show besides the simulat
 
 func _over_fast() -> bool:   # the over layer animates: a wire, card or box being dragged, a card packet flying, a landing pulse
 	if _dragging or _boxing or _dragged_card() != "": return true
+	if _camp and not menu_open and (_camp_target() >= 0 or _camp_from() >= 0): return true   # the campaign's pulsing cues (they beat through the reading pause)
 	if paused: return false
 	if not _fx.is_empty(): return true
 	for fl in flights:
@@ -1561,14 +1875,15 @@ func _redraw_map(parts: Array = MAP_PARTS) -> void:
 
 
 func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_process feeds it SIM_DT)
+	if _camp_paused: return         # the campaign's reading pause freezes the ENTIRE simulation (AI, production, transit, timers)
 	_t += dt                        # the shared clock only advances while playing → pause freezes everything
-	for i in hosts.size():
-		var nb := _count(i, "bot")
-		if nb <= 0 or _regen_paused(i): continue   # an assault's source rests its farms until the order ends
-		var cap := _cap_of(i)
-		if float(hosts[i].bots) < cap:
-			hosts[i].bots = minf(cap, float(hosts[i].bots) + float(nb) * PROD_RATE * _tmult(i, "bot") * _production_multiplier(i) * dt)   # = _regen(i)
-	_tick_intel(dt)
+	if not paid_regen:   # free replenishment: every farm regenerates first thing in the step
+		for i in hosts.size():
+			var nb := _count(i, "bot")
+			if nb <= 0 or _regen_paused(i): continue   # an assault's source rests its farms until the order ends
+			var cap := _cap_of(i)
+			if float(hosts[i].bots) < cap:
+				hosts[i].bots = minf(cap, float(hosts[i].bots) + float(nb) * PROD_RATE * _tmult(i, "bot") * _production_multiplier(i) * dt)   # = _regen(i)
 	_tick_research(dt)
 	_fx = _fx.filter(func(x): return float(x.until) > _t)
 	_worms = _worms.filter(func(x): return float(x.until) > _t)
@@ -1579,7 +1894,10 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	_auto_guards()      # guard wires arm themselves while their building is threatened, stand down after
 	_emit_due()
 	_tick_jobs(dt)
+	if paid_regen: _tick_regen_paid(dt)   # after card preparation and construction, before labs convert Crypto
 	_tick_production(dt)
+	_tick_intel(dt)     # income + limit AFTER this step's Intel spending (departures, jobs, miners): a full bank ends the step AT its limit, only the true surplus is lost
+	_tick_mission(dt)   # objective packets, alert, the owner's route response, timed relay reverts
 	_route_memo = null
 	for i in hosts.size():
 		hosts[i].prod_off = maxf(0.0, float(hosts[i].prod_off) - dt)
@@ -1594,9 +1912,13 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (_
 	for fac in ais:
 		if not bool(_ai[fac].dead) and _faction_nodes(fac) == 0:
 			_ai[fac].dead = true; _flash("%s is out of the game" % fname(fac))
+	if _camp and (won or lost): _camp_tick()   # ch5 finishes on the step that sets won; the sim halts before the 0.25s tick below would catch it
 	_panel_t += dt
 	if _panel_t >= 0.25:
-		_panel_t = 0.0; _refresh_sight(); _drop_fogged_focus(); _record_observations(); _tick_tutorial(); _refresh_panel()
+		_panel_t = 0.0; _refresh_sight(); _drop_fogged_focus(); _record_observations()
+		if _camp: _camp_tick()
+		else: _tick_tutorial()
+		_refresh_panel()
 
 
 # "Attack and defend is the STATUS": a wire into a building of the SAME faction is a GUARD — it stands by
@@ -1644,7 +1966,7 @@ func _can_emit(i: int) -> bool:
 	var fac := int(hosts[i].owner)
 	var hostile: bool = int(hosts[tgt].owner) != fac
 	if hostile and str(hosts[i].get("mode", "attack")) == "scan" and (_scanned(fac, tgt) or _scan_pending(fac, tgt)): return false   # scan done
-	if hostile and float(intel[fac]) < 1.0 and (SCAN_COSTS_INTEL or str(hosts[i].mode) != "scan"): return false
+	if hostile and float(intel[fac]) < _bot_intel(i) and (SCAN_COSTS_INTEL or str(hosts[i].mode) != "scan"): return false   # an overcharged bot needs its full price
 	if not hostile and int(hosts[i].assign) < 0:   # an unwired building sends nothing; kept as a guard
 		if float(hosts[tgt].bots) + _incoming(tgt, fac) >= NODE_CAP - 0.001: return false
 	var rt := _route(i, tgt)
@@ -1704,8 +2026,8 @@ func _emit_due() -> void:
 			hosts[best].bots = float(hosts[best].bots) - 1.0
 			var hostile: bool = int(hosts[tgt].owner) != fac
 			var pk := "scan" if (hostile and str(hosts[best].get("mode", "attack")) == "scan" and not _scanned(fac, tgt)) else "bot"
-			if hostile and (pk == "bot" or SCAN_COSTS_INTEL): intel[fac] = float(intel[fac]) - 1.0   # spends Intel
-			flights.append(_schedule(_route(best, tgt), best_t, fac, pk))
+			if hostile and (pk == "bot" or SCAN_COSTS_INTEL): intel[fac] = float(intel[fac]) - (_bot_intel(best) if pk == "bot" else 1.0)   # spends Intel (more when overcharged)
+			flights.append(_schedule(_route(best, tgt), best_t, fac, pk, _bot_power(best) if pk == "bot" else 1.0))   # read before the order below can end
 			if fac == PLAYER: _departures.append({"at": _t, "source": best, "target": tgt, "kind": pk})
 			_next_depart[best] = best_t + 1.0 / _send_rate(best)
 			var order := _assault_of(best)
@@ -1763,7 +2085,9 @@ func _deliver(f: Dictionary) -> void:
 	var fac := int(f.owner)
 	if _eliminated.has(fac): return # packets remain visible but cannot resurrect an eliminated botnet
 	if str(f.kind) == "cash":
-		if int(hosts[t].owner) != NEUTRAL: _bank(int(hosts[t].owner), float(f.get("amount", 1.0)))
+		if int(hosts[t].owner) != NEUTRAL:
+			_bank(int(hosts[t].owner), float(f.get("amount", 1.0)))
+			if _camp and int(hosts[t].owner) == PLAYER: _camp_cash_landed += 1   # ch1: Crypto actually reached home
 		return
 	if str(f.kind) == "scan":   # consumed on arrival; reveals, never wounds
 		if int(hosts[t].owner) != fac: _scan_land(fac, t)
@@ -1771,11 +2095,14 @@ func _deliver(f: Dictionary) -> void:
 	if str(f.kind) == "card":   # a card packet: its effect lands now
 		_land_card(fac, str(f.get("card", "phishworm:linked")), t)
 		return
+	if str(f.kind) == "record":   # an objective packet reached home: mission progress, and the source's alert rises
+		_record_landed(fac, int(f.get("src", -1)))
+		return
 	if int(hosts[t].owner) == fac:
 		hosts[t].bots = minf(_cap_of(t), float(hosts[t].bots) + 1.0)
 		return
 	if not _scanned(fac, t): _scan_land(fac, t)   # any attack scans as it goes — loudly
-	hosts[t].bots = float(hosts[t].bots) - (ATTACK_POWER / DEFEND_POWER)
+	hosts[t].bots = float(hosts[t].bots) - (ATTACK_POWER / DEFEND_POWER) * float(f.get("amount", 1.0))   # an overcharged bot hits x1.25 / x1.5
 	if float(hosts[t].bots) <= 0.0: _capture(t, fac)
 
 
@@ -1799,7 +2126,8 @@ func _capture(t: int, fac: int) -> void:
 		if not order.is_empty() and int(order.t) == t and int(hosts[i].owner) == fac: _end_assault(i)
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # a captured building is empty inside: the new owner builds from scratch
 	hosts[t].prod_off = 0.0; hosts[t].route_off = 0.0; hosts[t].steal_until = -100.0; hosts[t].steal_by = -1; hosts[t].hit_t = -100.0   # a new owner, a clean slate
-	_next_depart.erase(t); _next_cash.erase(t)
+	if _is_mission(t): hosts[t].access_until = 0.0; hosts[t].access_by = -1; hosts[t].alert = 0.0   # access ends if the target changes hands
+	_next_depart.erase(t); _next_cash.erase(t); _next_record.erase(t)
 	if fac != PLAYER:
 		if sel.has(t): sel.erase(t)          # a selected building lost to a rival is uncontrollable
 	var stood := 0                           # the loser's wires into it stand down, kept
@@ -2077,7 +2405,11 @@ func _apply_effect(fac: int, cd: Dictionary, i: int, level := 1) -> float:
 	if effect == "wipe" and float(hosts[i].get("sca_until", 0.0)) > _t:
 		hosts[i].card_result = "blocked by SCA"; return -1.0
 	if effect == "breach":
-		if rng.randf() >= float(cd.power): hosts[i].card_result = "capture failed"; return -2.0
+		var sure := _camp and fac == PLAYER and bool(_camp_events.get("0day_missed", false))   # campaign: one honest miss teaches "it can miss"; the retry lands
+		if not sure and rng.randf() >= float(cd.power):
+			hosts[i].card_result = "capture failed"
+			if _camp and fac == PLAYER: _camp_events["0day_missed"] = true
+			return -2.0
 		hosts[i].bots = 0.0; _capture(i, fac)
 	if effect == "deny":
 		hosts[i].prod_off = maxf(float(hosts[i].prod_off), duration)
@@ -2694,12 +3026,14 @@ func _input(event: InputEvent) -> void:
 	if focus is LineEdit or focus is TextEdit: return
 	if event.keycode == KEY_ESCAPE:
 		if menu_open: _open_menu(false)
+		elif _camp: _camp_leave()
 		elif _panel_has_context(): _clear_all(); _refresh_panel(); queue_redraw()
 		else: _open_menu(true)
 		get_viewport().set_input_as_handled(); return
 	if menu_open or won or lost: return
 	if event.keycode == KEY_SPACE:
-		if _mp_on: return   # a shared match never pauses
+		if _camp_paused: _camp_set_pause(false); get_viewport().set_input_as_handled(); return   # resume reading pause
+		if _mp_on or _camp: return   # a shared match never pauses; the campaign uses its reading pause
 		paused = not paused; _refresh_panel(); queue_redraw()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_0: _reset_view()
@@ -2845,7 +3179,9 @@ func _bank_of(key: String) -> String:
 
 
 func _card_drag_data(source: Control, key: String) -> Variant:   # a held card leaves the deck as one compact preview
-	if menu_open or won or lost or _held(PLAYER, key) <= 0: return null
+	if menu_open or won or lost: return null
+	if _held(PLAYER, key) <= 0:   # say why nothing happens: a silent refusal reads as a frozen game
+		_flash("No %s ready — click the card to prepare one first" % str(CARDS[_card_of(key)].name)); return null
 	var preview := CardDragPreview.new(); preview.game = self; preview.key = key
 	preview.custom_minimum_size = Vector2(248, 58); preview.size = preview.custom_minimum_size
 	preview.position = Vector2(18, -74)
@@ -3141,7 +3477,8 @@ func _do_assault(fac: int, t: int, pct: int) -> void:
 	if fac != PLAYER: return
 	if started > 0:
 		var why := ("  ·  %d already assaulting" % kept if kept > 0 else "") + ("  ·  %d without a route" % unrouted if unrouted > 0 else "")
-		_flash("Assault on %s: %d bots from %d source(s) at %d/s each · %d Intel · their farms rest until it ends%s" % [str(hosts[t].name), bots, started, int(ASSAULT_RATE), bots, why])
+		var over := (" · OVERCHARGED: each bot hits ×%s" % str(_assault_power(pct))) if pct > 100 else ""
+		_flash("Assault on %s: %d bots from %d source(s) at %d/s each%s · %d Intel · their farms rest until it ends%s" % [str(hosts[t].name), bots, started, int(ASSAULT_RATE), over, int(ceil(float(bots) * _assault_intel(pct))), why])
 	elif kept > 0: _flash("Already assaulting %s — cancel it to give a new order" % str(hosts[t].name))
 	elif unrouted > 0: _flash("No route to %s — links can only run through your own buildings" % str(hosts[t].name))
 	elif empty > 0: _flash("No bots to commit — the connected sources are empty")
@@ -3158,6 +3495,7 @@ func _do_unassault(fac: int, t: int) -> void:   # cancel: unsent bots stay home,
 		if order.is_empty() or int(order.t) != t: continue
 		kept += int(order.left); n += 1
 		_end_assault(i)
+	if n > 0 and fac == PLAYER and _camp: _camp_cancelled = true
 	if fac != PLAYER: return
 	if n > 0: _flash("Assault on %s cancelled — %d unsent bots stay home" % [str(hosts[t].name), kept])
 	_refresh_panel(); queue_redraw()
@@ -3210,6 +3548,8 @@ func _adjust_rate(d: float) -> void:   # the output-limit dial, 25% steps, for e
 # applies it at the same step for the faction that sent it. Commands are plain arrays because they travel as JSON
 # (server/PROTOCOL.md); _apply_cmd checks every field, so a malformed one does nothing — identically everywhere.
 func _cmd(c: Array) -> void:
+	if _camp and _camp_hold_left > 0.0: _camp_acted_in_hold = true   # acting during a result: the next step won't open frozen
+	if _camp_paused: _camp_set_pause(false)   # taking any action resumes the campaign's reading pause
 	if not _mp_on: _apply_cmd(PLAYER, c); return
 	if _out or won or lost: return
 	_mp_queue.append(c)
@@ -3223,6 +3563,9 @@ func _apply_cmd(fac: int, c: Array) -> void:
 		"launch": if n == 3: _do_launch(fac, _int(c[1]), str(c[2]))
 		"assault": if n == 3: _do_assault(fac, _int(c[1]), _int(c[2]))
 		"unassault": if n == 2: _do_unassault(fac, _int(c[1]))
+		"regenhold": if n == 1: _do_regen_hold(fac)
+		"access": if n == 2: _do_access(fac, _int(c[1]))
+		"resolve": if n == 3: _do_resolve(fac, _int(c[1]), str(c[2]))
 		"halt": if n == 2: _do_halt(fac, _int(c[1]))
 		"unwire": if n == 2: _do_unwire(fac, _int(c[1]))
 		"build": if n == 4: _do_build(fac, _int(c[1]), _int(c[2]), str(c[3]))
@@ -3288,10 +3631,38 @@ func _reset() -> void:   # a NEW town every restart, with the current options
 	_panel_context = ""; _msg_t = 0.0; _msg_priority = 0
 	_tab = ""; _hold = {}; _deck_drag_restore = false; _bank_alert = {}
 	_tut = false; _ai_paused = false
+	_tut_stage = 0; _tut_connected = false; _tut_attacked = false; _tut_combined = false; _tut_captured = false; _tut_target = -1; _tut_second = -1
+	_camp = false; _camp_paused = false; _camp_chapter = 0; _camp_clock = 0.0; _camp_replay = false
+	_camp_supplied = {}; _camp_events = {}; _camp_cash_landed = 0; _camp_detect_mark = 0.0; _camp_cancelled = false; _camp_src = -1
+	_camp_home = -1; _camp_support = -1; _camp_relay = -1; _camp_gateway = -1; _camp_vault = -1; _camp_commrelay = -1; _camp_rivalhq = -1; _camp_practice = -1; _camp_practice2 = -1; _camp_guard = -1; _camp_foothold = -1; _camp_hold_left = 0.0; _camp_hold_text = ""; _camp_hold_target = -1; _camp_acted_in_hold = false
 	if tut_panel != null: tut_panel.visible = false
 	_apply_options()
 	_clear_all()
-	_gen(); _refresh_sight(); _fit_view(); _refresh_panel(); _refresh_hand(); _refresh_top_tabs()
+	_gen()
+	if _opt_mission: _author_scenario_mission()
+	_refresh_sight(); _fit_view(); _refresh_panel(); _refresh_hand(); _refresh_top_tabs()
+
+
+# Author one records objective into a freshly generated town: the richest neutral non-rig computer holds the records,
+# and a rim neutral computer is the community relay the Publish choice can borrow. Entirely game state.
+const SCENARIO_CORPS := ["Kessler Finance", "Halcyon Mutual", "Ostrava Credit Union", "Brightline Holdings"]
+func _author_scenario_mission() -> void:
+	var best := -1; var bv := -1.0
+	for i in hosts.size():
+		if int(hosts[i].owner) != NEUTRAL or bool(hosts[i].rig) or bool(hosts[i].hub): continue
+		var v := float(hosts[i].value) * 2.0 + float(int(hosts[i].slots)) + (2.0 if str(hosts[i].type) in ["db", "file", "erp"] else 0.0)
+		if v > bv: bv = v; best = i
+	if best < 0: return
+	hosts[best].sec = maxf(float(hosts[best].sec), 90.0); hosts[best].bots = float(hosts[best].sec)   # a defended vault
+	_setup_mission(best, 8, SCENARIO_CORPS[town_seed % SCENARIO_CORPS.size()], "A neighbourhood's debt records are held here.")
+	hosts[best].name = "%s · Records" % str(hosts[best].get("corp", "Vault"))
+	var relay := -1; var rd := INF
+	for i in hosts.size():
+		if int(hosts[i].owner) != NEUTRAL or bool(hosts[i].rig) or i == best or _is_mission(i): continue
+		if float(hosts[i].value) > 1.5: continue   # a rim (low-value) computer
+		var d: float = (hosts[i].pos as Vector2).distance_to(hosts[int(rig[PLAYER])].pos)
+		if d < rd: rd = d; relay = i
+	if relay >= 0: hosts[relay].relay = true; hosts[relay].name = "Community Relay"
 
 
 func _build_names(builds: Array) -> String:
@@ -3334,6 +3705,7 @@ func _action_button(action: String, callback: Callable, parent: Control = null, 
 	var button := Button.new(); button.name = action
 	var icon := ActionGlyph.new(); icon.action = action
 	icon.col = C_BAD if action in ["Disconnect", "Stop", "Cancel assault"] else (BANK_COL["attack"] if action in ["Attack", "Assault"] or action.ends_with("%") else C_GOOD)   # attack = red everywhere
+	if action.ends_with("%") and float(action.trim_suffix("%")) > 100.0: icon.col = C_WARN   # an overcharge reads as a premium at a glance
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button.add_child(icon)
 	button.custom_minimum_size = Vector2(96, 44)
@@ -3406,9 +3778,10 @@ func _open_menu(open: bool) -> void:   # the menu pauses the game while it's up
 	_refresh_panel(); queue_redraw()
 
 
-func _menu_label(t: String) -> void:
+func _menu_label(t: String) -> void:   # wraps to the column: an unwrapped sentence widens the scroll box past the panel
 	var l := Label.new(); l.text = t
 	l.add_theme_font_size_override("font_size", 13); l.add_theme_color_override("font_color", C_DIM)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; l.custom_minimum_size.x = menu_box.custom_minimum_size.x
 	menu_box.add_child(l)
 
 
@@ -3421,6 +3794,7 @@ func _menu_title(t: String) -> void:
 func _mbtn(txt: String, cb: Callable) -> void:   # a full-width menu button
 	var b := Button.new(); b.text = txt; b.focus_mode = Control.FOCUS_ALL
 	b.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 42)
+	b.clip_text = true; b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   # never widen the column
 	b.pressed.connect(cb); menu_box.add_child(b)
 
 
@@ -3438,8 +3812,11 @@ func _size_menu(w: float, h: float) -> void:   # fit the panel to the view so no
 
 func _fit_menu_to_contents() -> void:
 	if menu_box == null or _menu_view in ["help", "mp", "lobby"]: return
-	var height := minf(menu_box.get_combined_minimum_size().y + 44, get_viewport_rect().size.y - 48)
-	_size_menu(menu_panel.size.x, height)
+	var content := menu_box.get_combined_minimum_size().y + 44
+	var maxh := get_viewport_rect().size.y - 48
+	# when the content is taller than the window, clamp and let it scroll instead of overflowing the box
+	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if content > maxh else ScrollContainer.SCROLL_MODE_DISABLED
+	_size_menu(menu_panel.size.x, minf(content, maxh))
 
 
 func _refresh_menu() -> void:
@@ -3452,9 +3829,11 @@ func _refresh_menu() -> void:
 	if is_instance_valid(menu_seed_edit): _seed_draft = menu_seed_edit.text
 	menu_seed_edit = null
 	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if _menu_view in ["help", "mp", "lobby"] else ScrollContainer.SCROLL_MODE_DISABLED
+	menu_box.add_theme_constant_override("separation", 6 if _menu_view == "newgame" else 10)   # newgame packs the most rows; keep it inside the window
 	match _menu_view:
 		"help": _size_menu(680.0, 640.0); _menu_help()
 		"newgame": _size_menu(MENU_W, 452.0); _menu_newgame()
+		"campaign": _size_menu(MENU_W + 56.0, 452.0); _menu_campaign()   # its chapter buttons are the widest menu rows
 		"feedback": _size_menu(480.0, 590.0); _menu_feedback()
 		"mp", "lobby":   # the whole window (minus a margin), in two columns
 			var vp := get_viewport_rect().size
@@ -3462,7 +3841,7 @@ func _refresh_menu() -> void:
 			if _menu_view == "mp": _menu_mp()
 			else: _menu_lobby()
 		_:
-			var nb := (6 if (_t >= 0.01 and not won and not lost) else 5) + (0 if _mp_on else 1)
+			var nb := (6 if ((_t >= 0.01 or _camp or _tut) and not won and not lost) else 5) + (0 if _mp_on else 1)
 			_size_menu(MENU_W, 96.0 + float(nb) * 52.0); _menu_main()
 	_fit_menu_to_contents.call_deferred()
 
@@ -3487,6 +3866,8 @@ func _net() -> Node:
 
 
 func _mp_open() -> void:   # the menu's Multiplayer button
+	if not _camp_has_onboarded():
+		_flash("Finish the guided campaign first — it unlocks multiplayer."); return
 	_net()
 	if net.status == "offline": net.open()
 	_mp_name_draft = net.player_name
@@ -3609,10 +3990,11 @@ func _mp_end_turn() -> void:
 func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
 	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size())])
 	for h in hosts:
-		parts.append("%d,%d,%d,%d,%d,%s,%s,%s,%s" % [int(h.owner), roundi(float(h.bots) * 1000.0), roundi(float(h.sec) * 1000.0), int(h.assign), int(bool(h.live)), str(h.get("mode", "")), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.get("assault", {}))])
+		parts.append("%d,%d,%d,%d,%d,%s,%s,%s,%s,%d,%d,%d" % [int(h.owner), roundi(float(h.bots) * 1000.0), roundi(float(h.sec) * 1000.0), int(h.assign), int(bool(h.live)), str(h.get("mode", "")), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.get("assault", {})), int(h.get("access_by", -1)), roundi(float(h.get("access_until", 0.0)) * 1000.0), roundi(float(h.get("alert", 0.0)) * 100.0)])
 	for fac in botnets:
-		parts.append("%d:%d:%d:%d:%d" % [fac, roundi(float(intel[fac]) * 1000.0), roundi(float(cash[fac]) * 1000.0), roundi(float(creds[fac]) * 1000.0), roundi(float(research[fac]) * 1000.0)])
+		parts.append("%d:%d:%d:%d:%d:%d" % [fac, roundi(float(intel[fac]) * 1000.0), roundi(float(cash[fac]) * 1000.0), roundi(float(creds[fac]) * 1000.0), roundi(float(research[fac]) * 1000.0), int(bool(regen_hold.get(fac, false)))])
 		parts.append(JSON.stringify(cards[fac]) + JSON.stringify(lab[fac]))   # held cards, research queue and progress
+	parts.append(JSON.stringify(records_home) + JSON.stringify(mission_done))
 	return "|".join(parts).md5_text()
 
 
@@ -3881,16 +4263,39 @@ func _mp_tick_countdown() -> void:   # the big "starting in 3…" line (also cal
 func _menu_main() -> void:
 	_menu_title("BOTNET")
 	_menu_gap(6)
-	if _t >= 0.01 and not won and not lost: _mbtn("Resume", func(): _open_menu(false))
+	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mbtn("Resume", func(): _open_menu(false))   # an in-progress campaign at _t==0 (reading pause) still resumes
 	if _mp_on:
 		_mbtn("Leave match", _mp_leave)
+	elif not _camp_has_onboarded():
+		if not _camp or won or lost:   # a live chapter is continued with Resume above (this button would rebuild it from its start)
+			var going := int(_camp_load().get("chapter", 0)) > 0 or (_camp_load().get("chapters_completed", []) as Array).has(true)
+			_mbtn("▶ Continue the guided campaign" if going else "▶ Start the guided campaign", func(): _camp_resume_or_start())
+		_menu_label("New game and Multiplayer unlock once the campaign is complete.")
 	else:
 		_mbtn("New game", func(): _menu_view = "newgame"; _refresh_menu())
 		_mbtn("Multiplayer", _mp_open)
-		_mbtn("Tutorial", func(): _start_tutorial())
+		_mbtn("Campaign", func(): _menu_view = "campaign"; _refresh_menu())
 	_mbtn("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
 	_mbtn("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
 	_mbtn("Exit", func(): get_tree().quit())
+
+
+func _menu_campaign() -> void:
+	_menu_title("Campaign")
+	var save := _camp_load()
+	var cc = save.get("chapters_completed", [])
+	if cc is Array and (cc as Array).size() == CAMP_CHAPTERS:
+		for k in CAMP_CHAPTERS: _camp_done[k] = bool((cc as Array)[k])
+	if not bool(save.get("completed", false)):
+		_mbtn("Resume from checkpoint — Chapter %d" % (int(save.get("chapter", 0)) + 1), func(): _camp_resume_or_start())
+		_menu_label("Resuming rebuilds that chapter's starting situation; progress within the chapter restarts.")
+	var titles := _camp_chapters()
+	for ch in CAMP_CHAPTERS:
+		var unlocked: bool = ch == 0 or _camp_done[ch - 1] or bool(save.get("completed", false))
+		var label := "%s%d. %s" % ["✓ " if _camp_done[ch] else "", ch + 1, titles[ch]]
+		if unlocked: _mbtn("Replay — " + label, func(c = ch): _camp_resume_or_start(c))
+		else: _menu_label("🔒 " + label)
+	_mbtn("← Back", func(): _menu_view = "main"; _refresh_menu())
 
 
 func _menu_newgame() -> void:
@@ -3925,6 +4330,15 @@ func _menu_newgame() -> void:
 		drow.add_child(b)
 	menu_box.add_child(drow)
 	if _opt_ai_level == "insane": _menu_label("Insane plays fair (same fog, same rules) but scouts, models your economy from what it sees, plans a win and micro-manages every attack.")
+	_menu_label("Objective")
+	var mrow := HBoxContainer.new(); mrow.add_theme_constant_override("separation", 6)
+	for opt in [[false, "Conquest"], [true, "+ Records mission"]]:
+		var b := Button.new(); b.text = str(opt[1]); b.custom_minimum_size = Vector2(0, 36)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
+		if _opt_mission == bool(opt[0]): b.add_theme_color_override("font_color", C_GOOD)
+		b.pressed.connect(func(v = bool(opt[0])): _opt_mission = v; _refresh_menu())
+		mrow.add_child(b)
+	menu_box.add_child(mrow)
 	_menu_label("Seed (blank = random)")
 	menu_seed_edit = LineEdit.new(); menu_seed_edit.custom_minimum_size = Vector2(menu_box.custom_minimum_size.x, 34); _inset_focus(menu_seed_edit)
 	menu_seed_edit.placeholder_text = "random"
@@ -4046,19 +4460,123 @@ func _tut_stages() -> Array:
 
 # Tutorial keywords take the colour of the thing they name: buildings their card colour, ATTACK things red, DEFENCE blue,
 # your own pieces green, the target and the win numbers gold. Longest phrases first; placeholders stop nested matches.
-func _tut_rich(text: String) -> String:
-	var keys := [
-		["TRAINING TARGET", C_WARN], ["TRAINING SUPPORT", fcol(PLAYER)], ["Training support", fcol(PLAYER)],
-		["Intel harvester", BUILD_KINDS.intel.col], ["Phishing card", BANK_COL["attack"]], ["YOUR RIG", fcol(PLAYER)],
-		["rival rig", fcol(RIVAL)], ["51 seconds", C_WARN], ["Phishing", BANK_COL["attack"]], ["DEFENCE", BANK_COL["defense"]],
-		["ATTACK", BANK_COL["attack"]], ["Attack", BANK_COL["attack"]], ["SUPPORT", fcol(PLAYER)], ["TARGET", C_WARN],
-		["Scan", C_GOOD], ["green", fcol(PLAYER)], ["51%", C_WARN],
-	]
-	var out := text.replace("[", "[lb]")
-	for k in keys.size(): out = out.replace(str(keys[k][0]), "%d" % k)
-	for k in keys.size():
-		out = out.replace("%d" % k, "[color=#%s]%s[/color]" % [(keys[k][1] as Color).to_html(false), str(keys[k][0])])
+# Training-text vocabulary: term -> colour/icon source. Whole words, case-sensitive, longest match wins, ONE regex pass
+# (no placeholder round trip, so text like "30 Crypto" or "0day" can never be corrupted). "" = leave the word as typed.
+const RICH_TERMS := {
+	# installations: their building-card colour + pictogram
+	"Intel harvester": "kind:intel", "Crypto miner": "kind:cash", "Bot farm": "kind:bot", "Bot farms": "kind:bot",
+	"Credential harvester": "kind:cred", "Research lab": "kind:lab", "farms": "tint:bot",
+	# resources: the HUD's colour + pictogram
+	"Intel": "kind:intel", "Crypto": "kind:cash", "Credentials": "kind:cred", "Creds": "kind:cred", "Research": "kind:lab",
+	"bots": "kind:bot", "defenders": "tint:bot",
+	# cards: the deck tab's colour (ATTACK red / DEFENCE blue) + the card art
+	"Phishing card": "card:phishworm", "Phishing": "card:phishworm", "0day": "card:zeroday", "DDOS": "card:ddos", "DDoS": "card:ddos",
+	"DDOSed": "card:ddos", "Supply chain attack": "card:supply", "Supply chain attacks": "card:supply", "Supply": "card:supply",
+	"CDN": "card:cdn", "Patch day": "card:patch", "Incident response": "card:response", "SCA": "card:sca",
+	"ATTACK": "bank:attack", "DEFENCE": "bank:defense",
+	# panel buttons: the button's colour (+ its glyph where one exists)
+	"Scan": "act:Scan", "Attack": "act:Attack", "Assault": "act:Assault", "Cancel assault": "act:Cancel assault",
+	"Establish access": "act:Establish access", "Sell": "act:Sell", "Publish": "act:Publish", "CUT": "cut",
+	# computers: their CURRENT owner's colour (neutral = the gold highlight ring), no icon
+	"YOUR RIG": "rig:p", "rival rig": "rig:r", "rival's rig": "rig:r", "Support": "role:support", "Neighborhood Relay": "role:relay",
+	"relay": "role:relay", "Community Relay": "role:commrelay", "Corporate Gateway": "role:gateway", "Gateway": "role:gateway",
+	"Practice host": "role:practice", "Practice host 2": "role:practice2", "Records vault": "role:vault", "vault": "role:vault",
+	# the old free-play tutorial and the win numbers
+	"TRAINING TARGET": "warn", "TARGET": "warn", "TRAINING SUPPORT": "fac:p", "Training support": "fac:p", "SUPPORT": "fac:p",
+	"green": "fac:p", "51%": "warn", "51 seconds": "warn",
+}
+var _rich_re: RegEx
+var _rich_icons := {}   # id -> baked ImageTexture (strong refs: the resource cache only keeps weak ones)
+var _rich_paths := {}   # id -> the res:// path a BBCode [img] tag loads
+
+
+func _re_escape(s: String) -> String:
+	var out := ""
+	for ch in s:
+		if "\\^$.|?*+()[]{}".contains(ch): out += "\\"
+		out += ch
 	return out
+
+
+func _rich_regex() -> RegEx:
+	if _rich_re == null:
+		var keys: Array = RICH_TERMS.keys()
+		keys.sort_custom(func(a, b): return str(a).length() > str(b).length())   # PCRE alternation is leftmost-first: longest first
+		var alts := PackedStringArray()
+		for k in keys: alts.append(_re_escape(str(k)))
+		_rich_re = RegEx.create_from_string("(?<![A-Za-z0-9])(?:%s)(?![A-Za-z0-9])" % "|".join(alts))
+	return _rich_re
+
+
+func _rich_spec(spec: String) -> Array:   # -> [text colour, icon id ("" = none), icon tint]
+	var p := spec.split(":", true, 1)
+	var k := p[1] if p.size() > 1 else ""
+	match p[0]:
+		"kind": return [BUILD_KINDS[k].col, "k:" + k, BUILD_KINDS[k].col]
+		"tint": return [BUILD_KINDS[k].col, "", Color.WHITE]
+		"card":
+			var cd: Dictionary = CARDS[k]
+			return [BANK_COL["defense" if bool(cd.get("defense", false)) else "attack"], "fam:" + str(cd.fam), Color.WHITE]
+		"bank": return [BANK_COL[k], "", Color.WHITE]
+		"act":
+			var col: Color = BANK_COL["attack"]
+			if k in ["Scan", "Establish access", "Publish"]: col = C_GOOD
+			elif k == "Cancel assault": col = C_BAD
+			elif k == "Sell": col = BUILD_KINDS.cash.col
+			return [col, ("a:" + k) if k in ["Scan", "Attack", "Assault", "Cancel assault"] else "", col]
+		"role":
+			var h := _camp_role_host(k) if _camp else -1
+			var c: Color = C_WARN   # neutral: the gold of the highlight ring
+			if h >= 0 and h < hosts.size() and int(hosts[h].owner) != NEUTRAL: c = fcol(int(hosts[h].owner))
+			return [c, "", Color.WHITE]
+		"rig", "fac": return [fcol(PLAYER if k == "p" else RIVAL), "", Color.WHITE]
+		"cut": return [Color(1, 0.4, 0.65), "", Color.WHITE]   # the map's CUT timer colour
+	return [C_WARN, "", Color.WHITE]   # "warn"
+
+
+func _tut_rich(text: String, seen = null) -> String:   # plain training text -> BBCode. It escapes '[', so never feed it BBCode
+	if seen == null: seen = {}
+	var out := ""; var at := 0
+	for m in _rich_regex().search_all(text):
+		out += text.substr(at, m.get_start() - at).replace("[", "[lb]")
+		var word := m.get_string(); var spec := str(RICH_TERMS[word])
+		if spec == "": out += word
+		else:
+			var r := _rich_spec(spec); var icon := ""
+			var id := str(r[1])
+			if id != "" and not seen.has(id) and _rich_paths.has(id):   # an icon only on a term's first mention per banner
+				seen[id] = true
+				var opt := "width=16 height=16" + (" region=250,250,754,754" if id.begins_with("fam:") else " color=#" + (r[2] as Color).to_html(false))
+				icon = "[img %s]%s[/img] " % [opt, _rich_paths[id]]
+			out += "%s[color=#%s]%s[/color]" % [icon, (r[0] as Color).to_html(false), word]
+		at = m.get_end()
+	return out + text.substr(at).replace("[", "[lb]")
+
+
+func _bake_rich_icons() -> void:   # the HUD/palette pictograms, drawn once into textures the training text shows inline
+	for fam in CfgCards.FAMILY_ART: _rich_paths["fam:" + fam] = (CfgCards.FAMILY_ART[fam] as Texture2D).resource_path   # real files: fine headless
+	if DisplayServer.get_name() == "headless": return   # the dummy renderer never draws a frame: colour-only text
+	var ids := [["k", "bot"], ["k", "intel"], ["k", "cash"], ["k", "cred"], ["k", "lab"], ["a", "Scan"], ["a", "Attack"], ["a", "Assault"], ["a", "Cancel assault"]]
+	var vp := SubViewport.new(); vp.transparent_bg = true; vp.size = Vector2i(48 * ids.size(), 48)
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var painter := RichIconPainter.new(); painter.game = self; painter.theme = theme; painter.size = Vector2(vp.size); vp.add_child(painter)
+	for k in ids.size():
+		if ids[k][0] == "a":
+			var ag := ActionGlyph.new(); ag.action = ids[k][1]; ag.col = Color.WHITE
+			ag.position = Vector2(k * 48, 0); ag.size = Vector2(24, 24); ag.scale = Vector2(2, 2); vp.add_child(ag)
+		else: painter.kinds.append([ids[k][1], k])
+	add_child(vp)
+	await RenderingServer.frame_post_draw
+	if not is_instance_valid(vp): return
+	var img := vp.get_texture().get_image(); vp.queue_free()
+	if img == null or img.is_empty(): return
+	for k in ids.size():
+		var cell := img.get_region(Rect2i(k * 48, 0, 48, 48)); cell.generate_mipmaps()
+		var id := "%s:%s" % ids[k]
+		var path := "res://__rich_icons/%s.tres" % id.replace(":", "_").replace(" ", "_")
+		var tex := ImageTexture.create_from_image(cell); tex.take_over_path(path)   # [img] loads it from the resource cache; nothing touches disk
+		_rich_icons[id] = tex; _rich_paths[id] = path
+	if _tut: _show_tut()   # the first banner may have been built before the bake finished
 
 
 func _start_tutorial() -> void:
@@ -4111,6 +4629,7 @@ func _tick_tutorial() -> void:
 
 
 func _show_tut() -> void:
+	if _camp: _camp_show(); return
 	if tut_box == null: return
 	for c in tut_box.get_children(): tut_box.remove_child(c); c.queue_free()
 	var stages := _tut_stages()
@@ -4130,6 +4649,7 @@ func _show_tut() -> void:
 
 
 func _tutorial_target() -> int:
+	if _camp: return _camp_target()
 	if not _tut: return -1
 	if _tut_stage == 0: return int(rig[PLAYER])
 	if _tut_stage == 2: return _tut_second
@@ -4151,7 +4671,692 @@ func _tut_finish() -> void:
 	_layout_ui(); _fit_view()
 
 
+# ============================================================ GUIDED CAMPAIGN
+# Six chapters of ONE continuous game on CAMP_SEED. Chapters are phases; the step within a chapter reuses _tut_stage.
+# Advancement is gated on real game-state outcomes (never a click, a timer, or a card launched-but-not-arrived).
+# A reading pause (_camp_paused) freezes the WHOLE simulation; the player resumes with Space or by taking the action.
+func _camp_chapters() -> Array:
+	return ["Get Connected", "Establish Income", "Protect the Network", "Use Special Actions", "Recover the Records", "Choose Your Approach"]
+
+
+# Each step: t title · r RESULT (what it did, shown for a few seconds once done) · a ACTION (what to do, shown bold) · w WHY (one short reason)
+# · role (the TARGET computer, ringed on the map)
+# · from (the computer a drag starts at: a green FROM marker + arrow until that wire exists) · ui (the UI element(s) to blink:
+# "card:<id>" deck/hand card, "build:<kind>" palette card, "btn:<name>" panel button) · card (the step's card copy, handed back
+# if it is used up) · pause (freeze for reading on entry) · fire (scripted beat on entry) · fire_leave (beat when the step completes).
+# Text rules: plain words, no repetition, and every name is exactly what the map or the UI shows. {from} = the FROM computer's name.
+func _camp_steps(chapter: int) -> Array:
+	match chapter:
+		0: return [
+			{"t": "Your home computer", "r": "Connected. Your bots can now travel from YOUR RIG to the relay.", "a": "Drag from YOUR RIG onto the Neighborhood Relay to connect them.", "w": "YOUR RIG is your home base. Lose it and you lose the game.", "role": "relay", "from": "home", "pause": true},
+			{"t": "Scan the relay", "r": "Scanned. The number on the relay now shows its real defenders.", "a": "Press the blinking Scan button, then wait for the scan to finish.", "w": "You can't see a computer's defenders until you scan it.", "role": "relay", "ui": "btn:Scan", "pause": true},
+			{"t": "Attack with two", "r": "Your bots are wearing the relay down — watch its number fall.", "a": "Press Attack, then drag from Support onto the relay to add its bots.", "w": "Bots fight defenders one for one. Two attackers win faster.", "role": "relay", "from": "support", "ui": "btn:Attack", "pause": true},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours. Its slots can now hold your installations.", "a": "Keep attacking until the relay turns green.", "w": "When its defenders reach zero, the computer becomes yours.", "role": "relay", "pause": false},
+		]
+		1: return [
+			{"t": "Make Intel", "r": "The Intel harvester is running — your Intel income went up.", "a": "Select the relay, then click the blinking Intel harvester card.", "w": "Computers have slots for installations. An Intel harvester makes Intel.", "role": "relay", "ui": "build:intel", "pause": true},
+			{"t": "Make Crypto", "r": "The Crypto miner is turning Intel into Crypto packets.", "a": "Click the blinking Crypto miner card.", "w": "A Crypto miner turns Intel into Crypto, the money for farms and cards.", "role": "relay", "ui": "build:cash", "pause": true},
+			{"t": "Bring it home", "r": "Crypto arrived home — see your Crypto at the top of the screen.", "a": "Wait for a Crypto packet to reach YOUR RIG.", "w": "Crypto counts only when it arrives home.", "role": "home", "pause": false},
+			{"t": "Spend it", "r": "The Bot farm will now refill the relay's defenders over time.", "a": "Click the blinking Bot farm card (30 Crypto).", "w": "A Bot farm grows new defenders on the relay over time.", "role": "relay", "ui": "build:bot", "pause": true, "fire": "ch1_cash"},
+		]
+		2: return [
+			{"t": "Guard Support", "r": "Support is guarded: if it is attacked, {from} sends help.", "a": "Drag from {from} onto Support (follow the green arrow).", "w": "A connection between two of your computers is a guard: it sends bots only when Support is attacked.", "role": "support", "from": "guard", "pause": true},
+			{"t": "Assault", "r": "The Assault is on — watch the sender's bots drop as they leave.", "a": "Drag from {from} onto the Corporate Gateway, then press the blinking Assault button.", "w": "An Assault sends a fixed share of bots fast; the sender is left thin.", "role": "gateway", "from": "src", "ui": "btn:Assault", "pause": true},
+			{"t": "Pull back", "r": "Cancelled. The bots that had not left yet stay home.", "a": "Press the blinking Cancel assault button.", "w": "Unsent bots stay home. Bots already on the way still arrive.", "role": "gateway", "ui": "btn:Cancel assault", "pause": true},
+			{"t": "Hold through a cut", "r": "Support held, and its route is back. Your guard kept working through the cut.", "a": "Keep Support guarded and hold until the CUT timer under it runs out.", "w": "The Corporate Gateway hit back and cut Support's routing. Your guard still sends help, and the cut wears off.", "role": "support", "from": "guard", "pause": false, "fire": "ch2_cut"},
+		]
+		3: return [
+			{"t": "Card workshop", "r": "The workshop is running: Credentials and Research now flow in.", "a": "Select the relay, then click the blinking Credential harvester and Research lab cards.", "w": "Cards cost Crypto, Credentials and Research. The harvester makes Credentials; the lab turns Crypto into Research.", "role": "relay", "ui": ["build:cred", "build:lab"], "pause": true, "fire_leave": "ch3_stock"},
+			{"t": "Prepare Phishing", "r": "Phishing is ready. A prepared card waits at the bottom until you play it.", "a": "Click the blinking Phishing card at the bottom and wait for its bar to fill.", "w": "A card must be prepared before you can play it. Phishing lets you steal a rival's output.", "role": "", "ui": "card:phishworm", "pause": true},
+			{"t": "Phishing", "r": "The Practice host's output now comes to you — and it still pays the costs.", "a": "Drag Phishing onto the Practice host.", "w": "Its output now comes to you, but the computer stays theirs.", "role": "practice", "ui": "card:phishworm", "card": "phishworm:linked", "pause": true},
+			{"t": "Incident response", "r": "The theft stopped. Your relay's output is yours again.", "a": "Drag the blinking Incident response card onto the Neighborhood Relay.", "w": "A rival is phishing your relay. Incident response stops the theft.", "role": "relay", "ui": "card:response", "card": "response:linked", "pause": true, "fire": "ch3_phish"},
+			{"t": "DDOS", "r": "The Practice host is frozen: no production and no traffic for a while.", "a": "Drag DDOS onto the Practice host.", "w": "DDOS stops a computer's production and traffic for a while. It does not capture it.", "role": "practice", "ui": "card:ddos", "card": "ddos:linked", "pause": true},
+			{"t": "CDN", "r": "Your relay is back online.", "a": "Drag CDN onto the Neighborhood Relay.", "w": "A rival DDOSed your relay. CDN brings it back online.", "role": "relay", "ui": "card:cdn", "card": "cdn:linked", "pause": true, "fire": "ch3_ddos"},
+			{"t": "0day", "r": "Practice host 2 is yours — taken without sending a single bot.", "a": "Drag 0day onto Practice host 2.", "w": "0day tries to take a computer you are connected to. It can miss; you'll get another copy.", "role": "practice2", "ui": "card:zeroday", "card": "zeroday:linked", "pause": true},
+			{"t": "Patch day", "r": "Support is shielded. Watch: the rival's 0day bounces off.", "a": "Drag Patch day onto Support.", "w": "Patch day shields a computer from 0day and Supply chain attacks for a while.", "role": "support", "ui": "card:patch", "card": "patch:linked", "pause": true, "fire_leave": "ch3_0day"},
+			{"t": "Supply chain attack", "r": "The Practice host lost its installations and bots — but it still belongs to the rival.", "a": "Drag Supply chain attack onto the Practice host.", "w": "It wipes a computer's installations and bots. The owner keeps the computer.", "role": "practice", "ui": "card:supply", "card": "supply:linked", "pause": true},
+			{"t": "SCA", "r": "Support is shielded. Watch: the rival's Supply chain attack bounces off.", "a": "Drag SCA onto Support.", "w": "SCA shields a computer from Supply chain attacks.", "role": "support", "ui": "card:sca", "card": "sca:linked", "pause": true, "fire_leave": "ch3_supply"},
+		]
+		4: return [
+			{"t": "Find the opening", "r": "The vault holds records you can copy out once you have access.", "a": "Drag from {from} onto the Records vault, then press the blinking Scan button.", "w": "Scanning shows what the vault holds and how to get in.", "role": "vault", "from": "foothold", "ui": "btn:Scan", "pause": true},
+			{"t": "Get access", "r": "Access is open: records start flowing toward YOUR RIG.", "a": "Press the blinking Establish access button.", "w": "Access lets records flow out. The vault still belongs to its owner.", "role": "vault", "ui": "btn:Establish access", "pause": true},
+			{"t": "Extract", "r": "The first record is home.", "a": "Wait for a record to reach YOUR RIG.", "w": "A record counts only when it arrives home.", "role": "vault", "pause": false},
+			{"t": "They notice", "r": "The records kept flowing despite the cut.", "a": "Wait for the cut route to recover, then bring home one more record.", "w": "Taking records raises an alarm, so the owner cuts your route for a while.", "role": "vault", "pause": false, "fire": "ch4_detect"},
+			{"t": "Decide", "r": "Done.", "a": "Bring home all the records, then press Sell or Publish.", "w": "Sell pays Crypto. Publish opens the Community Relay to you.", "role": "vault", "ui": ["btn:Sell", "btn:Publish"], "pause": false},
+		]
+		_: return [
+			{"t": "Your move", "r": "Victory.", "a": "Win the district your way — any route, any tools.", "w": "Hold over half the computers for 51 seconds, or capture the rival rig. Lose your rig and you lose.", "role": "", "pause": true},
+		]
+
+
+func _camp_role_host(role: String) -> int:
+	match role:
+		"home": return _camp_home
+		"support": return _camp_support
+		"relay", "income": return _camp_relay
+		"gateway", "frontier": return _camp_gateway
+		"vault": return _camp_vault
+		"commrelay": return _camp_commrelay
+		"rivalhq": return _camp_rivalhq
+		"practice": return _camp_practice
+		"practice2": return _camp_practice2
+		"guard": return _camp_guard
+		"src": return _camp_src
+		"foothold": return _camp_foothold
+	return -1
+
+
+func _camp_target() -> int:
+	if not _camp: return -1
+	if _camp_hold_left > 0.0: return _camp_hold_target
+	var steps := _camp_steps(_camp_chapter)
+	if _tut_stage < 0 or _tut_stage >= steps.size(): return -1
+	if _camp_chapter == 5: return -1   # the open chapter highlights nothing
+	return _camp_role_host(str(steps[_tut_stage].get("role", "")))
+
+
+func _camp_step() -> Dictionary:
+	if not _camp: return {}
+	var s := _camp_steps(_camp_chapter)
+	return s[_tut_stage] if _tut_stage >= 0 and _tut_stage < s.size() else {}
+
+
+func _camp_pulse() -> float:   # 0..1 on the wall clock, so cues keep beating through the reading pause
+	return 0.5 + 0.5 * sin(_camp_clock * TAU * 1.4)
+
+
+func _camp_from() -> int:   # the FROM computer of the step's drag guide; -1 once that wire exists
+	var st := _camp_step()
+	if st.is_empty() or _camp_chapter == 5 or _camp_hold_left > 0.0: return -1
+	var f := _camp_role_host(str(st.get("from", ""))); var t := _camp_target()
+	if f < 0 or t < 0 or f == t or not _mine(f) or int(hosts[f].assign) == t: return -1
+	return f
+
+
+func _camp_fill(s: String) -> String:   # {from} -> the FROM computer's live name
+	var f := _camp_role_host(str(_camp_step().get("from", "")))
+	return s.replace("{from}", str(hosts[f].name) if f >= 0 and f < hosts.size() else "one of your computers")
+
+
+func _camp_ui_targets() -> Array:   # the live Controls the step names, re-found every frame (panel and hand rebuild freely)
+	var st := _camp_step()
+	if st.is_empty() or menu_open or won or lost or _camp_hold_left > 0.0: return []
+	var specs = st.get("ui", [])
+	if specs is String: specs = [specs]
+	var out := []
+	for spec in specs:
+		var p := str(spec).split(":", true, 1)
+		if p.size() != 2: continue
+		match p[0]:
+			"card": out.append_array(_camp_card_ctrls(_card_key(p[1], "linked")))
+			"build": out.append_array(_camp_build_ctrls(p[1]))
+			"btn": out.append_array(_panel_find(func(c): return c is Button and c.is_visible_in_tree() and (str(c.name) == p[1] or c.text.begins_with(p[1]))))
+	return out
+
+
+func _camp_card_ctrls(key: String) -> Array:   # deck down: its chip · deck up on the other bank: that tab · else its big card
+	if not _deck_open: return _deck_chip_nodes().filter(func(c): return str(c.key) == key)
+	var bank := _bank_of(key)
+	if bank != _card_bank: return [card_banks.get_child(0 if bank == "attack" else 1)]
+	return hand_bar.get_children().filter(func(c): return str(c.key) == key and c.visible)
+
+
+func _camp_build_ctrls(kind: String) -> Array:   # the palette card, while the selected computer still lacks that installation
+	var h := int(sel.keys()[0]) if sel.size() == 1 else _inspect
+	if h < 0 or not _mine(h) or _count_all(h, kind) > 0: return []
+	for j in (hosts[h].jobs as Dictionary).values():
+		if str(j.get("kind", "")) == kind and str(j.get("phase", "build")) == "build": return []
+	return _panel_find(func(c): return c is BuildCard and c.kind == kind)
+
+
+func _panel_find(ok: Callable) -> Array:
+	var out := []; var stack: Array = panel_box.get_children()
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if ok.call(n): out.append(n)
+		stack.append_array(n.get_children())
+	return out
+
+
+func _camp_guard_src() -> int:   # Ch2 FROM: can guard Support; not the Assault source (the next lesson would rewire it), not the rig; nearest
+	var t := _camp_support
+	if t < 0: return -1
+	return _camp_pick(func(i): return _mine(i) and i != t and _link_kind(i, t) == "defend",
+		func(i): return [1 if i == _camp_src else 0, 1 if bool(hosts[i].rig) else 0, _route(i, t).size(), i])
+
+
+# ---- role selection (deterministic BFS from Home) ----
+func _camp_bfs(src: int, avoid := -1) -> Dictionary:
+	var dist := {src: 0}; var q := [src]; var head := 0
+	while head < q.size():
+		var c: int = q[head]; head += 1
+		for o in hosts[c].links:
+			var oi := int(o)
+			if oi == avoid or dist.has(oi): continue
+			dist[oi] = int(dist[c]) + 1; q.append(oi)
+	return dist
+
+
+func _camp_roles() -> void:
+	_camp_home = int(rig[PLAYER]); _camp_rivalhq = int(rig[RIVAL])
+	_camp_support = -1
+	for i in hosts.size():
+		if _mine(i) and i != _camp_home: _camp_support = i; break
+	var dist := _camp_bfs(_camp_home)
+	# relay: a neutral neighbour of home or support, lowest [sec, index]
+	_camp_relay = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and (hosts[_camp_home].links.has(i) or (_camp_support >= 0 and hosts[_camp_support].links.has(i))),
+		func(i): return [float(hosts[i].sec), i])
+	# vault: a high-value neutral db/file/erp, far-ish; max [value, dist], min index
+	_camp_vault = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and str(hosts[i].type) in ["db", "file", "erp"] and i != _camp_relay,
+		func(i): return [-float(hosts[i].value), -int(dist.get(i, 0)), i])
+	# gateway: a neutral neighbour of the vault reachable from home avoiding the vault (so vault->gateway->home routes)
+	_camp_gateway = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and i not in [_camp_relay, _camp_vault] and hosts[_camp_vault].links.has(i) and _camp_bfs(_camp_home, _camp_vault).has(i),
+		func(i): return [int(_camp_bfs(_camp_home, _camp_vault).get(i, 99)), float(hosts[i].sec), i])
+	if _camp_gateway < 0:   # fallback: any neutral neighbour of the vault
+		_camp_gateway = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and i not in [_camp_relay, _camp_vault] and hosts[_camp_vault].links.has(i), func(i): return [i])
+	# community relay: a rim (value 1) neutral, nearest
+	_camp_commrelay = _camp_pick(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and int(hosts[i].value) == 1 and i not in [_camp_relay, _camp_vault, _camp_gateway],
+		func(i): return [int(dist.get(i, 99)), i])
+	# two rival practice computers for the card lessons: neutrals near home (chapter 3 makes them rival-owned)
+	var prac := _camp_all(func(i): return int(hosts[i].owner) == NEUTRAL and not bool(hosts[i].hub) and i not in [_camp_relay, _camp_vault, _camp_gateway, _camp_commrelay],
+		func(i): return [int(dist.get(i, 99)), i])
+	_camp_practice = prac[0] if prac.size() > 0 else -1
+	_camp_practice2 = prac[1] if prac.size() > 1 else -1
+
+
+func _camp_pick(ok: Callable, key: Callable) -> int:   # the best host satisfying ok() by ascending key()
+	var best := -1; var bk = null
+	for i in hosts.size():
+		if not bool(ok.call(i)): continue
+		var k = key.call(i)
+		if bk == null or _less(k, bk): bk = k; best = i
+	return best
+
+
+func _camp_all(ok: Callable, key: Callable) -> Array:
+	var out := []
+	for i in hosts.size():
+		if bool(ok.call(i)): out.append(i)
+	out.sort_custom(func(a, b): return _less(key.call(a), key.call(b)))
+	return out
+
+
+func _less(a: Array, b: Array) -> bool:
+	for k in mini(a.size(), b.size()):
+		if float(a[k]) != float(b[k]): return float(a[k]) < float(b[k])
+	return a.size() < b.size()
+
+
+# ---- authored board per chapter checkpoint (idempotent; keyed on role indices only) ----
+func _camp_own(i: int) -> void:
+	if i >= 0 and not _mine(i):
+		_capture(i, PLAYER)
+		hosts[i].bots = maxf(float(hosts[i].bots), _cap_of(i))   # authored ownership starts garrisoned, not with _capture's negative overflow
+
+
+func _camp_grant(i: float, c: float, k: float, r: float) -> void:   # called after the chapter's _set_builds, so the Intel limit is final
+	intel[PLAYER] = maxf(float(intel[PLAYER]), minf(i, _intel_cap(PLAYER))); cash[PLAYER] = maxf(float(cash[PLAYER]), c)   # Intel is hard-capped: never show "200/115"
+	creds[PLAYER] = maxf(float(creds[PLAYER]), minf(k, _res_cap(PLAYER, "cred"))); research[PLAYER] = maxf(float(research[PLAYER]), minf(r, _res_cap(PLAYER, "lab")))   # never "200/50"
+
+
+func _camp_supply(key: String) -> void:   # grant one prepared card copy once, announced
+	var id := "%d:%s" % [_camp_chapter, key]
+	if _camp_supplied.get(id, false): return
+	_camp_supplied[id] = true
+	cards[PLAYER][key] = int(_held(PLAYER, key)) + 1
+
+
+func _camp_slots(i: int, n: int) -> void:
+	if i >= 0 and int(hosts[i].slots) < n: hosts[i].slots = n
+
+
+func _camp_setup(chapter: int) -> void:
+	_camp_own(_camp_support)
+	if _camp_support >= 0: hosts[_camp_support].name = "Support"   # the banner says "Support": the map must too
+	match chapter:
+		0:
+			hosts[_camp_relay].name = "Neighborhood Relay"; hosts[_camp_relay].sec = 40.0; hosts[_camp_relay].bots = 40.0; _set_builds(_camp_relay, [])
+			_camp_grant(INTEL_START, 0.0, 0.0, 0.0)
+		1:
+			_camp_own(_camp_relay); _camp_slots(_camp_relay, 4); _set_builds(_camp_relay, []); hosts[_camp_relay].bots = minf(_cap_of(_camp_relay), 30.0)
+			hosts[_camp_relay].name = "Neighborhood Relay"
+			_camp_grant(120.0, 0.0, 0.0, 0.0)
+		2:
+			_camp_own(_camp_relay); _camp_slots(_camp_relay, 4); _set_builds(_camp_relay, ["intel", "cash", "bot"])
+			hosts[_camp_relay].name = "Neighborhood Relay"
+			hosts[_camp_support].bots = 30.0
+			var front := -1; var fsrc := -1   # a rival frontier directly adjacent to an owned computer (so the assault can reach it)
+			for base in [_camp_home, _camp_relay, _camp_support]:
+				if base < 0 or not _mine(base): continue
+				for o in hosts[base].links:
+					var oi := int(o)
+					if int(hosts[oi].owner) == NEUTRAL and not bool(hosts[oi].hub) and oi not in [_camp_relay, _camp_support, _camp_home]: front = oi; fsrc = base; break
+				if front >= 0: break
+			if front >= 0:
+				hosts[front].owner = RIVAL; hosts[front].bots = 45.0; hosts[front].name = "Corporate Gateway"; _set_builds(front, ["bot"])
+				_camp_gateway = front; _camp_src = fsrc; hosts[fsrc].bots = 60.0; _camp_slots(fsrc, 3)
+			_camp_guard = _camp_guard_src()
+			_assault_pct = ASSAULT_DEFAULT   # a 25 % pick from earlier play would be spent before Cancel can be taught
+			_camp_grant(120.0, 60.0, 0.0, 0.0)
+		3:
+			_camp_own(_camp_relay); _camp_slots(_camp_relay, 5); _set_builds(_camp_relay, ["intel", "cash", "bot"]); hosts[_camp_relay].bots = _cap_of(_camp_relay)
+			hosts[_camp_relay].name = "Neighborhood Relay"
+			_camp_slots(_camp_support, 4); hosts[_camp_support].bots = 30.0
+			for p in [_camp_practice, _camp_practice2]:
+				if p < 0: continue
+				hosts[p].owner = RIVAL; hosts[p].bots = 30.0; _camp_slots(p, 3); _set_builds(p, ["intel", "bot"])
+				hosts[p].name = "Practice host" if p == _camp_practice else "Practice host 2"   # two targets, two names
+			if _camp_practice2 >= 0:   # a dormant WIRE (sets assign, not just a graph edge) so 0day's needs_link is satisfied on the highlighted host
+				var own0 := _nearest_owned(_camp_practice2)
+				if own0 >= 0:
+					_link(own0, _camp_practice2)
+					hosts[own0].assign = _camp_practice2; hosts[own0].mode = "attack"; hosts[own0].live = false   # dormant: never fires on its own
+			_camp_grant(200.0, 200.0, 200.0, 200.0)
+			for key in ["ddos:linked", "zeroday:linked", "supply:linked", "cdn:linked", "patch:linked", "response:linked", "sca:linked"]: _camp_supply(key)
+		4:
+			_camp_own(_camp_relay); _camp_slots(_camp_relay, 5); _set_builds(_camp_relay, ["intel", "cash", "bot", "cred", "lab"])   # the card workshop carries over
+			_setup_mission(_camp_vault, 6, "Kessler Finance", "A neighbourhood's debt records are held here.")
+			hosts[_camp_vault].owner = RIVAL; hosts[_camp_vault].bots = 50.0; hosts[_camp_vault].sec = 50.0; hosts[_camp_vault].name = "Records vault"
+			# own the whole corridor from home to a vault-neighbour (avoiding the vault) so records can travel home
+			var foothold := _camp_gateway if (_camp_gateway >= 0 and hosts[_camp_vault].links.has(_camp_gateway)) else -1
+			if foothold < 0:
+				for o in hosts[_camp_vault].links:
+					if int(hosts[int(o)].owner) != RIVAL: foothold = int(o); break
+			if foothold >= 0: _camp_own_path(_camp_home, foothold, _camp_vault)
+			_camp_foothold = foothold
+			hosts[_camp_relay].name = "Neighborhood Relay"
+			if _camp_commrelay >= 0: hosts[_camp_commrelay].relay = true; hosts[_camp_commrelay].name = "Community Relay"
+			_camp_grant(80.0, 40.0, 80.0, 40.0)
+		5:
+			_camp_own(_camp_relay); _camp_slots(_camp_relay, 5); _set_builds(_camp_relay, ["intel", "cash", "bot", "cred", "lab"]); hosts[_camp_relay].bots = _cap_of(_camp_relay)
+			hosts[_camp_relay].name = "Neighborhood Relay"
+			_camp_grant(120.0, 120.0, 120.0, 120.0)
+	_msg_t = 0.0; _msg_priority = 0   # the setup's own captures are not news (they named computers before their campaign names)
+	_refresh_sight()
+
+
+func _camp_own_path(a: int, b: int, avoid := -1) -> void:   # own every computer on a route a->b (so a route exists through our network)
+	if a < 0 or b < 0: return
+	var prev := {a: a}; var q := [a]; var head := 0
+	while head < q.size():
+		var c: int = q[head]; head += 1
+		if c == b: break
+		for o in hosts[c].links:
+			var oi := int(o)
+			if oi == avoid or prev.has(oi): continue
+			prev[oi] = c; q.append(oi)
+	if not prev.has(b): return
+	var n := b
+	while n != a:
+		if int(hosts[n].owner) != RIVAL or n == b: _camp_own(n)
+		n = int(prev[n])
+
+
+func _camp_gateway_prev() -> int:   # a home-side neutral on the way to the gateway, owned to form a corridor
+	if _camp_gateway < 0: return -1
+	for o in hosts[_camp_gateway].links:
+		if int(hosts[int(o)].owner) != RIVAL and int(o) != _camp_gateway: return int(o)
+	return -1
+
+
+func _nearest_owned(t: int) -> int:
+	var best := -1; var bd := 99
+	for i in hosts.size():
+		if not _mine(i): continue
+		var d := int(_camp_bfs(i).get(t, 99))
+		if d < bd: bd = d; best = i
+	return best
+
+
+# ---- lifecycle ----
+var _opt_backup := {}
+func _start_campaign(chapter: int, replay := false) -> void:
+	if _opt_backup.is_empty() and not _camp:   # remember the player's own New-game choices once
+		_opt_backup = {"size": _opt_size, "enemies": _opt_enemies, "ai": _opt_ai_level, "mission": _opt_mission, "seed": _opt_seed}
+	_opt_size = CAMP_SIZE; _opt_enemies = 1; _opt_ai_level = "normal"; _opt_mission = false; _opt_seed = CAMP_SEED
+	_reset()
+	for fac in ais: ai_level[fac] = "normal"
+	_camp_roles()
+	_camp_chapter = clampi(chapter, 0, CAMP_CHAPTERS - 1)
+	_camp_supplied = {}; _camp_events = {}; _camp_cash_landed = 0; _camp_detect_mark = 0.0; _camp_cancelled = false
+	_camp_setup(_camp_chapter)
+	_camp = true; _tut = true; _tut_stage = 0; _camp_replay = replay
+	_ai_paused = _camp_chapter < 5
+	var steps := _camp_steps(_camp_chapter)
+	_camp_paused = bool(steps[0].get("pause", false))
+	_open_menu(false); _show_tut(); _fit_view()
+	if not replay: _camp_save()
+
+
+func _camp_save_path() -> String:   # the played game (main scene) keeps the real file; any harness that builds the script by hand gets its own
+	return CAMP_SAVE if is_inside_tree() and get_tree().current_scene == self else CAMP_SAVE_HARNESS
+
+
+func _camp_save() -> void: _camp_save_at(_camp_chapter, _tut_stage)
+
+
+func _camp_save_at(chapter: int, step: int) -> void:
+	var data := {"schema": 1, "game_version": GAME_VERSION, "campaign_seed": CAMP_SEED,
+		"chapter": chapter, "step": step, "completed": _camp_done.count(true) >= CAMP_CHAPTERS,
+		"chapters_completed": _camp_done.duplicate()}
+	var f := FileAccess.open(_camp_save_path(), FileAccess.WRITE)
+	if f != null: f.store_line(JSON.stringify(data)); f.close()
+
+
+func _camp_load() -> Dictionary:
+	if not FileAccess.file_exists(_camp_save_path()): return {}
+	var f := FileAccess.open(_camp_save_path(), FileAccess.READ)
+	if f == null: return {}
+	var d = JSON.parse_string(f.get_as_text()); f.close()
+	if not (d is Dictionary) or int((d as Dictionary).get("schema", 0)) != 1: return {}
+	if int((d as Dictionary).get("campaign_seed", -1)) != CAMP_SEED:   # authoring changed: a veteran isn't re-forced, but an old checkpoint can't rebuild
+		return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": 0, "step": 0, "chapters_completed": [false, false, false, false, false, false]}
+	var cc = (d as Dictionary).get("chapters_completed", [false, false, false, false, false, false])
+	return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": int((d as Dictionary).get("chapter", 0)), "step": int((d as Dictionary).get("step", 0)), "chapters_completed": cc}
+
+
+func _camp_has_onboarded() -> bool:
+	return bool(_camp_load().get("completed", false))
+
+
+func _camp_first_run() -> void:   # force the campaign on first launch — only in the real played game, never under a test/probe harness
+	if not is_inside_tree() or get_tree() == null or get_tree().current_scene != self: return
+	if not _camp_has_onboarded(): _camp_resume_or_start()
+
+
+func _camp_resume_or_start(replay_chapter := -1) -> void:
+	if replay_chapter >= 0:
+		_start_campaign(replay_chapter, true); return
+	var save := _camp_load()
+	var cc = save.get("chapters_completed", [])
+	if cc is Array and (cc as Array).size() == CAMP_CHAPTERS:
+		for k in CAMP_CHAPTERS: _camp_done[k] = bool((cc as Array)[k])
+	_start_campaign(int(save.get("chapter", 0)))
+
+
+func _camp_restore_opts() -> void:   # put back the player's own New-game choices that _start_campaign overwrote
+	if _opt_backup.is_empty(): return
+	_opt_size = _opt_backup.get("size", _opt_size)
+	_opt_enemies = int(_opt_backup.get("enemies", _opt_enemies))
+	_opt_ai_level = str(_opt_backup.get("ai", _opt_ai_level))
+	_opt_mission = bool(_opt_backup.get("mission", _opt_mission))
+	_opt_seed = int(_opt_backup.get("seed", _opt_seed))
+	_opt_backup = {}
+
+
+func _camp_leave() -> void:
+	_camp_save(); _camp_paused = false
+	if _camp_replay: _camp_restore_opts()   # a replay ends here; the mandatory run restores them only when it is finished
+	_open_menu(true)
+
+
+func _camp_retry() -> void:
+	_start_campaign(_camp_chapter, _camp_replay)
+
+
+func _camp_finish() -> void:   # the whole campaign is done
+	for k in CAMP_CHAPTERS: _camp_done[k] = true
+	_camp = false; _tut = false; _camp_paused = false; _ai_paused = false
+	if tut_panel != null: tut_panel.visible = false
+	_camp_restore_opts()
+	_camp_save()
+	_flash("Training complete. The game is yours — New game is unlocked.", 0)
+	_layout_ui(); _fit_view()
+
+
+# ---- scripted beats (deterministic; the rival's AI is paused, so the lesson drives these directly) ----
+func _camp_fire(name: String) -> void:   # beat flashes use priority 3 so the player's own command flash can't swallow them
+	if bool(_camp_events.get(name, false)): return
+	_camp_events[name] = true
+	match name:
+		"ch2_cut":   # the Gateway the player just assaulted hits back: a real wave on Support plus a routing cut
+			_camp_events["ch2_cut_t"] = _t
+			if _camp_support >= 0:
+				hosts[_camp_support].route_off = CAMP_CUT_SECS; hosts[_camp_support].hit_t = _t
+				if _camp_gateway >= 0 and int(hosts[_camp_gateway].owner) == RIVAL:
+					_do_wire(RIVAL, [_camp_gateway], _camp_support); _do_assault(RIVAL, _camp_support, 75)
+			_flash("The Corporate Gateway hit back — Support is under attack and its routing is cut. Keep it guarded.", 3)
+		"ch1_cash":   # one delivered packet is ~2 Crypto: top up so the 30-Crypto farm can be bought right away
+			_camp_grant(0.0, 30.0, 0.0, 0.0)
+			_flash("Your Crypto was topped up to 30 for this lesson — the miner keeps adding more.", 3)
+		"ch3_stock":   # the new workshop raised the limits: fill them so the first card can be prepared without a long wait
+			_camp_grant(0.0, 0.0, 100.0, 100.0)
+			_flash("Your workshop is running — Credentials and Research topped up for the lessons.", 3)
+		"ch3_phish":
+			if _camp_relay >= 0: _apply_effect(RIVAL, CARDS["phishworm"], _camp_relay, 1)
+			_flash("A rival is phishing your relay — its output is being stolen.", 3)
+		"ch3_ddos":
+			if _camp_relay >= 0: _apply_effect(RIVAL, CARDS["ddos"], _camp_relay, 1)
+			_flash("A rival DDOSed your relay — its service is down.", 3)
+		"ch3_0day":
+			if _camp_support >= 0: _apply_effect(RIVAL, CARDS["zeroday"], _camp_support, 1)
+			_flash("A rival 0day hit Support — Patch day bounced it.", 3)
+		"ch3_supply":
+			if _camp_support >= 0: _apply_effect(RIVAL, CARDS["supply"], _camp_support, 1)
+			_flash("A rival Supply chain attack hit Support — SCA bounced it.", 3)
+		"ch4_detect":   # the owner traces the extraction and cuts an owned node on the records route; it recovers
+			_camp_detect_mark = _records_got(PLAYER, _camp_vault)
+			var rt := _extract_route(PLAYER, _camp_vault)
+			for k in range(rt.size() - 2, 0, -1):   # skip the vault (0) and the rig (last); cut an owned relay in between
+				var node := int(rt[k])
+				if _mine(node):
+					hosts[node].route_off = maxf(float(hosts[node].get("route_off", 0.0)), MIS_RESPOND_CUT)
+					hosts[node].hit_t = _t
+					break
+			_flash("They traced the records route and cut it — it recovers. Keep extracting.", 3)
+
+
+# ---- advancement (outcome-gated) ----
+func _camp_step_done(chapter: int, step: int) -> bool:
+	match chapter:
+		0:
+			match step:
+				0: return not _owned_feeders(_camp_relay).is_empty()
+				1: return _scanned(PLAYER, _camp_relay)
+				2: return _mine(_camp_relay) or float(hosts[_camp_relay].bots) < float((scans[PLAYER] as Dictionary).get(_camp_relay, {}).get("bots", 1e9)) - 0.5
+				3: return _mine(_camp_relay)
+		1:
+			match step:
+				0: return _mine(_camp_relay) and _count_all(_camp_relay, "intel") >= 1
+				1: return _count_all(_camp_relay, "cash") >= 1
+				2: return _camp_cash_landed >= 1
+				3: return _count_all(_camp_relay, "bot") >= 1
+		2:
+			match step:
+				0: return _camp_guarded(_camp_support)
+				1: return _camp_assaulted()
+				2: return not _camp_assault_running()   # cancelled, or already spent (its result says what Cancel would have kept)
+				3:   # Support held, guarded, the wave spent and the cut over (a stalled rival order can't hold the lesson hostage)
+					var wave_over := _camp_gateway < 0 or not _assault_active(_camp_gateway) or _t > float(_camp_events.get("ch2_cut_t", 0.0)) + 25.0
+					return bool(_camp_events.get("ch2_cut", false)) and _mine(_camp_support) and not _routing_down(_camp_support) \
+						and _camp_guarded(_camp_support) and _hostile_incoming(_camp_support) <= 0.0 and wave_over
+		3:
+			match step:
+				0: return _camp_has_kind("cred") and _camp_has_kind("lab")
+				1: return _held(PLAYER, "phishworm:linked") >= 1
+				2: return _camp_practice >= 0 and _stolen(_camp_practice) and int(hosts[_camp_practice].get("steal_by", -1)) == PLAYER
+				3: return bool(_camp_events.get("ch3_phish", false)) and not _stolen(_camp_relay)
+				4: return _camp_practice >= 0 and _prod_down(_camp_practice) and _routing_down(_camp_practice)
+				5: return bool(_camp_events.get("ch3_ddos", false)) and not _prod_down(_camp_relay) and not _routing_down(_camp_relay)
+				6: return _camp_practice2 >= 0 and _mine(_camp_practice2)
+				7: return _camp_support >= 0 and float(hosts[_camp_support].get("patch_until", 0.0)) > _t
+				8: return _camp_practice >= 0 and int(hosts[_camp_practice].owner) == RIVAL and _built_kinds(_camp_practice).is_empty()
+				9: return _camp_support >= 0 and float(hosts[_camp_support].get("sca_until", 0.0)) > _t
+		4:
+			match step:
+				0: return _scanned(PLAYER, _camp_vault)
+				1: return _access_live(PLAYER, _camp_vault) and not _mine(_camp_vault)
+				2: return _records_got(PLAYER, _camp_vault) >= 1.0
+				3: return bool(_camp_events.get("ch4_detect", false)) and _records_got(PLAYER, _camp_vault) > _camp_detect_mark + 0.5
+				4: return _mission_complete(PLAYER, _camp_vault) and mission_done.has(_mkey(PLAYER, _camp_vault))
+		5:
+			return won
+	return false
+
+
+func _camp_guarded(t: int) -> bool:   # some owned computer wires into t as a guard
+	if t < 0 or not _mine(t): return false
+	for i in hosts.size():
+		if _mine(i) and i != t and int(hosts[i].assign) == t: return true
+	return false
+
+
+func _camp_assaulted() -> bool:
+	for i in hosts.size():
+		var o := _assault_of(i)
+		if not o.is_empty() and int(o.get("sent", 0)) > 0: return true
+	return false
+
+
+func _camp_has_kind(kind: String) -> bool:
+	for i in hosts.size():
+		if _mine(i) and _count_all(i, kind) >= 1: return true
+	return false
+
+
+func _camp_assault_running() -> bool:   # some order of the player's still has bots to send
+	for i in hosts.size():
+		if _mine(i) and _assault_active(i): return true
+	return false
+
+
+func _camp_card_in_flight(key: String) -> bool:   # a copy of the player's card still on its way to land
+	for f in flights:
+		if str(f.kind) == "card" and int(f.owner) == PLAYER and str(f.get("card", "")) == key: return true
+	return false
+
+
+func _camp_tick() -> void:
+	if not _camp or _camp_hold_left > 0.0: return   # a finished step is showing its result; _process moves on afterwards
+	var step := _camp_step()
+	# the step's single-use card was used up (a miss, or dropped on the wrong computer): hand one prepared copy back —
+	# never while a copy is still flying or being researched. No lesson may dead-end on a spent card.
+	var need := str(step.get("card", ""))
+	if need != "" and not _camp_step_done(_camp_chapter, _tut_stage) and _held(PLAYER, need) <= 0 \
+			and not _camp_card_in_flight(need) and not (lab[PLAYER].queue as Array).has(need):
+		cards[PLAYER][need] = 1; _refresh_hand()
+		_flash("Here's another %s — %s" % [str(CARDS[_card_of(need)].name), _camp_fill(str(step.get("a", "")))], 3)
+	# the attack lessons need the Practice host to stay the rival's: if the player took it, the rival takes it back
+	if _camp_chapter == 3 and _tut_stage in [2, 4, 8] and _camp_practice >= 0 and int(hosts[_camp_practice].owner) != RIVAL:
+		_capture(_camp_practice, RIVAL); hosts[_camp_practice].bots = 30.0; _set_builds(_camp_practice, ["intel", "bot"])
+		hosts[_camp_practice].name = "Practice host"
+		_flash("The rival took the Practice host back — it is this lesson's target.", 3)
+	# Ch4: owning the vault blocks the lesson (records only flow through access): its owner takes it back
+	if _camp_chapter == 4 and _camp_vault >= 0 and _mine(_camp_vault) and not mission_done.has(_mkey(PLAYER, _camp_vault)):
+		_capture(_camp_vault, RIVAL)
+		hosts[_camp_vault].bots = 50.0; hosts[_camp_vault].sec = 50.0; hosts[_camp_vault].name = "Records vault"
+		_refresh_panel(); queue_redraw()
+		_flash("Kessler Finance took the vault back — you don't need to own it. Open access instead: records flow while you have it.", 3)
+	# Ch2 retaliation: Support must survive the lesson (game-first: no unrecoverable state)
+	if _camp_chapter == 2 and _tut_stage == 3 and _camp_support >= 0 and not _mine(_camp_support):
+		_camp_own(_camp_support); hosts[_camp_support].name = "Support"
+		_flash("Support fell — it is yours again. Guard it from %s." % _camp_fill("{from}"), 3)
+	if _camp_step_done(_camp_chapter, _tut_stage): _camp_complete_step()
+
+
+func _camp_complete_step() -> void:   # the outcome happened: show what it did (the game keeps running so it can be seen), then go on
+	if _camp_chapter == 5: _camp_next(); return   # the open chapter ends in VICTORY, which says it all
+	var st := _camp_step()
+	if str(st.get("fire_leave", "")) != "": _camp_fire(str(st.fire_leave))   # its scripted answer plays DURING the result
+	var last := _tut_stage + 1 >= _camp_steps(_camp_chapter).size()
+	if last and not _camp_replay and _camp_chapter + 1 < CAMP_CHAPTERS:
+		_camp_done[_camp_chapter] = true; _camp_save_at(_camp_chapter + 1, 0)
+	_camp_hold_target = _camp_target()
+	_camp_hold_text = _camp_outcome()
+	_camp_hold_left = CAMP_HOLD_CHAPTER if last else CAMP_HOLD_STEP
+	_show_tut(); queue_redraw()
+
+
+func _camp_outcome() -> String:   # what the finished step did, in plain words
+	var st := _camp_step()
+	if _camp_chapter == 2 and _tut_stage == 2 and not _camp_cancelled:   # the order ran out before Cancel was pressed
+		return "The Assault had already sent every bot — Cancel only keeps the bots that haven't left at home."
+	if _camp_chapter == 4 and _tut_stage == 4 and _camp_vault >= 0:   # the decision: say what that choice changed
+		match str(mission_done.get(_mkey(PLAYER, _camp_vault), "")):
+			"sell": return "Sold: +%d Crypto went to your bank — and a rival now holds the records." % int(MIS_SELL_CRYPTO)
+			"publish":
+				if _camp_commrelay >= 0: _camp_hold_target = _camp_commrelay
+				return "Published: the Community Relay works for you for %d seconds — your traffic can pass through it." % int(MIS_RELAY_SECS)
+	return _camp_fill(str(st.get("r", "Done.")))
+
+
+func _camp_next() -> void:
+	var acted := _camp_acted_in_hold; _camp_acted_in_hold = false
+	var steps := _camp_steps(_camp_chapter)
+	var leaving: Dictionary = steps[_tut_stage] if _tut_stage < steps.size() else {}
+	if str(leaving.get("fire_leave", "")) != "": _camp_fire(str(leaving.fire_leave))
+	if _tut_stage + 1 < steps.size():
+		_tut_stage += 1
+		var step: Dictionary = steps[_tut_stage]
+		if str(step.get("fire", "")) != "": _camp_fire(str(step.fire))
+		if bool(step.get("pause", false)) and not acted and not _camp_step_done(_camp_chapter, _tut_stage): _camp_paused = true   # never freeze a step already done or under way
+		var tgt := _camp_target()
+		if str(step.get("card", "")) != "" or str(step.get("ui", "")).begins_with("card:"):
+			sel = {}; _inspect = -1; _tab = ""   # a card step: the blinking card and the ringed target are the cue, not an unrelated build palette
+		elif tgt >= 0:
+			if _mine(tgt): sel = {tgt: true}; _inspect = -1
+			else: sel = {}; _inspect = tgt
+			_tab = ""
+		if not _camp_replay: _camp_save()
+		_show_tut(); _refresh_panel()
+	else:
+		_camp_done[_camp_chapter] = true
+		if _camp_chapter + 1 < CAMP_CHAPTERS and not _camp_replay:
+			var fin := _camp_chapter + 1
+			_start_campaign(fin)   # its _reset clears the message line, so the closure flash comes after
+			_flash("Chapter %d complete — %s. Next: %s." % [fin, _camp_chapters()[fin - 1], _camp_chapters()[fin]], 3)
+		elif _camp_replay:
+			_flash("Chapter replay complete.", 0); _camp_leave()
+		else:
+			_camp_finish()
+
+
+func _camp_set_pause(on: bool) -> void:
+	_camp_paused = on
+	_show_tut()
+
+
+func _camp_banner_h() -> float:   # fixed: measuring tut_box right after a rebuild reads a width-0 transient and breaks _fit_view
+	return 124.0 if _camp else 90.0   # header + a 19 px instruction + a 16 px reason (room for one wrapped line)
+
+
+func _camp_show() -> void:
+	if tut_box == null: return
+	for c in tut_box.get_children(): tut_box.remove_child(c); c.queue_free()
+	var step := _camp_step()
+	if step.is_empty(): return
+	var chapters := _camp_chapters()
+	var row := HBoxContainer.new(); tut_box.add_child(row)
+	var head := "Ch %d/6 · %s — %d/%d · %s" % [_camp_chapter + 1, chapters[_camp_chapter], _tut_stage + 1, _camp_steps(_camp_chapter).size(), str(step.t)]
+	if _camp_hold_left > 0.0: head += "   ✓ done"
+	elif _camp_paused: head += "   ⏸ the clock starts when you act"
+	_lbl(row, head, 15, C_WARN, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var body := RichTextLabel.new(); body.bbcode_enabled = true; body.fit_content = true; body.scroll_active = false
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # the card art is shrunk to a 16 px inline icon
+	body.add_theme_font_size_override("normal_font_size", 16); body.add_theme_color_override("default_color", C_TEXT)
+	body.add_theme_font_size_override("bold_font_size", 19)
+	var seen := {}   # each icon only on its first mention in this banner
+	# no buttons: the training can't be skipped, and doing the step is what moves it on (and starts the clock)
+	var txt := "[b]%s[/b]\n[color=#9fb0c0]Why:[/color] %s" % [_tut_rich(_camp_fill(str(step.a)), seen), _tut_rich(_camp_fill(str(step.w)), seen)]
+	if _camp_hold_left > 0.0:   # the result of what you just did, and what comes next
+		var secs := int(ceil(_camp_hold_left))
+		var steps_all := _camp_steps(_camp_chapter)
+		var next := ""
+		if _tut_stage + 1 < steps_all.size(): next = "Next: %s — in %d s" % [str(steps_all[_tut_stage + 1].t), secs]
+		elif _camp_chapter + 1 < CAMP_CHAPTERS and not _camp_replay: next = "Chapter %d complete. Next chapter: %s — starts in %d s" % [_camp_chapter + 1, chapters[_camp_chapter + 1], secs]
+		else: next = "Chapter complete — in %d s" % secs
+		txt = "[b][color=#%s]✓[/color] %s[/b]\n[color=#9fb0c0]%s[/color]" % [C_GOOD.to_html(false), _tut_rich(_camp_hold_text, seen), _tut_rich(next, seen)]
+	body.text = txt; tut_box.add_child(body)
+	body.custom_minimum_size.x = maxf(200, get_viewport_rect().size.x - 80)
+	tut_box.reset_size.call_deferred()   # a rebuilt box keeps the tall width-0 transient of its wrapped text unless shrunk back once laid out
+	tut_panel.visible = _camp and not menu_open
+	_layout_ui()
+
+
 func _start_new_game() -> void:
+	if not _camp_has_onboarded():
+		_flash("Finish the guided campaign first — it unlocks New game."); return
 	if menu_seed_edit != null:
 		var s := menu_seed_edit.text.strip_edges()
 		if s != "" and (not s.is_valid_int() or int(s) <= 0):
@@ -4218,7 +5423,8 @@ func _same_ui_shape(a: Node, b: Node) -> bool:
 		var bc := b.get_signal_connection_list("pressed")
 		if ac.size() != bc.size(): return false
 		for i in ac.size():
-			if ac[i].callable != bc[i].callable: return false
+			# Callable == ignores bound arguments: a Scan button bound to [t,"scan"] would "match" an Attack one bound to [t,"attack"]
+			if ac[i].callable != bc[i].callable or ac[i].callable.get_bound_arguments() != bc[i].callable.get_bound_arguments(): return false
 	for i in a.get_child_count():
 		if not _same_ui_shape(a.get_child(i), b.get_child(i)): return false
 	return true
@@ -4256,7 +5462,7 @@ func _layout_ui() -> void:
 	hud.position = Vector2(24, 8); hud.size = Vector2(sz.x - 260, 46)
 	top_tabs.position = Vector2(sz.x - 112, 14)
 	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
-	panel.position = Vector2(sz.x - _panel_width() - 24, 170 if _tut else 64)
+	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _tut else 64)
 	var panel_bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	panel.size = Vector2(_panel_width(), maxf(180, panel_bottom - panel.position.y))
 	if not _panel_has_context(): panel.size.y = minf(panel.size.y, 94 + botnets.size() * 60)
@@ -4266,7 +5472,7 @@ func _layout_ui() -> void:
 	_layout_deck()
 	_refresh_hand()
 	_layout_feedback_label()
-	tut_panel.position = Vector2(24, 64); tut_panel.size = Vector2(sz.x - 48, 90)
+	tut_panel.position = Vector2(24, 64); tut_panel.size = Vector2(sz.x - 48, _camp_banner_h())
 	tut_box.position = Vector2(16, 10); tut_box.custom_minimum_size = Vector2(tut_panel.size.x - 32, 0)
 	tut_box.size.x = tut_panel.size.x - 32
 	tut_panel.visible = _tut and not menu_open
@@ -4278,7 +5484,7 @@ func _layout_ui() -> void:
 func _map_rect() -> Rect2:
 	var sz := get_viewport_rect().size
 	var right := sz.x - _panel_width() - 48 if _panel_shown() else sz.x - 24
-	var top := 170.0 if _tut else 100.0
+	var top := (_camp_banner_h() + 74) if _tut else 100.0
 	# Reserve the deck (pushed down or pulled up) while fitting a new town behind the menu too.
 	var bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	return Rect2(24, top, maxf(200, right - 24), maxf(100, bottom - top))
@@ -4365,13 +5571,15 @@ func _panel_text() -> String:   # probes: every label and button of the panel, i
 	return "\n".join(out)
 
 
-func _research_effect(key: String) -> String:
-	return str(CARDS[_card_of(key)].rules)
+func _research_effect(key: String) -> String:   # the plain-language lead first, then the exact rules
+	var card: Dictionary = CARDS[_card_of(key)]
+	var lead := str(card.get("lead", ""))
+	return ("%s\n\n%s" % [lead, str(card.rules)]) if lead != "" else str(card.rules)
 
 
 func _card_description(key: String) -> String:
 	var card: Dictionary = CARDS[_card_of(key)]
-	return "%s\n%s" % [str(card.name), str(card.rules)]
+	return "%s\n%s" % [str(card.name), str(card.get("lead", card.rules))]
 
 
 # read-only slot view for a building you do NOT own: shows its TYPE and the buildings already inside it,
@@ -4397,6 +5605,7 @@ func _panel_result() -> void:
 	_plabel("Elapsed %s  ·  buildings %d/%d  ·  Crypto you %d · %s  ·  town #%d" % [_fmt_time(_t), _player_nodes(), hosts.size(), int(cash[PLAYER]), " · ".join(rivs), town_seed], 14, C_TEXT)
 	_btn("Tell us how it went", func(): _fb_status = ""; _open_menu(true); _menu_view = "feedback"; _refresh_menu())   # in-game feedback form
 	if _mp_on: _btn("Leave match", _mp_leave)
+	elif _camp: _btn("Retry chapter", _camp_retry)   # a campaign loss stays inside the mandatory flow
 	else: _btn("Restart in a new town", _reset)
 
 
@@ -4658,10 +5867,12 @@ func _assault_forecast(t: int, conns: Array) -> String:   # what pressing Assaul
 		if q < 1: continue
 		bots += q; home += int(float(hosts[source].bots)) - q; n += 1; hops = mini(hops, rt.size() - 1)
 	if n == 0: return "Assault: no connected source has bots and a route"
-	var line := "Assault %d%%: %d bots from %d source(s) · %d stay home · %d Intel (you have %d) · farms rest until it ends" % [_assault_pct, bots, n, home, bots, int(intel[PLAYER])]
+	var power := _assault_power(_assault_pct); var cost := int(ceil(float(bots) * _assault_intel(_assault_pct)))
+	var line := "Assault %d%%: %d bots from %d source(s) · %d stay home · %d Intel (you have %d) · farms rest until it ends" % [_assault_pct, bots, n, home, cost, int(intel[PLAYER])]
+	if _assault_pct > 100: line = "Assault %d%% OVERCHARGED: all %d bots, each hits ×%s · %d Intel (%s per bot; you have %d) · farms rest until it ends" % [_assault_pct, bots, str(power), cost, str(_assault_intel(_assault_pct)), int(intel[PLAYER])]
 	if _scanned(PLAYER, t):   # what you know of the target: its garrison and farms, live
 		var secs := float(bots) / (float(n) * ASSAULT_RATE) + float(hops) * LINK_TIME + float(maxi(0, hops - 1)) * NODE_ROUTE_DELAY
-		var after := float(hosts[t].bots) + _regen(t) * secs - float(bots)
+		var after := float(hosts[t].bots) + _regen(t) * secs - float(bots) * power
 		line += "
 Predicted: %s (no guards, full Intel, free streets)" % ("captured, ~%d spare" % int(-after) if after < 0.0 else "~%d defenders left" % int(ceil(after)))
 	else: line += "
@@ -4690,8 +5901,44 @@ func _panel_inspect() -> void:
 		return
 	_plabel(str(hosts[i].name), 20, C_TEXT)
 	_plabel(_stage_line(i), 14, C_DIM)
+	if _is_mission(i): _panel_mission(i)
 	_panel_enemy_slots(i)
 	_panel_node_in(i)
+
+
+func _panel_mission(t: int) -> void:   # the "Recover the Corporate Records" objective on a foreign computer
+	_gap(2.0)
+	_kicker("Objective · Corporate Records")
+	var corp := str(hosts[t].get("corp", ""))
+	if corp != "": _plabel(corp, 15, C_WARN)
+	if str(hosts[t].get("stake", "")) != "": _plabel(str(hosts[t].stake), 12, C_DIM)
+	if not _scanned(PLAYER, t):
+		_plabel("Scan this computer to find the records and a way in.", 13, C_TEXT)
+		return
+	var got := int(_records_got(PLAYER, t)); var total := int(hosts[t].records_total)
+	_plabel("Records recovered: %d / %d" % [got, total], 14, C_TEXT)
+	var bar := ProgressBar.new(); bar.max_value = total; bar.value = got; bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(0, 10); panel_box.add_child(bar)
+	if _mission_complete(PLAYER, t):
+		if mission_done.has(_mkey(PLAYER, t)):
+			_plabel("Resolved: %s" % str(mission_done[_mkey(PLAYER, t)]), 13, C_GOOD)
+			return
+		_plabel("Delivered. Decide who benefits:", 13, C_TEXT)
+		_btn_row([["Sell · +%d Crypto" % int(MIS_SELL_CRYPTO), _resolve_mission.bind(t, "sell"), true],
+			["Publish · community relay", _resolve_mission.bind(t, "publish"), true]])
+		return
+	var alert := int(hosts[t].get("alert", 0.0))
+	if _access_live(PLAYER, t):
+		_plabel("ACCESS LIVE · %ds left — records stream to your rig while a route holds" % int(ceil(float(hosts[t].access_until) - _t)), 13, C_GOOD)
+		if alert > 0: _plabel("Trace alert %d%% — a high alert lets %s isolate your route" % [alert, fname(int(hosts[t].owner))], 12, C_WARN)
+		if _extract_route(PLAYER, t).size() < 2: _plabel("No route home right now — the records wait.", 12, C_WARN)
+	else:
+		var why := _can_access(PLAYER, t)
+		_plabel("Temporary access (not ownership) lets the records flow out. Costs %s for %ds." % [_res_cost_text(_access_cost(t)), int(MIS_ACCESS_SECS)], 12, C_DIM)
+		_btn("Establish access", _establish_access.bind(t), why == "")
+		if why != "": _plabel(why.capitalize(), 12, C_WARN)
+	_plabel("Or capture a route the ordinary way: access and ownership are different.", 11, C_DIM)
+	_gap(2.0)
 
 
 func _panel_attack_diag(t: int, _feeders: Array, _sending: Array) -> void:
@@ -4740,33 +5987,39 @@ func _control_pct(fac: int) -> int:
 	return int(round(100.0 * float(_faction_nodes(fac)) / float(maxi(1, hosts.size()))))
 
 
-# per-second income − spend for a resource, so the HUD can show whether it's rising or falling
-func _res_income(res: String) -> float:
+func _res_limit(res: String) -> float:   # the player's limit for a capped pool; Crypto has none
 	match res:
-		"intel": return _intel_rate(PLAYER)
-		"cash": return _cash_rate(PLAYER)
-		"creds": return _cred_rate(PLAYER)
-		"research": return _research_rate(PLAYER)
-	return 0.0
+		"intel": return _intel_cap(PLAYER)
+		"creds": return _res_cap(PLAYER, "cred")
+		"research": return _res_cap(PLAYER, "lab")
+	return INF
 
 
-func _res_spend(res: String) -> float:
-	if res == "intel": return _attack_demand(PLAYER)
-	var L: Dictionary = lab[PLAYER]
-	var q: Array = L.queue
-	if q.is_empty() or bool(L.paused) or str(L.stall) != "": return 0.0   # nothing is consuming
-	var key := str(q[0]); var tm := _card_time(key)
-	if tm <= 0.0: return 0.0
-	return float((_card_cost(key) as Dictionary).get(res, 0.0)) / tm
+func _res_now(res: String) -> float:
+	match res:
+		"intel": return float(intel[PLAYER])
+		"creds": return float(creds[PLAYER])
+		"research": return float(research[PLAYER])
+	return float(cash[PLAYER])
+
+
+func _res_full(res: String) -> bool:   # at its limit (now or within the 4 s window) and not draining: income past the limit is lost
+	var lim := _res_limit(res)
+	if lim == INF: return false
+	var top := _res_now(res)
+	for s in _resource_samples: top = maxf(top, float(s[res]))
+	return top >= lim - 0.001 and _observed_net(res) > -0.5
 
 
 func _rate_tag(res: String) -> String:
+	if _res_full(res): return " full"   # a pinned bank would otherwise read "+0.0/s" while income is being thrown away
 	var net := _observed_net(res)
 	if absf(net) < 0.05: net = 0.0
 	return " %+.1f/s" % net
 
 
 func _rate_col(res: String) -> Color:
+	if _res_full(res): return C_WARN   # amber: spend it or build another harvester
 	var net := _observed_net(res)
 	if net > 0.05: return C_GOOD
 	if net < -0.05: return C_WARN
@@ -5141,6 +6394,53 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		var r := Rect2(ws, _mouse_world() - ws).abs()
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.08), true)
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
+	if _camp: _paint_camp_guide(f)
+
+
+func _paint_camp_guide(f: Font) -> void:   # screen space: a pulsing ring on the step's target; FROM -> TARGET/PROTECT arrow while a drag is due
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var p := _camp_pulse(); var t := _camp_target()
+	if t >= 0 and _visible_to(PLAYER, t): _frame(_w2s(hosts[t].pos), maxf(16.0, _r(t) * _zoom) + 16.0 + 4.0 * p, Color(C_WARN, 0.25 + 0.5 * p), 2.0)
+	var s := _camp_from()
+	if s < 0 or t < 0: return
+	var green := Color(0.4, 1.0, 0.7)   # the reinforce-wire colour
+	var a := _w2s(hosts[s].pos); var b := _w2s(hosts[t].pos)
+	var sr := maxf(16.0, _r(s) * _zoom); var tr := maxf(16.0, _r(t) * _zoom)
+	var dir := (b - a).normalized(); var perp := Vector2(-dir.y, dir.x)
+	var p0 := a + dir * (sr + 16.0); var p1 := b - dir * (tr + 18.0); var ln := (p1 - p0).dot(dir)   # signed: close hosts never draw backwards
+	if ln >= 24.0:   # room for an arrow; the FROM ring and both tags show regardless
+		_cv.draw_line(p0, p1, Color(green, 0.22), 9.0, true)
+		var d := fmod(_camp_clock * 40.0, 18.0)   # marching dashes toward the target
+		while d < ln - 14.0:
+			_cv.draw_line(p0 + dir * d, p0 + dir * minf(d + 9.0, ln - 14.0), green, 3.0, true); d += 18.0
+		_cv.draw_colored_polygon(PackedVector2Array([p1, p1 - dir * 16.0 + perp * 9.0, p1 - dir * 16.0 - perp * 9.0]), green)
+		_cv.draw_circle(p0.lerp(p1, fmod(_camp_clock * 0.6, 1.0)), 6.0, Color(1, 1, 1, 0.9))
+	_frame(a, sr + 12.0, Color(green, 0.55 + 0.45 * p), 3.0)
+	_camp_pill(f, a, sr, "FROM", green, a - b); _camp_pill(f, b, tr, "PROTECT" if _mine(t) else "TARGET", C_WARN, b - a)
+
+
+func _camp_pill(f: Font, at: Vector2, r: float, txt: String, col: Color, away: Vector2) -> void:   # a tag in the first free spot: never over a name
+	var w := _text_w(f, txt, 14) + 16.0
+	var side := Vector2(1.0 if away.x >= 0.0 else -1.0, 0.0)   # first try the side facing away from the arrow
+	var spots := [side * (r + 14.0 + w * 0.5), Vector2(0, -r - 46.0), Vector2(0, r + 50.0), -side * (r + 14.0 + w * 0.5)]
+	var inside := _map_rect().grow(-4.0)
+	var box := Rect2(at.x - w * 0.5, at.y - r - 57.0, w, 22.0)   # fallback: above the name
+	for off in spots:
+		var c: Vector2 = at + off
+		var cand := Rect2(c.x - w * 0.5, c.y - 11.0, w, 22.0)
+		if inside.encloses(cand) and not _camp_pill_blocked(f, cand): box = cand; break
+	_cv.draw_rect(box, Color(0.03, 0.05, 0.08, 0.92), true); _cv.draw_rect(box, col, false, 2.0)
+	_text(_cv, f, Vector2(box.position.x + 8.0, box.position.y + 16.0), txt, 14, col)
+
+
+func _camp_pill_blocked(f: Font, box: Rect2) -> bool:   # would the tag cover a visible computer, its name or its bot count?
+	for k in hosts.size():
+		if not _visible_to(PLAYER, k): continue
+		var q := _w2s(hosts[k].pos); var rk := maxf(16.0, _r(k) * _zoom)
+		var nw := _text_w(f, str(hosts[k].name), 12)
+		if box.intersects(Rect2(q.x - rk, q.y - rk, rk * 2.0, rk * 2.0 + 18.0)): return true                 # glyph + bot count
+		if box.intersects(Rect2(q.x - nw * 0.5, q.y - rk - 22.0, nw, 16.0)): return true                       # name
+	return false
 
 
 func _paint_mask(cx: Dictionary) -> void:   # screen space: masks around the map, the deck backing, the end-of-match veil
@@ -5370,7 +6670,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		_frame(p, rr + 3.0, Color(1, 0.4, 0.35, 0.95), 2.5)
 	if _prod_down(i): _frame(p, rr + 4.5, Color(1, 0.62, 0.2, 0.9), 1.5)      # a card: production off
 	if float(hosts[i].get("patch_until", 0.0)) > _t or float(hosts[i].get("sca_until", 0.0)) > _t: _frame(p, rr + 7.5, C_GOOD, 1.5)
-	if _routing_down(i): _frame(p, rr + 6.0, Color(1, 0.35, 0.65, 0.9), 1.5)  # a card: routing cut
+	if _routing_down(i): _frame(p, rr + 10.5, Color(1, 0.35, 0.65, 0.95), 2.5)  # routing cut: outside the selection ring (rr+6) so it stays visible
 	if _stolen(i): _frame(p, rr + 7.5, FAMILY_COL["phish"], 1.5)              # a Phishing campaign: production stolen
 	if sel.has(i): _frame(p, rr + 6.0, Color(1, 1, 1, 0.95 * a), 2.0)
 	if i == _inspect: _frame(p, rr + 8.0, Color(1, 0.9, 0.3, a), 1.5)
@@ -5391,7 +6691,10 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	_text(_cv, f, Vector2(x0, p.y - rr - 8.0), nm, 12, ncol)
 	var sub := ""   # ONE warning under the glyph, most urgent first; the rest is in the panel
 	if bool(hosts[i].get("junction", false)): sub = "junction"
-	if _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
+	if _is_mission(i) and _access_live(PLAYER, i): sub = "RECORDS %d/%d" % [int(_records_got(PLAYER, i)), int(hosts[i].records_total)]
+	elif _is_mission(i) and _scanned(PLAYER, i) and not _mission_complete(PLAYER, i): sub = "OBJECTIVE"
+	if _mine(i) and _routing_down(i) and not _prod_down(i): sub = "CUT %ds" % int(ceil(float(hosts[i].route_off)))   # your cut outranks FULL
+	elif _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
 	elif _assault_active(i): sub = ("ASSAULT %d" % int(_assault_of(i).left) if _mine(i) else "ASSAULT") + (" · rest" if _regen_paused(i) else "")
 	elif _stolen(i): sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))   # its output goes to the caster
 	elif _prod_down(i): sub = "OFF %ds" % int(ceil(float(hosts[i].prod_off)))
@@ -5403,6 +6706,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if sub == "junction": subcol = Color(0.7, 0.85, 1.0, 0.8 * a)
 	if sub.begins_with("PHISHED"): subcol = Color(FAMILY_COL["phish"].r, FAMILY_COL["phish"].g, FAMILY_COL["phish"].b, a)
 	if sub.begins_with("OFF"): subcol = Color(1, 0.62, 0.2, a)
+	elif sub.begins_with("RECORDS") or sub == "OBJECTIVE": subcol = Color(1, 0.8, 0.35, a)
 	elif sub.begins_with("ASSAULT"): subcol = Color(1, 0.45, 0.35, a)
 	elif sub.begins_with("CUT"): subcol = Color(1, 0.4, 0.65, a)
 	if focused and _mine(i):   # details only while you look at it: what is built, the send rate
@@ -5416,7 +6720,8 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		if bi != "": sub = bi if sub == "" else sub + "  " + bi
 	if sub != "" and (_zoom >= 0.45 or focused or _mine(i)):
 		var sw := _text_w(f, sub, 12)
-		_text(_cv, f, Vector2(p.x - sw * 0.5, p.y + rr + 16.0), sub, 12, subcol)
+		var sy := p.y + rr + (30.0 if i == _tutorial_target() else 16.0)   # clear of the campaign target frame (rr+13)
+		_text(_cv, f, Vector2(p.x - sw * 0.5, sy), sub, 12, subcol)
 	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
 
 
@@ -5704,7 +7009,10 @@ class ActionGlyph extends Control:   # operation icons also render without syste
 				if action.ends_with("%"):   # the commitment: a gauge filled to that share
 					var share := float(action.trim_suffix("%")) / 100.0
 					draw_rect(Rect2(centre - Vector2(18, 6), Vector2(36, 12)), col, false, 1.5)
-					draw_rect(Rect2(centre - Vector2(16, 4), Vector2(32.0 * share, 8)), col)
+					draw_rect(Rect2(centre - Vector2(16, 4), Vector2(32.0 * minf(share, 1.0), 8)), col)   # full at 100 %: the gauge never spills out of its frame
+					for k in int(round(maxf(0.0, share - 1.0) / 0.25)):   # an overcharge: one spark per +25 %
+						var x := 22.0 + 6.0 * k
+						draw_polyline(PackedVector2Array([centre + Vector2(x, -5), centre + Vector2(x + 4, 0), centre + Vector2(x, 5)]), col, 2.0, true)
 
 
 class HelpGlyph extends Control:   # a big icon for the Help screen: a building kind, or a card family glyph
@@ -6099,3 +7407,42 @@ class BuildCard extends Control:   # a draggable card for one building kind
 
 	func _draw() -> void:
 		game._draw_building_card(self, kind, "", false, true)   # the price as resource icons
+
+
+class CampSpot extends Control:   # a pulsing gold ring + pointer on the exact UI element a campaign step names (deck card, build card, panel button)
+	var game
+	var _scrolled := 0
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE; z_index = 50; visible = false
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	func _process(_dt: float) -> void:
+		var on: bool = game._camp and not game.menu_open and not game.won and not game.lost
+		if visible != on: visible = on
+		if not on: return
+		var ts: Array = game._camp_ui_targets()
+		if not ts.is_empty() and game.panel_scroll != null and game.panel_scroll.is_ancestor_of(ts[0]) and ts[0].get_instance_id() != _scrolled:
+			_scrolled = ts[0].get_instance_id(); game.panel_scroll.ensure_control_visible.call_deferred(ts[0])   # a palette card below the fold: scroll it in once
+		queue_redraw()
+
+	func _draw() -> void:
+		var p: float = game._camp_pulse(); var gold: Color = game.C_WARN
+		for c in game._camp_ui_targets():
+			var r: Rect2 = c.get_global_rect()
+			if game.panel_scroll != null and game.panel_scroll.is_ancestor_of(c): r = r.intersection(game.panel_scroll.get_global_rect())
+			if r.size.x < 2.0 or r.size.y < 2.0: continue
+			r.position -= global_position
+			var g := 3.0 + 4.0 * p
+			draw_rect(r.grow(g + 4.0), Color(gold, 0.2 + 0.25 * p), false, 7.0)
+			draw_rect(r.grow(g), Color(gold, 0.55 + 0.45 * p), false, 3.0)
+			var tip := Vector2(r.get_center().x, r.position.y - g - 6.0 - 6.0 * p)
+			draw_colored_polygon(PackedVector2Array([tip, tip + Vector2(-9, -12), tip + Vector2(9, -12)]), gold)
+
+
+class RichIconPainter extends Control:   # draws the kind pictograms once so _bake_rich_icons can turn them into inline textures
+	var game
+	var kinds := []
+
+	func _draw() -> void:
+		for j in kinds: game._draw_kind_icon(self, j[0], Vector2(j[1] * 48 + 24, 24), 40.0, Color.WHITE, get_theme_default_font())

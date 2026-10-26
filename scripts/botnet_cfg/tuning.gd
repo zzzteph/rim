@@ -4,6 +4,13 @@
 
 const NODE_CAP := 30.0             # bots limit per OWNED building
 const PROD_RATE := 1.0             # bots/sec PER active Bot farm
+# ── PAID REPLENISHMENT (experiment; off until measured and kept). A working rig regenerates up to RIG_FREE_REGEN
+# bots/s free (limited by its own farms); every other bot actually added below a garrison's limit costs
+# REGEN_PRICE Crypto, paid from Crypto left after card preparation and construction, before labs convert any.
+# Full garrisons cost nothing; short funding slows replenishment for all of a faction's computers alike.
+const PAID_REGEN := false
+const REGEN_PRICE := 0.25          # Crypto per replenished bot (provisional)
+const RIG_FREE_REGEN := 2.0        # free bots/s at a working rig (its two starting farms)
 
 # combat power — attack equals defence (A = D): an arriving attack bot removes exactly one defender
 const ATTACK_POWER := 1.0
@@ -41,9 +48,11 @@ const SEND_RATE := 1.0             # bots/sec a live flow releases at rate dial 
 # tools/balance/economy_handoff/assault_model.py: 4/s lets three sources out-burst one 8/s street (the approach
 # matters) and sends a 75 % order from a 90-bot host in ~17 s — long enough to be answered.
 const ASSAULT_RATE := 4.0          # bots/s per source while its assault has quota left (a stream sends SEND_RATE)
-const ASSAULT_COMMITS := [25, 50, 75, 100]   # % of the source's sendable garrison an order may commit
+const ASSAULT_COMMITS := [25, 50, 75, 100, 125, 150]   # <=100: % of the source's sendable garrison an order commits;
+                                                      # >100: OVERCHARGE — the whole garrison, each bot hits ×pct/100
 const ASSAULT_DEFAULT := 75
 const ASSAULT_PAUSES_REGEN := true # exposure: a source's own Bot farms rest while its assault order stands (blocked or not)
+const ASSAULT_OVERCHARGE_INTEL := 2.0   # extra Intel per bot for every +100 % above 100 % (125 %: 1.5 Intel/bot, 150 %: 2 Intel/bot)
 const LINK_TIME := 1.0             # seconds to cross one link (hop)
 const NODE_ROUTE_DELAY := 0.25     # pause (s) at each intermediate building
 const LINK_CAP := 8                # packets a link DIRECTION admits per LINK_TIME (throughput 8/s) — bots flow freely, little queuing

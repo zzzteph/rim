@@ -121,6 +121,7 @@ func run() -> void:
 	transition_cases()
 	exposure_cases()
 	ai_cases()
+	overcharge_cases()
 	print(JSON.stringify({"checks": checks, "failures": failures, "report": report}))
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://review/implemented_ui"))
 	var f := FileAccess.open("res://review/implemented_ui/assault.json", FileAccess.WRITE)
@@ -398,3 +399,46 @@ func ai_cases() -> void:
 		if punished: break
 	check(scouted, "Normal AI: under assault, it scans the assault's origin")
 	check(punished or int(g.hosts[a].owner) == D, "Normal AI: it strikes the drained origin (owner now %d, bots %.0f)" % [int(g.hosts[a].owner), float(g.hosts[a].bots)])
+
+
+# ---------------------------------------------------------------- 125 % / 150 % overcharge (playtest #9)
+func overcharge_cases() -> void:
+	fresh()
+	var pr := adjacent_pair(); var s: int = pr[0]; var t: int = pr[1]
+	own(s, ["bot"], 30.0); enemy(t, 500.0); bank(200.0)
+	g._do_wire(P, [s], t); g._do_assault(P, t, 150)
+	var o := order(s)
+	check(int(o.get("total", -1)) == 30 and int(o.get("pct", 0)) == 150, "150%% commits the whole 30-bot garrison (never 45)")
+	check(is_equal_approx(g._bot_intel(s), 2.0) and is_equal_approx(g._bot_power(s), 1.5) and is_equal_approx(g._attack_demand(P), 8.0), "150%%: 2 Intel per bot, each hits x1.5, Intel/s demand 8")
+	check(is_equal_approx(g._attack_reserve(P), 2.0), "Converters and builds leave an overcharged bot its full 2 Intel (no stall)")
+	var before := float(g.hosts[t].bots)
+	var out := step(14.0, [s])
+	var removed := before - float(g.hosts[t].bots)
+	check(int(out.sent[s]) == 30 and absf(removed - 45.0) < 0.01, "30 overcharged bots remove 45 defenders (%d sent, %.2f removed)" % [int(out.sent[s]), removed])
+	check(not out.neg, "Overcharge never drives a bank or garrison negative")
+	fresh()
+	pr = adjacent_pair(); s = pr[0]; t = pr[1]
+	own(s, ["bot"], 30.0); enemy(t, 40.0); bank(200.0)
+	g._do_wire(P, [s], t); g._do_assault(P, t, 150)
+	step(14.0, [s])
+	check(int(g.hosts[t].owner) == P, "One 30-bot source captures a 40-bot building at 150%% (100%% would leave 10)")
+	fresh()
+	pr = adjacent_pair(); s = pr[0]; t = pr[1]
+	own(s, ["bot"], 30.0); enemy(t, 500.0); bank(1.5)
+	g._do_wire(P, [s], t); g._do_assault(P, t, 150)
+	check(not g._can_emit(s) and g._src_state(s) == "no Intel", "150%% with 1.5 Intel: nothing leaves (no debt) and the source says 'no Intel'")
+	fresh()
+	pr = adjacent_pair(); s = pr[0]; t = pr[1]
+	own(s, ["bot"], 30.0); enemy(t, 500.0); bank(100.0)
+	g._do_wire(P, [s], t)
+	for bad in [175, 200, -150, 33]: g._apply_cmd(P, ["assault", t, bad])
+	check(order(s).is_empty(), "Shares outside the list (175, 200, -150, 33) are rejected")
+	g._apply_cmd(P, ["assault", t, 125.0])
+	check(int(order(s).get("pct", 0)) == 125 and is_equal_approx(g._bot_intel(s), 1.5) and is_equal_approx(g._bot_power(s), 1.25), "125%% (even as a JSON float) is accepted: 1.5 Intel per bot, x1.25")
+	check(g.AI_ASSAULT_PCT <= 100, "The AI never overcharges")
+	g._end_assault(s); g._do_wire(P, [s], t); g._mark_scanned(P, t)
+	g._assault_pct = 150
+	var fc: String = g._assault_forecast(t, [s])
+	check(fc.contains("OVERCHARGED") and fc.contains("×1.5") and fc.contains("60 Intel"), "The 150%% forecast names the overcharge and its price (%s)" % fc.replace("
+", " | "))
+	g._assault_pct = g.ASSAULT_DEFAULT
