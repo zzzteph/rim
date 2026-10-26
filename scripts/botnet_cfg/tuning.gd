@@ -66,6 +66,7 @@ const ASSAULT_DEFAULT := 75
 const ASSAULT_PAUSES_REGEN := true # exposure: a source's own Bot farms rest while its assault order stands (blocked or not)
 const ASSAULT_OVERCHARGE_INTEL := 2.0   # extra Intel per bot for every +100 % above 100 % (125 %: 1.5 Intel/bot, 150 %: 2 Intel/bot)
 const LINK_TIME := 1.0             # seconds to cross one link (hop)
+const HOP_LOSS := 0.25             # chance an ATTACKING bot is lost on each link it crosses (a long attack costs more; reinforcements never)
 const NODE_ROUTE_DELAY := 0.25     # pause (s) at each intermediate building
 const LINK_CAP := 8                # packets a link DIRECTION admits per LINK_TIME (throughput 8/s) — bots flow freely, little queuing
 const MAX_QUEUE := 1.0             # a source holds its packet if the first link can't admit it within this

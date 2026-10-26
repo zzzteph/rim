@@ -1,5 +1,5 @@
 extends SceneTree
-## The finite ASSAULT order (prototype): quotas, costs, transitions, exposure, AI use. Fixed-seed fixtures on the
+## The finite attack order (Attack on the target panel; "assault" in the code): quotas, costs, transitions, exposure, AI use. Fixed-seed fixtures on the
 ## real simulation (_sim_step), AIs off unless a case says otherwise.
 ##   godot --headless --path . --script tests/assault_test.gd
 var g
@@ -27,6 +27,7 @@ func fresh(pause := true) -> void:
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._open_menu(false)
 	g.panel_box = null
 	g.assault_pause_regen = pause
+	g.hop_loss = 0.0   # exact landings here; the per-link loss has its own checks in takeover_test.gd
 	P = g.PLAYER; R = g.RIVAL
 
 
@@ -142,12 +143,12 @@ func quota_cases() -> void:
 		check(int(o.get("total", -1)) == 22 and int(o.left) == 22, "75%% of 30 bots commits exactly 22 (pause=%s)" % pause)
 		var mid := step(2.0, [s])
 		g._do_assault(P, t, 100)   # pressing again, even at 100 %, must not enlarge or restart it
-		check(int(order(s).get("total", -1)) == 22, "Pressing Assault again adds nothing (pause=%s)" % pause)
+		check(int(order(s).get("total", -1)) == 22, "Pressing Attack again adds nothing (pause=%s)" % pause)
 		g.hosts[s].bots = float(g.hosts[s].bots) + 10.0   # a reinforcement lands mid-order
 		var rest := step(20.0, [s])
 		var total_sent := int(mid.sent[s]) + int(rest.sent[s])
 		check(total_sent == 22, "Exactly the accepted quota departs: %d of 22 (pause=%s)" % [total_sent, pause])
-		check(order(s).is_empty() and int(g.hosts[s].assign) == -1 and not bool(g.hosts[s].live), "A spent order ends with no wire left running (pause=%s)" % pause)
+		check(order(s).is_empty() and int(g.hosts[s].assign) == t and not bool(g.hosts[s].live), "A spent order ends; your connection stays, dormant, ready to attack again (pause=%s)" % pause)
 		check(not mid.neg and not rest.neg, "No negative banks or garrisons (pause=%s)" % pause)
 		var before := float(g.hosts[s].bots)
 		var after := step(3.0, [s])
@@ -162,7 +163,7 @@ func quota_cases() -> void:
 	g._do_assault(P, t2, 50)
 	check(int(order(s2).get("total", -1)) == int(floor(0.5 * bots_now)) and str(g.hosts[s2].mode) == "assault", "Assault replaces the stream with a finite order sized from the garrison now")
 	var r2 := step(20.0, [s2])
-	check(order(s2).is_empty() and int(g.hosts[s2].assign) == -1 and int(r2.sent[s2]) == int(floor(0.5 * bots_now)), "The old stream does not resume after the order")
+	check(order(s2).is_empty() and not bool(g.hosts[s2].live) and int(r2.sent[s2]) == int(floor(0.5 * bots_now)), "The old stream does not resume after the order")
 	# launch rate: 4/s, not the stream's 1/s
 	fresh()
 	var pr3 := adjacent_pair(); var s3: int = pr3[0]; var t3: int = pr3[1]
@@ -266,14 +267,14 @@ func transition_cases() -> void:
 	g._do_unassault(P, t)
 	var bots_at_cancel := float(g.hosts[s].bots)
 	var after := step(3.0, [s])
-	check(int(after.sent[s]) == 0 and order(s).is_empty() and int(g.hosts[s].assign) == -1, "Cancel: nothing more departs and no wire is left")
+	check(int(after.sent[s]) == 0 and order(s).is_empty() and int(g.hosts[s].assign) == t and not bool(g.hosts[s].live), "Cancel: nothing more departs; the connection stays, dormant")
 	check(air > 0 and float(g.hosts[t].bots) <= t_bots - float(air) + 0.001, "Cancel: %d packets already out still land" % air)
 	check(float(g.hosts[s].bots) > bots_at_cancel + 5.0, "Cancel: the source's farms regenerate again")
 	# halt on the target cancels an assault too
 	g._do_wire(P, [s], t); g._do_assault(P, t, 50)
 	g._do_halt(P, t)
-	check(order(s).is_empty() and int(g.hosts[s].assign) == -1, "Stop on the target cancels its assault")
-	# re-wiring a source elsewhere replaces its order; more wires never join it
+	check(order(s).is_empty() and int(g.hosts[s].assign) == t and not bool(g.hosts[s].live), "Stop on the target ends its attack and keeps the connection")
+	# a source wired in while the attack runs joins it at the same share; re-wiring a source elsewhere replaces its order
 	fresh()
 	var hb3 := hub(3); s = hb3[0]; t = hb3[1][0]; s_other = hb3[1][1]
 	var other: int = hb3[1][2]
@@ -282,8 +283,9 @@ func transition_cases() -> void:
 	g._do_wire(P, [s], t); g._do_assault(P, t, 75)
 	step(1.0, [s])
 	if s_other >= 0 and g.hosts[s_other].links.has(t):
+		var home_now := int(floor(float(g.hosts[s_other].bots)))
 		g._do_wire(P, [s_other], t)
-		check(not bool(g.hosts[s_other].live) and order(s_other).is_empty(), "A new wire into an assaulted target stays dormant: it does not join the order")
+		check(bool(g.hosts[s_other].live) and int(order(s_other).get("pct", 0)) == 75 and int(order(s_other).get("total", -1)) == int(floor(0.75 * home_now)), "A new wire into an attacked target joins with its own order at the same share")
 	if true:
 		g._do_wire(P, [s], other)
 		check(order(s).is_empty() and int(g.hosts[s].assign) == other and not bool(g.hosts[s].live), "Re-wiring the source replaces its order with a dormant wire")

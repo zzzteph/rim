@@ -185,6 +185,16 @@ are memoised from `_auto_guards` to `_tick_production` (`_route_memo`), where no
 changes. A change that must not alter the rules should leave a fixed-seed match identical, step for
 step.
 
+Attacking, on the target's panel: **Scan** reveals it quietly; **Attack** gives every connected source an
+order to send a share of its bots (25/50/75/100 %, or 125/150 % overcharged: the whole garrison, each bot
+hitting harder) at `ASSAULT_RATE`, its farms resting until the order is spent; a source connected while the
+attack runs joins at the same share; **Stop** ends the orders (unsent bots stay home) and keeps the
+connections, so Attack can be pressed again. (The plain stream, `["launch", t, "attack"]`, remains for the AI
+and the protocol; the panel no longer offers it.) Every attacking bot is lost with `HOP_LOSS` (25 %) on each
+link it crosses (`_loss_hop`, rolled on the simulation's seeded `rng`, so lockstep-safe): 75 % arrive from next
+door, 42 % across three links, so a big garrison far from the front no longer wins alone. Reinforcements,
+scans, Crypto and cards are never lost. Probes set `hop_loss = 0` to count exact landings.
+
 Phishing steals output for 30/20/10 seconds across three foreign hosts. DDOS stops all
 production and routing for 30/20/10/5/2 seconds across five foreign hosts. 0day captures
 instantly with 75% probability, but only a host you have a connection into (a dormant

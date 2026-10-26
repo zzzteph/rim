@@ -21,7 +21,7 @@ func fresh(shape := "grid") -> void:
 	g.theme = load("res://assets/ui_theme.tres")
 	g._opt_size = Vector2i(8, 6); g._opt_enemies = 1; g._opt_seed = 7; g._opt_shape = shape
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._open_menu(false)
-	g.panel_box = null
+	g.panel_box = null; g.hop_loss = 0.0   # exact landings; hop_losses() switches the rule back on
 	P = g.PLAYER; R = g.RIVAL
 
 
@@ -53,6 +53,7 @@ func run() -> void:
 	upkeep_and_drain()
 	cards_vs_blobs()
 	sight_and_shapes()
+	hop_losses()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -232,3 +233,43 @@ func sight_and_shapes() -> void:
 	for s in [4242, 4243, 4244]:
 		g._mp_on = true; g._opt_shape = "grid"; g._opt_seed = s; g._apply_options(); g._mp_on = false
 		check(g._layout == g.GALAXIES[s % g.GALAXIES.size()], "Multiplayer seed %d builds the %s galaxy on every screen, whatever the local menu says" % [s, g._layout])
+
+
+func hop_losses() -> void:   # an attacking bot is lost with HOP_LOSS on every link it crosses; nothing else is
+	fresh(); g.hop_loss = g.HOP_LOSS
+	check(is_equal_approx(g.HOP_LOSS, 0.25), "The default loss is 25% per link")
+	var kept := [0, 0, 0]
+	for k in 4000:
+		for links in [1, 2, 3]:
+			if g._loss_hop(links) < 0: kept[links - 1] += 1
+	for links in [1, 2, 3]:
+		var share := float(kept[links - 1]) / 4000.0
+		check(absf(share - pow(0.75, links)) < 0.03, "%d link(s): %.1f%% of attacking bots arrive (expected %.1f%%)" % [links, share * 100.0, pow(0.75, links) * 100.0])
+	# a spent order: every bot leaves and pays its Intel, about 3 in 4 land on a neighbour, a lost one does nothing
+	fresh(); quiet_income(); g.hop_loss = g.HOP_LOSS
+	var pr := pair(); var s: int = pr[0]; var t: int = pr[1]
+	g.hosts[t].owner = R; g.hosts[t].bots = 1000.0; g._set_builds(t, [])
+	g.hosts[s].bots = 40.0; g.intel[P] = 100.0
+	g._do_wire(P, [s], t); g._do_assault(P, t, 100)
+	var quota: int = int(g._assault_of(s).total)
+	var lost := 0
+	for k in int(25.0 / g.SIM_DT):
+		g._sim_step(g.SIM_DT)
+		for fl in g.flights:
+			if fl.has("lost") and int(fl.owner) == P and not fl.has("_counted"): fl["_counted"] = true; lost += 1
+	var removed := 1000.0 - float(g.hosts[t].bots)
+	check(quota >= 30 and is_equal_approx(removed, float(quota - lost)) and lost > 0 and float(lost) < float(quota) / 2.0, "%d bots sent one link: %d lost on the way, the other %d each removed a defender" % [quota, lost, int(removed)])
+	check(g._assault_of(s).is_empty() and g.flights.filter(func(f): return int(f.owner) == P and str(f.kind) == "bot").is_empty(), "Lost bots vanish: nothing is left in the air after the order")
+	# reinforcements (a guard topping up your own computer) and scans are never lost
+	fresh(); g.hop_loss = g.HOP_LOSS
+	pr = pair(); s = pr[0]; t = pr[1]
+	g.hosts[t].owner = P; g.hosts[t].bots = 2.0; g._set_builds(t, [])
+	g._do_wire(P, [s], t)
+	var any_lost := false; var sent := 0
+	for k in int(8.0 / g.SIM_DT):
+		g._sim_step(g.SIM_DT)
+		for fl in g.flights:
+			if int(fl.owner) == P and str(fl.kind) == "bot" and int((fl.route as Array).back()) == t:
+				if fl.has("lost"): any_lost = true
+				if not fl.has("_seen"): fl["_seen"] = true; sent += 1
+	check(sent > 3 and not any_lost, "A guard's %d reinforcements all arrive: friendly traffic is never lost" % sent)

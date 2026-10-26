@@ -97,8 +97,8 @@ func _network() -> void:
 	_arrow(Vector2(426, 273), Vector2(494, 273), RED)
 	_host(Vector2(548, 273), GOLD, "0 = breached", "server", 42)
 	_text("Reveal defenders + installed buildings", Rect2(12, 345, 280, 25), 11, DIM)
-	_text("1 Intel per bot (more above 100%)", Rect2(328, 340, 280, 22), 12, DIM)
-	_text("ASSAULT: fixed share, %d/s; farms rest" % int(game.ASSAULT_RATE), Rect2(328, 358, 284, 20), 11, RED)
+	_text("Sends a share of your bots · 1 Intel each", Rect2(328, 340, 280, 22), 12, DIM)
+	_text("%d%% lost on every link crossed" % int(round(game.HOP_LOSS * 100.0)), Rect2(328, 358, 284, 20), 11, RED)
 
 func _takeover() -> void:
 	_tile(Rect2(0, 0, 620, 176))

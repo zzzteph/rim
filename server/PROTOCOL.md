@@ -85,8 +85,10 @@ Arrays whose first element names the action; numbers arrive as JSON numbers (cli
 | command | meaning |
 |---|---|
 | `["wire", [sources…], target]` | connect your buildings `sources` to `target` |
-| `["launch", target, "attack"\|"scan"]` | start every dormant connection of yours into `target` |
-| `["halt", target]` | stop every live flow of yours into `target` (wires kept) |
+| `["launch", target, "attack"\|"scan"]` | start every dormant connection of yours into `target` (the game's panel only sends `"scan"`) |
+| `["assault", target, pct]` | Attack: every connected source without an order commits `pct` % (25…150) of its bots |
+| `["unassault", target]` | end your attack orders on `target` (unsent bots stay home) |
+| `["halt", target]` | Stop: end your orders and live flows into `target` (wires kept) |
 | `["unwire", source]` | remove `source`'s connection |
 | `["build", host, slot, kind]` | build (or replace) in a slot |
 | `["job", host, slot]` / `["cancel", host, slot]` | pause/resume / cancel a construction |

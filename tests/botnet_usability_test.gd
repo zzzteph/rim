@@ -23,7 +23,7 @@ func fresh(map_size := Vector2i(6, 4)) -> void:
 	game.theme = load("res://assets/ui_theme.tres")
 	game._opt_seed = 7; game._opt_shape = "grid"; game._opt_size = map_size
 	vp.add_child(game)
-	game.set_process(false); game.ai_enabled = false
+	game.set_process(false); game.ai_enabled = false; game.hop_loss = 0.0   # UI fixtures count exact landings
 	game.set_anchors_preset(Control.PRESET_TOP_LEFT); game.size = Vector2(vp.size)
 	game._open_menu(false); game._layout_ui(); game._fit_view()
 
@@ -101,7 +101,7 @@ func _run() -> void:
 	await settle()
 	check(game.hosts[source].assign == target and not game.hosts[source].live and game._inspect == target, "Drag connects and opens target without launching")
 	var scan_button := find_button(game.panel, "Scan")
-	check(scan_button != null and find_button(game.panel, "Attack") == null, "Unscanned target offers only Scan")
+	check(scan_button != null and find_button(game.panel, "Attack") != null and find_button(game.panel, "Assault") == null, "Unscanned target offers Scan, or Attack blind (no separate Assault)")
 	var scan_point := scan_button.get_global_rect().get_center()
 	await mouse(scan_point, true); await mouse(scan_point, false); await settle()
 	check(find_button(game.panel, "Stop") != null and find_button(game.panel, "Scan") == null, "Active scan offers only Stop")
@@ -115,7 +115,7 @@ func _run() -> void:
 		game._process(0.3) # a heartbeat must not eat the release
 		await mouse(point, false)
 	await settle()
-	check(game.hosts[source].live and game.hosts[source].mode == "attack", "Actual button press survives a live refresh")
+	check(game.hosts[source].live and game.hosts[source].mode == "assault" and not game._assault_of(source).is_empty(), "Actual button press survives a live refresh: Attack gives the source an order")
 	check("Attacking" in game._panel_text() and not "Scanning" in game._panel_text(), "Attack is not mislabelled scanning")
 	var second := -1
 	for i in game.hosts.size():

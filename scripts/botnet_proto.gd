@@ -115,6 +115,7 @@ const RESEARCH_START := CfgTuning.RESEARCH_START
 const RIG_CREDS := CfgTuning.RIG_CREDS
 const RIG_RESEARCH := CfgTuning.RIG_RESEARCH
 const LINK_TIME := CfgTuning.LINK_TIME
+const HOP_LOSS := CfgTuning.HOP_LOSS
 const NODE_ROUTE_DELAY := CfgTuning.NODE_ROUTE_DELAY
 const LINK_CAP := CfgTuning.LINK_CAP
 const MAX_QUEUE := CfgTuning.MAX_QUEUE
@@ -166,6 +167,7 @@ var fb_name: LineEdit
 var fb_http: HTTPRequest
 var ai_enabled := true             # probes switch the AI botnets off for fixture cases
 var paid_regen: bool = CfgTuning.PAID_REGEN   # the paid-replenishment rule (probes compare it with free regeneration)
+var hop_loss: float = HOP_LOSS     # the per-link loss of attacking bots (probes set 0 to count exact landings)
 var regen_hold := {}     # faction -> true: its paid replenishment is paused (the rig's free allowance still works)
 var regen_stats := {}    # faction -> {free, paid, unfunded, crypto}: bots and Crypto of replenishment so far (accounting, UI)
 var assault_pause_regen: bool = CfgTuning.ASSAULT_PAUSES_REGEN   # probes compare the plain finite quota (false) with the exposure variant
@@ -1015,7 +1017,7 @@ func _prune_res() -> void:
 
 # schedule a packet along rt departing at dep: every hop waits for room on its link (queue at the
 # building), then crosses it; intermediate buildings add NODE_ROUTE_DELAY. The timeline is fixed here.
-func _schedule(rt: Array, dep: float, fac: int, kind: String, amount := 1.0) -> Dictionary:
+func _schedule(rt: Array, dep: float, fac: int, kind: String, amount := 1.0, lost := -1) -> Dictionary:   # lost: the link it dies on, or -1
 	_establish(fac, rt)
 	var hops := []
 	var t := dep
@@ -1025,8 +1027,22 @@ func _schedule(rt: Array, dep: float, fac: int, kind: String, amount := 1.0) -> 
 		_reserve(key, e)
 		hops.append(e)
 		t = e + LINK_TIME
+		if k == lost: t = e + 0.5 * LINK_TIME; break   # gone halfway along that link: it uses no link after it
 		if k < rt.size() - 2: t += NODE_ROUTE_DELAY
-	return {"route": rt, "hops": hops, "depart_t": dep, "arrive_t": t, "owner": fac, "kind": kind, "amount": amount}
+	var f := {"route": rt, "hops": hops, "depart_t": dep, "arrive_t": t, "owner": fac, "kind": kind, "amount": amount}
+	if lost >= 0: f["lost"] = lost
+	return f
+
+
+func _loss_hop(links: int) -> int:   # an attacking bot rolls HOP_LOSS on every link it will cross: the first it dies on, or -1
+	if hop_loss <= 0.0: return -1      # (no roll at all: probes that switch the loss off keep the old random sequence)
+	for k in links:
+		if rng.randf() < hop_loss: return k
+	return -1
+
+
+func _survival(links: int) -> float:   # the share of attacking bots that reaches a target this many links away
+	return pow(1.0 - hop_loss, float(links))
 
 
 func _establish(fac: int, rt: Array) -> void:   # the network stays hidden, but a route a botnet has used stays on its map: a road it built
@@ -1711,10 +1727,11 @@ func _regen_paused(i: int) -> bool:   # the exposure variant: this source's farm
 	return assault_pause_regen and _assault_active(i)
 
 
-func _end_assault(i: int) -> void:   # the order is over: unsent bots stay home, the wire is gone (it never becomes a guard)
-	hosts[i].assault = {}
+func _end_assault(i: int) -> void:   # the order is over: unsent bots stay home. A person's connection stays, dormant, so Attack
+	hosts[i].assault = {}            # can be pressed again; an AI lets go of it. (It never becomes a guard: a capture ends it.)
 	if str(hosts[i].get("mode", "")) == "assault":
-		hosts[i].assign = -1; hosts[i].live = false; hosts[i].mode = "attack"; _next_depart.erase(i)
+		hosts[i].live = false; hosts[i].mode = "attack"; _next_depart.erase(i)
+		if not _is_human(int(hosts[i].owner)): hosts[i].assign = -1
 
 
 func _assault_check() -> void:   # once per step, before departures: drop orders that were replaced, emptied or made moot
@@ -1771,7 +1788,7 @@ func _src_state(s: int) -> String:
 			if float(intel[fac]) < _bot_intel(s): return "no Intel"
 			if _breached_by(a) == fac: return "breached — paying"
 			if _first_wait(rt) > MAX_QUEUE: return "link busy"
-			return "assaulting"
+			return "attacking"
 		if int(hosts[a].owner) == fac:                        # guard wire: the STATUS does the work
 			if not bool(hosts[s].live): return "guarding (standby)"
 			return "defending" if float(hosts[s].bots) - 1.0 >= _reserve_of(s) else "defending · no bots"
@@ -2016,7 +2033,9 @@ func _emit_due() -> void:
 			var hostile: bool = int(hosts[tgt].owner) != fac
 			var pk := "scan" if (hostile and str(hosts[best].get("mode", "attack")) == "scan" and not _scanned(fac, tgt)) else "bot"
 			if hostile and (pk == "bot" or SCAN_COSTS_INTEL): intel[fac] = float(intel[fac]) - (_bot_intel(best) if pk == "bot" else 1.0)   # spends Intel (more when overcharged)
-			flights.append(_schedule(_route(best, tgt), best_t, fac, pk, _bot_power(best) if pk == "bot" else 1.0))   # read before the order below can end
+			var rt := _route(best, tgt)
+			var lost := _loss_hop(rt.size() - 1) if (hostile and pk == "bot") else -1   # attackers only: scans, reinforcements and Crypto always arrive
+			flights.append(_schedule(rt, best_t, fac, pk, _bot_power(best) if pk == "bot" else 1.0, lost))   # read before the order below can end
 			if fac == PLAYER: _departures.append({"at": _t, "source": best, "target": tgt, "kind": pk})
 			_next_depart[best] = best_t + 1.0 / _send_rate(best)
 			var order := _assault_of(best)
@@ -2024,7 +2043,7 @@ func _emit_due() -> void:
 				order.left = int(order.left) - 1; order.sent = int(order.sent) + 1
 				if int(order.left) <= 0:
 					_end_assault(best)
-					if fac == PLAYER: _flash("%s's assault is spent — %d bots sent" % [str(hosts[best].name), int(order.sent)], 0)
+					if fac == PLAYER: _flash("%s's attack is spent — %d bots sent" % [str(hosts[best].name), int(order.sent)], 0)
 			if not _next_depart.has(best) or float(_next_depart[best]) > _t: due.erase(best)
 		else:
 			var rg := int(rig[fac])
@@ -2073,6 +2092,7 @@ func _deliver(f: Dictionary) -> void:
 	var t: int = int(rt[rt.size() - 1])
 	var fac := int(f.owner)
 	if _eliminated.has(fac): return # packets remain visible but cannot resurrect an eliminated botnet
+	if f.has("lost"): return        # an attacking bot lost on the way: it never arrives
 	if str(f.kind) == "cash":
 		if int(hosts[t].owner) != NEUTRAL:
 			_bank(int(hosts[t].owner), float(f.get("amount", 1.0)))
@@ -2620,7 +2640,7 @@ func _ai_hold_crypto(fac: int, st: Dictionary, hold: bool) -> void:
 
 # ---- the finite assault, for an AI: the same commands a player gives, sized from what the AI knows ----
 func _ai_assault_plan(fac: int, c: int, cands: Array) -> Dictionary:   # cands = [[route size, source], …] nearest first; {} = no
-	var srcs := []; var bots := 0; var lasts := {}; var hops := 99
+	var srcs := []; var bots := 0; var lasts := {}; var hops := 99; var land := 0.0
 	for pair in cands:
 		if srcs.size() >= AI_MAX_STREAMS: break
 		var e := int(pair[1])
@@ -2629,19 +2649,20 @@ func _ai_assault_plan(fac: int, c: int, cands: Array) -> Dictionary:   # cands =
 		var rt := _route(e, c)
 		if quota < 5 or rt.size() < 2: continue
 		srcs.append(e); bots += quota; lasts[int(rt[rt.size() - 2])] = true; hops = mini(hops, rt.size() - 1)
+		land += float(quota) * _survival(rt.size() - 1)   # what reaches the target after the losses on the way
 	if srcs.size() < 2: return {}
 	var burst := minf(float(srcs.size()) * ASSAULT_RATE, float(LINK_CAP) * float(lasts.size()))   # the last streets cap the burst
 	var travel := float(hops) * LINK_TIME + float(maxi(0, hops - 1)) * NODE_ROUTE_DELAY
 	var need := _ai_known_bots(fac, c) + _ai_known_regen(fac, c) * (float(bots) / burst + travel) + 4.0
-	if float(bots) < need * 1.2: return {}                                                     # it must win with room to spare
-	if float(intel[fac]) + _intel_rate(fac) * (need / burst) < need: return {}                 # every landing bot costs 1 Intel
+	if land < need * 1.2: return {}                                                            # it must win with room to spare, after losses
+	if float(intel[fac]) + _intel_rate(fac) * (need / burst) < need / maxf(land / float(bots), 0.05): return {}   # every bot sent costs 1 Intel, lost or not
 	return {"srcs": srcs, "secs": need / burst + travel, "bots": bots}
 
 
 func _ai_launch_assault(fac: int, c: int, plan: Dictionary) -> void:
 	_do_wire(fac, plan.srcs, c)
 	_do_assault(fac, c, AI_ASSAULT_PCT)
-	if _mine(c): _flash("%s launches an ASSAULT on %s from %d host(s) — their farms rest while it runs" % [fname(fac), str(hosts[c].name), (plan.srcs as Array).size()])
+	if _mine(c): _flash("%s ATTACKS %s from %d host(s) — their farms rest while it runs" % [fname(fac), str(hosts[c].name), (plan.srcs as Array).size()])
 
 
 func _ai_release(e: int) -> void:
@@ -2682,7 +2703,7 @@ func _ai_known_builds(fac: int, i: int) -> Array:   # THE builds gate: live when
 
 func _ai_known_regen(fac: int, i: int) -> float:   # bots/s it believes i regenerates (the OFF frame is public)
 	if _prod_down(i): return 0.0
-	if _regen_paused(i) and _visible_to(fac, i): return 0.0   # "ASSAULT · rest" is drawn on the map
+	if _regen_paused(i) and _visible_to(fac, i): return 0.0   # "ATTACK · rest" is drawn on the map
 	var kinds := _ai_known_builds(fac, i)
 	var n := 0
 	for k in kinds:   # every Bot farm it knows of works, whatever the garrison
@@ -2700,7 +2721,7 @@ func _ai_seen_drain(i: int) -> float:   # bots/s visibly leaving i: a drawn live
 
 
 func _ai_fall_secs(fac: int, t: int, n: int) -> float:   # seconds n streams need to take t, from what the AI knows (INF: never)
-	var net := float(n) * SEND_RATE * (ATTACK_POWER / DEFEND_POWER) - maxf(_ai_known_regen(fac, t) - _ai_seen_drain(t), 0.0)
+	var net := float(n) * SEND_RATE * _survival(1) * (ATTACK_POWER / DEFEND_POWER) - maxf(_ai_known_regen(fac, t) - _ai_seen_drain(t), 0.0)   # streams come from next door: one link of losses
 	if net <= 0.1: return INF
 	return _ai_known_bots(fac, t) / net
 
@@ -3454,9 +3475,11 @@ func _wire(dest: int) -> void:
 
 func _do_wire(fac: int, sources: Array, dest: int) -> void:
 	if not _host_ok(dest): return
-	var join_attack := false
-	for i in hosts.size():   # fac's buildings already wired into dest: is that an attack in progress?
-		if int(hosts[i].owner) == fac and int(hosts[i].assign) == dest and bool(hosts[i].live) and str(hosts[i].mode) == "attack": join_attack = true
+	var join_attack := false; var join_pct := 0
+	for i in hosts.size():   # fac's buildings already wired into dest: is that an attack in progress? new sources join it
+		if int(hosts[i].owner) != fac or int(hosts[i].assign) != dest or not bool(hosts[i].live): continue
+		if str(hosts[i].mode) == "attack": join_attack = true
+		elif _assault_active(i): join_pct = int(_assault_of(i).pct)   # an attack order: a new source commits the same share
 	var done := 0; var nopath := 0
 	for s in sources:
 		var i := int(s)
@@ -3466,13 +3489,14 @@ func _do_wire(fac: int, sources: Array, dest: int) -> void:
 		_establish(fac, rt)
 		if int(hosts[i].assign) != dest:
 			hosts[i].assign = dest; hosts[i].live = join_attack; hosts[i].mode = "attack"; _next_depart.erase(i); hosts[i].assault = {}
+			if join_pct > 0 and int(hosts[dest].owner) != fac: _give_order(i, dest, join_pct)
 		done += 1
 	if fac != PLAYER: return
 	if done > 0:
 		var extra := ("  ·  %d had no path" % nopath) if nopath > 0 else ""
 		if _mine(dest):
 			_flash("Connected %d guard(s) → %s%s  (auto-defend when it's attacked or damaged)" % [done, str(hosts[dest].name), extra])
-		elif join_attack:
+		elif join_attack or join_pct > 0:
 			_flash("%d building(s) joined the attack on %s" % [done, str(hosts[dest].name)])
 		else:
 			_flash("Connected %d building(s) → %s%s  (dormant — press SCAN or ATTACK on its panel)" % [done, str(hosts[dest].name), extra])
@@ -3505,9 +3529,10 @@ func _do_launch(fac: int, t: int, mode: String) -> void:
 	_refresh_panel(); queue_redraw()
 
 
-# ASSAULT: every source of yours wired into `t` (dormant, or streaming at it) that has no order of its own gets one:
-# pct % of the garrison it can send RIGHT NOW — a fixed number that later regeneration, reinforcements, more wires or
-# pressing again never enlarge. It replaces that source's stream into t. A source already under an order keeps it.
+# ATTACK (the "assault" order): every source of yours wired into `t` (dormant, scanning or streaming at it) that has no
+# order of its own gets one: pct % of the garrison it can send RIGHT NOW — a fixed number that later regeneration,
+# reinforcements or pressing again never enlarge. A source already under an order keeps it; a source wired in while
+# it runs joins at the same share. (A plain stream — `launch` "attack" — is no longer offered to people.)
 func _assault(t: int, pct := -1) -> void: _cmd(["assault", t, _assault_pct if pct < 0 else pct])
 func _cancel_assault(t: int) -> void: _cmd(["unassault", t])
 
@@ -3515,28 +3540,34 @@ func _cancel_assault(t: int) -> void: _cmd(["unassault", t])
 func _do_assault(fac: int, t: int, pct: int) -> void:
 	if not _host_ok(t) or not ASSAULT_COMMITS.has(pct): return
 	if int(hosts[t].owner) == fac:
-		if fac == PLAYER: _flash("An assault needs a hostile target")
+		if fac == PLAYER: _flash("Attack a computer that isn't yours")
 		return
 	var started := 0; var bots := 0; var kept := 0; var unrouted := 0; var empty := 0
 	for i in hosts.size():
 		if int(hosts[i].owner) != fac or int(hosts[i].assign) != t: continue
 		if _assault_active(i): kept += 1; continue
 		if _route(i, t).is_empty(): unrouted += 1; continue
-		var quota := _assault_quota(i, pct)
+		var quota := _give_order(i, t, pct)
 		if quota < 1: empty += 1; continue
-		hosts[i].assault = {"t": t, "left": quota, "total": quota, "sent": 0, "at": _t, "pct": pct}
-		hosts[i].mode = "assault"; hosts[i].live = true; _next_depart[i] = _t
 		started += 1; bots += quota
 	if fac != PLAYER: return
 	if started > 0:
-		var why := ("  ·  %d already assaulting" % kept if kept > 0 else "") + ("  ·  %d without a route" % unrouted if unrouted > 0 else "")
+		var why := ("  ·  %d already attacking" % kept if kept > 0 else "") + ("  ·  %d without a route" % unrouted if unrouted > 0 else "")
 		var over := (" · OVERCHARGED: each bot hits ×%s" % str(_assault_power(pct))) if pct > 100 else ""
-		_flash("Assault on %s: %d bots from %d source(s) at %d/s each%s · %d Intel · their farms rest until it ends%s" % [str(hosts[t].name), bots, started, int(ASSAULT_RATE), over, int(ceil(float(bots) * _assault_intel(pct))), why])
-	elif kept > 0: _flash("Already assaulting %s — cancel it to give a new order" % str(hosts[t].name))
+		_flash("Attack on %s: %d bots from %d source(s) at %d/s each%s · %d Intel · their farms rest until it ends%s" % [str(hosts[t].name), bots, started, int(ASSAULT_RATE), over, int(ceil(float(bots) * _assault_intel(pct))), why])
+	elif kept > 0: _flash("Already attacking %s — press Stop to give a new order" % str(hosts[t].name))
 	elif unrouted > 0: _flash("No route to %s — links can only run through your own buildings" % str(hosts[t].name))
 	elif empty > 0: _flash("No bots to commit — the connected sources are empty")
-	else: _flash("Nothing to assault with — connect sources to %s first" % str(hosts[t].name))
+	else: _flash("Nothing to attack with — connect sources to %s first" % str(hosts[t].name))
 	_refresh_panel(); queue_redraw()
+
+
+func _give_order(i: int, t: int, pct: int) -> int:   # source i commits pct % of what it holds now; returns the quota (0: nothing to send)
+	var quota := _assault_quota(i, pct)
+	if quota < 1: return 0
+	hosts[i].assault = {"t": t, "left": quota, "total": quota, "sent": 0, "at": _t, "pct": pct}
+	hosts[i].mode = "assault"; hosts[i].live = true; _next_depart[i] = _t
+	return quota
 
 
 func _do_unassault(fac: int, t: int) -> void:   # cancel: unsent bots stay home, packets already out fly on
@@ -3550,20 +3581,22 @@ func _do_unassault(fac: int, t: int) -> void:   # cancel: unsent bots stay home,
 		_end_assault(i)
 	if n > 0 and fac == PLAYER and _camp: _camp_cancelled = true
 	if fac != PLAYER: return
-	if n > 0: _flash("Assault on %s cancelled — %d unsent bots stay home" % [str(hosts[t].name), kept])
+	if n > 0: _flash("Attack on %s stopped — %d unsent bots stay home" % [str(hosts[t].name), kept])
 	_refresh_panel(); queue_redraw()
 
 
-# STOP: pause every live attack flow into `t` — the wires stay, ready to launch again
+# STOP: end every attack order and pause every flow (a scan) of yours into `t` — the connections stay, ready to attack again
 func _halt(t: int) -> void: _cmd(["halt", t])
 
 
-func _do_halt(fac: int, t: int) -> void:   # pause every live flow of fac's into t — the wires stay
+func _do_halt(fac: int, t: int) -> void:   # unsent bots stay home, packets already out fly on, the wires stay
 	if not _host_ok(t): return
 	var n := 0
 	for i in hosts.size():
 		if int(hosts[i].owner) == fac and int(hosts[i].assign) == t and bool(hosts[i].live):
-			if _assault_active(i): _end_assault(i)
+			if _assault_active(i):
+				_end_assault(i)
+				if fac == PLAYER and _camp: _camp_cancelled = true
 			else: hosts[i].live = false; _next_depart.erase(i)
 			n += 1
 	if fac != PLAYER: return
@@ -3733,7 +3766,7 @@ func _action_button(action: String, callback: Callable, parent: Control = null, 
 	(parent if parent != null else panel_box).add_child(column)
 	var button := Button.new(); button.name = action
 	var icon := ActionGlyph.new(); icon.action = action
-	icon.col = C_BAD if action in ["Disconnect", "Stop", "Cancel assault"] else (BANK_COL["attack"] if action in ["Attack", "Assault"] or action.ends_with("%") else C_GOOD)   # attack = red everywhere
+	icon.col = C_BAD if action in ["Disconnect", "Stop"] else (BANK_COL["attack"] if action == "Attack" or action.ends_with("%") else C_GOOD)   # attack = red everywhere
 	if action.ends_with("%") and float(action.trim_suffix("%")) > 100.0: icon.col = C_WARN   # an overcharge reads as a premium at a glance
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	button.add_child(icon)
@@ -3741,8 +3774,8 @@ func _action_button(action: String, callback: Callable, parent: Control = null, 
 	button.disabled = not enabled
 	button.add_theme_font_size_override("font_size", 20)
 	button.clip_text = true
-	button.add_theme_color_override("font_color", C_BAD if action in ["Disconnect", "Stop", "Cancel assault"] else (C_WARN if action == "Attack" else C_GOOD))
-	if action in ["Disconnect", "Stop", "Cancel assault"]:
+	button.add_theme_color_override("font_color", C_BAD if action in ["Disconnect", "Stop"] else (C_WARN if action == "Attack" else C_GOOD))
+	if action in ["Disconnect", "Stop"]:
 		for state in ["normal", "hover", "pressed"]:
 			var style := StyleBoxFlat.new()
 			style.bg_color = Color(0.3, 0.08, 0.1) if state == "normal" else Color(0.45, 0.1, 0.13)
@@ -4488,7 +4521,7 @@ const RICH_TERMS := {
 	"CDN": "card:cdn", "Patch day": "card:patch", "Incident response": "card:response", "SCA": "card:sca",
 	"ATTACK": "bank:attack", "DEFENCE": "bank:defense",
 	# panel buttons: the button's colour (+ its glyph where one exists)
-	"Scan": "act:Scan", "Attack": "act:Attack", "Assault": "act:Assault", "Cancel assault": "act:Cancel assault",
+	"Scan": "act:Scan", "Attack": "act:Attack", "Stop": "act:Stop",
 	"CUT": "cut", "breached": "breach", "BREACHED": "breach",
 	# computers: their CURRENT owner's colour (neutral = the gold highlight ring), no icon
 	"YOUR RIG": "rig:p", "rival rig": "rig:r", "rival's rig": "rig:r", "Support": "role:support", "Neighborhood Relay": "role:relay",
@@ -4534,8 +4567,8 @@ func _rich_spec(spec: String) -> Array:   # -> [text colour, icon id ("" = none)
 		"act":
 			var col: Color = BANK_COL["attack"]
 			if k == "Scan": col = C_GOOD
-			elif k == "Cancel assault": col = C_BAD
-			return [col, ("a:" + k) if k in ["Scan", "Attack", "Assault", "Cancel assault"] else "", col]
+			elif k == "Stop": col = C_BAD
+			return [col, ("a:" + k) if k in ["Scan", "Attack", "Stop"] else "", col]
 		"role":
 			var h := _camp_role_host(k) if _camp else -1
 			var c: Color = C_WARN   # neutral: the gold of the highlight ring
@@ -4569,7 +4602,7 @@ func _tut_rich(text: String, seen = null) -> String:   # plain training text -> 
 func _bake_rich_icons() -> void:   # the HUD/palette pictograms, drawn once into textures the training text shows inline
 	for fam in CfgCards.FAMILY_ART: _rich_paths["fam:" + fam] = (CfgCards.FAMILY_ART[fam] as Texture2D).resource_path   # real files: fine headless
 	if DisplayServer.get_name() == "headless": return   # the dummy renderer never draws a frame: colour-only text
-	var ids := [["k", "bot"], ["k", "intel"], ["k", "cash"], ["k", "cred"], ["k", "lab"], ["a", "Scan"], ["a", "Attack"], ["a", "Assault"], ["a", "Cancel assault"]]
+	var ids := [["k", "bot"], ["k", "intel"], ["k", "cash"], ["k", "cred"], ["k", "lab"], ["a", "Scan"], ["a", "Attack"], ["a", "Stop"]]
 	var vp := SubViewport.new(); vp.transparent_bg = true; vp.size = Vector2i(48 * ids.size(), 48)
 	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	var painter := RichIconPainter.new(); painter.game = self; painter.theme = theme; painter.size = Vector2(vp.size); vp.add_child(painter)
@@ -4702,8 +4735,8 @@ func _camp_steps(chapter: int) -> Array:
 		0: return [
 			{"t": "Your home computer", "r": "Connected. A connection drains a little Intel while it exists.", "a": "Drag from YOUR RIG onto the Neighborhood Relay to connect them.", "w": "You can only see — and connect to — computers near your own.", "role": "relay", "from": "home", "pause": true},
 			{"t": "Scan the relay", "r": "Scanned. The number on the relay now shows its real defenders.", "a": "Press the blinking Scan button, then wait for the scan to finish.", "w": "You can't see a computer's defenders until you scan it.", "role": "relay", "ui": "btn:Scan", "pause": true},
-			{"t": "Attack with two", "r": "Your bots are wearing the relay down — watch its number fall.", "a": "Press Attack, then drag from Support onto the relay to add its bots.", "w": "Bots fight defenders one for one. Two attackers win faster.", "role": "relay", "from": "support", "ui": "btn:Attack", "pause": true},
-			{"t": "Capture", "r": "The Neighborhood Relay is yours, and the link into it ended. Each takeover costs a little more Research than the last.", "a": "Keep attacking until the relay's defenders reach zero.", "w": "At zero it is breached; Credentials and Research then take it over — paid for you when you have them.", "role": "relay", "pause": false},
+			{"t": "Attack with two", "r": "Your bots are wearing the relay down — watch its number fall.", "a": "Press Attack, then drag from Support onto the relay to add its bots.", "w": "Bots fight defenders one for one, and 1 in 4 is lost per link. Two attackers win faster.", "role": "relay", "from": "support", "ui": "btn:Attack", "pause": true},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours, and the link into it ended. Each takeover costs a little more Research than the last.", "a": "Keep attacking until the relay's defenders reach zero — when an attack is spent, press Attack again.", "w": "At zero it is breached; Credentials and Research then take it over — paid for you when you have them.", "role": "relay", "pause": false},
 		]
 		1: return [
 			{"t": "Make Intel", "r": "The Intel harvester is running — your Intel income went up.", "a": "Select the relay, then click the blinking Intel harvester card.", "w": "Intel pays for attacks, connections and regrown bots. An Intel harvester makes it.", "role": "relay", "ui": "build:intel", "pause": true},
@@ -4713,8 +4746,8 @@ func _camp_steps(chapter: int) -> Array:
 		]
 		2: return [
 			{"t": "Guard Support", "r": "Support is guarded: if it is attacked, {from} sends help.", "a": "Drag from {from} onto Support (follow the green arrow).", "w": "A connection between two of your computers is a guard: it sends bots only when Support is attacked.", "role": "support", "from": "guard", "pause": true},
-			{"t": "Assault", "r": "The Assault is on — watch the sender's bots drop as they leave.", "a": "Drag from {from} onto the Corporate Gateway, then press the blinking Assault button.", "w": "An Assault sends a fixed share of bots fast; the sender is left thin.", "role": "gateway", "from": "src", "ui": "btn:Assault", "pause": true},
-			{"t": "Pull back", "r": "Cancelled. The bots that had not left yet stay home.", "a": "Press the blinking Cancel assault button.", "w": "Unsent bots stay home. Bots already on the way still arrive.", "role": "gateway", "ui": "btn:Cancel assault", "pause": true},
+			{"t": "Attack", "r": "The attack is on — watch the sender's bots drop as they leave.", "a": "Drag from {from} onto the Corporate Gateway, then press the blinking Attack button.", "w": "Attack sends a fixed share of a computer's bots fast; the sender is left thin.", "role": "gateway", "from": "src", "ui": "btn:Attack", "pause": true},
+			{"t": "Pull back", "r": "Stopped. The bots that had not left yet stay home.", "a": "Press the blinking Stop button.", "w": "Unsent bots stay home. Bots already on the way still arrive.", "role": "gateway", "ui": "btn:Stop", "pause": true},
 			{"t": "Hold through a cut", "r": "Support held, and its route is back. Your guard kept working through the cut.", "a": "Keep Support guarded and hold until the CUT timer under it runs out.", "w": "The Corporate Gateway hit back and cut Support's routing. Your guard still sends help, and the cut wears off.", "role": "support", "from": "guard", "pause": false, "fire": "ch2_cut"},
 		]
 		3: return [
@@ -4820,7 +4853,7 @@ func _panel_find(ok: Callable) -> Array:
 	return out
 
 
-func _camp_guard_src() -> int:   # Ch2 FROM: can guard Support; not the Assault source (the next lesson would rewire it), not the rig; nearest
+func _camp_guard_src() -> int:   # Ch2 FROM: can guard Support; not the Attack source (the next lesson would rewire it), not the rig; nearest
 	var t := _camp_support
 	if t < 0: return -1
 	return _camp_pick(func(i): return _mine(i) and i != t and _link_kind(i, t) == "defend",
@@ -4928,7 +4961,7 @@ func _camp_setup(chapter: int) -> void:
 				hosts[front].owner = RIVAL; hosts[front].bots = 45.0; hosts[front].name = "Corporate Gateway"; _set_builds(front, ["bot"])
 				_camp_gateway = front; _camp_src = fsrc; hosts[fsrc].bots = 60.0; _camp_slots(fsrc, 3)
 			_camp_guard = _camp_guard_src()
-			_assault_pct = ASSAULT_DEFAULT   # a 25 % pick from earlier play would be spent before Cancel can be taught
+			_assault_pct = ASSAULT_DEFAULT   # a 25 % pick from earlier play would be spent before Stop can be taught
 			_camp_grant(120.0, 60.0, 0.0, 0.0)
 		3:
 			_camp_own(_camp_relay); _camp_slots(_camp_relay, 5); _set_builds(_camp_relay, ["intel", "cash", "bot"]); hosts[_camp_relay].bots = _cap_of(_camp_relay)
@@ -5066,7 +5099,7 @@ func _camp_fire(name: String) -> void:   # beat flashes use priority 3 so the pl
 	if bool(_camp_events.get(name, false)): return
 	_camp_events[name] = true
 	match name:
-		"ch2_cut":   # the Gateway the player just assaulted hits back: a real wave on Support plus a routing cut
+		"ch2_cut":   # the Gateway the player just attacked hits back: a real wave on Support plus a routing cut
 			_camp_events["ch2_cut_t"] = _t
 			if _camp_support >= 0:
 				hosts[_camp_support].route_off = CAMP_CUT_SECS; hosts[_camp_support].hit_t = _t
@@ -5204,7 +5237,7 @@ func _camp_complete_step() -> void:   # the outcome happened: show what it did (
 func _camp_outcome() -> String:   # what the finished step did, in plain words
 	var st := _camp_step()
 	if _camp_chapter == 2 and _tut_stage == 2 and not _camp_cancelled:   # the order ran out before Cancel was pressed
-		return "The Assault had already sent every bot — Cancel only keeps the bots that haven't left at home."
+		return "The attack had already sent every bot — Stop only keeps the bots that haven't left at home."
 	return _camp_fill(str(st.get("r", "Done.")))
 
 
@@ -5559,7 +5592,7 @@ func _stage_line(i: int) -> String:   # one line that says what the building is 
 	var order := _assault_of(i)
 	if not order.is_empty():
 		line += "
-ASSAULT → %s: %d of %d left · %d sent%s · %s" % [str(hosts[int(order.t)].name), int(order.left), int(order.total), int(order.sent),
+ATTACK → %s: %d of %d left · %d sent%s · %s" % [str(hosts[int(order.t)].name), int(order.left), int(order.total), int(order.sent),
 			" · farms resting" if _regen_paused(i) else "", _src_state(i)]
 	return line
 
@@ -5726,33 +5759,27 @@ func _panel_node_in(t: int) -> void:
 	if _mine(t):
 		_connection_list(conns)
 		return
-	var live := 0; var attacks := 0; var assaults := 0; var left := 0; var sent := 0; var total := 0
+	var scanning := 0; var streaming := 0; var orders := 0; var left := 0; var sent := 0; var total := 0
 	var waiting := {}
 	for source in conns:
 		var order := _assault_of(source)
 		if not order.is_empty():
-			assaults += 1; left += int(order.left); sent += int(order.sent); total += int(order.total)
+			orders += 1; left += int(order.left); sent += int(order.sent); total += int(order.total)
 		elif bool(hosts[source].live):
-			live += 1
-			if str(hosts[source].mode) == "attack": attacks += 1
+			if str(hosts[source].mode) == "scan": scanning += 1
+			else: streaming += 1
 		var state := _src_state(source)
 		if state in ["no Intel", "no bots", "no route", "routing cut", "link busy"]: waiting[state] = true
-	var unordered := conns.size() - assaults   # sources an Assault would give an order to
+	var ready := conns.size() - orders - streaming   # sources Attack would give an order to (a running scan gives way to it)
 	var title := "Connected"
-	if assaults > 0: title = "Assault"
-	elif attacks > 0: title = "Attacking" if _scanned(PLAYER, t) else "Attacking blind"
-	elif live > 0: title = "Scanning · no damage"
+	if orders > 0 or streaming > 0: title = "Attacking" if _scanned(PLAYER, t) else "Attacking blind"
+	elif scanning > 0: title = "Scanning · no damage"
 	_plabel(title, 18, C_TEXT)
 	var actions := HBoxContainer.new(); actions.add_theme_constant_override("separation", 12); panel_box.add_child(actions)
-	if live > 0:
-		_action_button("Stop", _halt.bind(t), actions)
-	elif unordered > 0 and _scanned(PLAYER, t):
-		_action_button("Attack", _launch.bind(t, "attack"), actions)
-	elif unordered > 0:
-		_action_button("Scan", _launch.bind(t, "scan"), actions)
-	if assaults > 0: _action_button("Cancel assault", _cancel_assault.bind(t), actions)
-	elif unordered > 0:
-		_action_button("Assault", _assault.bind(t, -1), actions)
+	if orders > 0 or streaming > 0 or scanning > 0: _action_button("Stop", _halt.bind(t), actions)
+	elif not _scanned(PLAYER, t): _action_button("Scan", _launch.bind(t, "scan"), actions)
+	if ready > 0:
+		_action_button("Attack", _assault.bind(t, -1), actions)
 		_action_button("%d%%" % _assault_pct, _cycle_assault_pct, actions)
 	var status := " "
 	if waiting.has("no Intel"): status = "Waiting for Intel · add a harvester or stop another attack."
@@ -5760,13 +5787,13 @@ func _panel_node_in(t: int) -> void:
 	elif not waiting.is_empty(): status = ", ".join(waiting.keys())
 	# Keep the command tree stable when resource blockers appear or clear.
 	_plabel(status, 14, C_WARN)
-	if assaults > 0: _plabel(_assault_progress(t, conns, left, sent, total), 14, C_TEXT)
-	elif unordered > 0: _plabel(_assault_forecast(t, conns), 13, C_DIM)
+	if orders > 0: _plabel(_assault_progress(t, conns, left, sent, total), 14, C_TEXT)
+	elif ready > 0: _plabel(_assault_forecast(t, conns), 13, C_DIM)
 	_connection_list(conns)
 	_plabel(_operation_observation(t), 14, C_TEXT)
 
 
-func _cycle_assault_pct() -> void:   # UI only: the share the next Assault commits
+func _cycle_assault_pct() -> void:   # UI only: the share the next Attack commits
 	var k := ASSAULT_COMMITS.find(_assault_pct)
 	_assault_pct = int(ASSAULT_COMMITS[(k + 1) % ASSAULT_COMMITS.size()])
 	_refresh_panel()
@@ -5785,8 +5812,8 @@ func _assault_progress(t: int, conns: Array, left: int, sent: int, total: int) -
 ".join(homes)]
 
 
-func _assault_forecast(t: int, conns: Array) -> String:   # what pressing Assault would commit, and what it might leave
-	var bots := 0; var home := 0; var n := 0; var hops := 99
+func _assault_forecast(t: int, conns: Array) -> String:   # what pressing Attack would commit, and what it might leave
+	var bots := 0; var home := 0; var n := 0; var hops := 99; var land := 0.0
 	for source in conns:
 		if _assault_active(source): continue
 		var rt := _route(source, t)
@@ -5794,13 +5821,15 @@ func _assault_forecast(t: int, conns: Array) -> String:   # what pressing Assaul
 		var q := _assault_quota(source, _assault_pct)
 		if q < 1: continue
 		bots += q; home += int(float(hosts[source].bots)) - q; n += 1; hops = mini(hops, rt.size() - 1)
-	if n == 0: return "Assault: no connected source has bots and a route"
+		land += float(q) * _survival(rt.size() - 1)   # hop_loss of them is lost on every link crossed
+	if n == 0: return "Attack: no connected source has bots and a route"
 	var power := _assault_power(_assault_pct); var cost := int(ceil(float(bots) * _assault_intel(_assault_pct)))
-	var line := "Assault %d%%: %d bots from %d source(s) · %d stay home · %d Intel (you have %d) · farms rest until it ends" % [_assault_pct, bots, n, home, cost, int(intel[PLAYER])]
-	if _assault_pct > 100: line = "Assault %d%% OVERCHARGED: all %d bots, each hits ×%s · %d Intel (%s per bot; you have %d) · farms rest until it ends" % [_assault_pct, bots, str(power), cost, str(_assault_intel(_assault_pct)), int(intel[PLAYER])]
+	var line := "Attack %d%%: %d bots from %d source(s) · %d stay home · %d Intel (you have %d) · farms rest until it ends" % [_assault_pct, bots, n, home, cost, int(intel[PLAYER])]
+	if _assault_pct > 100: line = "Attack %d%% OVERCHARGED: all %d bots, each hits ×%s · %d Intel (%s per bot; you have %d) · farms rest until it ends" % [_assault_pct, bots, str(power), cost, str(_assault_intel(_assault_pct)), int(intel[PLAYER])]
+	if hop_loss > 0.0: line += "\n~%d arrive · %d%% are lost on every link crossed (%d link%s from your nearest source)" % [int(round(land)), int(round(hop_loss * 100.0)), hops, "" if hops == 1 else "s"]
 	if _scanned(PLAYER, t):   # what you know of the target: its garrison and farms, live
 		var secs := float(bots) / (float(n) * ASSAULT_RATE) + float(hops) * LINK_TIME + float(maxi(0, hops - 1)) * NODE_ROUTE_DELAY
-		var after := float(hosts[t].bots) + _regen(t) * secs - float(bots) * power
+		var after := float(hosts[t].bots) + _regen(t) * secs - land * power
 		line += "
 Predicted: %s (no guards, full Intel, free links)" % (("breached — takeover %s" % _takeover_text(PLAYER, t)) if after < 0.0 else "~%d defenders left" % int(ceil(after)))
 	else: line += "
@@ -6153,6 +6182,7 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 		var endn := int((fl.route as Array)[(fl.route as Array).size() - 1])
 		var threat: bool = int(fl.owner) != PLAYER and _mine(endn)
 		var ba: float = 1.0 if (not focus_on or fnodes.has(endn) or threat) else 0.3
+		if fl.has("lost"): ba *= clampf((float(fl.arrive_t) - vt) / (0.5 * LINK_TIME), 0.0, 1.0)   # lost on the way: it fades out mid-link
 		var fc := fcol(int(fl.owner))
 		if str(fl.kind) == "scan":
 			if int(fl.owner) == PLAYER: _cv.draw_arc(pp, 3.5, 0.0, TAU, 12, Color(0.6, 0.95, 1.0, ba), 1.5, true)   # a quiet scan: only you see it
@@ -6572,7 +6602,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if _breached_by(i) >= 0: sub = "BREACHED"
 	elif _mine(i) and _routing_down(i) and not _prod_down(i): sub = "CUT %ds" % int(ceil(float(hosts[i].route_off)))   # your cut outranks FULL
 	elif _mine(i) and float(hosts[i].bots) >= _cap_of(i) - 0.5 and _incoming(i, PLAYER) > 0.0: sub = "FULL ↩"
-	elif _assault_active(i): sub = ("ASSAULT %d" % int(_assault_of(i).left) if _mine(i) else "ASSAULT") + (" · rest" if _regen_paused(i) else "")
+	elif _assault_active(i): sub = ("ATTACK %d" % int(_assault_of(i).left) if _mine(i) else "ATTACK") + (" · rest" if _regen_paused(i) else "")
 	elif _stolen(i): sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))   # its output goes to the caster
 	elif _prod_down(i): sub = "OFF %ds" % int(ceil(float(hosts[i].prod_off)))
 	elif float(hosts[i].get("patch_until", 0.0)) > _t: sub = "PATCH %ds" % int(ceil(float(hosts[i].patch_until) - _t))
@@ -6583,7 +6613,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	if sub == "junction": subcol = Color(0.7, 0.85, 1.0, 0.8 * a)
 	if sub.begins_with("PHISHED"): subcol = Color(FAMILY_COL["phish"].r, FAMILY_COL["phish"].g, FAMILY_COL["phish"].b, a)
 	if sub.begins_with("OFF"): subcol = Color(1, 0.62, 0.2, a)
-	elif sub.begins_with("ASSAULT"): subcol = Color(1, 0.45, 0.35, a)
+	elif sub.begins_with("ATTACK"): subcol = Color(1, 0.45, 0.35, a)
 	elif sub.begins_with("CUT"): subcol = Color(1, 0.4, 0.65, a)
 	elif sub == "BREACHED": subcol = Color(1, 0.55, 0.25, a)
 	if focused and _mine(i):   # details only while you look at it: what is built, the send rate
@@ -6860,11 +6890,7 @@ class ActionGlyph extends Control:   # operation icons also render without syste
 	func _draw() -> void:
 		var centre := size * 0.5
 		match action:
-			"Stop", "Cancel assault": draw_rect(Rect2(centre - Vector2(7, 7), Vector2(14, 14)), col)
-			"Assault":   # three chevrons: a burst, not a stream
-				for k in 3:
-					var x := -10.0 + 8.0 * k
-					draw_polyline(PackedVector2Array([centre + Vector2(x, -8), centre + Vector2(x + 7, 0), centre + Vector2(x, 8)]), col, 2.5, true)
+			"Stop": draw_rect(Rect2(centre - Vector2(7, 7), Vector2(14, 14)), col)
 			"Scan":
 				draw_arc(centre - Vector2(2, 2), 8, 0, TAU, 32, col, 2, true)
 				draw_line(centre + Vector2(4, 4), centre + Vector2(11, 11), col, 2, true)
