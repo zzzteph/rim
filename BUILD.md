@@ -84,6 +84,7 @@ Run the automated mechanics and layout checks before exporting:
 godot --headless --path . --script tests/economy_test.gd     # income, caps, research, manufacture, security, capture
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
+godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
 godot --headless --path . --script tests/botnet_help_test.gd # Help navigation + layout at 1280x720 and 1366x768
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
@@ -91,10 +92,10 @@ To capture the Help suite's rendered previews, omit `--headless` and append
 `-- --capture`; images are written to `review/visual_help/`.
 These checks cover scripted behavior and layout; human usability testing is still pending.
 
-> The pre-redesign suites (assault, takeover, production-cost, usability, campaign,
-> MP lockstep, …) tested the old bot-army mechanics and were removed in the 0.4.0
-> research–manufacture–deliver redesign. Re-authoring MP-lockstep determinism and a
-> campaign walkthrough against the new model is still open work.
+> The pre-redesign suites (assault, takeover, production-cost, usability, …) tested
+> the old bot-army mechanics and were removed in the 0.4.0 research–manufacture–deliver
+> redesign; the economy, AI and campaign suites above are their replacements.
+> Re-authoring an MP-lockstep determinism suite for the new command set is still open work.
 
 Economy (research–manufacture–deliver, 0.4.0). There are five resources (`RES` in
 tuning.gd): **Bots**, **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
