@@ -85,6 +85,7 @@ godot --headless --path . --script tests/economy_test.gd     # income, caps, res
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
+godot --headless --path . --script tests/mp_lockstep_test.gd # two screens, same command stream: identical every turn
 godot --headless --path . --script tests/botnet_help_test.gd # Help navigation + layout at 1280x720 and 1366x768
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
@@ -94,8 +95,7 @@ These checks cover scripted behavior and layout; human usability testing is stil
 
 > The pre-redesign suites (assault, takeover, production-cost, usability, …) tested
 > the old bot-army mechanics and were removed in the 0.4.0 research–manufacture–deliver
-> redesign; the economy, AI and campaign suites above are their replacements.
-> Re-authoring an MP-lockstep determinism suite for the new command set is still open work.
+> redesign; the economy, AI, campaign and lockstep suites above are their replacements.
 
 Economy (research–manufacture–deliver, 0.4.0). There are five resources (`RES` in
 tuning.gd): **Bots**, **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
@@ -262,8 +262,9 @@ screen applies the commands of a turn at its first step, faction by faction. `PL
 screen** plays (1–3); rules that differ for people and AIs ask `_is_human(fac)` (`humans`). Every 30 turns the
 screens exchange a state fingerprint (`_mp_hash`) and the server reports a desync. Anything that changes the
 match from the UI must go through `_cmd`, and nothing in `_sim_step` may depend on the local screen
-(selection, `PLAYER`, time of day, `randf()`): otherwise the screens drift apart. (A lockstep
-determinism suite for the new command set is still to be re-authored; see the tests note above.)
+(selection, `PLAYER`, time of day, `randf()`): otherwise the screens drift apart.
+`tests/mp_lockstep_test.gd` checks exactly that: two screens playing different factions get the
+same scripted stream of every command verb (plus malformed ones) and must match every turn.
 
 The connection and lobby state live in `scripts/botnet_net.gd` (one WebSocket). Players always use the one
 official server, `wss://network.thenakedcat.games/ws`: Multiplayer connects to it by itself and keeps retrying

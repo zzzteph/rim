@@ -1354,7 +1354,7 @@ func _drop_build(i: int, slot: int, kind: String) -> void: _cmd(["build", i, slo
 
 
 func _do_build(fac: int, i: int, slot: int, kind: String) -> void:
-	if not _owns(fac, i): return
+	if not _owns(fac, i) or not BUILD_KINDS.has(kind): return   # a malformed command from the wire does nothing
 	if kind == "wall" and _firewall_full(i):
 		if fac == PLAYER: _flash("Already at maximum security")
 		return
