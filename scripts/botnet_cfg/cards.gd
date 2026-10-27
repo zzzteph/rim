@@ -1,45 +1,117 @@
-## Levels count successive hosts. Defenses spread through owned hosts only.
-## Two banks: ATTACK cards target foreign hosts, DEFENCE cards target your own.
-## "needs_link": the target must have one of your connections running into it.
+## The card catalogue for the research-manufacture-launch redesign (RIM).
+## 15 recipes: 10 ATTACK/information, 5 DEFENCE/support. A recipe is learned once (a blueprint), then
+## manufactured into single-use copies. scripts/botnet_proto.gd reads these through aliases and never
+## redefines them. A changed value needs the scene restarted (constants are read when the script loads).
+
+# Each recipe:
+#   name/short    display name and a compact label
+#   fam           art + colour family (assets/cards/schematic/<fam>.png)
+#   bank          "attack" (foreign target) or "defense" (your own host)
+#   effect        the rule the simulation applies (see botnet_proto.gd _op_* / _apply_support)
+#   known         true: available from match start · false: behind the research tree
+#   make          {bots,intel,cash,creds,research} paid once when a copy STARTS manufacturing; make_time seconds
+#   sec_max       capture ceiling (capture cards only)
+#   exec          execution seconds after travel (capture/raid/worm-stage)
+#   dur           timed-effect seconds (theft/disruption/support)
+#   reach         how many hosts a chain covers (worm/sabotage)
+#   needs_link    the first target must have one of your connections into it
 const CARDS := {
-	"phishworm": {"role": "Steal all production\nAcross three hosts", "lead": "Steal resource production. Redirects a victim's output to you; they keep the computer and still pay its inputs. Lasts longer on a big network (up to ×2).", "name": "Phishing campaign", "short": "Phishing", "fam": "phish", "chain": true, "effect": "campaign", "power": 0.0, "dur": 30.0, "durations": [30.0, 20.0, 10.0], "cost": {"cash": 60, "creds": 70, "research": 40}, "time": 42.0,
-		"rules": "Steal all resource output on up to 3 successive foreign hosts for 30 / 20 / 10 seconds. Their owner pays production costs.", "flavor": "Forwarded to the whole address book."},
-	"zeroday": {"role": "Instant capture\nConnected hosts only", "lead": "Attempt an instant takeover. A connected foreign computer only; shows the real chance. A miss changes nothing. Patch day blocks it.", "name": "0day", "short": "0day", "fam": "zeroday", "chain": false, "needs_link": true, "effect": "breach", "power": 0.75, "dur": 0.0, "cost": {"cash": 50, "creds": 25, "research": 55}, "time": 40.0,
-		"rules": "75% chance to capture one foreign host you have a connection into. A failed attempt changes nothing. Blocked by Patch day.", "flavor": "Nobody knew. Now everybody does."},
-	"ddos": {"role": "Stop production + routing\nAcross five hosts", "lead": "Stop production and traffic. Freezes a computer's output and routing (bots too) for a while — longer against a big garrison (up to ×2). It does not capture it.", "name": "DDOS", "short": "DDOS", "fam": "dos", "chain": true, "effect": "deny", "power": 0.0, "dur": 30.0, "durations": [30.0, 20.0, 10.0, 5.0, 2.0], "cost": {"cash": 80, "creds": 40, "research": 70}, "time": 45.0,
-		"rules": "Stop all production and routing, including bots and rig Intel, on up to 5 successive foreign hosts for 30 / 20 / 10 / 5 / 2 seconds.", "flavor": "From everywhere at once."},
-	"supply": {"role": "Wipe buildings + bots\nHalves 3 neighbours", "lead": "Destroy installations and defenders. Wipes a foreign computer's buildings, jobs and bots, and halves the bots on up to 3 of its owner's computers next to it; the owner keeps them. Patch day or SCA blocks it.", "name": "Supply chain attack", "short": "Supply", "fam": "supply", "chain": false, "effect": "wipe", "power": 0.0, "dur": 0.0, "cost": {"cash": 40, "creds": 30, "research": 40}, "time": 35.0,
-		"rules": "Wipe buildings, construction and defenders from one foreign host. Ownership stays. Blocked by Patch day or SCA.", "flavor": "The update came from upstream."},
-	"cdn": {"role": "Clear DDOS or boost\nUp to five own hosts", "lead": "Restore service or boost. On your computer: clears a DDoS, or else doubles its production a while. Inputs still cost.", "name": "CDN", "short": "CDN", "fam": "cdn", "defense": true, "pair": "ddos", "chain": true, "levels": 5, "effect": "cdn", "dur": 10.0, "cost": {"cash": 160, "creds": 80, "research": 140}, "time": 45.0,
-		"rules": "On each host: clear DDOS (production and routing) if present; otherwise double all production for 10 seconds. Input costs remain 1:1. Own hosts only.", "flavor": "Keep the network moving."},
-	"patch": {"role": "Block 0day + supply\n30 seconds per host", "lead": "Prevent takeover and destruction. Shields your computers from 0day and Supply chain attacks for a while. It does not stop ordinary bots.", "name": "Patch day", "short": "Patch", "fam": "patch", "defense": true, "pair": "zeroday", "chain": true, "levels": 5, "effect": "patch", "dur": 30.0, "cost": {"cash": 100, "creds": 50, "research": 110}, "time": 40.0,
-		"rules": "Protect up to 5 successive owned hosts from 0day and Supply chain attacks for 30 seconds each.", "flavor": "Update. Restart. Secure."},
-	"response": {"role": "Remove phishing\nUp to five own hosts", "lead": "Remove resource theft. Clears active Phishing from your computers. It grants no future immunity.", "name": "Incident response", "short": "Response", "fam": "response", "defense": true, "pair": "phishworm", "chain": true, "levels": 5, "effect": "response", "dur": 0.0, "cost": {"cash": 120, "creds": 140, "research": 80}, "time": 42.0,
-		"rules": "Remove active Phishing from up to 5 successive owned hosts. Production returns to you. No future immunity.", "flavor": "Contain. Clean. Recover."},
-	"sca": {"role": "Block supply chain\n60 seconds per host", "lead": "Prevent destruction. Shields your computers from Supply chain attacks for a while. It does not restore what was destroyed.", "name": "SCA", "short": "SCA", "fam": "sca", "defense": true, "pair": "supply", "chain": true, "levels": 5, "effect": "sca", "dur": 60.0, "cost": {"cash": 80, "creds": 60, "research": 80}, "time": 35.0,
-		"rules": "Protect up to 5 successive owned hosts from Supply chain attacks for 60 seconds each.", "flavor": "Verify every dependency."},
+	"recon":     {"name": "Recon",                  "short": "Recon",   "fam": "recon",    "bank": "attack",  "effect": "recon",   "known": true,
+		"make": {"bots": 1, "intel": 3, "cash": 0, "creds": 0, "research": 0}, "make_time": 2.0, "dur": 30.0,
+		"lead": "Reveal a host's contents for 30 s.", "rules": "Shows its installations, local cargo and mission access. The snapshot goes stale after 30 s. Not an alarm, and not needed to capture."},
+	"breach":    {"name": "Credential breach",      "short": "Breach",  "fam": "breach",   "bank": "attack",  "effect": "capture", "known": true,  "sec_max": 1, "exec": 8.0,
+		"make": {"bots": 3, "intel": 4, "cash": 3, "creds": 3, "research": 0}, "make_time": 6.0,
+		"lead": "Capture one security-1 host.", "rules": "Travels from your main node, then executes for 8 s. Patch, more security, a lost route or a new owner stops it."},
+	"exploit":   {"name": "Known exploit",          "short": "Exploit", "fam": "exploit",  "bank": "attack",  "effect": "capture", "known": false, "sec_max": 2, "exec": 8.0,
+		"make": {"bots": 4, "intel": 6, "cash": 6, "creds": 4, "research": 4}, "make_time": 10.0,
+		"lead": "Capture one host up to security 2.", "rules": "Travels, then executes for 8 s. Breach is cheaper against a security-1 host."},
+	"phish":     {"name": "Phishing",               "short": "Phish",   "fam": "phish",    "bank": "attack",  "effect": "phish",   "known": true,  "dur": 24.0,
+		"make": {"bots": 3, "intel": 5, "cash": 5, "creds": 6, "research": 2}, "make_time": 10.0,
+		"lead": "Divert new output for 24 s.", "rules": "A rival host's new producer output goes to you. They keep the host and still pay its inputs. Each stolen non-Bot unit needs your courier home."},
+	"siphon":    {"name": "Packet siphon",          "short": "Siphon",  "fam": "siphon",   "bank": "attack",  "effect": "siphon",  "known": false, "dur": 18.0, "cargo": 6,
+		"make": {"bots": 4, "intel": 4, "cash": 4, "creds": 2, "research": 2}, "make_time": 8.0,
+		"lead": "Steal up to 6 cargo units in 18 s.", "rules": "Pick a resource. Its couriers leaving a foreign host bring it to your main node instead. The original courier carries on. Courier cover protects cargo."},
+	"vault":     {"name": "Vault raid",             "short": "Vault",   "fam": "vault",    "bank": "attack",  "effect": "vault",   "known": false, "exec": 8.0, "cargo": 8,
+		"make": {"bots": 5, "intel": 6, "cash": 3, "creds": 6, "research": 4}, "make_time": 14.0,
+		"lead": "Steal up to 8 stored Crypto.", "rules": "Raids a rival's main node for 8 s. Takes what their stock, your couriers and your room allow. The loot travels home as real shipments. Patch or a lost route stops it."},
+	"ddos":      {"name": "DDoS",                   "short": "DDoS",    "fam": "dos",      "bank": "attack",  "effect": "ddos",    "known": false, "dur": 18.0,
+		"make": {"bots": 10, "intel": 8, "cash": 6, "creds": 0, "research": 2}, "make_time": 12.0,
+		"lead": "Halt a host's output for 18 s.", "rules": "Stops its producers, main-node income and outgoing dispatch. Incoming cargo still arrives. Traffic filter clears it."},
+	"zeroday":   {"name": "0day",                   "short": "0day",    "fam": "zeroday",  "bank": "attack",  "effect": "capture", "known": false, "sec_max": 3, "exec": 8.0, "exec_rig": 12.0,
+		"make": {"bots": 6, "intel": 10, "cash": 15, "creds": 9, "research": 15}, "make_time": 20.0,
+		"lead": "Capture one host up to security 3.", "rules": "Travels, then executes for 8 s. On an active rival main node it executes for 12 s, with a countdown they can see. Patch or a lost route stops it."},
+	"worm":      {"name": "Worm",                   "short": "Worm",    "fam": "worm",     "bank": "attack",  "effect": "worm",    "known": false, "sec_max": 1, "exec": 4.0, "reach": 3,
+		"make": {"bots": 9, "intel": 12, "cash": 12, "creds": 12, "research": 8}, "make_time": 18.0,
+		"lead": "Capture up to 3 linked hosts.", "rules": "Takes adjacent visible security-1 hosts of one owner. Only the first needs a route; each capture opens the next. Each takes 4 s; Patch or a change stops the chain."},
+	"sabotage":  {"name": "Supply-chain sabotage",  "short": "Sabotage","fam": "supply",   "bank": "attack",  "effect": "sabotage","known": false, "dur": 20.0, "reach": 3,
+		"make": {"bots": 8, "intel": 10, "cash": 12, "creds": 10, "research": 12}, "make_time": 18.0,
+		"lead": "Shut producers on 3 hosts for 20 s.", "rules": "Hits the target and up to 2 adjacent hosts of its owner. Routing and dispatch keep working. Incident response clears it."},
+	"patch":     {"name": "Patch",                  "short": "Patch",   "fam": "patch",    "bank": "defense", "effect": "patch",   "known": true,  "dur": 20.0,
+		"make": {"bots": 2, "intel": 4, "cash": 4, "creds": 0, "research": 3}, "make_time": 6.0,
+		"lead": "Stop a capture or a raid.", "rules": "Cancels the earliest hostile capture or Vault raid here. With none running, it arms one interception for 20 s. Then it recovers for 20 s; it does not stack."},
+	"response":  {"name": "Incident response",      "short": "Response","fam": "response", "bank": "defense", "effect": "response", "known": true,
+		"make": {"bots": 2, "intel": 4, "cash": 3, "creds": 3, "research": 1}, "make_time": 4.0,
+		"lead": "Clear theft and sabotage here.", "rules": "Removes Phishing, Packet siphon and Supply-chain sabotage. Stolen output not yet shipped comes back to you. It does not clear DDoS or undo shipped theft."},
+	"filter":    {"name": "Traffic filter",         "short": "Filter",  "fam": "filter",   "bank": "defense", "effect": "filter",  "known": false, "dur": 12.0,
+		"make": {"bots": 5, "intel": 5, "cash": 4, "creds": 0, "research": 1}, "make_time": 6.0,
+		"lead": "Clear DDoS and block it for 12 s.", "rules": "Works before an attack too. It does not boost production or stop capture."},
+	"cover":     {"name": "Courier cover",          "short": "Cover",   "fam": "cover",    "bank": "defense", "effect": "cover",   "known": false, "dur": 16.0,
+		"make": {"bots": 2, "intel": 4, "cash": 4, "creds": 0, "research": 2}, "make_time": 6.0,
+		"lead": "Shield new cargo for 16 s.", "rules": "Cargo this host sends is safe from Packet siphon all the way. It does not stop Phishing or Vault raid."},
+	"express":   {"name": "Express route",          "short": "Express", "fam": "express",  "bank": "defense", "effect": "express", "known": false, "dur": 16.0,
+		"make": {"bots": 2, "intel": 5, "cash": 4, "creds": 0, "research": 2}, "make_time": 8.0,
+		"lead": "Halve delivery time for 16 s.", "rules": "Shipments and new Bots from this host cross each link twice as fast. It does not save couriers or raise street capacity."},
 }
-const ATTACK_ORDER := ["phishworm", "zeroday", "ddos", "supply"]
-const DEFENSE_ORDER := ["cdn", "patch", "response", "sca"]
-const CARD_ORDER := ["phishworm", "zeroday", "ddos", "supply", "cdn", "patch", "response", "sca"]
+
+# The research tree: a locked recipe, its prerequisite blueprint, one-time cost and time.
+const RESEARCH := {
+	"exploit":  {"prereq": "breach",  "intel": 8,  "cash": 8,  "research": 12, "time": 20.0},
+	"zeroday":  {"prereq": "exploit", "intel": 16, "cash": 18, "research": 30, "time": 40.0},
+	"worm":     {"prereq": "exploit", "intel": 12, "cash": 12, "research": 20, "time": 30.0},
+	"ddos":     {"prereq": "recon",   "intel": 8,  "cash": 8,  "research": 10, "time": 18.0},
+	"sabotage": {"prereq": "ddos",    "intel": 14, "cash": 16, "research": 24, "time": 35.0},
+	"siphon":   {"prereq": "phish",   "intel": 8,  "cash": 8,  "research": 12, "time": 20.0},
+	"vault":    {"prereq": "siphon",  "intel": 12, "cash": 14, "research": 22, "time": 30.0},
+	"filter":   {"prereq": "patch",   "intel": 6,  "cash": 6,  "research": 8,  "time": 12.0},
+	"cover":    {"prereq": "patch",   "intel": 6,  "cash": 6,  "research": 8,  "time": 12.0},
+	"express":  {"prereq": "recon",   "intel": 8,  "cash": 6,  "research": 12, "time": 18.0},
+}
+
+const ATTACK_ORDER := ["recon", "breach", "exploit", "phish", "siphon", "vault", "ddos", "zeroday", "worm", "sabotage"]
+const DEFENSE_ORDER := ["patch", "response", "filter", "cover", "express"]
+const CARD_ORDER := ["recon", "breach", "exploit", "phish", "siphon", "vault", "ddos", "zeroday", "worm", "sabotage", "patch", "response", "filter", "cover", "express"]
+const KNOWN_START := ["recon", "breach", "phish", "patch", "response"]
+const MANUFACTURE_LANES := 3
+const READY_SLOTS := 12            # active manufacturing jobs + ready copies, across all lanes
+
 # the two deck tabs: red ATTACK, blue DEFENCE (internal key stays "defense")
 const BANK_NAME := {"attack": "ATTACK", "defense": "DEFENCE"}
 const BANK_COL := {"attack": Color(1.0, 0.36, 0.33), "defense": Color(0.36, 0.6, 1.0)}
-const FAMILY_NAME := {"phish": "phishing", "zeroday": "0day exploits", "supply": "supply chain attacks", "dos": "denial of service", "cdn": "CDN", "patch": "patches", "response": "incident response", "sca": "dependency protection"}
+const FAMILY_NAME := {"recon": "recon", "breach": "credential breach", "exploit": "known exploits", "phish": "phishing", "siphon": "packet siphon", "vault": "vault raids", "dos": "denial of service", "zeroday": "0day exploits", "worm": "worms", "supply": "supply-chain sabotage", "patch": "patches", "response": "incident response", "filter": "traffic filters", "cover": "courier cover", "express": "express routes"}
+# Schematic art: one picture per family (assets/cards/schematic/; make_art.py draws vault, worm, siphon,
+# cover and express in the style of the hand-made ones). tests/text_fit_test.gd checks no two cards share one.
 const FAMILY_ART := {
+	"recon": preload("res://assets/cards/schematic/sca.png"),
+	"breach": preload("res://assets/cards/schematic/credential.png"),
+	"exploit": preload("res://assets/cards/schematic/oneday.png"),
 	"phish": preload("res://assets/cards/schematic/phishing.png"),
-	"zeroday": preload("res://assets/cards/schematic/zeroday.png"),
-	"supply": preload("res://assets/cards/schematic/supply.png"),
+	"siphon": preload("res://assets/cards/schematic/siphon.png"),
+	"vault": preload("res://assets/cards/schematic/vault.png"),
 	"dos": preload("res://assets/cards/schematic/dos.png"),
-	"cdn": preload("res://assets/cards/schematic/cdn.png"),
+	"zeroday": preload("res://assets/cards/schematic/zeroday.png"),
+	"worm": preload("res://assets/cards/schematic/worm.png"),
+	"supply": preload("res://assets/cards/schematic/supply.png"),
 	"patch": preload("res://assets/cards/schematic/patch.png"),
 	"response": preload("res://assets/cards/schematic/response.png"),
-	"sca": preload("res://assets/cards/schematic/sca.png"),
+	"filter": preload("res://assets/cards/schematic/cdn.png"),
+	"cover": preload("res://assets/cards/schematic/cover.png"),
+	"express": preload("res://assets/cards/schematic/express.png"),
 }
 const FAMILY_COL := {
-	"phish": Color(0.3, 0.9, 1.0), "zeroday": Color(1.0, 0.45, 0.2),
-	"supply": Color(1.0, 0.38, 0.75), "dos": Color(0.68, 0.55, 1.0),
-	"cdn": Color(0.25, 0.75, 1.0), "patch": Color(0.35, 0.95, 0.85),
-	"response": Color(0.55, 0.62, 1.0), "sca": Color(0.3, 0.52, 1.0),
+	"recon": Color(0.5, 0.85, 1.0), "breach": Color(0.97, 0.69, 0.16), "exploit": Color(0.72, 0.97, 0.22),
+	"phish": Color(0.3, 0.9, 1.0), "siphon": Color(0.25, 0.84, 0.66), "vault": Color(1.0, 0.82, 0.31),
+	"dos": Color(0.68, 0.55, 1.0), "zeroday": Color(1.0, 0.45, 0.2), "worm": Color(0.49, 0.87, 0.38),
+	"supply": Color(1.0, 0.38, 0.75), "patch": Color(0.35, 0.95, 0.85), "response": Color(0.55, 0.62, 1.0),
+	"filter": Color(0.3, 0.75, 1.0), "cover": Color(1.0, 0.72, 0.36), "express": Color(0.91, 0.49, 0.91),
 }
 const CARD_ALARM := 8.0

@@ -79,75 +79,108 @@ godot --headless --path . res://scenes/botnet_proto.tscn
 The shutdown lines about leaked RIDs / "Unreferenced static string" / VariantPools are normal
 engine-exit noise, **not** script errors. Only `SCRIPT ERROR` / `Parse Error` matter.
 
-Run the automated mechanics, pointer-input, and layout checks before exporting:
+Run the automated mechanics and layout checks before exporting:
 ```bash
-godot --headless --path . --script tests/botnet_usability_test.gd
-godot --headless --path . --script tests/botnet_ui_edge_test.gd
-godot --headless --path . --script tests/card_balance_probe.gd
-godot --headless --path . --script tests/four_card_effect_test.gd
-godot --headless --path . --script tests/production_cost_test.gd
-godot --headless --path . --script tests/ai_card_smoke_test.gd
-godot --headless --path . --script tests/botnet_help_test.gd
-godot --headless --path . --script tests/mp_lockstep_test.gd      # multiplayer lockstep, no server needed
-godot --headless --path . --script tests/mp_server_e2e_test.gd    # needs Node.js + `npm ci` in server/ (starts it)
+godot --headless --path . --script tests/economy_test.gd     # income, caps, research, manufacture, security, capture
+godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
+godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
+godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
+godot --headless --path . --script tests/mp_lockstep_test.gd # two screens, same command stream: identical every turn
+godot --headless --path . --script tests/text_fit_test.gd    # every text fits with a margin; no overlaps; whole sentences
+godot --headless --path . --script tests/botnet_help_test.gd # Help navigation + layout at 1280x720 and 1366x768
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
-To capture the usability suite's rendered fixtures, omit `--headless` and append
-`-- --capture`; results and screenshots are written to `review/implemented_ui/`.
+To capture the Help suite's rendered previews, omit `--headless` and append
+`-- --capture`; images are written to `review/visual_help/`.
 These checks cover scripted behavior and layout; human usability testing is still pending.
 
-The card deck is a pull-out drawer at the bottom. Pushed down (the default) it is one
-40px strip: a red ATTACK tab, a blue DEFENCE tab, eight mini cards (all cards, both
-banks) and a handle. Click a mini card to research / pause it; drag a held copy straight
-onto the map to play it. A closed tab, the handle or `C` pulls the deck up to the four
-detailed cards of that tab (effects, the research price as resource icons + a clock,
-held copies, progress, and a quiet `Cancel` link in the status row while queued);
-the open tab, the handle or `C` pushes it down again, the other tab switches banks.
-Pulled up, the deck covers the bottom of the map instead of moving it. Dragging a big
-card pushes the deck down for the drag and brings it back after the drop. A tab blinks
-for 3 seconds when one of its cards finishes research. Eight cards share one research
-queue. Drag a held ATTACK card onto a reachable foreign host, a DEFENCE card onto one
-of your own hosts (including your rig). The sidebar always ends above the deck; scroll
-inside a long sidebar to reach its remaining controls.
+> The pre-redesign suites (assault, takeover, production-cost, usability, …) tested
+> the old bot-army mechanics and were removed in the 0.4.0 research–manufacture–deliver
+> redesign; the economy, AI, campaign and lockstep suites above are their replacements.
 
-The idle right sidebar shows compact standings automatically; selecting a node replaces
-it with node controls. Research and Board buttons/menus are removed. Help uses six
-illustrated pages with examples; the tutorial colours its keywords like the things they
-name (buildings in their card colour, ATTACK red, DEFENCE blue, your pieces green).
+Economy (research–manufacture–deliver, 0.4.0). There are five resources (`RES` in
+tuning.gd): **Bots**, **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
+spendable once they reach your **main node** (your rig). The main node makes one of every
+resource per second, delivered locally with no courier (`MAIN_INCOME`, `_tick_production`
+step 1). Producers you build on other hosts emit output into a per-producer local buffer
+(`BUFFER_CAP`); a **courier** then carries it home — one Bot per non-Bot unit, consumed on
+arrival (`_tick_dispatch`/`_dispatch_for`/`_deliver`). New Bots deliver themselves. A main-node
+**Bots reserve** (`BOT_RESERVE_CHOICES`) keeps couriers back for operations, and a **shipping
+priority** biases which resource ships first. Each bank has a cap of `BASE_CAP[res]` plus
+`CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`); incoming shipments
+reserve destination room (`incoming`).
 
-Winning: hold at least 51% of ALL buildings (rounded up) for 51 continuous seconds
+Cards are **researched once, then manufactured**. A blueprint is learned in the single
+research slot (`_do_research`/`_tick_research`, cost + time in `cards.gd` `RESEARCH`); five
+recipes are known from the start (`KNOWN_START`: Recon, Breach, Phishing, Patch, Incident
+response). A known recipe is manufactured into single-use copies in one of three
+**manufacturing lanes** (`MANUFACTURE_LANES`, `_lane_*`/`_tick_manufacture`); each copy pays its
+`make` cost up front and takes `make_time` seconds, and finished copies sit in a 12-slot ready
+inventory (`READY_SLOTS`, `_ready_total`). A lane can **Repeat**. The deck drawer at the bottom
+has a red ATTACK tab and a blue DEFENCE tab. Pushed down, its strip shows all fifteen recipes as
+mini cards (click = research / pause, drag a held copy = play). Pulled up (a tab, the handle or
+`C`), it shows four detailed cards of the open tab at a time; ← / → in the strip page through the
+rest (`_deck_page`: ATTACK has three pages, DEFENCE two). Drag a ready copy onto the map to play
+it, or launch from a host's panel. Drag a held ATTACK card onto a reachable foreign host, a DEFENCE
+(support) card onto one of your own hosts (including your rig).
+
+Hosts have a **security class** 1–3 (`SEC_BY_TYPE` by host type, `_security`): a capture card
+only takes a host whose security is at or below the card's reach (`sec_max` — Breach 1,
+Exploit 2, 0day 3). Installing a **Firewall** (`wall`) raises a host's security by one, to a
+cap of `SEC_MAX` (3); a main node is pinned to `SEC_MAIN` (3). Security is public; Recon is
+optional for capture and reveals installations, buffers and mission access for 30 s.
+
+The idle right sidebar shows compact standings automatically; selecting a node replaces it
+with node controls (installations, build palette, logistics on the main node). Help uses six
+illustrated pages with examples; the tutorial colours its keywords like the things they name
+(ATTACK red, DEFENCE blue, your pieces green).
+
+Winning: hold at least 51% of ALL hosts (rounded up) for 51 continuous seconds
 (`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig.
 
-Fog of war (one rule for the player's screen and for the Insane AI): a faction's real sight is
+Fog of war (one rule for every botnet): a faction's real sight is
 its own hosts and every host one street away from them (`_in_sight`/`_sight_set`); on top of
 that every rig is visible as a landmark (`_visible_to`/`_visible_set`). A rig seen only through
 fog is drawn and clickable, but nothing around it shows: rival packets, wires, worm jumps, card
 pulses and the busy-street colour all follow real sight (`_flight_visible`, `_sighted_runs`).
-Hosts seen before stay on the map as dim outlines without owner or bot count (`_seen`,
+Hosts seen before stay on the map as dim outlines without owner or current contents (`_seen`,
 `_explored`, `_last_seen`); fogged hosts cannot be clicked. Territories: every visible owned
 host claims a round patch (`TERR_RADIUS`); one botnet's patches melt into rounded areas
 (gaps and waists filled by `TERR_SMOOTH`), the ground between rivals is split halfway between
 their buildings, and borders are inset so two botnets' lines never touch (`_territory_shapes`,
 recomputed only when sight or ownership changes).
 
-Every standing building works whatever its bot count (0.1.5: losing bots no longer switches
-slots off); only a card (DDOS), a running construction or the owner's pause stops one.
+Installations (`BUILD_KINDS` in buildings.gd) go in a host's slots. Producers
+(`PRODUCER_KINDS`: Intel, Bot, Crypto, Credential and Research-lab) turn an input bank
+resource into an output resource at `rate` (input paid from the host **owner's** available
+bank at `in_rate`); output goes to a local buffer and is couriered home, or straight to the
+bank when the producer sits on the main node. A short input scales output down that tick;
+a capped bank or full buffer makes a producer idle and burn no input. A **Firewall** (`wall`)
+is not a producer: it raises the host's security (see above). Build jobs are paid evenly over
+`BUILD_TIME` s of funded work with the full price (`BUILD_COSTS`) reserved to queue;
+demolition takes `DEMOLISH_TIME` s. Click an installed producer to pause/resume; DDoS,
+Supply-chain sabotage, a running construction or the owner's pause stops one
+(`_producer_active`). During Phishing, a victim host's new producer output is diverted to the
+caster (who still pays a courier home per stolen non-Bot unit).
 
-Building prices (`BUILD_COSTS` in buildings.gd), paid evenly over 10 s of funded work, the
-full price needed in the bank to queue: Intel harvester 10 Intel, Bot farm 30 Intel, Crypto
-miner 50 Intel, Credential harvester 50 Intel, Research lab 50 Intel + 25 Crypto. A short
-resource slows a job (the scarcest one sets its pace); build cards show prices as icons.
-Production costs are 1:1: Intel -> Credentials, Intel -> Crypto, Crypto -> Research.
-Inputs belong to the host owner; funded output goes to the Phishing caster during theft
-(the host shows PHISHED and its countdown). Unfunded or capped producers consume nothing.
-Click an installed miner, credential harvester or lab to pause/resume; capacity remains
-installed. Attacks and construction take priority over conversion spending; card research
-spends before labs.
+The AI botnets all play `_ai_think` (one economic AI, no difficulty setting): it develops
+producers, learns blueprints, manufactures known cards and uses them to capture, steal and
+defend, under the same income, delivery, prices, lane/reserve limits and fog as a person.
 
-AI difficulty (New game menu): Normal is the original `_ai_think`; Insane is
-`scripts/botnet_ai_insane.gd` (one brain per AI faction, created by `_ai_tick`, ticked every
-simulation step). Insane plays fair: same fog, same actions and income, foreign details only through
-scans; it models opponents from what it can see and plans a win. The tutorial always uses Normal.
+Map layouts (New game → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
+and **Grid**. The three galaxies (`_place_galaxy`) fill a shape with about as many computers as the
+same-size grid, each the best of `STAR_CANDIDATES` random spots and never closer than `STAR_SPACING`,
+so spacing is even: a spiral has one arm per botnet winding out of a core with every rig at an arm's
+tip; an elliptical galaxy is a wide disc, denser in the middle; a ring has an empty middle. The rigs
+sit at even angles round the centre (you top-left), so every botnet starts alike, and computers far
+from every rig (the core, the stretch between two rigs) are the rich, well-defended ones. A shape too
+small for its computers grows and is filled again. Multiplayer takes the galaxy from the match seed
+(`GALAXIES[seed % 3]`), so every screen builds the same one; the guided campaign stays on its grid.
+
+The hidden network (`LINK_REACH`) is never drawn as such. A link a botnet has sent any packet
+over (`_schedule` — a shipment, courier, or operation) becomes a road on its own map for the
+rest of the match (`_roads`, `_establish`, drawn faintly under the wires); rivals' roads are
+never shown. There are no manual connections to make in this model.
 
 Performance rules (0.1.3–0.1.4): the simulation runs in fixed `SIM_DT` = 1/30 s steps
 (`_sim_step`); `_process` only feeds it real time and decides what to repaint, with packets drawn
@@ -171,21 +204,43 @@ are memoised from `_auto_guards` to `_tick_production` (`_route_memo`), where no
 changes. A change that must not alter the rules should leave a fixed-seed match identical, step for
 step.
 
-Phishing steals output for 30/20/10 seconds across three foreign hosts. DDOS stops all
-production and routing for 30/20/10/5/2 seconds across five foreign hosts. 0day captures
-instantly with 75% probability, but only a host you have a connection into (a dormant
-wire is enough); failure changes nothing. Supply chain removes buildings, jobs and
-defenders while retaining ownership. A rig whose routing is cut can still play DEFENCE
-cards on itself (CDN clears its DDOS) but cannot send cards anywhere else.
+Text must fit, with a margin, and never overlap (`tests/text_fit_test.gd` checks it at 1280×720 and
+1366×768). Wrapped text is measured and drawn as a shaped `TextParagraph` (`_para`, `_text_lines`,
+`_text_height`): the UI font's symbol fallback reports a 25 px line at 12 px while a shaped line is
+~17 px, so `Font.get_height()` must not be used to count or place lines. A card face shows its
+one-line `lead` and then only the **whole** `rules` sentences that fit (`_card_blurb`); the full text
+is the card's hover tooltip, so keep each rules sentence short (about two card lines). Map names are
+placed after every building by `_place_names`: the first free spot of eight round the building, clear
+of other names, pictograms and warning lines, in priority order (selected, hovered, campaign hosts,
+main nodes, yours, others); a minor name with no free spot shows on hover instead. The sidebar
+content sits in `panel_gutter`, 6 px clear of its scrollbar, and the build palette sizes its cards
+from `PANEL_W` (`_palette_card_w`).
 
-Each DEFENCE card spreads through up to five successive owned hosts and costs twice
-its matching ATTACK card in each resource (research times unchanged): CDN/DDOS, Patch day/0day,
-Incident response/Phishing, SCA/Supply chain. Card art lives in `assets/cards/schematic/`
-(the four DEFENCE shields are flat pictograms in the same style as the attack art).
-CDN clears DDOS (production and routing) on an affected host;
-otherwise it doubles production for 10 seconds, still paying 1:1 inputs. Patch day blocks
-0day and Supply chain for 30 seconds; Incident response clears Phishing without immunity;
-SCA blocks Supply chain for 60 seconds. Boosts refresh rather than stacking above x2.
+Operations (cards do all the fighting; `cards.gd` `CARDS`, resolved in `_play_card` /
+`_op_land` / `_tick_execs` / `_apply_support`). Playing an ATTACK card launches an **operation
+flight** from your main node along a route through your own network to the target
+(`_attack_route` / `_op_reachable` — you must own a path toward it). Capture and raid cards
+then **execute** on arrival for the card's `exec` seconds before they resolve
+(`_execs`); a lost route, a changed owner, or a defender's Patch can stop them mid-execution.
+Support (DEFENCE) cards apply locally and instantly to one of your hosts.
+
+The ten ATTACK/information recipes: **Recon** (reveal for 30 s), **Credential breach** (capture
+a security-1 host), **Known exploit** (capture up to security 2), **Phishing** (divert a host's
+new producer output to you for 24 s), **Packet siphon** (redirect up to six courier packets of
+a chosen resource for 18 s), **Vault raid** (steal up to eight stored Crypto from a rival main
+node), **DDoS** (stop a host's producers, income and dispatch for 18 s), **0day** (capture up to
+security 3; longer on an active rival main node), **Worm** (chain up to three adjacent visible
+security-1 hosts of one owner), **Supply-chain sabotage** (disable producers on the target and
+up to two adjacent same-owner hosts for 20 s). The five DEFENCE/support recipes: **Patch**
+(cancel the earliest hostile capture/raid executing on this host, else arm one interception
+for 20 s), **Incident response** (clear Phishing, Packet siphon and sabotage here; undispatched
+stolen output reverts), **Traffic filter** (clear a DDoS and block a new one for 12 s), **Courier
+cover** (protect cargo this host emits from Packet siphon for 16 s), **Express route** (halve
+delivery travel time for this host's shipments for 16 s). A main node whose routing is cut can
+still play support on itself but cannot send attacks. Card art lives in
+`assets/cards/schematic/`: every recipe has its own picture (`FAMILY_ART`, by `fam`); five of them
+(vault, worm, siphon, cover, express) are drawn by `assets/cards/schematic/make_art.py` in the style of
+the hand-made ones — run it, then import (`godot --headless --path . --import`).
 
 To run a one-off test or render, add a tiny scene whose script instantiates the game and inspects
 it, e.g.:
@@ -222,8 +277,9 @@ screen applies the commands of a turn at its first step, faction by faction. `PL
 screen** plays (1–3); rules that differ for people and AIs ask `_is_human(fac)` (`humans`). Every 30 turns the
 screens exchange a state fingerprint (`_mp_hash`) and the server reports a desync. Anything that changes the
 match from the UI must go through `_cmd`, and nothing in `_sim_step` may depend on the local screen
-(selection, `PLAYER`, time of day, `randf()`): otherwise the screens drift apart. `tests/mp_lockstep_test.gd`
-checks exactly that.
+(selection, `PLAYER`, time of day, `randf()`): otherwise the screens drift apart.
+`tests/mp_lockstep_test.gd` checks exactly that: two screens playing different factions get the
+same scripted stream of every command verb (plus malformed ones) and must match every turn.
 
 The connection and lobby state live in `scripts/botnet_net.gd` (one WebSocket). Players always use the one
 official server, `wss://network.thenakedcat.games/ws`: Multiplayer connects to it by itself and keeps retrying

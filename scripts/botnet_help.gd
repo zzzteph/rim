@@ -2,7 +2,7 @@ extends Control
 ## Illustrated Help examples, using the same symbols as the live board and cards.
 
 var game
-var page := "network"
+var page := "research"
 
 const INK := Color(0.05, 0.07, 0.11)
 const TILE := Color(0.075, 0.10, 0.15)
@@ -55,198 +55,107 @@ func _host(at: Vector2, color: Color, label: String, kind := "pc", extent := 52.
 func _kind(kind: String, at: Vector2, extent := 42.0) -> void:
 	game._draw_kind_icon(self, kind, at, extent, game.BUILD_KINDS[kind].col, get_theme_default_font())
 
-func _cursor(at: Vector2) -> void:
-	var points := PackedVector2Array([at, at + Vector2(3, 22), at + Vector2(9, 16), at + Vector2(16, 24), at + Vector2(21, 20), at + Vector2(14, 12), at + Vector2(23, 9)])
-	draw_colored_polygon(points, TEXT)
-	points.append(at)
-	draw_polyline(points, INK, 1.5, true)
-
 func _bar(rect: Rect2, value: float, color := GREEN) -> void:
 	draw_rect(rect, LINE)
 	draw_rect(Rect2(rect.position, Vector2(rect.size.x * value, rect.size.y)), color)
 
 func _draw() -> void:
-	if game == null: return
+	if game == null or not LEADS.has(page): return
+	_lead(lead_lines(page))
+	_tile(ILLUSTRATION)
 	match page:
-		"network": _network()
-		"takeover": _takeover()
-		"build": _build()
-		"resources": _resources()
-		"cards": _cards()
-		"protection": _protection()
-		"goal": _goal()
-
-func _network() -> void:
-	_tile(Rect2(0, 0, 620, 174))
-	_text("1  DRAG TO CONNECT", Rect2(16, 12, 588, 22), 15, BLUE, false)
-	_host(Vector2(130, 85), GREEN, "YOUR BUILDING")
-	_host(Vector2(490, 85), RED, "TARGET", "server")
-	_arrow(Vector2(184, 85), Vector2(436, 85), BLUE, true)
-	_cursor(Vector2(322, 72))
-	_text("You see and reach only what is near your computers. A link drains a little Intel.", Rect2(20, 145, 580, 22), 12, DIM)
-	_tile(Rect2(0, 186, 304, 194))
-	_tile(Rect2(316, 186, 304, 194))
-	_text("2  SCAN", Rect2(16, 198, 272, 22), 15, BLUE, false)
-	_text("3  ATTACK", Rect2(332, 198, 272, 22), 15, RED, false)
-	draw_arc(Vector2(72, 273), 23, 0, TAU, 32, BLUE, 3, true)
-	draw_line(Vector2(89, 290), Vector2(106, 307), BLUE, 4, true)
-	_arrow(Vector2(116, 273), Vector2(176, 273))
-	_host(Vector2(226, 273), DIM, "?  ->  20 bots", "server", 42)
-	for index in 3:
-		draw_circle(Vector2(356 + index * 23, 271), 5, GREEN)
-	_arrow(Vector2(426, 273), Vector2(494, 273), RED)
-	_host(Vector2(548, 273), GOLD, "0 = breached", "server", 42)
-	_text("Reveal defenders + installed buildings", Rect2(12, 345, 280, 25), 11, DIM)
-	_text("1 Intel per bot (more above 100%)", Rect2(328, 340, 280, 22), 12, DIM)
-	_text("ASSAULT: fixed share, %d/s; farms rest" % int(game.ASSAULT_RATE), Rect2(328, 358, 284, 20), 11, RED)
-
-func _takeover() -> void:
-	_tile(Rect2(0, 0, 620, 176))
-	_text("1  YOUR BOTS BREACH IT", Rect2(16, 12, 588, 22), 15, RED, false)
-	_host(Vector2(130, 85), RED, "20 defenders", "server")
-	for index in 3:
-		draw_circle(Vector2(232 + index * 23, 85), 5, GREEN)
-	_arrow(Vector2(310, 85), Vector2(436, 85), RED)
-	_host(Vector2(490, 85), GOLD, "0 = BREACHED", "server")
-	_text("At zero your bots stop. It is not yours yet.", Rect2(20, 145, 580, 22), 12, DIM)
-	_tile(Rect2(0, 188, 304, 192))
-	_tile(Rect2(316, 188, 304, 192))
-	_text("2  PAY TO TAKE IT OVER", Rect2(16, 200, 272, 22), 15, GOLD, false)
-	_kind("cred", Vector2(52, 254), 40)
-	_text("Credentials: by its type", Rect2(82, 241, 210, 22), 13, game.BUILD_KINDS["cred"].col, false)
-	var c_pc: float = game.TAKEOVER_CREDS_BASE; var c_erp: float = game.TAKEOVER_CREDS_BASE + game.TAKEOVER_CREDS_PER_SEC * 6.0
-	_text("PC %d  ·  ERP %d" % [int(c_pc), int(c_erp)], Rect2(82, 264, 210, 20), 12, DIM, false)
-	_kind("lab", Vector2(52, 322), 40)
-	_text("Research: grows with you", Rect2(82, 309, 210, 22), 13, game.BUILD_KINDS["lab"].col, false)
-	var r2: float = game.TAKEOVER_RESEARCH_BASE * (1.0 + game.TAKEOVER_RESEARCH_GROWTH * 2.0); var r20: float = game.TAKEOVER_RESEARCH_BASE * (1.0 + game.TAKEOVER_RESEARCH_GROWTH * 20.0)
-	_text("%d at 2 computers · %d at 20" % [int(round(r2)), int(round(r20))], Rect2(82, 332, 210, 20), 12, DIM, false)
-	_text("3  IT IS YOURS", Rect2(332, 200, 272, 22), 15, GREEN, false)
-	_host(Vector2(468, 280), GREEN, "TAKEN OVER", "server", 42)
-	_text("Paid for you when you have both.", Rect2(328, 336, 284, 20), 12, DIM)
-	_text("The link into it ends.", Rect2(328, 356, 284, 20), 12, DIM)
+		"research": _p_research()
+		"deliver": _p_deliver()
+		"produce": _p_produce()
+		"build": _p_build()
+		"attack": _p_attack()
+		"goal": _p_goal()
+	_caption(str(CAPTIONS[page]))
 
 
-func _build() -> void:
-	_tile(Rect2(0, 0, 620, 188))
-	_text("1  SELECT YOUR BUILDING, THEN DROP INTO A SLOT", Rect2(16, 12, 588, 22), 14, BLUE, false)
-	draw_rect(Rect2(40, 54, 112, 91), INK)
-	draw_rect(Rect2(40, 54, 112, 91), BLUE, false, 1.5)
-	_kind("intel", Vector2(96, 94), 48)
-	_text("BUILD CARD", Rect2(40, 151, 112, 20), 11, DIM)
-	_arrow(Vector2(174, 98), Vector2(270, 98))
-	_cursor(Vector2(219, 87))
-	for index in 3:
-		var rect := Rect2(296 + index * 94, 58, 82, 82)
-		draw_rect(rect, INK)
-		draw_rect(rect, BLUE if index == 1 else LINE, false, 1.5)
-		if index == 1:
-			_kind("intel", rect.get_center(), 38)
-			_bar(Rect2(rect.position.x + 6, 129, 70, 5), 0.5, BLUE)
-		else: _text("+", Rect2(rect.position + Vector2(0, 23), Vector2(82, 40)), 28, DIM)
-	_text("Intel or Crypto, paid over %ds of funded work" % int(game.BUILD_TIME), Rect2(285, 151, 294, 22), 12, TEXT)
-	_tile(Rect2(0, 200, 304, 180))
-	_tile(Rect2(316, 200, 304, 180))
-	_text("BOT FARM", Rect2(16, 212, 272, 22), 14, GREEN, false)
-	_text("INTEL HARVESTER", Rect2(332, 212, 272, 22), 14, BLUE, false)
-	_kind("bot", Vector2(73, 281), 58)
-	_arrow(Vector2(124, 281), Vector2(174, 281), GREEN)
-	_text("+%.0f bot/s" % game.PROD_RATE, Rect2(184, 255, 104, 23), 14, GREEN)
-	_text("%.0f cap/farm" % game.NODE_CAP, Rect2(173, 282, 120, 23), 12, DIM)
-	_kind("intel", Vector2(389, 281), 58)
-	_arrow(Vector2(440, 281), Vector2(490, 281))
-	_text("+%.0f Intel/s" % game.INTEL_PER_BUILD, Rect2(494, 255, 112, 23), 13, BLUE)
-	_text("+%.0f limit" % game.INTEL_CAP_PER_BUILD, Rect2(494, 282, 112, 23), 12, DIM)
-	_text("Costs " + game._build_cost_text("bot"), Rect2(12, 314, 280, 22), 13, game.BUILD_KINDS["cash"].col)
-	_text("Costs " + game._build_cost_text("intel"), Rect2(328, 314, 280, 22), 13, BLUE)
-	_text("Each regrown bot costs %s Intel" % str(snappedf(game.REGEN_PRICE, 0.01)), Rect2(12, 344, 280, 22), 11, DIM)
-	_text("PC example: fuel your network", Rect2(328, 344, 280, 22), 11, DIM)
+# Each page's words, kept as data so tests/text_fit_test.gd measures exactly what is drawn:
+# every lead line fits on one line with room to spare, every caption fits in two lines.
+const LEADS := {
+	"research": ["Learn a blueprint once to unlock its recipe.", "Manufacture copies, then launch a ready card."],
+	"deliver": ["A resource made outside your main node is not spendable yet.", "One Bot carries one unit home and is consumed on arrival."],
+	"produce": ["Harvesters make Intel. A Bot farm turns 1 Intel into 2 Bots.", "Miners and labs convert; the output still needs a courier."],
+	"build": ["One research slot and three manufacturing lanes.", "Repeat makes more copies when resources and slots allow."],
+	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid takes stored Crypto. Capture cards have a security cap."],
+	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
+}
+const CAPTIONS := {
+	"research": "Research unlocks a recipe — it gives no free card. Manufacturing pays once; launching spends the copy.",
+	"deliver": "4 delivered/s needs 4 courier Bots/s. New Bots deliver themselves; the main node makes 1 of each resource locally.",
+	"produce": "No input stops production. No courier or route stops dispatch. A full local buffer stops production.",
+	"build": "A paused lane leaves the others running. Each producing copy reserves one of 12 ready slots.",
+	"attack": "Stolen resources help only when they reach your main node. Patch, Response, Filter and Cover defend.",
+	"goal": "Lose your main node and you are eliminated. Watch the objective bar for the exact host count.",
+}
+const LEAD_FS := 14
+const LEAD_PITCH := 24.0   # 14 px lines 24 px apart: 7 px clear between them, 14 px above the illustration
+const LEAD_WIDTH := 588.0
+const CAPTION_FS := 12
 
-func _resource_row(y: float, input: String, output: String, producer: String, input_name: String, output_name: String) -> void:
-	_tile(Rect2(0, y, 620, 108))
-	_kind(input, Vector2(77, y + 43), 42)
-	_text("1 " + input_name, Rect2(14, y + 75, 126, 22), 13, game.BUILD_KINDS[input].col)
-	_arrow(Vector2(132, y + 43), Vector2(229, y + 43), game.BUILD_KINDS[input].col)
-	draw_rect(Rect2(244, y + 20, 132, 49), INK)
-	_text(producer, Rect2(249, y + 36, 122, 22), 13, TEXT)
-	_arrow(Vector2(391, y + 43), Vector2(488, y + 43), game.BUILD_KINDS[output].col)
-	_kind(output, Vector2(543, y + 43), 42)
-	_text("1 " + output_name, Rect2(477, y + 75, 132, 22), 13, game.BUILD_KINDS[output].col)
 
-func _resources() -> void:
-	_resource_row(0, "intel", "cred", "HARVESTER", "Intel", "Credential")
-	_resource_row(117, "intel", "cash", "MINER", "Intel", "Crypto")
-	_resource_row(234, "cash", "lab", "LAB", "Crypto", "Research")
-	_text("No input = no output. Crypto pays farms; Credentials + Research pay takeovers and cards.", Rect2(0, 347, 620, 17), 11, DIM)
-	_text("Click an installed producer to pause / resume.", Rect2(0, 365, 620, 15), 11, BLUE)
+func lead_lines(p: String) -> Array:
+	var out := []
+	for line in LEADS[p]:
+		out.append(str(line).format({"pct": int(game.HOLD_FRACTION * 100.0), "secs": int(game.HOLD_SECS)}))
+	return out
 
-func _example_card(rect: Rect2, owned: int, progress: float) -> void:
-	var col := GREEN if owned > 0 else DIM
-	draw_rect(rect, INK)
-	draw_rect(rect, col, false, 1.5)
-	_text("PHISHING", Rect2(rect.position + Vector2(10, 9), Vector2(rect.size.x - 20, 22)), 14, col, false)
-	_text("x%d" % owned, Rect2(rect.position + Vector2(rect.size.x - 51, 7), Vector2(39, 24)), 19, col)
-	if owned > 0:
-		game._draw_card_glyph(self, "phishworm", rect.position + Vector2(rect.size.x * 0.5, 83), 79, col, get_theme_default_font())
-	else:
-		# Draw an empty copy in gray; the colored production card remains a held copy.
-		var at := rect.position + Vector2(rect.size.x * 0.5, 83)
-		draw_rect(Rect2(at - Vector2(24, 17), Vector2(48, 34)), DIM, false, 2)
-		draw_line(at - Vector2(24, 17), at, DIM, 2, true)
-		draw_line(at + Vector2(24, -17), at, DIM, 2, true)
-	_text("RESEARCHING  %d%%" % int(progress * 100), Rect2(rect.position + Vector2(10, 131), Vector2(rect.size.x - 20, 22)), 12, col)
-	_bar(Rect2(rect.position + Vector2(12, 156), Vector2(rect.size.x - 24, 7)), progress, col)
 
-func _cards() -> void:
-	_example_card(Rect2(0, 0, 294, 176), 0, 0.55)
-	_example_card(Rect2(326, 0, 294, 176), 1, 0.35)
-	_text("FIRST COPY: gray until ready", Rect2(0, 184, 294, 22), 12, DIM)
-	_text("ONE OWNED: another is building", Rect2(326, 184, 294, 22), 12, GREEN)
-	_tile(Rect2(0, 218, 620, 162))
-	_text("CLICK: RESEARCH / PAUSE / RESUME    x: CANCEL", Rect2(16, 230, 588, 22), 13, BLUE, false)
-	game._draw_card_glyph(self, "phishworm", Vector2(85, 303), 70, GREEN, get_theme_default_font())
-	_text("x1", Rect2(115, 288, 42, 24), 19, GREEN)
-	_arrow(Vector2(175, 303), Vector2(447, 303), GREEN)
-	_cursor(Vector2(284, 289))
-	_host(Vector2(514, 301), RED, "REACHABLE TARGET", "server", 42)
-	_text("DRAG a held copy to play it · DDOS, Supply and Phishing hit big armies harder", Rect2(20, 344, 580, 20), 12, DIM)
+func _lead(lines: Array) -> void:   # one line each at full size: the test keeps every lead short enough
+	for k in lines.size():
+		_text(str(lines[k]), Rect2(16, 14 + k * LEAD_PITCH, LEAD_WIDTH, 22), LEAD_FS, TEXT, false)
 
-func _goal() -> void:
-	_tile(Rect2(0, 0, 620, 176))
-	_text("WIN: HOLD AT LEAST 51%% FOR %d SECONDS" % int(game.HOLD_SECS), Rect2(16, 12, 588, 22), 15, GREEN, false)
-	for index in 7:
-		_host(Vector2(45 + index * 58, 82), GREEN if index < 4 else DIM, "", "pc", 29)
-	_arrow(Vector2(439, 82), Vector2(478, 82), GREEN)
-	draw_arc(Vector2(545, 81), 33, -PI * 0.5, PI * 1.5, 48, GREEN, 3, true)
-	_text("%ds" % int(game.HOLD_SECS), Rect2(511, 66, 68, 27), 23, GREEN)
-	_text("Example: keep 4 of 7 buildings for %d seconds" % int(game.HOLD_SECS), Rect2(16, 135, 588, 24), 13, DIM)
-	_tile(Rect2(0, 188, 620, 112))
-	_host(Vector2(71, 235), GREEN, "YOUR RIG", "server", 37)
-	_text("PROTECT", Rect2(126, 222, 107, 25), 14, GREEN)
-	_arrow(Vector2(259, 236), Vector2(375, 236), RED)
-	_host(Vector2(433, 235), RED, "RIVAL RIG", "server", 37)
-	_text("CAPTURE", Rect2(478, 215, 128, 22), 14, RED)
-	_text("all rivals to win", Rect2(472, 239, 140, 22), 11, DIM)
-	_tile(Rect2(0, 312, 620, 68))
-	var keys := [["DRAG MAP", "pan"], ["WHEEL", "zoom"], ["SPACE", "pause"], ["C", "card deck"], ["0 / ESC", "center / menu"]]
-	for k in keys.size():
-		_text(keys[k][0], Rect2(6 + k * 122, 322, 116, 22), 13, BLUE)
-		_text(keys[k][1], Rect2(6 + k * 122, 346, 116, 20), 12, DIM)
 
-func _protection() -> void:
-	var cards := ["cdn", "patch", "response", "sca"]
-	var examples := ["DDOS -> CLEAR", "0DAY + SUPPLY -> BLOCK", "PHISHING -> REMOVE", "SUPPLY -> BLOCK"]
-	var durations := ["Otherwise: production x2 / 10s", "30 seconds per host", "Production returns to you", "60 seconds per host"]
-	for index in 4:
-		var x := float(index % 2) * 316; var y := float(index / 2) * 140
-		_tile(Rect2(x, y, 304, 130))
-		var card: Dictionary = game.CARDS[cards[index]]
-		var color: Color = game.FAMILY_COL[card.fam]
-		game._draw_card_glyph(self, cards[index], Vector2(x + 40, y + 46), 50, color, get_theme_default_font())
-		_text(card.name, Rect2(x + 75, y + 21, 213, 25), 16, color, false)
-		_text(examples[index], Rect2(x + 12, y + 78, 280, 20), 12, TEXT)
-		_text(durations[index], Rect2(x + 12, y + 103, 280, 20), 11, DIM)
-	for index in 5:
-		var x := 67.0 + index * 120
-		_host(Vector2(x, 320), GREEN, "", "pc", 28)
-		if index < 4: _arrow(Vector2(x + 23, 320), Vector2(x + 96, 320), GREEN)
-	_text("DEFENCE tab: up to 5 own hosts · costs 2x the matching ATTACK", Rect2(0, 359, 620, 20), 11, game.BANK_COL["defense"])
+# Every page: two lead lines, an illustration tile (y 70..250) drawn round CY, and a caption that wraps below it.
+const CY := 132.0
+const ILLUSTRATION := Rect2(0, 70, 620, 180)
+const CAPTION := Rect2(16, 202, 588, 40)
+
+
+func _caption(value: String) -> void:   # wraps to a second line instead of shrinking and clipping
+	draw_multiline_string(get_theme_default_font(), CAPTION.position + Vector2(0, CAPTION_FS), value,
+		HORIZONTAL_ALIGNMENT_LEFT, CAPTION.size.x, CAPTION_FS, 2, DIM)
+
+
+func _p_research() -> void:
+	_text("LOCKED  →  RESEARCH  →  KNOWN  →  LANE  →  READY  →  LAUNCH", Rect2(16, CY - 12, 588, 24), 15, BLUE, false)
+
+
+func _p_deliver() -> void:
+	_host(Vector2(120, CY), GREEN, "producer", "server")
+	_arrow(Vector2(176, CY), Vector2(470, CY), GOLD)
+	_host(Vector2(520, CY), GREEN, "main node", "server")
+
+
+func _p_produce() -> void:
+	var makes := {"intel": "Intel", "bot": "Bots", "cash": "Crypto", "cred": "Creds", "lab": "Research"}
+	var x := 70.0
+	for kind in makes:
+		_kind(kind, Vector2(x, CY - 8))
+		_text(str(makes[kind]), Rect2(x - 60, CY + 24, 120, 20), 12, game.BUILD_KINDS[kind].col)
+		x += 117.5
+
+
+func _p_build() -> void:
+	for k in 3:
+		draw_rect(Rect2(40 + k * 190, CY - 42, 170, 84), INK)
+		draw_rect(Rect2(40 + k * 190, CY - 42, 170, 84), BLUE, false, 1.5)
+		_text("LANE %d" % (k + 1), Rect2(40 + k * 190, CY - 11, 170, 22), 14, TEXT)
+
+
+func _p_attack() -> void:
+	_host(Vector2(110, CY), RED, "producer", "server")
+	_arrow(Vector2(166, CY), Vector2(254, CY), GOLD, true)
+	_host(Vector2(310, CY), RED, "in transit", "pc")
+	_arrow(Vector2(366, CY), Vector2(454, CY), GOLD, true)
+	_host(Vector2(510, CY), RED, "main node", "server")
+
+
+func _p_goal() -> void:
+	_bar(Rect2(40, CY - 10, 540, 20), 0.55, GREEN)
+	var mark := 40.0 + 540.0 * float(game.HOLD_FRACTION)   # the majority line the bar has to cross
+	draw_line(Vector2(mark, CY - 18), Vector2(mark, CY + 18), GOLD, 2)
+	_text("%d%%" % int(game.HOLD_FRACTION * 100.0), Rect2(mark - 40, CY + 22, 80, 20), 12, GOLD)

@@ -1,78 +1,45 @@
-## Numbers — bots, combat, resources and their limits, Cash, scanning, links, control stages.
+## Numbers for the RIM redesign — five banks, main-node income, couriers, routes, security, the win.
 ## Edit the numbers here; scripts/botnet_proto.gd reads them through aliases and never defines them itself.
 ## A changed value needs the scene restarted (constants are read when the script loads).
 
-const NODE_CAP := 30.0             # bots limit per OWNED building
-const PROD_RATE := 1.0             # bots/sec PER active Bot farm
-# ── PAID REPLENISHMENT (experiment; off until measured and kept). A working rig regenerates up to RIG_FREE_REGEN
-# bots/s free (limited by its own farms); every other bot actually added below a garrison's limit costs
-# REGEN_PRICE Crypto, paid from Crypto left after card preparation and construction, before labs convert any.
-# Full garrisons cost nothing; short funding slows replenishment for all of a faction's computers alike.
-const PAID_REGEN := true           # upkeep: every bot a farm regrows costs Intel (a full army at rest costs nothing)
-const REGEN_PRICE := 0.25          # Intel per regrown bot
-const RIG_FREE_REGEN := 2.0        # free bots/s at a working rig (its two starting farms)
+# ── the five resources. RES[k] is the order used by banks, hud and the state hash ──
+const RES := ["bots", "intel", "cash", "creds", "research"]
+const RES_NAME := {"bots": "Bots", "intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}
+const START := {"bots": 20.0, "intel": 30.0, "cash": 20.0, "creds": 12.0, "research": 8.0}
+const BASE_CAP := {"bots": 200.0, "intel": 150.0, "cash": 300.0, "creds": 150.0, "research": 150.0}
+const CAP_PER_PRODUCER := 50.0     # each installed producer adds this to its own output resource's cap
 
-# combat power — attack equals defence (A = D): an arriving attack bot removes exactly one defender
-const ATTACK_POWER := 1.0
-# ── TAKEOVER. Bots only BREACH a computer (defenders at zero); owning it costs Credentials (by the computer's
-# type: a soft camera is cheap, an ERP dear) + Research (rising with the size of your botnet). Unpaid, it stays
-# breached until you can pay or its farms refill it. A rig trickles a little of both so no takeover is out of reach.
-const TAKEOVER_CREDS_BASE := 8.0      # Credentials: base + per point of the type's security rating
-const TAKEOVER_CREDS_PER_SEC := 3.0
-const TAKEOVER_CREDS_MIN := 4.0
-const TAKEOVER_RESEARCH_BASE := 5.0   # Research: base × (1 + growth × computers you already own): 7.5 at 2, 30 at 20
-const TAKEOVER_RESEARCH_GROWTH := 0.25
-const CREDS_START := 30.0             # every botnet's opening stock
-const RESEARCH_START := 15.0
-const RIG_CREDS := 0.2                # per second from a working rig
-const RIG_RESEARCH := 0.1
-const DEFEND_POWER := 1.0
-const INTEL_START := 50.0
-const RIG_INTEL := 1.0             # Intel/s a botnet's own rig produces by itself, so there is always something to build with
-const INTEL_CAP_BASE := 100.0
-const INTEL_CAP_PER_BUILD := 15.0  # each Intel harvester also raises the Intel limit (a small bank: spend as you earn)
-const INTEL_PER_BUILD := 1.0
-const CRED_PER_BUILD := 0.5        # Credentials/s per active Credential harvester (× the type's cred multiplier)
-const RESEARCH_PER_BUILD := 0.5    # Research/s per active Research lab (× the type's research multiplier)
-const RES_CAP_BASE := 50.0         # Credentials and Research limits start here …
-const RES_CAP_PER_BUILD := 50.0    # … and each harvester / lab raises its own resource's limit by this
-const CASH_INTERVAL := 3.0         # seconds between Crypto packets per active Crypto miner
+# ── the main node (rig). While operational it makes one of EACH resource per second, delivered locally. ──
+const MAIN_INCOME := 1.0           # per resource per second, no type multiplier, one allowance per living faction
 
-# ── the win: two ways, no clock. (1) hold AT LEAST HOLD_FRACTION of ALL buildings for HOLD_SECS without a
-# break → win. (2) be the last botnet with its rig. Losing a rig eliminates any faction.
-const HOLD_FRACTION := 0.51        # at least 51 % of ALL buildings (rounded up: 16 of 31, 19 of 37)
+# ── couriers and delivery ──
+const BUFFER_CAP := 20.0           # a remote producer's own local output buffer (per producer, per beneficiary)
+const BOT_RESERVE_CHOICES := [0, 5, 10, 20, 40]
+const BOT_RESERVE_DEFAULT := 10    # Bots kept available for operations; shipping and raid collection keep this
+const SHIP_PRIORITY_TURNS := 2     # weighted round robin: the chosen resource gets this many turns, others one
+
+# ── routes (unchanged baseline) ──
+const LINK_TIME := 1.0             # seconds to cross one link (hop)
+const NODE_ROUTE_DELAY := 0.25     # pause (s) at each intermediate forwarding step
+const LINK_CAP := 8                # packets a link DIRECTION admits per LINK_TIME
+const MAX_QUEUE := 1.0             # a source holds its packet if the first link can't admit it within this
+const EXPRESS_MULT := 0.5          # Express route: half per-link travel and forwarding time
+
+# ── security (a discrete eligibility threshold, not damageable health) ──
+const SEC_BY_TYPE := {"iot": 1, "pc": 1, "server": 2, "web": 2, "file": 2, "db": 3, "erp": 3}
+const SEC_MAIN := 3                # an active main node is always security 3, overriding its host type
+const SEC_MAX := 3                 # the ceiling a Firewall can reach
+
+# ── construction ──
+const BUILD_TIME := 10.0           # seconds of fully funded work a build job needs
+const DEMOLISH_TIME := 5.0         # seconds to clear an occupied slot first
+
+# ── manufacture / research ──
+const RESEARCH_SLOTS := 1          # one blueprint research at a time, at the main node
+
+# ── the win: hold a majority, or be the last main node standing. No clock. ──
+const HOLD_FRACTION := 0.51        # at least 51 % of ALL hosts (rounded up)
 const HOLD_SECS := 51.0            # seconds of continuous hold for the win
 
-# ── the bot-flow dials ──
-# ── scanning: optional quiet scouting, separate from a blind attack. One pending scout per faction/target.
-# A scan bot travels like an
-# attack bot, costs the same, and is consumed on arrival without hurting a defender; the FIRST one to land
-# reveals the target's bots and slots (no quota). A changed inside (built, demolished, replaced) needs a rescan.
-const SCAN_BASE := 1.0
-const SCAN_PER_BUILD := 0.0
-const SCAN_COSTS_INTEL := true     # scan bots are attack bots: 1 Intel each
-# Any ATTACK on an unscanned building reveals it as its bots land — but it raises the alarm (red frame,
-# guards arm, the owner's AI reacts). The SCAN launch is the quiet route: nothing alerts the owner.
-
-const SEND_RATE := 1.0             # bots/sec a live flow releases at rate dial 100%
-# ── ASSAULT: a FINITE order (prototype). A source commits a share of the garrison it holds when the order is given;
-# exactly that many bots leave, faster than a stream, then the order ends. Provisional values chosen with
-# tools/balance/economy_handoff/assault_model.py: 4/s lets three sources out-burst one 8/s street (the approach
-# matters) and sends a 75 % order from a 90-bot host in ~17 s — long enough to be answered.
-const ASSAULT_RATE := 4.0          # bots/s per source while its assault has quota left (a stream sends SEND_RATE)
-const ASSAULT_COMMITS := [25, 50, 75, 100, 125, 150]   # <=100: % of the source's sendable garrison an order commits;
-                                                      # >100: OVERCHARGE — the whole garrison, each bot hits ×pct/100
-const ASSAULT_DEFAULT := 75
-const ASSAULT_PAUSES_REGEN := true # exposure: a source's own Bot farms rest while its assault order stands (blocked or not)
-const ASSAULT_OVERCHARGE_INTEL := 2.0   # extra Intel per bot for every +100 % above 100 % (125 %: 1.5 Intel/bot, 150 %: 2 Intel/bot)
-const LINK_TIME := 1.0             # seconds to cross one link (hop)
-const NODE_ROUTE_DELAY := 0.25     # pause (s) at each intermediate building
-const LINK_CAP := 8                # packets a link DIRECTION admits per LINK_TIME (throughput 8/s) — bots flow freely, little queuing
-const MAX_QUEUE := 1.0             # a source holds its packet if the first link can't admit it within this
-
-# ── control stages use the BASE 30-bot capacity, regardless of added storage.
-# 20+ bots: stable; 10–19: shaky; below 10: critical. First slot always works.
-const STAGE_FULL := 2.0 / 3.0
-const STAGE_SHAKY := 1.0 / 3.0
-const STAGE_NAME := ["STABLE", "SHAKY", "CRITICAL"]
-
+# ── AI pacing ──
+const AI_CADENCE := 2.5            # seconds between an AI faction's plan ticks
