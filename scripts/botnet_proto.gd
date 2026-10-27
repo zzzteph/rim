@@ -260,10 +260,12 @@ var panel_box: VBoxContainer
 var hand_panel: Control          # the pulled-up deck: four detailed cards of the active tab
 var hand_bar: GridContainer
 var card_banks: HBoxContainer    # the deck tabs: ATTACK (child 0) and DEFENCE (child 1)
-var deck_chips: HBoxContainer    # the strip's mini cards: all eight, click to research, drag to play
+var deck_chips: HBoxContainer    # the strip's mini cards: all fifteen, click to research, drag to play
 var deck_handle: Button          # pull the deck up / push it down
 var _card_bank := "attack"
 var _deck_open := false          # the deck starts pushed down: the map gets the room
+var _deck_page := 0              # which four of the open bank's cards the pulled-up deck shows
+var deck_pager: HBoxContainer    # ← page n / m → in the strip while the deck is up and its bank holds more than four
 var _deck_drag_restore := false  # the deck was pushed down for a card drag; pull it back up when the drag ends
 var _bank_alert := {}            # bank -> Time.get_ticks_msec() until which its tab blinks (a card became ready)
 var _hand_sig := ""              # rebuild the hand only when its composition changes (keeps it cheap)
@@ -380,6 +382,23 @@ func _ready() -> void:
 	chevron.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); deck_handle.add_child(chevron)
 	deck_handle.pressed.connect(func(): _set_deck_open(not _deck_open))
 	add_child(deck_handle)
+	deck_pager = HBoxContainer.new(); deck_pager.add_theme_constant_override("separation", 6)
+	for step in [-1, 0, 1]:
+		if step == 0:
+			var page_label := Label.new(); page_label.name = "PageLabel"
+			page_label.custom_minimum_size = Vector2(96, DECK_BAR_HEIGHT)
+			page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			page_label.add_theme_font_size_override("font_size", 14); page_label.add_theme_color_override("font_color", C_DIM)
+			deck_pager.add_child(page_label)
+		else:
+			var turn := Button.new(); turn.name = "PagePrev" if step < 0 else "PageNext"
+			turn.text = "←" if step < 0 else "→"
+			turn.custom_minimum_size = Vector2(52, DECK_BAR_HEIGHT); turn.focus_mode = Control.FOCUS_NONE
+			_fixed_button_style(turn)
+			turn.pressed.connect(_deck_turn.bind(step))
+			deck_pager.add_child(turn)
+	deck_pager.visible = false
+	add_child(deck_pager)
 	_refresh_hand()
 	top_tabs = HBoxContainer.new()
 	top_tabs.add_theme_constant_override("separation", 6)
@@ -2222,7 +2241,7 @@ func _pointer_over_panel() -> bool:
 	return panel != null and panel.visible and panel.get_global_rect().has_point(get_viewport().get_mouse_position())
 
 
-# Four permanent cards: click to research/pause; drag held copies onto the map.
+# Every recipe has a permanent card; the pulled-up deck shows four of the open bank at a time (paged).
 func _refresh_hand() -> void:
 	if hand_bar == null: return
 	if hand_bar.get_child_count() != CARD_ORDER.size():
@@ -2231,11 +2250,32 @@ func _refresh_hand() -> void:
 			var tile := CardTile.new(); tile.game = self; tile.key = _card_key(str(card), "linked")
 			hand_bar.add_child(tile)
 	var width := floorf((hand_panel.size.x - CARD_DOCK_GAP * 3) / 4)
+	var shown := _deck_cards()
+	_deck_page = clampi(_deck_page, 0, _deck_pages() - 1)
 	for tile in hand_bar.get_children():
-		tile.visible = _is_defense(_card_of(tile.key)) == (_card_bank == "defense")
+		var index := shown.find(_card_of(tile.key))   # -1: the other bank
+		tile.visible = index >= _deck_page * 4 and index < _deck_page * 4 + 4
 		tile.custom_minimum_size = Vector2(width, CARD_DOCK_HEIGHT); tile.queue_redraw()
 	hand_bar.size = hand_panel.size
 	_update_card_banks()
+
+
+func _deck_cards() -> Array:   # the open bank's recipes, in deck order
+	return CfgCards.DEFENSE_ORDER if _card_bank == "defense" else CfgCards.ATTACK_ORDER
+
+
+func _deck_pages() -> int:
+	return maxi(1, ceili(float(_deck_cards().size()) / 4.0))
+
+
+func _deck_page_of(recipe: String) -> int:   # the page a recipe sits on in its own bank
+	var order: Array = CfgCards.DEFENSE_ORDER if _is_defense(recipe) else CfgCards.ATTACK_ORDER
+	return maxi(0, order.find(recipe)) / 4
+
+
+func _deck_turn(step: int) -> void:   # page the pulled-up deck; wraps round
+	_deck_page = posmod(_deck_page + step, _deck_pages())
+	_refresh_hand()
 
 
 func _update_card_banks(chips := true) -> void:   # tab text (owned · progress), tab look (open / closed / blinking), handle arrow; chips = repaint the mini cards
@@ -2260,6 +2300,10 @@ func _update_card_banks(chips := true) -> void:   # tab text (owned · progress)
 	var chevron = deck_handle.get_child(0)
 	var arrow := "DeckClose" if _deck_open else "DeckOpen"
 	if chevron.action != arrow: chevron.action = arrow; chevron.queue_redraw()
+	if deck_pager != null:
+		var pages := _deck_pages()
+		deck_pager.visible = _deck_open and pages > 1 and not menu_open and not won and not lost
+		(deck_pager.get_node("PageLabel") as Label).text = "Page %d / %d" % [mini(_deck_page, pages - 1) + 1, pages]
 	if deck_chips.visible and chips:
 		for chip in _deck_chip_nodes(): chip.queue_redraw()
 
@@ -2315,6 +2359,9 @@ func _layout_deck() -> void:
 	for chip in chips: chip.custom_minimum_size = Vector2(clampf(width, 40.0, 150.0), DECK_BAR_HEIGHT)
 	deck_chips.position = Vector2(left, bar_top); deck_chips.size = deck_chips.get_combined_minimum_size()
 	deck_chips.visible = playing and not _deck_open
+	if deck_pager != null:   # the pager takes the strip's free middle while the mini cards are hidden
+		deck_pager.size = deck_pager.get_combined_minimum_size()
+		deck_pager.position = Vector2(left + floorf((room - deck_pager.size.x) * 0.5), bar_top)
 	_update_card_banks()
 
 
@@ -2329,6 +2376,7 @@ func _set_deck_open(open: bool) -> void:
 func _bank_pressed(bank: String) -> void:   # a closed tab pulls its cards up · the open tab pushes the deck down · the other tab switches
 	_bank_alert.erase(bank)
 	if _deck_open and bank == _card_bank: _set_deck_open(false); return
+	if bank != _card_bank: _deck_page = 0   # another bank opens on its first page
 	_card_bank = bank
 	if _deck_open: _refresh_hand()
 	else: _set_deck_open(true)
@@ -3707,6 +3755,7 @@ func _camp_card_ctrls(recipe: String) -> Array:
 	if not _deck_open: return _deck_chip_nodes().filter(func(c): return _card_of(str(c.key)) == recipe)
 	var bank := _bank_of(recipe)
 	if bank != _card_bank: return [card_banks.get_child(0 if bank == "attack" else 1)]
+	if _deck_page_of(recipe) != _deck_page: return [deck_pager]   # the card is on another page: cue the pager
 	return hand_bar.get_children().filter(func(c): return _card_of(str(c.key)) == recipe and c.visible)
 
 
