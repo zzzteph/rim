@@ -86,6 +86,7 @@ godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
 godot --headless --path . --script tests/mp_lockstep_test.gd # two screens, same command stream: identical every turn
+godot --headless --path . --script tests/text_fit_test.gd    # every text fits with a margin; no overlaps; whole sentences
 godot --headless --path . --script tests/botnet_help_test.gd # Help navigation + layout at 1280x720 and 1366x768
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
@@ -202,6 +203,18 @@ frame draws more, so it re-shaped everything every frame. Inside `_sim_step`, `_
 are memoised from `_auto_guards` to `_tick_production` (`_route_memo`), where no owner or route cut
 changes. A change that must not alter the rules should leave a fixed-seed match identical, step for
 step.
+
+Text must fit, with a margin, and never overlap (`tests/text_fit_test.gd` checks it at 1280×720 and
+1366×768). Wrapped text is measured and drawn as a shaped `TextParagraph` (`_para`, `_text_lines`,
+`_text_height`): the UI font's symbol fallback reports a 25 px line at 12 px while a shaped line is
+~17 px, so `Font.get_height()` must not be used to count or place lines. A card face shows its
+one-line `lead` and then only the **whole** `rules` sentences that fit (`_card_blurb`); the full text
+is the card's hover tooltip, so keep each rules sentence short (about two card lines). Map names are
+placed after every building by `_place_names`: the first free spot of eight round the building, clear
+of other names, pictograms and warning lines, in priority order (selected, hovered, campaign hosts,
+main nodes, yours, others); a minor name with no free spot shows on hover instead. The sidebar
+content sits in `panel_gutter`, 6 px clear of its scrollbar, and the build palette sizes its cards
+from `PANEL_W` (`_palette_card_w`).
 
 Operations (cards do all the fighting; `cards.gd` `CARDS`, resolved in `_play_card` /
 `_op_land` / `_tick_execs` / `_apply_support`). Playing an ATTACK card launches an **operation

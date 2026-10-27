@@ -204,6 +204,7 @@ var _tab := ""         # the open sidebar section
 var _chosen_attack := ""        # the attack recipe the target panel's Launch uses
 var _chosen_siphon_res := "cash"   # the resource a Packet siphon redirects (chosen before launch)
 var panel_scroll: ScrollContainer = null   # the panel's scroll, kept across refreshes
+var panel_gutter: MarginContainer = null   # inside the scroll: holds panel_box 6 px clear of the scrollbar
 var _press_pos := Vector2.ZERO
 var _boxing := false
 var _box_start := Vector2.ZERO
@@ -343,7 +344,9 @@ func _ready() -> void:
 	panel_box.add_theme_constant_override("separation", 4)
 	panel_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel_box.custom_minimum_size = Vector2(_panel_width() - 44.0, 0)
-	sc.add_child(panel_box)
+	panel_gutter = MarginContainer.new()   # 6 px between the widest row and the scrollbar: nothing touches it
+	panel_gutter.add_theme_constant_override("margin_right", 6); panel_gutter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(panel_gutter); panel_gutter.add_child(panel_box)
 	hand_panel = Control.new()
 	hand_panel.size = Vector2(sz.x - 48, CARD_DOCK_HEIGHT)
 	hand_panel.position = Vector2(24.0, sz.y - CARD_DOCK_HEIGHT - 12.0)
@@ -4199,8 +4202,8 @@ func _refresh_panel() -> void:
 		_sync_ui(previous, panel_box)
 		panel_box.free(); panel_box = previous
 	else:
-		panel_scroll.remove_child(previous); previous.queue_free()
-		panel_scroll.add_child(panel_box)
+		panel_gutter.remove_child(previous); previous.queue_free()
+		panel_gutter.add_child(panel_box)
 	_panel_context = context
 	_restore_scroll(keep)
 	_layout_ui()
@@ -4374,6 +4377,72 @@ func _card_description(key: String) -> String:
 	return "%s\n%s" % [str(card.name), str(card.get("lead", card.rules))]
 
 
+# A card face has room for a few lines only. It shows the lead and then as many WHOLE rule sentences as fit:
+# a sentence is never cut in the middle. The full lead + rules are the card's hover tooltip.
+# Text is measured as shaped paragraphs: the UI font's symbol fallback reports a 25 px line at 12 px, while a
+# shaped line of the text font is ~17 px, so Font.get_height() cannot be used to count or place lines.
+const CARD_TEXT_FS := 12
+const CARD_TEXT_TOP := 101.0     # under the picture band's rule (95)
+const CARD_TEXT_GAP := 3.0       # between the lead and the rules
+const CARD_TEXT_CLEAR := 8.0     # kept above the cost row
+var _blurbs := {}   # "key|width" -> [lead, rules shown, lead paragraph, rules paragraph or null]
+
+
+func _card_text_room() -> float:   # the height from CARD_TEXT_TOP down to CARD_TEXT_CLEAR above the cost icons
+	return CARD_DOCK_HEIGHT - 66.0 - 7.5 - CARD_TEXT_CLEAR - CARD_TEXT_TOP
+
+
+func _sentences(text: String) -> Array:   # whole sentences, each with its full stop
+	var out := []
+	for m in RegEx.create_from_string("[^.!?]+[.!?]+").search_all(text):
+		var s := m.get_string().strip_edges()
+		if s != "": out.append(s)
+	return out
+
+
+func _para(font: Font, text: String, width: float, fs: int) -> TextParagraph:   # wrapped at word boundaries, as drawn
+	var p := TextParagraph.new()
+	p.add_string(text, font, fs)
+	p.width = width
+	return p
+
+
+func _text_lines(font: Font, text: String, width: float, fs: int) -> int:
+	return 0 if text == "" else _para(font, text, width, fs).get_line_count()
+
+
+func _text_height(font: Font, text: String, width: float, fs: int) -> float:
+	return 0.0 if text == "" else _para(font, text, width, fs).get_size().y
+
+
+func _card_blurb(key: String, font: Font, width: float) -> Array:
+	var id := "%s|%d" % [_card_of(key), int(width)]
+	if _blurbs.has(id): return _blurbs[id]
+	var card: Dictionary = CARDS[_card_of(key)]
+	var lead := str(card.get("lead", ""))
+	var lead_p := _para(font, lead, width, CARD_TEXT_FS)
+	var room := _card_text_room() - lead_p.get_size().y - CARD_TEXT_GAP
+	var rules := ""
+	for s in _sentences(str(card.rules)):   # in order: a later sentence never jumps an earlier one that did not fit
+		var longer: String = str(s) if rules == "" else rules + " " + str(s)
+		if _text_height(font, longer, width, CARD_TEXT_FS) > room: break
+		rules = longer
+	_blurbs[id] = [lead, rules, lead_p, _para(font, rules, width, CARD_TEXT_FS) if rules != "" else null]
+	return _blurbs[id]
+
+
+func _card_tooltip(key: String) -> String:
+	return "%s\n\n%s" % [str(CARDS[_card_of(key)].name), _research_effect(key)]
+
+
+func _wrapped_tooltip(text: String) -> Control:   # a hover note that wraps at a readable width instead of one long line
+	var note := Label.new(); note.text = text
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(360, 0)
+	note.add_theme_font_size_override("font_size", 13)
+	return note
+
+
 # read-only slot view for a building you do NOT own: shows its TYPE and the buildings already inside it,
 # FOGGED until you scan it (scan is launched from the launch-pad above). Never a build palette.
 func _panel_enemy_slots(i: int) -> void:
@@ -4457,11 +4526,20 @@ func _panel_build(i: int) -> void:
 			prod.append(line)
 	for p in prod: _plabel(p, 12, C_DIM)
 	_plabel("Build · %d s of funded work each" % int(BUILD_TIME), 16, C_TEXT)
-	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", 4)
+	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", PALETTE_GAP)
+	palette.alignment = BoxContainer.ALIGNMENT_CENTER
 	for kind in BUILD_KINDS:
 		var card := BuildCard.new(); card.game = self; card.kind = kind
-		card.custom_minimum_size = Vector2(96, 140); palette.add_child(card)
+		card.custom_minimum_size = Vector2(_palette_card_w(), 140); palette.add_child(card)
 	panel_box.add_child(palette)
+
+
+const PALETTE_GAP := 4
+
+
+func _palette_card_w() -> float:   # every building kind side by side within the sidebar's content width, never under its scrollbar
+	var n := BUILD_KINDS.size()
+	return floorf((PANEL_W - 44.0 - PALETTE_GAP * (n - 1)) / float(n))
 
 
 func _panel_selecting() -> void:
@@ -4680,6 +4758,15 @@ func _hud_items() -> Array:   # [kind-icon, text, colour, column width]
 		var col := C_WARN if _res_full(res) else C_TEXT
 		out.append([kind, txt, col, 150.0])
 	return out
+
+
+const HUD_GAP := 10.0   # clear space kept before the next HUD column
+
+
+func _hud_fs(f: Font, text: String, column: float) -> int:   # 15 px, smaller only when a large late-game number needs it
+	var fs := 15
+	while fs > 11 and _text_w(f, text, fs) > column - HUD_GAP: fs -= 1
+	return fs
 
 
 func _hud_text() -> String:
@@ -4914,6 +5001,7 @@ func _paint_nodes(cx: Dictionary) -> void:   # the buildings: pictograms, frames
 	for i in hosts.size():   # strict fog: ONLY buildings connected to the focused one stay bright
 		if vis.has(i): _draw_node(f, i, 1.0 if (not focus_on or fnodes.has(i)) else 0.6, i == aim)
 		elif seen.has(i): _draw_ghost(f, i)
+	_paint_names(f, vis, seen, aim, focus_on, fnodes)   # last: every name over every building, none over another
 
 
 func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focus rings, connect / drag / card-aim guides, box select
@@ -4933,9 +5021,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		_frame(hosts[int(x.host)].pos, _r(int(x.host)) + 10.0 + (1.0 - rem) * 14.0, xc, 1.5)
 	if focus_on and not _mine(aim) and rig.has(PLAYER):   # the automatic attack route to the focused foreign host
 		var rt := _attack_route(PLAYER, aim)
-		if not rt.is_empty(): _draw_dashed(rt, Color(1, 0.95, 0.55, 0.9), 1.6)
-		elif _op_reachable(PLAYER, aim): pass
-		else: _text(_cv, f, _label_pos(aim), "no route to %s" % str(hosts[aim].name), 14, Color(1, 0.45, 0.4))
+		if not rt.is_empty(): _draw_dashed(rt, Color(1, 0.95, 0.55, 0.9), 1.6)   # no route: the sidebar says so (no map note over the name)
 	var dk := _dragged_card()
 	if dk != "":   # a card in the air: where it can land
 		var cd: Dictionary = CARDS[_card_of(dk)]
@@ -4992,9 +5078,9 @@ func _camp_pill_blocked(f: Font, box: Rect2) -> bool:   # would the tag cover a 
 	for k in hosts.size():
 		if not _visible_to(PLAYER, k): continue
 		var q := _w2s(hosts[k].pos); var rk := maxf(16.0, _r(k) * _zoom)
-		var nw := _text_w(f, str(hosts[k].name), 12)
-		if box.intersects(Rect2(q.x - rk, q.y - rk, rk * 2.0, rk * 2.0 + 18.0)): return true                 # glyph + bot count
-		if box.intersects(Rect2(q.x - nw * 0.5, q.y - rk - 22.0, nw, 16.0)): return true                       # name
+		if box.intersects(Rect2(q.x - rk, q.y - rk, rk * 2.0, rk * 2.0 + 18.0)): return true                 # glyph + badge
+	for r in _name_rects:
+		if box.intersects((r as Rect2).grow(2.0)): return true                                                   # a placed name
 	return false
 
 
@@ -5041,11 +5127,7 @@ func _draw_ghost(f: Font, i: int) -> void:   # a host you saw before but cannot 
 	var rr := maxf(16, _r(i) * _zoom)
 	_cv.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	_draw_type_glyph(_cv, str(hosts[i].get("type", "pc")), p, rr * 1.9, Color(0.42, 0.48, 0.58, 0.2), Color(0.04, 0.06, 0.1, 0.22))
-	if _zoom >= 0.45:
-		var nm := str(hosts[i].name)
-		var nw := _text_w(f, nm, 12)
-		_text(_cv, f, Vector2(p.x - nw * 0.5, p.y - rr - 8.0), nm, 12, Color(0.6, 0.66, 0.76, 0.3))
-	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
+	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))   # its dim name comes from _paint_names
 
 
 # Territories: every owned building you can see claims a round patch of ground around it (TERR_RADIUS); the
@@ -5234,16 +5316,18 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		_frame(p, rr + 13, C_WARN, 3)
 		if i == _tut_target: _cv.draw_circle(p + Vector2(0, -rr - 18), 5, C_WARN)
 	var sec_txt := "S%d" % _security(i) if (not _mine(i)) else "%d/%d" % [_standing(i), int(hosts[i].slots)]
-	var bw := 8.0 + 7.0 * float(sec_txt.length())
-	_cv.draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 13.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
-	_text(_cv, f, Vector2(p.x - 3.6 * float(sec_txt.length()), p.y + rr * 0.42 + 10.5), sec_txt, 12, Color(0.95, 0.97, 1.0, a))
-	var nm := str(hosts[i].name)
-	if _zoom < 0.45 and not focused and not _mine(i) and i != _hover_host: nm = ""
-	var nw := _text_w(f, nm, 12)
-	var x0 := p.x - nw * 0.5   # name centred above the glyph
-	var ncol := Color(0.85, 0.92, 1.0, a) if not _mine(i) else Color(0.95, 1.0, 0.95, a)
-	_text(_cv, f, Vector2(x0, p.y - rr - 8.0), nm, 12, ncol)
-	var sub := ""   # ONE warning under the glyph, most urgent first; the rest is in the panel
+	var bw := _text_w(f, sec_txt, 12) + 8.0   # measured: 4 px either side of the text
+	_cv.draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 16.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
+	_text(_cv, f, Vector2(p.x - bw * 0.5 + 4.0, p.y + rr * 0.42 + 12.5), sec_txt, 12, Color(0.95, 0.97, 1.0, a))
+	var sub := _node_sub(i, focused)   # the name is placed afterwards by _paint_names, clear of every warning line
+	if str(sub[0]) != "":
+		var subcol: Color = sub[1]; subcol.a *= a
+		_text(_cv, f, (sub[2] as Rect2).position + Vector2(0, 12.0), str(sub[0]), 12, subcol)
+	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
+
+
+func _node_sub(i: int, focused := false) -> Array:   # [text, colour, screen rect]: ONE warning under the glyph, most urgent first
+	var sub := ""
 	if bool(hosts[i].get("junction", false)): sub = "junction"
 	if _ddos_down(i): sub = "DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t))
 	elif _sabotaged(i): sub = "SABOT %ds" % int(ceil(float(hosts[i].sabot_until) - _t))
@@ -5253,22 +5337,91 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	elif float(hosts[i].get("express_until", 0.0)) > _t: sub = "EXPRESS"
 	for e in _execs:
 		if int(e.target) == i: sub = "%s %ds" % [str(CARDS[str(e.card)].short).to_upper(), int(ceil(float(e.ends) - _t))]; break
-	var subcol := Color(1, 0.85, 0.4, a)
-	if sub == "junction": subcol = Color(0.7, 0.85, 1.0, 0.8 * a)
-	if sub.begins_with("PHISHED") or sub.begins_with("SIPHON"): subcol = Color(FAMILY_COL["phish"].r, FAMILY_COL["phish"].g, FAMILY_COL["phish"].b, a)
-	elif sub.begins_with("DDoS") or sub.begins_with("SABOT"): subcol = Color(1, 0.45, 0.35, a)
-	if sub != "" and (_zoom >= 0.45 or focused or _mine(i)):
-		var sw := _text_w(f, sub, 12)
-		var sy := p.y + rr + (30.0 if i == _tutorial_target() else 16.0)   # clear of the campaign target frame (rr+13)
-		_text(_cv, f, Vector2(p.x - sw * 0.5, sy), sub, 12, subcol)
+	if sub == "" or not (_zoom >= 0.45 or focused or _mine(i)): return ["", Color.WHITE, Rect2()]
+	var col := Color(1, 0.85, 0.4)
+	if sub == "junction": col = Color(0.7, 0.85, 1.0, 0.8)
+	if sub.begins_with("PHISHED") or sub.begins_with("SIPHON"): col = FAMILY_COL["phish"]
+	elif sub.begins_with("DDoS") or sub.begins_with("SABOT"): col = Color(1, 0.45, 0.35)
+	var p := _w2s(hosts[i].pos); var rr := maxf(16, _r(i) * _zoom)
+	var sw := _text_w(get_theme_default_font(), sub, 12)
+	var top := p.y + rr + (18.0 if i == _tutorial_target() else 4.0)   # clear of the campaign target frame (rr+13)
+	return [sub, col, Rect2(p.x - sw * 0.5, top, sw, 15.0)]
+
+
+# Host names are placed after every building is drawn: each takes the first free spot round its building
+# (above, below, right, left), 2 px clear of the names already placed, of every pictogram and of every warning
+# line, in priority order. A minor name with no free spot is left for hover rather than drawn over another.
+var _name_rects := []   # the screen rects of the names drawn last (campaign tags keep clear of them)
+
+
+func _name_rank(i: int, aim: int, vis: Dictionary) -> int:
+	if sel.has(i) or i == _inspect or i == aim: return 0
+	if i == _hover_host: return 1
+	if _camp and (i == _camp_target() or i in [_camp_relay, _camp_gateway, _camp_practice, _camp_practice2, _camp_support]): return 2   # the lessons name them
+	if not vis.has(i): return 6   # remembered, out of sight
+	if bool(hosts[i].rig) and int(hosts[i].owner) != NEUTRAL: return 3
+	if _mine(i): return 4
+	return 5
+
+
+func _paint_names(f: Font, vis: Dictionary, seen: Dictionary, aim: int, focus_on: bool, fnodes: Dictionary) -> void:
+	_cv.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	_name_rects = []
+	for placed in _place_names(f, vis, seen, aim):
+		var i := int(placed[0]); var rank := int(placed[2]); var pick: Rect2 = placed[1]
+		var a := 0.3 if rank == 6 else (1.0 if (not focus_on or fnodes.has(i)) else 0.6)
+		var col := Color(0.6, 0.66, 0.76, a) if rank == 6 else (Color(0.95, 1.0, 0.95, a) if _mine(i) else Color(0.85, 0.92, 1.0, a))
+		_cv.draw_rect(pick, Color(0.03, 0.05, 0.08, 0.72 * a), true)
+		_text(_cv, f, pick.position + Vector2(4.0, 13.0), str(hosts[i].name), 12, col)
+		_name_rects.append(pick)
 	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))
 
 
-func _label_pos(i: int) -> Vector2:   # where a floating label for building i goes: above it, or below it near the top edge
-	var p: Vector2 = hosts[i].pos
-	var y := p.y - _r(i) - 24.0
-	if y < 56.0: y = p.y + _r(i) + 34.0
-	return Vector2(p.x - _r(i), y)
+func _place_names(f: Font, vis: Dictionary, seen: Dictionary, aim: int) -> Array:   # [[host, screen rect, rank]], no drawing
+	var area := _map_rect()
+	var placed := []
+	var order := []; var blocks := []; var ranks := {}   # blocks: [host, rect] pictograms and warning lines
+	for i in hosts.size():
+		if not (vis.has(i) or seen.has(i)): continue
+		var p := _w2s(hosts[i].pos); var rr := maxf(16, _r(i) * _zoom)
+		if not area.grow(80.0).has_point(p): continue
+		order.append(i); ranks[i] = _name_rank(i, aim, vis)
+		blocks.append([i, Rect2(p - Vector2.ONE * rr * 0.95, Vector2.ONE * rr * 1.9)])
+		if vis.has(i):
+			var sub := _node_sub(i, sel.has(i) or i == _inspect or i == aim)
+			if str(sub[0]) != "": blocks.append([i, sub[2]])
+	order.sort_custom(func(x, y): return int(ranks[x]) < int(ranks[y]) if int(ranks[x]) != int(ranks[y]) else int(x) < int(y))
+	var taken := []
+	for i in order:
+		var rank := int(ranks[i])
+		if _zoom < 0.45 and rank >= 5: continue   # zoomed out: only the names that matter
+		var nm := str(hosts[i].name)
+		if nm == "": continue
+		var p := _w2s(hosts[i].pos); var rr := maxf(16, _r(i) * _zoom)
+		var ring := 2.0   # clear of the selection / aim frames, and of the campaign target frame and its dot
+		if rank == 0: ring = 10.0
+		if i == _tutorial_target() or (_tut and i == _tut_target): ring = 24.0
+		var w := _text_w(f, nm, 12) + 8.0; var h := 17.0
+		var below := p.y + rr + ring + 1.0
+		var own_sub := blocks.filter(func(b): return int(b[0]) == i and (b[1] as Rect2).position.y > p.y + rr * 0.9)
+		if not own_sub.is_empty(): below = maxf(below, (own_sub[0][1] as Rect2).end.y + 2.0)
+		var top := p.y - rr - ring - 1.0 - h; var side := rr * 0.35   # diagonal spots lean out from the corners
+		var spots := [Rect2(p.x - w * 0.5, top, w, h), Rect2(p.x - w * 0.5, below, w, h),
+			Rect2(p.x + rr + ring + 2.0, p.y - h * 0.5, w, h), Rect2(p.x - rr - ring - 2.0 - w, p.y - h * 0.5, w, h),
+			Rect2(p.x + side, top, w, h), Rect2(p.x - side - w, top, w, h), Rect2(p.x + side, below, w, h), Rect2(p.x - side - w, below, w, h)]
+		var pick := Rect2(); var least := INF
+		for s in spots:
+			var spot: Rect2 = s
+			var clash := 0.0
+			for r in taken: clash += spot.grow(2.0).intersection(r).get_area()
+			for b in blocks:
+				if int(b[0]) != i: clash += spot.grow(2.0).intersection(b[1]).get_area()
+			if not area.encloses(spot): clash += 1e6   # under the HUD, sidebar or deck
+			if clash < least: least = clash; pick = spot
+			if clash == 0.0: break
+		if least > 0.0 and rank >= 5: continue   # no free spot: a minor name waits for hover
+		taken.append(pick); placed.append([i, pick, rank])
+	return placed
 
 
 func _draw_dashed(rt: Array, col := Color(1, 0.9, 0.5, 0.9), w := 1.2) -> void:   # dashed = a dormant plan
@@ -5584,7 +5737,8 @@ class HudBar extends Control:   # the one-line HUD with resource icons
 			if kind != "":
 				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 28.0), 16.0, game.BUILD_KINDS[kind].col, f)
 				tx += 22.0
-			game._text(self, f, Vector2(tx, 36.0), str(it[1]), 15, it[2])
+			var fs: int = game._hud_fs(f, str(it[1]), float(it[3]) - (tx - x))
+			game._text(self, f, Vector2(tx, 36.0), str(it[1]), fs, it[2])
 			x += float(it[3])   # a fixed column: the next item never moves when this number grows
 
 
@@ -5611,6 +5765,9 @@ class CardTile extends Control:
 		stop_button.focus_mode = Control.FOCUS_NONE
 		game._link_button_style(stop_button)
 		stop_button.pressed.connect(game._card_research_cancel.bind(key)); add_child(stop_button)
+		tooltip_text = game._card_tooltip(key)   # the full lead + rules (the face shows whole sentences that fit)
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
 	func _process(_dt: float) -> void:
 		var state: Dictionary = game._card_research_state(key)
 		stock_material.set_shader_parameter("saturation", 0.0 if int(state.count) == 0 else 1.0)
@@ -5635,16 +5792,21 @@ class CardTile extends Control:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105))   # the edge is CardFrame's (red / blue)
 		draw_rect(Rect2(7, 7, size.x - 14, 28), colour.darkened(0.8))
 		game._text(self, font, Vector2(14, 26), str(card.name), 16, game.C_TEXT, size.x - 28, HORIZONTAL_ALIGNMENT_LEFT)
-		# The illustration, inventory and complete rules stay inside this card.
+		# picture + held count in one 48 px band (41..89), a rule at 95, then the words from CARD_TEXT_TOP
 		for line in 3:
-			var y := 50.0 + line * 19.0
-			draw_line(Vector2(100, y), Vector2(size.x - 16, y), Color(colour, 0.1))
-		draw_rect(Rect2(16, 43, 72, 62), colour.darkened(0.9))
-		game._draw_card_glyph(self, game._card_of(key), Vector2(52, 74), 62, colour, font)
-		game._text(self, font, Vector2(110, 61), "OWNED", 10, game.C_DIM)
-		game._text(self, font, Vector2(110, 92), "x%d" % int(state.count), 28, game.C_TEXT, size.x - 124, HORIZONTAL_ALIGNMENT_LEFT)
-		draw_line(Vector2(14, 113), Vector2(size.x - 14, 113), Color(colour, 0.25))
-		draw_multiline_string(font, Vector2(14, 130), game._research_effect(key), HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, 12, 4, game.C_TEXT)
+			var y := 47.0 + line * 16.0
+			draw_line(Vector2(82, y), Vector2(size.x - 16, y), Color(colour, 0.1))
+		draw_rect(Rect2(16, 41, 56, 48), colour.darkened(0.9))
+		game._draw_card_glyph(self, game._card_of(key), Vector2(44, 65), 46, colour, font)
+		game._text(self, font, Vector2(90, 58), "OWNED", 10, game.C_DIM)
+		game._text(self, font, Vector2(90, 84), "x%d" % int(state.count), 24, game.C_TEXT, size.x - 104, HORIZONTAL_ALIGNMENT_LEFT)
+		draw_line(Vector2(14, 95), Vector2(size.x - 14, 95), Color(colour, 0.25))
+		# the lead in full, then whole rule sentences only (dimmer); shaped paragraphs, so what was measured is what is drawn
+		var blurb: Array = game._card_blurb(key, font, size.x - 28)
+		var lead: TextParagraph = blurb[2]
+		lead.draw(get_canvas_item(), Vector2(14, game.CARD_TEXT_TOP), game.C_TEXT)
+		if blurb[3] != null:
+			(blurb[3] as TextParagraph).draw(get_canvas_item(), Vector2(14, game.CARD_TEXT_TOP + lead.get_size().y + game.CARD_TEXT_GAP), game.C_DIM)
 		# (the research price is drawn as resource icons by CardFrame, in colour)
 		var status_colour: Color = Color.WHITE if working else (game.C_WARN if str(state.status) in ["Waiting", "Paused"] else game.C_TEXT)
 		var status := "%s · %d%%" % [str(state.status), int(float(state.progress) * 100)] if bool(state.queued) else str(state.status)
@@ -5695,6 +5857,10 @@ class DeckChip extends Control:   # a mini card in the pushed-down deck: click =
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	func _ready() -> void:
+		tooltip_text = game._card_tooltip(key)
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
 	func _get_drag_data(_pos: Vector2) -> Variant:
 		return game._card_drag_data(self, key)
 	func _gui_input(event: InputEvent) -> void:
@@ -5714,20 +5880,28 @@ class DeckChip extends Control:   # a mini card in the pushed-down deck: click =
 		var hot := working or Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105))
 		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.C_TEXT if hot else (bank if owned else bank.darkened(0.45)), false, 2 if hot else 1)
-		game._draw_card_glyph(self, game._card_of(key), Vector2(18, size.y * 0.5), 32, Color(1, 1, 1, 1.0 if owned else 0.4), font)
-		var line := "x%d" % int(state.count)
-		if bool(state.queued):
-			line += {"Paused": " pause", "Waiting": " wait", "Queued": " next"}.get(str(state.status), " %d%%" % int(float(state.progress) * 100))
 		var warn: bool = str(state.status) in ["Paused", "Waiting"]
 		var line_col: Color = game.C_WARN if warn else (bank.lightened(0.3) if owned else game.C_DIM)
-		var room := size.x - 39.0
-		if size.x >= 84:
+		var tint := Color(1, 1, 1, 1.0 if owned else 0.4)
+		if size.x >= 84:   # wide: picture, then name over count + status
+			game._draw_card_glyph(self, game._card_of(key), Vector2(18, size.y * 0.5), 32, tint, font)
+			var room := size.x - 39.0
+			var line := "x%d" % int(state.count)
+			if bool(state.queued):
+				line += {"Paused": " pause", "Waiting": " wait", "Queued": " next"}.get(str(state.status), " %d%%" % int(float(state.progress) * 100))
+			if game._text_w(font, line, 11) > room: line = "x%d" % int(state.count)   # drop the status before clipping the count
 			var title := str(card.get("short", card.name))
 			var fs := 11 if game._text_w(font, title, 11) <= room else 10   # the whole name, never clipped
 			game._text(self, font, Vector2(35, 16), title, fs, game.C_TEXT if owned else game.C_DIM, room, HORIZONTAL_ALIGNMENT_LEFT)
 			game._text(self, font, Vector2(35, 31), line, 11, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
-		else:
-			game._text(self, font, Vector2(35, 25), "x%d" % int(state.count), 11, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
+		else:   # narrow (most screens): a smaller picture and the bare count, 4 px from every edge
+			var glyph := minf(24.0, size.x - 24.0)
+			game._draw_card_glyph(self, game._card_of(key), Vector2(4.0 + glyph * 0.5, size.y * 0.5), glyph, tint, font)
+			var count := str(int(state.count))
+			var room := size.x - glyph - 12.0
+			var fs := 12
+			while fs > 9 and game._text_w(font, count, fs) > room: fs -= 1
+			game._text(self, font, Vector2(glyph + 8.0, size.y * 0.5 + fs * 0.38), count, fs, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
 		if bool(state.queued):   # research progress along the bottom edge
 			draw_rect(Rect2(3, size.y - 5, (size.x - 6) * float(state.progress), 3), game.C_WARN if warn else Color.WHITE)
 
