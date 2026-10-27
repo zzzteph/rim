@@ -79,25 +79,20 @@ godot --headless --path . res://scenes/botnet_proto.tscn
 The shutdown lines about leaked RIDs / "Unreferenced static string" / VariantPools are normal
 engine-exit noise, **not** script errors. Only `SCRIPT ERROR` / `Parse Error` matter.
 
-Run the automated mechanics, pointer-input, and layout checks before exporting:
+Run the automated mechanics and layout checks before exporting:
 ```bash
-godot --headless --path . --script tests/botnet_usability_test.gd
-godot --headless --path . --script tests/botnet_ui_edge_test.gd
-godot --headless --path . --script tests/card_balance_probe.gd
-godot --headless --path . --script tests/four_card_effect_test.gd
-godot --headless --path . --script tests/production_cost_test.gd
-godot --headless --path . --script tests/ai_card_smoke_test.gd
-godot --headless --path . --script tests/botnet_help_test.gd
-godot --headless --path . --script tests/assault_test.gd
-godot --headless --path . --script tests/takeover_test.gd        # takeover, upkeep, sight, map shapes, roads
-godot --headless --path . --script tests/campaign_test.gd
-godot --headless --path . --script tests/mp_lockstep_test.gd      # multiplayer lockstep, no server needed
-godot --headless --path . --script tests/mp_server_e2e_test.gd    # needs Node.js + `npm ci` in server/ (starts it)
+godot --headless --path . --script tests/economy_test.gd     # income, caps, research, manufacture, security, capture
+godot --headless --path . --script tests/botnet_help_test.gd # Help navigation + layout at 1280x720 and 1366x768
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.
-To capture the usability suite's rendered fixtures, omit `--headless` and append
-`-- --capture`; results and screenshots are written to `review/implemented_ui/`.
+To capture the Help suite's rendered previews, omit `--headless` and append
+`-- --capture`; images are written to `review/visual_help/`.
 These checks cover scripted behavior and layout; human usability testing is still pending.
+
+> The pre-redesign suites (assault, takeover, production-cost, usability, campaign,
+> MP lockstep, …) tested the old bot-army mechanics and were removed in the 0.4.0
+> research–manufacture–deliver redesign. Re-authoring MP-lockstep determinism and a
+> campaign walkthrough against the new model is still open work.
 
 The card deck is a pull-out drawer at the bottom. Pushed down (the default) it is one
 40px strip: a red ATTACK tab, a blue DEFENCE tab, eight mini cards (all cards, both
