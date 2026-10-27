@@ -68,13 +68,66 @@ func _bar(rect: Rect2, value: float, color := GREEN) -> void:
 func _draw() -> void:
 	if game == null: return
 	match page:
-		"network": _network()
-		"takeover": _takeover()
-		"build": _build()
-		"resources": _resources()
-		"cards": _cards()
-		"protection": _protection()
-		"goal": _goal()
+		"research": _p_research()
+		"deliver": _p_deliver()
+		"produce": _p_produce()
+		"build": _p_build()
+		"attack": _p_attack()
+		"goal": _p_goal()
+
+
+func _lead(lines: Array) -> void:
+	for k in lines.size():
+		_text(str(lines[k]), Rect2(16, 14 + k * 22, 588, 22), 14, TEXT, false)
+
+
+func _p_research() -> void:
+	_lead(["Learn a blueprint once to unlock its recipe.", "Manufacture copies, then launch a ready card."])
+	_tile(Rect2(0, 70, 620, 150))
+	_text("LOCKED  →  RESEARCH  →  KNOWN  →  LANE  →  READY  →  LAUNCH", Rect2(16, 110, 588, 24), 15, BLUE, false)
+	_text("Research unlocks a recipe — it gives no free card. Manufacturing pays once; launching spends the copy.", Rect2(16, 170, 588, 40), 12, DIM, false)
+
+
+func _p_deliver() -> void:
+	_lead(["A resource made outside your main node is not spendable yet.", "One Bot carries one unit home and is consumed on arrival."])
+	_tile(Rect2(0, 70, 620, 150))
+	_host(Vector2(120, 150), GREEN, "producer", "server")
+	_arrow(Vector2(176, 150), Vector2(470, 150), GOLD)
+	_host(Vector2(520, 150), GREEN, "main node", "server")
+	_text("4 delivered/s needs 4 courier Bots/s. New Bots deliver themselves; the main node makes 1 of each resource locally.", Rect2(16, 196, 588, 20), 12, DIM, false)
+
+
+func _p_produce() -> void:
+	_lead(["Harvesters make Intel. A Bot farm turns 1 Intel into 2 Bots.", "Miners and labs convert; the output still needs a courier."])
+	_tile(Rect2(0, 70, 620, 150))
+	_kind("intel", Vector2(70, 150)); _kind("bot", Vector2(190, 150)); _kind("cash", Vector2(310, 150)); _kind("cred", Vector2(430, 150)); _kind("lab", Vector2(540, 150))
+	_text("No input stops production. No courier or route stops dispatch. A full local buffer stops production.", Rect2(16, 196, 588, 20), 12, DIM, false)
+
+
+func _p_build() -> void:
+	_lead(["One research slot and three manufacturing lanes.", "Repeat makes more copies when resources and slots allow."])
+	_tile(Rect2(0, 70, 620, 150))
+	for k in 3:
+		draw_rect(Rect2(40 + k * 190, 100, 170, 90), INK)
+		draw_rect(Rect2(40 + k * 190, 100, 170, 90), BLUE, false, 1.5)
+		_text("LANE %d" % (k + 1), Rect2(40 + k * 190, 150, 170, 22), 14, TEXT)
+	_text("A paused lane leaves the others running. Each producing copy reserves one of 12 ready slots.", Rect2(16, 196, 588, 20), 12, DIM, false)
+
+
+func _p_attack() -> void:
+	_lead(["Phishing diverts new output. Packet siphon redirects cargo in transit.", "Vault raid takes stored Crypto. Capture cards have a security limit."])
+	_tile(Rect2(0, 70, 620, 150))
+	_host(Vector2(110, 150), RED, "producer", "server")
+	_host(Vector2(310, 150), RED, "in transit", "pc")
+	_host(Vector2(510, 150), RED, "main node", "server")
+	_text("Stolen resources help only when they reach your main node. Patch, Response, Filter and Cover defend.", Rect2(16, 196, 588, 20), 12, DIM, false)
+
+
+func _p_goal() -> void:
+	_lead(["Hold at least %d%% of all hosts for %d seconds," % [int(game.HOLD_FRACTION * 100.0), int(game.HOLD_SECS)], "or be the last network with its main node."])
+	_tile(Rect2(0, 70, 620, 150))
+	_bar(Rect2(40, 140, 540, 20), 0.55, GREEN)
+	_text("Lose your main node and you are eliminated. Watch the objective bar for the exact host count.", Rect2(16, 196, 588, 20), 12, DIM, false)
 
 func _network() -> void:
 	_tile(Rect2(0, 0, 620, 174))

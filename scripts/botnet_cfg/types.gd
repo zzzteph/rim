@@ -18,16 +18,6 @@ const TYPE_WEIGHTS := {
 	2: {"pc": 0.30, "server": 0.20, "web": 0.20, "db": 0.15, "file": 0.15},
 	3: {"db": 0.25, "file": 0.20, "server": 0.20, "web": 0.15, "erp": 0.20},
 }
-# the TYPES' second role: how much of a card family lands. 0 = full effect · 0.9 = resists 90 % · −0.5 = weak (×1.5)
-# how much of each card FAMILY lands on each building type: 0 = full effect · >0 resists that share ·
-# <0 is weak (×(1 − v): −0.5 = ×1.5). Each type has its own profile, so the type you capture decides which
-# cards threaten it and which bounce off.
-const RESIST := {
-	"pc":     {"cred": 0.0,  "phish": -0.5, "oneday": -0.25, "zeroday": 0.0,  "supply": 0.0,  "dos": 0.0},
-	"iot":    {"cred": 0.25, "phish": 0.9,  "oneday": -0.5,  "zeroday": -0.5, "supply": 0.25, "dos": -0.25},
-	"server": {"cred": 0.25, "phish": 0.5,  "oneday": 0.0,   "zeroday": 0.0,  "supply": 0.25, "dos": 0.25},
-	"web":    {"cred": 0.0,  "phish": 0.25, "oneday": -0.25, "zeroday": -0.5, "supply": 0.0,  "dos": -0.25},
-	"db":     {"cred": 0.5,  "phish": 0.5,  "oneday": 0.0,   "zeroday": 0.0,  "supply": 0.0,  "dos": 0.25},
-	"file":   {"cred": 0.25, "phish": 0.0,  "oneday": 0.25,  "zeroday": 0.0,  "supply": -0.5, "dos": 0.0},
-	"erp":    {"cred": 0.5,  "phish": 0.25, "oneday": 0.25,  "zeroday": 0.5,  "supply": -0.5, "dos": 0.25},
-}
+# Security is a discrete class (tuning.gd SEC_BY_TYPE), not a per-family resistance table. The type still
+# decides slots and production specialties above; a card's eligibility is its security ceiling versus the
+# host's class, so there is no family-resistance scaling any more.
