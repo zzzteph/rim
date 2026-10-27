@@ -83,6 +83,7 @@ Run the automated mechanics and layout checks before exporting:
 ```bash
 godot --headless --path . --script tests/economy_test.gd     # income, caps, research, manufacture, security, capture
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
+godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/botnet_help_test.gd # Help navigation + layout at 1280x720 and 1366x768
 ```
 Use the console executable above on Windows. Each check exits nonzero on failure.

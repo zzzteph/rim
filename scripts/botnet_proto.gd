@@ -2053,72 +2053,122 @@ func _ai_think(fac: int) -> void:
 	_ai_operate(fac, mine)
 
 
-func _ai_develop(fac: int, mine: Array) -> void:   # fill empty slots with a balanced producer mix near the main node
-	# how many of each producer the faction already runs
+func _ai_develop(fac: int, mine: Array) -> void:   # fill empty slots with a balanced producer mix with a road home
 	var have := {}
 	for kind in PRODUCER_KINDS: have[kind] = 0
 	for i in mine:
 		for k in hosts[i].builds:
 			if str(k) in PRODUCER_KINDS: have[str(k)] = int(have[str(k)]) + 1
-	# the order it wants more of: income first, then conversion, then bots for shipping
-	var want := ["intel", "cash", "bot", "cred", "lab"]
+	# income and couriers first (every other producer and every operation needs Bots and Intel), then the chains
+	var want := ["intel", "bot", "cash", "cred", "lab"]
+	var room := 2 + mine.size() / 2   # a bigger network supports more of each producer
 	for i in mine:
+		if not (hosts[i].jobs as Dictionary).is_empty(): continue
 		var slot := _free_slot(i)
-		if slot < 0 or not (hosts[i].jobs as Dictionary).is_empty(): continue
+		if slot < 0: continue
 		if i != int(rig[fac]) and _route(i, int(rig[fac])).is_empty(): continue   # a producer needs a road home
 		for kind in want:
-			if int(have[kind]) >= 2 + mine.size() / 3: continue
-			if _can_afford_build(fac, kind):
-				if _start_job(i, kind, slot): have[kind] = int(have[kind]) + 1
+			if int(have[kind]) >= room: continue
+			if _can_afford_build(fac, kind) and _start_job(i, kind, slot):
+				have[kind] = int(have[kind]) + 1
 				break
 
 
 func _ai_research(fac: int) -> void:
 	if not research_job.get(fac, {}).is_empty(): return
-	for recipe in ["exploit", "ddos", "siphon", "zeroday", "filter"]:   # a simple capture + economy path
-		if _known(fac, recipe): continue
-		if _can_research(fac, recipe) != "": continue
+	# capture ladder first (reach is what wins ground), then a counter, disruption, theft, then the rest
+	for recipe in ["exploit", "filter", "ddos", "zeroday", "worm", "siphon", "cover", "sabotage", "vault", "express"]:
+		if _known(fac, recipe) or _can_research(fac, recipe) != "": continue
 		var cost := _research_cost(recipe); var ok := true
 		for r in cost:
 			if _avail(fac, r) < float(cost[r]): ok = false; break
 		if ok: _do_research(fac, recipe); return
 
 
+func _ai_first_known(fac: int, options: Array) -> String:
+	for r in options:
+		if _known(fac, r): return str(r)
+	return ""
+
+
+func _ai_capture_need(fac: int) -> int:   # the softest security among reachable foreign hosts (0 = none reachable)
+	var best := 0
+	for t in hosts.size():
+		if int(hosts[t].owner) == fac: continue
+		if not _op_reachable(fac, t): continue
+		var s := _security(t)
+		if best == 0 or s < best: best = s
+	return best
+
+
+func _ai_cheapest_for_sec(fac: int, sec: int) -> String:   # cheapest KNOWN capture card that cracks this security
+	for recipe in ["breach", "exploit", "zeroday"]:
+		if _known(fac, recipe) and sec <= int(CARDS[recipe].get("sec_max", 0)): return recipe
+	return ""
+
+
 func _ai_manufacture(fac: int) -> void:
+	# demand-driven: make only cards we can use, throttled by how many we already hold, so inventory never clogs
 	var L: Array = lanes.get(fac, [])
-	# keep a capture card and a defense coming
-	var wish := ["breach", "exploit", "patch", "ddos", "phish"]
+	var plan := []
+	var need := _ai_capture_need(fac)
+	if need > 0:
+		var cap_card := _ai_cheapest_for_sec(fac, need)   # "" if we must still research the right tier
+		if cap_card != "" and _held(fac, cap_card) < 3: plan.append(cap_card)
+	if _known(fac, "patch") and _held(fac, "patch") < 2: plan.append("patch")
+	var press := _ai_first_known(fac, ["ddos", "phish", "siphon"])
+	if press != "" and _held(fac, press) < 2: plan.append(press)
+	var li := 0
 	for lane in L.size():
-		if str(L[lane].recipe) != "" and not (L[lane].paid as Dictionary).is_empty(): continue
-		if str(L[lane].recipe) == "":
-			for recipe in wish:
-				if _known(fac, recipe): L[lane].recipe = recipe; break
-		if str(L[lane].recipe) != "":
-			L[lane].repeat = true
-			if (L[lane].paid as Dictionary).is_empty(): L[lane].pending = true
+		if not (L[lane].paid as Dictionary).is_empty(): continue   # busy this tick
+		if li < plan.size():
+			L[lane].recipe = str(plan[li]); L[lane].repeat = false; L[lane].pending = true; L[lane].progress = 0.0
+			li += 1
+		else:
+			L[lane].recipe = ""; L[lane].pending = false   # nothing useful to make: idle the lane
+
+
+func _ai_capture_for(fac: int, sec: int) -> String:   # the cheapest held card that cracks this security, else ""
+	for recipe in ["breach", "exploit", "zeroday"]:
+		if _held(fac, recipe) > 0 and sec <= int(CARDS[recipe].get("sec_max", 0)): return recipe
+	return ""
+
+
+func _ai_defend(fac: int, _mine: Array) -> void:   # Patch an enemy capture or raid executing on one of our hosts
+	if _held(fac, "patch") <= 0: return
+	for e in _execs:
+		if int(e.fac) == fac: continue
+		var t := int(e.target)
+		if int(hosts[t].owner) != fac: continue
+		if str(CARDS[str(e.card)].effect) in ["capture", "worm", "vault"] and _can_play(fac, "patch", t) == "":
+			_play_card(fac, "patch", t)
+			if _held(fac, "patch") <= 0: return
 
 
 func _ai_operate(fac: int, mine: Array) -> void:
-	# capture the softest reachable foreign neighbour with a ready capture card
-	var recipe := _ai_capture_card(fac)
-	if recipe == "": return
-	var best := -1; var bs := 99
-	for i in mine:
-		for nb in hosts[i].links:
-			var t := int(nb)
+	var home := int(rig.get(fac, -1))
+	if home < 0 or int(hosts[home].owner) != fac: return
+	# expand: launch captures at the softest reachable foreign hosts, cheapest card that can crack each
+	var launches := clampi(_held(fac, "breach") + _held(fac, "exploit") + _held(fac, "zeroday"), 0, 3)
+	while launches > 0:
+		var best := -1; var best_sec := 99; var best_d := INF; var best_card := ""
+		for t in hosts.size():
 			if int(hosts[t].owner) == fac: continue
-			if bool(hosts[t].get("rig", false)) and int(hosts[t].owner) != NEUTRAL and str(CARDS[recipe].effect) != "capture": continue
-			var s := _security(t)
-			if s > int(CARDS[recipe].get("sec_max", 3)): continue
-			if _can_play(fac, recipe, t) != "": continue
-			if s < bs: bs = s; best = t
-	if best >= 0: _play_card(fac, recipe, best)
-
-
-func _ai_capture_card(fac: int) -> String:
-	for recipe in ["zeroday", "exploit", "breach"]:
-		if _held(fac, recipe) > 0: return recipe
-	return ""
+			var sec := _security(t)
+			var card := _ai_capture_for(fac, sec)
+			if card == "" or _intrusion_busy(fac, t) or _can_play(fac, card, t) != "": continue
+			var d := (hosts[home].pos as Vector2).distance_to(hosts[t].pos)
+			if sec < best_sec or (sec == best_sec and d < best_d): best_sec = sec; best_d = d; best = t; best_card = card
+		if best < 0: break
+		if not _play_card(fac, best_card, best): break
+		launches -= 1
+	# no capture available: apply DDoS pressure on a producing rival neighbour
+	if _held(fac, "ddos") > 0:
+		for i in mine:
+			for nb in hosts[i].links:
+				var t := int(nb)
+				if int(hosts[t].owner) != fac and int(hosts[t].owner) != NEUTRAL and not _ddos_down(t) and _can_play(fac, "ddos", t) == "":
+					_play_card(fac, "ddos", t); return
 
 
 # -- knowledge helpers kept for the UI/tests (dated Recon, public security) --
