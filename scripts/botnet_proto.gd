@@ -2182,7 +2182,7 @@ func _refresh_hand() -> void:
 			hand_bar.add_child(tile)
 	var width := floorf((hand_panel.size.x - CARD_DOCK_GAP * 3) / 4)
 	for tile in hand_bar.get_children():
-		tile.visible = bool(CARDS[_card_of(tile.key)].get("defense", false)) == (_card_bank == "defense")
+		tile.visible = _is_defense(_card_of(tile.key)) == (_card_bank == "defense")
 		tile.custom_minimum_size = Vector2(width, CARD_DOCK_HEIGHT); tile.queue_redraw()
 	hand_bar.size = hand_panel.size
 	_update_card_banks()
@@ -2285,7 +2285,7 @@ func _bank_pressed(bank: String) -> void:   # a closed tab pulls its cards up ·
 
 
 func _bank_of(key: String) -> String:
-	return "defense" if bool(CARDS[_card_of(key)].get("defense", false)) else "attack"
+	return str(CARDS[_card_of(key)].bank)
 
 
 func _card_drag_data(source: Control, key: String) -> Variant:   # a held card leaves the deck as one compact preview
@@ -5567,7 +5567,7 @@ class CardDragPreview extends Control:
 		var font := get_theme_default_font()
 		var card: Dictionary = game.CARDS[game._card_of(key)]
 		var colour: Color = game.FAMILY_COL[str(card.fam)]
-		var defense := bool(card.get("defense", false))
+		var defense := str(card.bank) == "defense"
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.07, 0.105))
 		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.BANK_COL[game._bank_of(key)], false, 2)
 		game._draw_card_glyph(self, game._card_of(key), Vector2(28, 29), 36, colour, font)
