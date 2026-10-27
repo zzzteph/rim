@@ -51,6 +51,7 @@ func run() -> void:
 		await panel_controls(res)
 		await menu_controls(res)
 	help_pages()
+	card_art()
 	await campaign(Vector2i(1280, 720))
 	print(JSON.stringify({"checks": checks, "failures": failures.size()}))
 	quit(0 if failures.is_empty() else 1)
@@ -208,6 +209,18 @@ func menu_controls(res: Vector2i) -> void:
 		game._open_menu(true); game._menu_view = v; game._help_page = 0; game._refresh_menu(); await settle()
 		controls_inside(game.menu_box, visible_area(game.menu_sc), "menu '%s' @%s" % [v, res])
 	game._open_menu(false); await settle()
+
+
+# ---- card pictures: every recipe has its own, coloured like its family ----
+func card_art() -> void:
+	var seen := {}
+	for recipe in game.CARD_ORDER:
+		var fam := str(game.CARDS[recipe].fam)
+		var tex: Texture2D = game.FAMILY_ART.get(fam)
+		check(tex != null and game.FAMILY_COL.has(fam), "%s: has a picture and a family colour" % recipe)
+		if tex == null: continue
+		check(not seen.has(tex.resource_path), "%s: its picture %s is not shared (also %s)" % [recipe, tex.resource_path.get_file(), seen.get(tex.resource_path, "")])
+		seen[tex.resource_path] = recipe
 
 
 # ---- Help: each lead line on one line with room to spare; each caption within its two lines ----

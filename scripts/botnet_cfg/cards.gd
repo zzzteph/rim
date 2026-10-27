@@ -88,29 +88,30 @@ const READY_SLOTS := 12            # active manufacturing jobs + ready copies, a
 const BANK_NAME := {"attack": "ATTACK", "defense": "DEFENCE"}
 const BANK_COL := {"attack": Color(1.0, 0.36, 0.33), "defense": Color(0.36, 0.6, 1.0)}
 const FAMILY_NAME := {"recon": "recon", "breach": "credential breach", "exploit": "known exploits", "phish": "phishing", "siphon": "packet siphon", "vault": "vault raids", "dos": "denial of service", "zeroday": "0day exploits", "worm": "worms", "supply": "supply-chain sabotage", "patch": "patches", "response": "incident response", "filter": "traffic filters", "cover": "courier cover", "express": "express routes"}
-# Schematic art: reuse the existing eight silhouettes, mapping the new families onto the nearest picture.
+# Schematic art: one picture per family (assets/cards/schematic/; make_art.py draws vault, worm, siphon,
+# cover and express in the style of the hand-made ones). tests/text_fit_test.gd checks no two cards share one.
 const FAMILY_ART := {
 	"recon": preload("res://assets/cards/schematic/sca.png"),
-	"breach": preload("res://assets/cards/schematic/zeroday.png"),
-	"exploit": preload("res://assets/cards/schematic/zeroday.png"),
+	"breach": preload("res://assets/cards/schematic/credential.png"),
+	"exploit": preload("res://assets/cards/schematic/oneday.png"),
 	"phish": preload("res://assets/cards/schematic/phishing.png"),
-	"siphon": preload("res://assets/cards/schematic/phishing.png"),
-	"vault": preload("res://assets/cards/schematic/supply.png"),
+	"siphon": preload("res://assets/cards/schematic/siphon.png"),
+	"vault": preload("res://assets/cards/schematic/vault.png"),
 	"dos": preload("res://assets/cards/schematic/dos.png"),
 	"zeroday": preload("res://assets/cards/schematic/zeroday.png"),
-	"worm": preload("res://assets/cards/schematic/supply.png"),
+	"worm": preload("res://assets/cards/schematic/worm.png"),
 	"supply": preload("res://assets/cards/schematic/supply.png"),
 	"patch": preload("res://assets/cards/schematic/patch.png"),
 	"response": preload("res://assets/cards/schematic/response.png"),
 	"filter": preload("res://assets/cards/schematic/cdn.png"),
-	"cover": preload("res://assets/cards/schematic/cdn.png"),
-	"express": preload("res://assets/cards/schematic/cdn.png"),
+	"cover": preload("res://assets/cards/schematic/cover.png"),
+	"express": preload("res://assets/cards/schematic/express.png"),
 }
 const FAMILY_COL := {
-	"recon": Color(0.5, 0.85, 1.0), "breach": Color(1.0, 0.55, 0.4), "exploit": Color(1.0, 0.5, 0.3),
-	"phish": Color(0.3, 0.9, 1.0), "siphon": Color(0.4, 0.8, 0.9), "vault": Color(1.0, 0.38, 0.75),
-	"dos": Color(0.68, 0.55, 1.0), "zeroday": Color(1.0, 0.45, 0.2), "worm": Color(0.9, 0.4, 0.6),
+	"recon": Color(0.5, 0.85, 1.0), "breach": Color(0.97, 0.69, 0.16), "exploit": Color(0.72, 0.97, 0.22),
+	"phish": Color(0.3, 0.9, 1.0), "siphon": Color(0.25, 0.84, 0.66), "vault": Color(1.0, 0.82, 0.31),
+	"dos": Color(0.68, 0.55, 1.0), "zeroday": Color(1.0, 0.45, 0.2), "worm": Color(0.49, 0.87, 0.38),
 	"supply": Color(1.0, 0.38, 0.75), "patch": Color(0.35, 0.95, 0.85), "response": Color(0.55, 0.62, 1.0),
-	"filter": Color(0.3, 0.75, 1.0), "cover": Color(0.4, 0.7, 1.0), "express": Color(0.45, 0.9, 0.8),
+	"filter": Color(0.3, 0.75, 1.0), "cover": Color(1.0, 0.72, 0.36), "express": Color(0.91, 0.49, 0.91),
 }
 const CARD_ALARM := 8.0

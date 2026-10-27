@@ -238,7 +238,9 @@ stolen output reverts), **Traffic filter** (clear a DDoS and block a new one for
 cover** (protect cargo this host emits from Packet siphon for 16 s), **Express route** (halve
 delivery travel time for this host's shipments for 16 s). A main node whose routing is cut can
 still play support on itself but cannot send attacks. Card art lives in
-`assets/cards/schematic/`, mapped from each recipe's `fam` by `FAMILY_ART`.
+`assets/cards/schematic/`: every recipe has its own picture (`FAMILY_ART`, by `fam`); five of them
+(vault, worm, siphon, cover, express) are drawn by `assets/cards/schematic/make_art.py` in the style of
+the hand-made ones — run it, then import (`godot --headless --path . --import`).
 
 To run a one-off test or render, add a tiny scene whose script instantiates the game and inspects
 it, e.g.:
