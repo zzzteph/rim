@@ -62,7 +62,7 @@ relays chat, runs the ready countdown and relays turns.
 - A turn is `turn_steps` simulation steps (3 × 1/30 s = 100 ms). Turns are numbered from 0.
 - Turns `0 … delay-1` are empty for everybody and are never sent.
 - When a client begins simulating turn `T`, it sends its commands for turn `T + delay`:
-  `{"t":"turn","turn":5,"cmds":[["wire",[12,13],40],["launch",40,"attack"]]}` (an empty list when idle; at most 64
+  `{"t":"turn","turn":5,"cmds":[["build",40,0,"intel"],["card","breach",17]]}` (an empty list when idle; at most 64
   commands). The server relays it to **every** match member, the sender included, adding the sender's faction:
   `{"t":"turn","turn":5,"from":2,"cmds":[…]}`. Turns from one client must arrive in increasing order; the server
   drops anything else.
@@ -84,18 +84,20 @@ Arrays whose first element names the action; numbers arrive as JSON numbers (cli
 
 | command | meaning |
 |---|---|
-| `["wire", [sources…], target]` | connect your buildings `sources` to `target` |
-| `["launch", target, "attack"\|"scan"]` | start every dormant connection of yours into `target` (the game's panel only sends `"scan"`) |
-| `["assault", target, pct]` | Attack: every connected source without an order commits `pct` % (25…150) of its bots |
-| `["unassault", target]` | end your attack orders on `target` (unsent bots stay home) |
-| `["halt", target]` | Stop: end your orders and live flows into `target` (wires kept) |
-| `["unwire", source]` | remove `source`'s connection |
-| `["build", host, slot, kind]` | build (or replace) in a slot |
+| `["build", host, slot, kind]` | build (or replace) an installation in a slot (`kind` incl. producers and `"wall"`) |
 | `["job", host, slot]` / `["cancel", host, slot]` | pause/resume / cancel a construction |
 | `["demolish", host, slot]` | clear a slot |
-| `["produce", host, slot]` | pause/resume a producer |
-| `["research", card_key]` / `["unresearch", card_key]` | queue-or-pause / cancel a card's research |
-| `["card", card_key, target]` | play a held card on `target` |
+| `["produce", host, slot]` | pause/resume a finished producer |
+| `["research", card_key]` | start or pause the research of a blueprint (one research slot) |
+| `["cancel_research"]` | cancel the active research (refunds the unworked fraction) |
+| `["card_action", card_key]` | deck shortcut: research if locked, else pause its research |
+| `["lane_set", lane, card_key]` | set a manufacturing lane's recipe (`""` clears it) |
+| `["lane_make", lane]` | manufacture one copy in `lane` |
+| `["lane_repeat", lane]` | toggle a lane's Repeat |
+| `["lane_cancel", lane]` | cancel a lane's active job (refunds the unworked fraction) |
+| `["reserve", n]` | set the main-node Bots reserve kept for operations |
+| `["priority", res]` | set shipping priority to a resource (`""` = balanced) |
+| `["card", card_key, target]` / `["card", card_key, target, res]` | play a held card on `target` (`res` picks the resource for Packet siphon) |
 
 The server does not interpret commands; clients validate them inside the simulation (a command touching a
 building its sender does not own does nothing, identically on every client).
