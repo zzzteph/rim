@@ -457,7 +457,6 @@ func _ready() -> void:
 	_refresh_panel()
 	_fit_view()                                                # fit the opening town in view
 	_open_menu(true)                                           # the game opens on the start menu
-	_camp_first_run.call_deferred()                           # first run: the guided campaign is mandatory (real game only)
 	set_process(true)
 
 
@@ -3323,8 +3322,6 @@ func _net() -> Node:
 
 
 func _mp_open() -> void:   # the menu's Multiplayer button
-	if not _camp_has_onboarded():
-		_flash("Finish the guided campaign first — it unlocks multiplayer."); return
 	_net()
 	if net.status == "offline": net.open()
 	_mp_name_draft = net.player_name
@@ -3718,24 +3715,37 @@ func _mp_tick_countdown() -> void:   # the big "starting in 3…" line (also cal
 	if _mp_ui.has("refusal") and is_instance_valid(_mp_ui.refusal): (_mp_ui.refusal as Label).text = net.recent_error()
 
 
-func _menu_main() -> void:
-	_menu_title("BOTNET")
+func _menu_main() -> void:   # Learn, Skirmish and Multiplayer are open from the first run; finishing Learn is guidance, not a key
+	_menu_title("RIM")
+	_menu_label("Botnet strategy on a generated city network.")
 	_menu_gap(6)
 	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mbtn("Resume", func(): _open_menu(false))   # an in-progress campaign at _t==0 (reading pause) still resumes
 	if _mp_on:
 		_mbtn("Leave match", _mp_leave)
-	elif not _camp_has_onboarded():
-		if not _camp or won or lost:   # a live chapter is continued with Resume above (this button would rebuild it from its start)
-			var going := int(_camp_load().get("chapter", 0)) > 0 or (_camp_load().get("chapters_completed", []) as Array).has(true)
-			_mbtn("▶ Continue the guided campaign" if going else "▶ Start the guided campaign", func(): _camp_resume_or_start())
-		_menu_label("New game and Multiplayer unlock once the campaign is complete.")
 	else:
-		_mbtn("New game", func(): _menu_view = "newgame"; _refresh_menu())
+		var save := _camp_load()
+		var recommend := not bool(save.get("completed", false)) and not bool(save.get("learn_skipped", false))
+		var started := int(save.get("chapter", 0)) > 0 or (save.get("chapters_completed", []) as Array).has(true)
+		if not _camp or won or lost:   # a live chapter is continued with Resume above (Learn would rebuild it from its start)
+			var learn := ("▶ Continue learning — chapter %d" % (int(save.get("chapter", 0)) + 1)) if started and recommend else ("▶ Learn (recommended)" if recommend else "Learn")
+			_mbtn(learn, func(): _camp_resume_or_start() if recommend else _menu_go("campaign"))
+		_mbtn("Skirmish", func(): _menu_go("newgame"))
 		_mbtn("Multiplayer", _mp_open)
-		_mbtn("Campaign", func(): _menu_view = "campaign"; _refresh_menu())
+		if recommend and (not _camp or won or lost):
+			_menu_label("New to RIM? Learn teaches one decision at a time, about ten minutes. You can play a skirmish or join friends now and come back to it any time.")
+			_mbtn("Skip for now", func(): _learn_skip())
 	_mbtn("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
 	_mbtn("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
 	_mbtn("Exit", func(): get_tree().quit())
+
+
+func _menu_go(view: String) -> void: _menu_view = view; _refresh_menu()
+
+
+func _learn_skip() -> void:   # hide the Learn recommendation; it stays one click away in the menu
+	var save := _camp_load()
+	_camp_write(int(save.get("chapter", 0)), int(save.get("step", 0)), true)
+	_refresh_menu()
 
 
 func _menu_campaign() -> void:
@@ -3757,7 +3767,7 @@ func _menu_campaign() -> void:
 
 
 func _menu_newgame() -> void:
-	_menu_title("New game")
+	_menu_title("Skirmish")
 	var mrow0 := HBoxContainer.new(); mrow0.add_theme_constant_override("separation", 6)   # "Map · 8 × 6" ... [Layout: Grid]
 	var ml := Label.new(); ml.text = "Map  ·  %d × %d" % [_opt_size.x, _opt_size.y]; ml.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ml.add_theme_font_size_override("font_size", 13); ml.add_theme_color_override("font_color", C_DIM); mrow0.add_child(ml)
@@ -4344,10 +4354,13 @@ func _camp_save_path() -> String:
 func _camp_save() -> void: _camp_save_at(_camp_chapter, _tut_stage)
 
 
-func _camp_save_at(chapter: int, step: int) -> void:
+func _camp_save_at(chapter: int, step: int) -> void: _camp_write(chapter, step, bool(_camp_load().get("learn_skipped", false)))
+
+
+func _camp_write(chapter: int, step: int, skipped: bool) -> void:   # campaign progress and guidance state; never an access key
 	var data := {"schema": 2, "game_version": GAME_VERSION, "campaign_seed": CAMP_SEED,
 		"chapter": chapter, "step": step, "completed": _camp_done.count(true) >= CAMP_CHAPTERS,
-		"chapters_completed": _camp_done.duplicate()}
+		"chapters_completed": _camp_done.duplicate(), "learn_skipped": skipped}
 	var f := FileAccess.open(_camp_save_path(), FileAccess.WRITE)
 	if f != null: f.store_line(JSON.stringify(data)); f.close()
 
@@ -4361,16 +4374,14 @@ func _camp_load() -> Dictionary:
 	var none := []; none.resize(CAMP_CHAPTERS); none.fill(false)
 	var cc = (d as Dictionary).get("chapters_completed", none)
 	if not (cc is Array) or (cc as Array).size() != CAMP_CHAPTERS: cc = none
-	return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": clampi(int((d as Dictionary).get("chapter", 0)), 0, CAMP_OPEN), "step": int((d as Dictionary).get("step", 0)), "chapters_completed": cc}
+	return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": clampi(int((d as Dictionary).get("chapter", 0)), 0, CAMP_OPEN), "step": int((d as Dictionary).get("step", 0)), "chapters_completed": cc,
+		"learn_skipped": bool((d as Dictionary).get("learn_skipped", false))}
 
 
 func _camp_has_onboarded() -> bool:
 	return bool(_camp_load().get("completed", false))
 
 
-func _camp_first_run() -> void:
-	if not is_inside_tree() or get_tree() == null or get_tree().current_scene != self: return
-	if not _camp_has_onboarded(): _camp_resume_or_start()
 
 
 func _camp_resume_or_start(replay_chapter := -1) -> void:
@@ -4408,7 +4419,7 @@ func _camp_finish() -> void:
 	if tut_panel != null: tut_panel.visible = false
 	_camp_restore_opts()
 	_camp_save()
-	_flash("Training complete. New game is unlocked.", 0)
+	_flash("Training complete. Try a skirmish, or bring a friend to Multiplayer.", 0)
 	_layout_ui(); _fit_view()
 
 
@@ -4559,8 +4570,6 @@ func _camp_show() -> void:
 
 
 func _start_new_game() -> void:
-	if not _camp_has_onboarded():
-		_flash("Finish the guided campaign first — it unlocks New game."); return
 	if menu_seed_edit != null:
 		var s := menu_seed_edit.text.strip_edges()
 		if s != "" and (not s.is_valid_int() or int(s) <= 0):

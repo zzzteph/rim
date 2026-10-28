@@ -84,6 +84,7 @@ Run the automated mechanics and layout checks before exporting:
 godot --headless --path . --script tests/economy_test.gd     # cycles, storage, stations, caps, research, Firewall sockets, capture
 godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet siphon, Vault raid: the loot reaches home
 godot --headless --path . --script tests/capture_test.gd     # deterministic capture: outcomes, timing, same-step order, Worm stages
+godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn, Skirmish and Multiplayer open at once; skip is guidance
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -200,7 +201,7 @@ converters; a Lab host with a Miner beside it; one Firewall once the network is 
 retools a producer whose bank overflows (`_ai_rebalance`), learns blueprints, manufactures known cards and uses them to capture, steal and
 defend, under the same income, delivery, prices, lane/reserve limits and fog as a person.
 
-Map layouts (New game → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
+Map layouts (Skirmish → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
 and **Grid**. The three galaxies (`_place_galaxy`) fill a shape with about as many computers as the
 same-size grid, each the best of `STAR_CANDIDATES` random spots and never closer than `STAR_SPACING`,
 so spacing is even: a spiral has one arm per botnet winding out of a core with every rig at an arm's

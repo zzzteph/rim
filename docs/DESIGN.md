@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit d877dca
+RIM 0.5.0-a · commit 71e5a81
 
 ## Contents
 
@@ -66,7 +66,7 @@ flowchart LR
 
 ## Match flow
 
-#### Setup (New game)
+#### Setup (Skirmish)
 
 - Layout: Spiral (default), Elliptical, Ring or Grid.
 - Size: Small 6×4 (≈20 hosts), Medium 8×6 (≈41 hosts), Big 10×8 (≈68 hosts).
@@ -75,7 +75,7 @@ flowchart LR
 
 #### Other modes
 
-**Campaign:** 5 guided chapters on a small grid town: capture, build, research, theft and defence, then an open chapter against an active rival. In the guided chapters captures always succeed.
+**Learn (campaign):** recommended on the first run, never required; Skip for now keeps it one click away. 5 guided chapters on a small grid town: capture, build, research, theft and defence, then an open chapter against an active rival. In the guided chapters captures always succeed.
 
 **Multiplayer:** 2–3 players in a lobby; the galaxy shape comes from the match seed; no AI. See [Multiplayer](#multiplayer).
 
@@ -644,7 +644,7 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
 - **Sidebar**: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
-- **Menu** (Esc): Resume, New game, Multiplayer, Campaign, Help (six illustrated pages), Feedback, Exit.
+- **Menu** (Esc): Resume, Learn (the guided campaign; recommended until finished or skipped), Skirmish, Multiplayer, Help (six illustrated pages), Feedback, Exit. Nothing is locked behind the campaign.
 
 #### Controls
 
