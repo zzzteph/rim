@@ -80,7 +80,7 @@ const LEADS := {
 	"deliver": ["A resource made outside your main node waits in its host's storage.", "Bot stations carry it home; a Bot from the bank is used up."],
 	"produce": ["Every 5 s a harvester makes 2 Intel; a converter uses 1.", "A Lab needs 1 Intel and 1 Crypto on the same host."],
 	"build": ["One research slot and three manufacturing lanes.", "Repeat makes more copies when resources and slots allow."],
-	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid empties storage. Captures have odds and a security cap."],
+	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid empties storage. Captures need a security tier and time."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {
@@ -89,7 +89,7 @@ const CAPTIONS := {
 	"produce": "Converters use only their own host's Intel (the bank at the main node). A host's storage holds 10; full storage stops it.",
 	"build": "A paused lane leaves the others running. Each producing copy reserves one of 12 ready slots.",
 	"attack": "Stolen resources help only when they reach your main node. A Firewall holds 3 defence cards that fire on their own.",
-	"goal": "Lose your main node and you are eliminated. Watch the objective bar for the exact host count.",
+	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",
 }
 const LEAD_FS := 14
 const LEAD_PITCH := 24.0   # 14 px lines 24 px apart: 7 px clear between them, 14 px above the illustration

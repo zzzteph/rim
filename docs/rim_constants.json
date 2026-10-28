@@ -169,17 +169,16 @@
         "known": true,
         "sec_max": 1,
         "exec": 15.0,
-        "chance": 0.25,
         "make": {
           "bots": 0,
-          "intel": 10,
+          "intel": 12,
           "cash": 0,
-          "creds": 10,
+          "creds": 12,
           "research": 0
         },
-        "make_time": 10.0,
-        "lead": "Capture security 1, 25% chance.",
-        "rules": "Travels from your main node, then executes for 15 s. Then it takes the host one time in four; a miss spends the card. A Patch, a lost route or a new owner stops it."
+        "make_time": 12.0,
+        "lead": "Capture a security-1 host.",
+        "rules": "Travels from your main node, then executes for 15 s. It captures the host unless a Patch, a lost route or a change of owner stops it first."
       },
       "exploit": {
         "name": "Known exploit",
@@ -189,18 +188,17 @@
         "effect": "capture",
         "known": false,
         "sec_max": 2,
-        "exec": 10.0,
-        "chance": 0.25,
+        "exec": 12.0,
         "make": {
           "bots": 0,
-          "intel": 12,
+          "intel": 14,
           "cash": 0,
           "creds": 0,
           "research": 12
         },
         "make_time": 14.0,
-        "lead": "Capture up to security 2, 25% chance.",
-        "rules": "Travels, then executes for 10 s. Then it takes the host one time in four; a miss spends the card. Breach is cheaper against a security-1 host."
+        "lead": "Capture a host up to security 2.",
+        "rules": "Travels, then executes for 12 s. It captures unless a Patch, a lost route or a change of owner stops it first. Breach is cheaper against a security-1 host."
       },
       "phish": {
         "name": "Phishing",
@@ -290,9 +288,8 @@
         "effect": "capture",
         "known": false,
         "sec_max": 3,
-        "exec": 7.0,
+        "exec": 10.0,
         "exec_rig": 15.0,
-        "chance": 0.5,
         "make": {
           "bots": 0,
           "intel": 16,
@@ -301,8 +298,8 @@
           "research": 16
         },
         "make_time": 26.0,
-        "lead": "Capture up to security 3, 50% chance.",
-        "rules": "Travels, then executes for 7 s, or 15 s on a rival main node with a countdown they see. Then it takes the host one time in two. A Patch or a lost route stops it."
+        "lead": "Capture a host up to security 3.",
+        "rules": "Travels, then executes for 10 s, or 15 s on a rival main node with a countdown they see. It captures unless a Patch, a lost route or a change of owner stops it."
       },
       "worm": {
         "name": "Worm",
@@ -312,9 +309,8 @@
         "effect": "worm",
         "known": false,
         "sec_max": 2,
-        "exec": 10.0,
-        "chance": 0.25,
-        "reach": 3,
+        "exec": 12.0,
+        "reach": 2,
         "make": {
           "bots": 0,
           "intel": 24,
@@ -323,8 +319,8 @@
           "research": 24
         },
         "make_time": 22.0,
-        "lead": "Known exploit on 3 linked hosts.",
-        "rules": "Tries up to 3 linked hosts of one owner, security 2 or less. Each gets 10 s and a 25% roll; a miss does not stop it. Only the first needs a route. A Patch stops the chain."
+        "lead": "Known exploit on 2 linked hosts.",
+        "rules": "Captures the target, then its nearest linked host of the same owner, security 2 or less. Each stage executes for 12 s and can be stopped on its own. A Patch, a lost route or a change of owner ends it."
       },
       "sabotage": {
         "name": "Supply-chain sabotage",
@@ -921,7 +917,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.4.0",
+    "GAME_VERSION": "0.5.0-a",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

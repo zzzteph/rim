@@ -83,6 +83,13 @@ Run the automated mechanics and layout checks before exporting:
 ```bash
 godot --headless --path . --script tests/economy_test.gd     # cycles, storage, stations, caps, research, Firewall sockets, capture
 godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet siphon, Vault raid: the loot reaches home
+godot --headless --path . --script tests/capture_test.gd     # deterministic capture: outcomes, timing, same-step order, Worm stages
+godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn, Skirmish and Multiplayer open at once; skip is guidance
+godot --headless --path . --script tests/objective_test.gd   # the majority objective: one source, HUD lines, hold countdown and reset
+godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
+godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
+godot --headless --path . --script tests/preview_test.gd     # target preview: legality, route/arrival, execution, fog-safe areas, dated Recon
+godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -93,7 +100,8 @@ godot --headless --path . --script tests/botnet_help_test.gd # Help navigation +
 Use the console executable above on Windows. Each check exits nonzero on failure.
 To capture the Help suite's rendered previews, omit `--headless` and append
 `-- --capture`; images are written to `review/visual_help/`.
-These checks cover scripted behavior and layout; human usability testing is still pending.
+These checks cover scripted behavior and layout; human usability testing is still pending. The Milestone A
+tasks for 5–8 first-time players, with how to run and record them, are in **`docs/PLAYTEST.md`**.
 
 > The pre-redesign suites (assault, takeover, production-cost, usability, …) tested
 > the old bot-army mechanics and were removed in the 0.4.0 research–manufacture–deliver
@@ -132,6 +140,48 @@ for operations, and a **shipping priority** biases which resource ships first. E
 of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
 incoming shipments reserve destination room (`incoming`).
 
+Economic accounting (Milestone A). Every bank movement goes through `_add_bank` (income, or loss to the
+cap) or `_spend` (spending), each with a **cause** — trickle, production, delivered, stolen, returned,
+refunds, buildings, manufacturing, research, couriers, converters, upkeep; cargo whose route breaks and
+storage drained by a Packet siphon are recorded as lost (`cargo`, `siphoned`), and each delivery also
+records its source host (`from:<host>`). `_ledger_add` keeps 1-s buckets over the last `LEDGER_SECS` (30) s
+per botnet; `_econ_rates(fac, res)` turns them into per-minute received/spent/lost rates by cause (marked
+early, "~", during the first 30 s) and `_incoming_eta` reports cargo on the road. The HUD shows each
+resource's net rate under its stock, a tooltip breaks it down, and the **Economy** overview (top-bar
+button, clicking the HUD, or `E`) lists sources, spending, cargo on the road and losses. The ledger is
+presentation only: it is not part of the lockstep fingerprint (`_mp_hash`).
+
+Host diagnoses and route inspection (Milestone A). A selected host's panel reads role → status → problems →
+next cycle → delivery → installations (`_panel_host_econ`). `_cycle_preview(i)` works the next cycle out exactly
+as `_run_cycle` will, on copies (`_pv_add`/`_pv_take`), so "Next cycle in 2.4 s: …" shows feasible output and the
+dim "At full capacity" line the theoretical one; `tests/diagnosis_test.gd` checks the preview against the real
+cycle. `_host_diag(i)` names the status from the first problem (under DDoS, sabotaged, phished, no route,
+starved, blocked, waiting for couriers, Firewall off, paused, building, idle; else operating) with a cause and a
+fix. `_route_eta` reports hops, travel and the queueing a packet leaving now would meet, without reserving link
+capacity; `_host_delivered` reads the ledger's per-host "from" entries. On the map the selected host's links you
+can see, its route home (green, chevrons pointing home) and a tag with hops and time are drawn; a host with no
+route home rings its cut-off segment (`_cut_off`) in red. None of this changes the simulation.
+
+Target preview (Milestone A). `_target_preview(fac, card, host)` says, before anything is spent: whether the card can
+launch and why not (`_can_play`), the security tier and eligibility, the route from the main node with arrival time
+and queueing, the execution time and what stops it, the hosts an area or chain effect would hit as far as the player
+can see (`_preview_nearest`, `_preview_chain` — never hosts out of sight), the Worm's next stage (`_worm_next`),
+public defences (an armed Patch, a Filter) and the last Recon snapshot with its age (`_known_defences`; loaded
+sockets are never read live). The foreign host's panel shows it with the verdict beside Launch; while a card is
+dragged over a host the same preview follows the cursor (`_paint_drag_preview`). The card is used only on launch.
+
+Event history (Milestone A). `events` is one persistent queue for this screen's player, newest first, in three
+priorities (`EV_CRIT` needs you now, `EV_ACT` worth acting on, `EV_INFO` news). `_tick_events` polls every 0.5 s
+for lasting conditions — a rival intrusion on your host (critical on the main node), DDoS / Sabotage / Phishing /
+Siphon on your hosts, a Firewall without Intel, hosts cut off from the main node, a rival holding the majority,
+couriers held at the Bots reserve, research that cannot pay — and keeps ONE entry per condition that updates while
+live and then ends (it stays in the history as news). One-off news comes from hooks: `_op_outcome` via
+`_event_outcome` (your operations' results and attacks on you, ending their intrusion entry), `_fire_socket`,
+blueprints learned, copies made, lost cargo; the same news within 10 s counts up on one entry. The map strip
+(bottom-left, above the message line) shows up to four rows, critical first; a click finds the host and opens its
+panel; `H` or the strip's last row opens the Events view. The history keeps 80 entries, is cleared with the match
+(`_gen`, with the economic ledger and `op_outcomes`), and is not part of the lockstep fingerprint.
+
 Cards are **researched once, then manufactured**. A blueprint is learned in the single
 research slot (`_do_research`/`_tick_research`, cost + time in `cards.gd` `RESEARCH`); five
 recipes are known from the start (`KNOWN_START`: Recon, Breach, Phishing, Patch, Incident
@@ -162,7 +212,9 @@ illustrated pages with examples; the tutorial colours its keywords like the thin
 (ATTACK red, DEFENCE blue, your pieces green).
 
 Winning: hold at least 51% of ALL hosts (rounded up) for 51 continuous seconds
-(`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig.
+(`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig. `_objective()` is the one
+source for these numbers: the HUD (always visible, after the five banks), the standings and the win
+check read it.
 
 Fog of war (one rule for every botnet): a faction's real sight is
 its own hosts and every host one street away from them (`_in_sight`/`_sight_set`); on top of
@@ -199,7 +251,7 @@ converters; a Lab host with a Miner beside it; one Firewall once the network is 
 retools a producer whose bank overflows (`_ai_rebalance`), learns blueprints, manufactures known cards and uses them to capture, steal and
 defend, under the same income, delivery, prices, lane/reserve limits and fog as a person.
 
-Map layouts (New game → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
+Map layouts (Skirmish → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
 and **Grid**. The three galaxies (`_place_galaxy`) fill a shape with about as many computers as the
 same-size grid, each the best of `STAR_CANDIDATES` random spots and never closer than `STAR_SPACING`,
 so spacing is even: a spiral has one arm per botnet winding out of a core with every rig at an arm's
@@ -253,10 +305,14 @@ Operations (cards do all the fighting; `cards.gd` `CARDS`, resolved in `_play_ca
 flight** from your main node along a route through your own network to the target
 (`_attack_route` / `_op_reachable` — you must own a path toward it). Capture and raid cards
 then **execute** on arrival for the card's `exec` seconds before they resolve
-(`_execs`); a lost route, a changed owner, or a defender's Patch can stop them mid-execution. A capture
-that runs to the end then succeeds with its card's `chance` (`_capture_try`): the draw (`_capture_roll`) is a
-hash of the town seed and the intrusion, so every lockstep screen rolls alike; the guided campaign
-chapters always succeed, and tests can force it with `capture_luck`. A miss spends the card.
+(`_execs`). Capture is deterministic: there is no roll. An intrusion resolves in exactly one outcome,
+recorded by `_op_outcome` in `op_outcomes` with its own message for both sides: **countered** (a Patch: by
+hand, armed, or loaded in a Firewall), **owner changed** (the target's ownership generation moved first, so
+a host is never captured twice from one generation), **route failed** (no path from the attacker's main
+node when it ends) or **captured**. Intrusions resolve earliest end first, equal end times by operation id
+(launch order), and a turn's commands — a manual Patch included — apply before that turn's steps. A Worm
+captures its target, then runs one more stage on the nearest visible linked host of the same original owner
+(security ≤ 2); a stopped stage ends the chain.
 Support (DEFENCE) cards apply locally and instantly to one of your hosts.
 
 The ten ATTACK/information recipes: **Recon**, **Credential breach**, **Known exploit**,

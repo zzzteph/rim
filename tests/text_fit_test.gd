@@ -154,6 +154,9 @@ func hud(res: Vector2i) -> void:
 		var worst := "1250/1250 (+250)"
 		var fs: int = game._hud_fs(font, worst, float(it[3]) - 22.0)
 		check(fs >= 12 and w(worst, fs) <= room, "HUD worst case '%s' fits at %d px @%s" % [worst, fs, res])
+	var obj_room: float = game.hud.size.x - total - 8.0 - 12.0 - MARGIN   # the objective lines after the five banks
+	for line in ["MAJORITY 35 / 68 · you 35", "KRAKEN holds it: wins in 51 s", "Leader: KRAKEN with 34", "You lead; 35 more to hold"]:
+		check(w(line, 12) <= obj_room, "HUD objective '%s' fits (%.0f of %.0f px) @%s" % [line, w(line, 12), obj_room, res])
 
 
 # ---- building cards: the palette width the sidebar allows, slots 112 px; titles and effects at >= 10 px with side margins ----
@@ -230,6 +233,18 @@ func panel_controls(res: Vector2i) -> void:
 	var P: int = game.PLAYER
 	game.sel = {int(game.rig[P]): true}; game._inspect = -1; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "main node panel @%s" % res)
+	var remote := -1   # a remote host with every kind of problem line: starved converters, full storage, a Firewall with no Intel
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == P and i != int(game.rig[P]): remote = i; break
+	if remote >= 0:
+		var keep_builds: Array = (game.hosts[remote].builds as Array).duplicate(); var keep_slots: int = int(game.hosts[remote].slots)
+		var keep_store: Dictionary = (game.hosts[remote].store as Dictionary).duplicate(true)
+		game._set_builds(remote, ["lab", "wall", "cred"])
+		game.hosts[remote].store = {P: {"creds": 10.0}}
+		game.sel = {remote: true}; game._inspect = -1; game._refresh_panel(); await settle()
+		check(game._panel_text().contains("starved"), "diagnosed host panel shows its status @%s" % res)
+		controls_inside(game.panel_box, visible_area(game.panel_scroll), "diagnosed host panel @%s" % res)
+		game.hosts[remote].builds = keep_builds; game.hosts[remote].slots = keep_slots; game.hosts[remote].store = keep_store
 	var foreign := -1
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) != P and int(game.hosts[i].owner) != game.NEUTRAL: foreign = i; break
@@ -240,6 +255,19 @@ func panel_controls(res: Vector2i) -> void:
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "siphon launch panel @%s" % res)
 	game.sel = {}; game._inspect = -1; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "standings @%s" % res)
+	for k in 300: game._sim_step(game.SIM_DT)   # ten seconds of play, so the overview has flows to show
+	game._tab = "economy"; game._refresh_panel(); await settle()
+	controls_inside(game.panel_box, visible_area(game.panel_scroll), "economy overview @%s" % res)
+	game._event("fit:long", game.EV_CRIT, "NYX's Credential breach on Neighborhood Relay: 14 s left. A Patch on it stops it.", int(game.rig[P]), true)
+	game._event("fit:news", game.EV_INFO, "Firewall on Neighborhood Relay fired Patch against Credential breach; 2 cards left in it.", int(game.rig[P]))
+	game._tab = "events"; game._refresh_panel(); await settle()
+	controls_inside(game.panel_box, visible_area(game.panel_scroll), "event history @%s" % res)
+	game._refresh_event_strip(); await settle()
+	var strip_clip: Rect2 = game._map_rect()
+	for b in game.event_strip.get_children():
+		var r: Rect2 = (b as Control).get_global_rect()
+		check(strip_clip.encloses(r), "event strip row '%s' stays inside the map @%s" % [(b as Button).text.substr(0, 30), res])
+	game._tab = ""; game._refresh_panel(); await settle()
 
 
 func menu_controls(res: Vector2i) -> void:
