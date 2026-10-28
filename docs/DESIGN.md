@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 3f12656
+RIM 0.5.0-a · commit f1fd396
 
 ## Contents
 
@@ -187,6 +187,23 @@ income      = main-node trickle (1 of each per 5 s, while the main node is held 
 ```
 
 Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and couriers are not sent to a full bank (shipments on the road reserve their room).
+
+### Accounting: what the rates mean
+
+Every change to a bank is recorded once, with its cause, in one-second buckets over the last 30 s of play. The rates shown are measured, not predicted: what actually reached or left the bank, scaled to a minute. During the first 30 s of a match they are marked as an early estimate (~).
+
+| Kind     | Causes                                                                                                                                                                                                                                                 |
+|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Received | trickle (the main node), production (buildings on the main node, Bot stations' Bots), delivered (cargo from your hosts), stolen (Phishing, Siphon and Vault-raid loot), returned (a Phishing that ended), refunds (a cancelled build, copy or project) |
+| Spent    | buildings, manufacturing, research, couriers (a bank Bot sent to fetch a unit), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)                                                                                    |
+| Lost     | cap (income that arrived at a full bank), cargo (a shipment whose route broke), siphoned (storage drained by a rival's Packet siphon)                                                                                                                  |
+
+``` code
+net rate(resource) = (received − spent) over the window × 60 / window seconds
+on the road        = shipments in flight to the bank, the next arrival, and how many no longer have a route home
+```
+
+Within the window the recorded flows reconcile exactly with the bank. The ledger is presentation only: it is not part of the multiplayer fingerprint.
 
 ## Production cycle
 
@@ -641,7 +658,8 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 
 #### Screen
 
-- **HUD** (top): the five banks with cap and incoming arrows; to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.
+- **HUD** (top): the five banks with cap and incoming arrows, each with its measured net rate per minute underneath (hover for received, spent and lost by cause); to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.
+- **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
 - **Sidebar**: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
@@ -651,7 +669,7 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 
 - Click a host: select (yours) or inspect (foreign). Shift-drag: box-select.
 - Drag empty map: pan · wheel: zoom · middle-drag: pan · **0**: recentre.
-- **C**: pull the deck up or down · **Space**: pause (single player) · **Esc**: menu or clear selection.
+- **C**: pull the deck up or down · **E**: Economy overview · **Space**: pause (single player) · **Esc**: menu or clear selection.
 - Drag a card onto a host to play it; drag a building card onto a slot to build.
 
 ## Simulation step

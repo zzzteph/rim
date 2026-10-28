@@ -243,6 +243,10 @@ func panel_controls(res: Vector2i) -> void:
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "siphon launch panel @%s" % res)
 	game.sel = {}; game._inspect = -1; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "standings @%s" % res)
+	for k in 300: game._sim_step(game.SIM_DT)   # ten seconds of play, so the overview has flows to show
+	game._tab = "economy"; game._refresh_panel(); await settle()
+	controls_inside(game.panel_box, visible_area(game.panel_scroll), "economy overview @%s" % res)
+	game._tab = ""; game._refresh_panel(); await settle()
 
 
 func menu_controls(res: Vector2i) -> void:

@@ -1118,15 +1118,82 @@ func _room(fac: int, res: String) -> float:   # destination room for a new shipm
 	return maxf(0.0, _cap(fac, res) - _avail(fac, res) - _incoming(fac, res))
 
 
-func _add_bank(fac: int, res: String, amt: float) -> float:   # credit, clamped to cap; returns what actually fit
+func _add_bank(fac: int, res: String, amt: float, cause := "other") -> float:   # credit, clamped to cap; returns what actually fit
 	if not bank.has(fac): return 0.0
 	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res)))
 	bank[fac][res] = _avail(fac, res) + fit
+	if fit > 0.0: _ledger_add(fac, "in", cause, res, fit)
+	if amt - fit > 0.000001: _ledger_add(fac, "lost", "cap", res, amt - fit)
 	return fit
 
 
-func _spend(fac: int, res: String, amt: float) -> void:
+func _spend(fac: int, res: String, amt: float, cause := "other") -> void:
+	var paid := minf(amt, _avail(fac, res))
 	bank[fac][res] = maxf(0.0, _avail(fac, res) - amt)
+	if paid > 0.0: _ledger_add(fac, "out", cause, res, paid)
+
+
+# ---- the economic ledger: what reached, left and was lost from each bank, by cause, over the last LEDGER_SECS of
+# simulation time (1-s buckets in a ring). It only watches the simulation; nothing in it feeds back into the rules,
+# so it is not part of the lockstep fingerprint.
+const LEDGER_SECS := 30
+var _ledger := {}   # faction -> {"sec": [bucket second], "data": [{"in:cause:res": amount, ...}]}
+
+
+func _ledger_add(fac: int, kind: String, cause: String, res: String, amt: float) -> void:
+	if not _ledger.has(fac):
+		var secs := []; secs.resize(LEDGER_SECS); secs.fill(-1)
+		var data := []
+		for k in LEDGER_SECS: data.append({})
+		_ledger[fac] = {"sec": secs, "data": data}
+	var L: Dictionary = _ledger[fac]
+	var sec := int(floor(_t)); var slot := posmod(sec, LEDGER_SECS)
+	if int(L.sec[slot]) != sec: L.sec[slot] = sec; L.data[slot] = {}
+	var key := "%s:%s:%s" % [kind, cause, res]
+	L.data[slot][key] = float((L.data[slot] as Dictionary).get(key, 0.0)) + amt
+
+
+func _ledger_window() -> float:   # seconds the buckets cover: 29 whole ones plus the running one, or less early on ("early estimate")
+	if _t < float(LEDGER_SECS): return maxf(1.0, _t)
+	return float(LEDGER_SECS - 1) + maxf(0.001, _t - floor(_t))
+
+
+func _ledger_sums(fac: int) -> Dictionary:   # "kind:cause:res" -> total over the window
+	var out := {}
+	if not _ledger.has(fac): return out
+	var L: Dictionary = _ledger[fac]
+	var now := int(floor(_t))
+	for slot in LEDGER_SECS:
+		var sec := int(L.sec[slot])
+		if sec < 0 or sec <= now - LEDGER_SECS or sec > now: continue
+		for key in (L.data[slot] as Dictionary): out[key] = float(out.get(key, 0.0)) + float(L.data[slot][key])
+	return out
+
+
+func _econ_rates(fac: int, res: String) -> Dictionary:   # per-minute recent rates for one bank, split by cause
+	var sums := _ledger_sums(fac)
+	var per_min := 60.0 / _ledger_window()
+	var out := {"in": 0.0, "out": 0.0, "lost": 0.0, "in_by": {}, "out_by": {}, "lost_by": {}, "early": _t < float(LEDGER_SECS)}
+	for key in sums:
+		var parts := str(key).split(":")
+		if parts.size() != 3 or parts[2] != res or not (parts[0] in ["in", "out", "lost"]): continue   # "from:<host>" is per-host detail
+		var v := float(sums[key]) * per_min
+		out[parts[0]] = float(out[parts[0]]) + v
+		(out[parts[0] + "_by"] as Dictionary)[parts[1]] = float((out[parts[0] + "_by"] as Dictionary).get(parts[1], 0.0)) + v
+	out["net"] = float(out["in"]) - float(out["out"])
+	return out
+
+
+func _incoming_eta(fac: int, res: String) -> Dictionary:   # cargo on the road for this bank: count, next arrival, how many are at risk
+	var n := 0; var next := INF; var risk := 0
+	for f in flights:
+		if int(f.owner) != fac or not (str(f.kind) in ["cargo", "newbot"]): continue
+		var r := str(f.get("res", "bots"))
+		if r != res and not (res == "bots" and bool(f.get("keep", false))): continue
+		n += 1
+		next = minf(next, float(f.arrive_t) - _t)
+		if not _route_intact(f): risk += 1
+	return {"n": n, "next": next if n > 0 else -1.0, "risk": risk}
 
 
 func _reserve_incoming(fac: int, res: String, amt: float) -> void:
@@ -1167,7 +1234,7 @@ func _st_get(i: int, fac: int, res: String) -> float:
 
 func _st_add(i: int, fac: int, res: String, amt: float) -> float:   # credit what fits; returns it
 	if amt <= 0.0: return 0.0
-	if _st_local(i, fac): return _add_bank(fac, res, amt)
+	if _st_local(i, fac): return _add_bank(fac, res, amt, "production")
 	var fit := minf(amt, maxf(0.0, STORE_CAP - _store_total(i)))
 	if fit <= 0.0: return 0.0
 	if not (hosts[i].store as Dictionary).has(fac): hosts[i].store[fac] = {}
@@ -1175,8 +1242,8 @@ func _st_add(i: int, fac: int, res: String, amt: float) -> float:   # credit wha
 	return fit
 
 
-func _st_take(i: int, fac: int, res: String, amt: float) -> void:
-	if _st_local(i, fac): _spend(fac, res, amt); return
+func _st_take(i: int, fac: int, res: String, amt: float, cause := "converters") -> void:
+	if _st_local(i, fac): _spend(fac, res, amt, cause); return
 	_store_take(i, fac, res, amt)
 
 
@@ -1199,7 +1266,7 @@ func _tick_production(dt: float) -> void:
 	# 1) the main node makes one of each resource every 5 s, delivered locally (no courier, clamped to cap)
 	for fac in botnets:
 		if _eliminated.has(fac) or not _main_ok(fac): continue
-		for res in RES: _add_bank(fac, res, MAIN_INCOME * dt)
+		for res in RES: _add_bank(fac, res, MAIN_INCOME * dt, "trickle")
 	# 2) every held host runs its cycle on its own phase, so the network does not pulse all at once
 	for i in hosts.size():
 		var owner := int(hosts[i].owner)
@@ -1229,8 +1296,8 @@ func _run_cycle(i: int) -> void:
 		hosts[i].fw_on = have >= need - 0.0001
 		if bool(hosts[i].fw_on):
 			var own := minf(need, _st_get(i, owner, "intel"))
-			_st_take(i, owner, "intel", own)
-			if need - own > 0.0001: _st_take(i, benef, "intel", need - own)
+			_st_take(i, owner, "intel", own, "upkeep")
+			if need - own > 0.0001: _st_take(i, benef, "intel", need - own, "upkeep")
 	# c) converters, from this host's own storage (the bank at the main node)
 	for kind in CONVERT_ORDER:
 		var spec: Dictionary = BUILD_KINDS[kind]
@@ -1263,7 +1330,7 @@ func _room_now(fac: int, res: String) -> float: return maxf(0.0, _cap(fac, res) 
 
 func _station_send(i: int, fac: int, bots: int) -> void:
 	if _st_local(i, fac):                       # at your own main node they are simply new Bots
-		_add_bank(fac, "bots", float(bots))
+		_add_bank(fac, "bots", float(bots), "production")
 		return
 	if _routing_down(i): return                 # DDoS: nothing leaves, the new Bots never form
 	var rt := _home_route(fac, i)
@@ -1366,7 +1433,7 @@ func _do_dispatch(fac: int, it: Dictionary) -> void:   # a courier from the bank
 	_st_take(i, fac, res, 1.0)
 	var rt := _home_route(fac, i)
 	_reserve_incoming(fac, res, 1.0)
-	_spend(fac, "bots", 1.0)                    # a courier leaves available stock
+	_spend(fac, "bots", 1.0, "couriers")        # a courier leaves available stock
 	committed[fac] = float(committed.get(fac, 0.0)) + 1.0
 	var express := float(hosts[i].get("express_until", 0.0)) > _t
 	var covered := float(hosts[i].get("cover_until", 0.0)) > _t
@@ -1448,7 +1515,7 @@ func _start_job(i: int, kind: String, slot := -1) -> bool:
 	if cur == kind: return false
 	var fac := int(hosts[i].owner)
 	if not _can_afford_build(fac, kind): return false
-	for r in _build_cost(kind): _spend(fac, r, float(_build_cost(kind)[r]))   # paid in full when the job starts
+	for r in _build_cost(kind): _spend(fac, r, float(_build_cost(kind)[r]), "buildings")   # paid in full when the job starts
 	(hosts[i].get("producer_paused", {}) as Dictionary).erase(slot)
 	var price := _build_cost(kind)
 	if cur == "": hosts[i].jobs[slot] = {"kind": kind, "slot": slot, "phase": "build", "left": BUILD_TIME, "total": BUILD_TIME, "cost_left": price.duplicate(), "cost_total": price.duplicate()}
@@ -1508,7 +1575,7 @@ func _do_cancel_job(fac: int, i: int, slot: int) -> void:
 	var job: Dictionary = hosts[i].jobs[slot]
 	if str(job.phase) == "build":   # refund the unworked fraction of a funded build, clamped to receiving room
 		var frac := clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0)
-		for r in _job_cost_total(job): _add_bank(fac, r, float(_job_cost_total(job)[r]) * frac)
+		for r in _job_cost_total(job): _add_bank(fac, r, float(_job_cost_total(job)[r]) * frac, "refunds")
 	(hosts[i].jobs as Dictionary).erase(slot)
 	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
@@ -1764,7 +1831,7 @@ func _revert_phish(i: int) -> void:   # the thief's unsent storage on this host 
 	for fac in store.keys():
 		if int(fac) == owner: continue
 		for res in (store[fac] as Dictionary):
-			if _st_local(i, owner): _add_bank(owner, str(res), float(store[fac][res]))   # their own main node: straight into the bank
+			if _st_local(i, owner): _add_bank(owner, str(res), float(store[fac][res]), "returned")   # their own main node: straight into the bank
 			else:
 				if not store.has(owner): store[owner] = {}
 				store[owner][res] = float((store[owner] as Dictionary).get(res, 0.0)) + float(store[fac][res])
@@ -1801,17 +1868,24 @@ func _deliver(f: Dictionary) -> void:
 	var home := int(rig.get(fac, -1))
 	var arrived := not _eliminated.has(fac) and home >= 0 and int(hosts[home].owner) == fac and _route_intact(f)
 	_release_incoming(fac, res, 1.0)
+	var src := int(f.get("src", -1))
 	if kind == "cargo":
+		var cause := "stolen" if bool(f.get("intercepted", false)) or bool(f.get("loot", false)) or (src >= 0 and int(hosts[src].owner) != fac) else "delivered"
 		if bool(f.get("keep", false)):            # a Bot-station courier: it joins your Bots with its cargo
 			_release_incoming(fac, "bots", 1.0)
-			if arrived: _add_bank(fac, "bots", 1.0)
+			if arrived: _add_bank(fac, "bots", 1.0, cause)
+			else: _ledger_add(fac, "lost", "cargo", "bots", 1.0)
 		else: committed[fac] = maxf(0.0, float(committed.get(fac, 0.0)) - 1.0)   # a bank courier is used up either way
 		if arrived:
-			_add_bank(fac, res, 1.0)
+			_add_bank(fac, res, 1.0, cause)
+			if src >= 0: _ledger_add(fac, "from", str(src), res, 1.0)   # per-host delivered output (host panel)
 			_delivered[fac] = int(_delivered.get(fac, 0)) + 1
-		elif fac == PLAYER: _flash("A %s shipment was lost — its route broke" % RES_NAME[res], 1)
+		else:
+			_ledger_add(fac, "lost", "cargo", res, 1.0)
+			if fac == PLAYER: _flash("A %s shipment was lost — its route broke" % RES_NAME[res], 1)
 	else:   # newbot: no courier; it either becomes an available Bot or is lost
-		if arrived: _add_bank(fac, "bots", 1.0)
+		if arrived: _add_bank(fac, "bots", 1.0, "delivered")
+		else: _ledger_add(fac, "lost", "cargo", "bots", 1.0)
 
 
 # ---- ownership change ----
@@ -2070,9 +2144,9 @@ func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the targ
 				var n := mini(mini(have, left), mini(haulers, int(floor(_room(fac, res)))))
 				for k in n:
 					_store_take(int(h), int(owner_key), res, 1.0)
-					_spend(fac, "bots", 1.0); committed[fac] = float(committed.get(fac, 0.0)) + 1.0
+					_spend(fac, "bots", 1.0, "couriers"); committed[fac] = float(committed.get(fac, 0.0)) + 1.0
 					_reserve_incoming(fac, res, 1.0)
-					flights.append(_schedule(rt, _t, fac, "cargo", false, {"res": res, "payer": fac, "covered": false, "intercepted": false, "src": t}))
+					flights.append(_schedule(rt, _t, fac, "cargo", false, {"res": res, "payer": fac, "covered": false, "intercepted": false, "src": t, "loot": true}))
 				left -= n; haulers -= n; took += n
 	if took <= 0:
 		if fac == PLAYER: _flash("Vault raid on %s found nothing to carry" % str(hosts[t].name), 1)
@@ -2109,6 +2183,7 @@ func _tick_siphons() -> void:
 			var victim := int(f.owner); var res := str(f.res)        # their courier and its cargo now head for you
 			var keep := bool(f.get("keep", false))
 			_release_incoming(victim, res, 1.0); _reserve_incoming(thief, res, 1.0)
+			_ledger_add(victim, "lost", "siphoned", res, 1.0)
 			if keep:                                                  # a Bot-station courier joins your Bots instead
 				_release_incoming(victim, "bots", 1.0); _reserve_incoming(thief, "bots", 1.0)
 			else:
@@ -2220,7 +2295,7 @@ func _tick_research(dt: float) -> void:
 		for r in cost:
 			if _avail(fac, r) < float(cost[r]) * frac - 0.000001: afford = false; break
 		if not afford: continue
-		for r in cost: _spend(fac, r, float(cost[r]) * frac)
+		for r in cost: _spend(fac, r, float(cost[r]) * frac, "research")
 		job.progress = float(job.progress) + work
 		if float(job.progress) >= duration - 0.00001:
 			if not known.has(fac): known[fac] = {}
@@ -2261,7 +2336,7 @@ func _lane_cancel(fac: int, lane: int) -> void:
 	var paid: Dictionary = L[lane].paid
 	if not paid.is_empty():   # refund the unworked fraction
 		var frac := clampf(1.0 - float(L[lane].progress) / maxf(0.001, _make_time(str(L[lane].recipe))), 0.0, 1.0)
-		for r in paid: _add_bank(fac, r, float(paid[r]) * frac)
+		for r in paid: _add_bank(fac, r, float(paid[r]) * frac, "refunds")
 	L[lane].paid = {}; L[lane].progress = 0.0; L[lane].pending = false
 	if fac == PLAYER: _refresh_panel(); _refresh_hand()
 
@@ -2278,7 +2353,7 @@ func _can_start_recipe(fac: int, recipe: String, allow_reserve: bool) -> bool:
 
 func _start_recipe(fac: int, recipe: String) -> Dictionary:
 	var cost := _recipe_cost(recipe)
-	for r in cost: _spend(fac, r, float(cost[r]))
+	for r in cost: _spend(fac, r, float(cost[r]), "manufacturing")
 	return cost.duplicate()
 
 
@@ -2576,6 +2651,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_0: _reset_view()
 	elif event.keycode == KEY_C: _set_deck_open(not _deck_open); get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_E: _toggle_economy(); get_viewport().set_input_as_handled()
 
 
 func _can_drop_data(pos: Vector2, data: Variant) -> bool:   # a hand card held over the map
@@ -4605,7 +4681,7 @@ func _start_new_game() -> void:
 # Panel is organised around the two verbs: CONNECT (selection panel) and LAUNCH (a building's own panel
 # carries its ⚔ ATTACK button). States: RESULT · INSIDE (micro) · SELECTING · NODE (launch pad) · IDLE.
 func _panel_has_context() -> bool:
-	return won or lost or not sel.is_empty() or _inspect >= 0
+	return won or lost or not sel.is_empty() or _inspect >= 0 or _tab == "economy"
 
 
 func _panel_shown() -> bool:
@@ -4631,6 +4707,7 @@ func _refresh_panel() -> void:
 		if won or lost: _panel_result()
 		elif not sel.is_empty(): _panel_selecting()
 		elif _inspect >= 0: _panel_inspect()
+		elif _tab == "economy": _panel_economy()
 		else: _panel_board()
 
 	# Reconcile text and state into existing controls. Pointer hover never
@@ -4694,7 +4771,7 @@ func _layout_ui() -> void:
 	if hud == null or feedback_label == null: return
 	var sz := get_viewport_rect().size
 	hud.position = Vector2(24, 8); hud.size = Vector2(sz.x - 260, 46)
-	top_tabs.position = Vector2(sz.x - 112, 14)
+	top_tabs.position = Vector2(sz.x - 24 - 88 - 6 - 104, 14)
 	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
 	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _tut else 64)
 	var panel_bottom := sz.y - 24 if won or lost else _deck_top() - 12
@@ -4774,6 +4851,10 @@ func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips
 func _refresh_top_tabs() -> void:
 	if top_tabs == null: return
 	if top_tabs.get_child_count() > 0: return
+	var econ_button := Button.new(); econ_button.text = "Economy"; econ_button.name = "Economy"
+	econ_button.custom_minimum_size = Vector2(104, 36); econ_button.focus_mode = Control.FOCUS_NONE
+	econ_button.tooltip_text = "Your recent income, spending and losses for every bank (E)"
+	econ_button.pressed.connect(_toggle_economy); top_tabs.add_child(econ_button)
 	var menu_button := Button.new(); menu_button.text = "Menu"
 	menu_button.custom_minimum_size = Vector2(88, 36)
 	menu_button.pressed.connect(_open_menu.bind(true)); top_tabs.add_child(menu_button)
@@ -5204,7 +5285,7 @@ func _panel_idle() -> void:
 	_plabel("③  Build producers; couriers bring their output home.", 13)
 	_gap(4.0)
 	_plabel("Drag empty map to pan · wheel to zoom · 0 recenters", 11, C_DIM)
-	_plabel("Esc menu · Space pause · C cards", 11, C_DIM)
+	_plabel("Esc menu · Space pause · C cards · E economy", 11, C_DIM)
 
 
 func _panel_board() -> void:
@@ -5247,8 +5328,76 @@ func _hud_items() -> Array:   # [kind-icon, text, colour, column width]
 		if res == "bots" and float(committed.get(PLAYER, 0.0)) > 0.5: txt += " (+%d)" % int(committed[PLAYER])
 		elif inc > 0.5: txt += " ↓%d" % int(inc)
 		var col := C_WARN if _res_full(res) else C_TEXT
-		out.append([kind, txt, col, 150.0])
+		out.append([kind, txt, col, 150.0, res])
 	return out
+
+
+func _hud_rate(res: String) -> Array:   # [the HUD's second line for a bank, its colour]: recent net per minute
+	var r := _econ_rates(PLAYER, res)
+	var net := float(r.net)
+	var txt := "%s%d/min" % ["+" if net >= 0.5 else ("−" if net <= -0.5 else "±"), int(round(absf(net)))]
+	if bool(r.early): txt = "~" + txt
+	return [txt, C_GOOD if net >= 0.5 else (C_BAD if net <= -0.5 else C_DIM)]
+
+
+func _rate_txt(v: float) -> String: return "%d/min" % int(round(v))
+
+
+func _by_txt(by: Dictionary) -> String:   # "research 12, buildings 4" — largest first, zero rates left out
+	var items := []
+	for k in by:
+		if float(by[k]) >= 0.5: items.append([str(k), float(by[k])])
+	items.sort_custom(func(a, b): return float(a[1]) > float(b[1]) if float(a[1]) != float(b[1]) else str(a[0]) < str(b[0]))
+	return ", ".join(PackedStringArray(items.map(func(it): return "%s %d" % [it[0], int(round(float(it[1])))])))
+
+
+func _econ_lines(res: String) -> Array:   # one bank's flows in words (the HUD tooltip and the Economy overview share them)
+	var r := _econ_rates(PLAYER, res)
+	var inc := _incoming_eta(PLAYER, res)
+	var out := []
+	out.append("Received %s · spent %s · net %s%s" % [_rate_txt(float(r["in"])), _rate_txt(float(r.out)), "+" if float(r.net) >= 0.0 else "−", _rate_txt(absf(float(r.net)))])
+	if not (r.in_by as Dictionary).is_empty(): out.append("From: " + _by_txt(r.in_by))
+	if not (r.out_by as Dictionary).is_empty(): out.append("Spent on: " + _by_txt(r.out_by))
+	if int(inc.n) > 0:
+		var line := "On the road: %d, next in ~%d s" % [int(inc.n), int(ceil(float(inc.next)))]
+		if int(inc.risk) > 0: line += " (%d at risk: route broken)" % int(inc.risk)
+		out.append(line)
+	if float(r.lost) >= 0.5: out.append("Lost: " + _by_txt(r.lost_by))
+	return out
+
+
+func _econ_tooltip(res: String) -> String:
+	var r := _econ_rates(PLAYER, res)
+	var head := "%s  %d / %d" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]
+	var span := "Rates per minute over the last %d s%s." % [int(_ledger_window()), " (early estimate)" if bool(r.early) else ""]
+	return "%s\n%s\n\n%s\n\nClick for the Economy overview." % [head, "\n".join(PackedStringArray(_econ_lines(res))), span]
+
+
+func _objective_tooltip() -> String:
+	var o := _objective()
+	return "Win: hold %d of the %d hosts for %d s in a row, or be the last network with a main node." % [int(o.need), int(o.total), int(o.secs)]
+
+
+func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the Economy button or a click on the HUD)
+	if menu_open or won or lost: return
+	if _tab == "economy" and sel.is_empty() and _inspect < 0: _tab = ""
+	else: _tab = "economy"; sel = {}; _inspect = -1
+	_refresh_panel(); queue_redraw()
+
+
+func _panel_economy() -> void:
+	_plabel("Economy", 20, C_TEXT)
+	var early := _t < float(LEDGER_SECS)
+	_plabel("What reached and left your bank over the last %d s of play, per minute%s." % [int(_ledger_window()), " (early estimate)" if early else ""], 12, C_DIM)
+	for res in RES:
+		_gap(4.0)
+		var r := _econ_rates(PLAYER, res)
+		_plabel("%s  %d / %d   net %s%s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), "+" if float(r.net) >= 0.0 else "−", _rate_txt(absf(float(r.net)))], 14,
+			BUILD_KINDS[str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col)
+		for line in _econ_lines(res).slice(1): _plabel(str(line), 12, C_DIM)
+	_gap(4.0)
+	_plabel("Bots: Bot stations' couriers join your Bots on arrival; a courier sent from your bank is used up.", 12, C_DIM)
+	_plabel("E or Esc closes this view.", 11, C_DIM)
 
 
 const HUD_GAP := 10.0   # clear space kept before the next HUD column
@@ -6221,12 +6370,27 @@ class HelpGlyph extends Control:   # a big icon for the Help screen: a building 
 		elif kind != "": game._draw_kind_icon(self, kind, size * 0.5, size.y * 0.58, col, f)
 
 
-class HudBar extends Control:   # the one-line HUD with resource icons
+class HudBar extends Control:   # the HUD: each bank's stock and its recent net rate, then the objective
 	var game
 
 	func _init() -> void:
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mouse_filter = Control.MOUSE_FILTER_PASS   # hover shows a bank's flows; a click opens the Economy overview
 		clip_contents = true            # a hard guard: the row can never bleed under the right panel
+		tooltip_text = " "
+
+	func _get_tooltip(at: Vector2) -> String:
+		var x := 0.0
+		for it in game._hud_items():
+			if at.x >= x and at.x < x + float(it[3]): return game._econ_tooltip(str(it[4]))
+			x += float(it[3])
+		return game._objective_tooltip()
+
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			game._toggle_economy(); accept_event()
 
 	func _draw() -> void:
 		var f := get_theme_default_font()
@@ -6235,10 +6399,12 @@ class HudBar extends Control:   # the one-line HUD with resource icons
 			var kind := str(it[0])
 			var tx := x
 			if kind != "":
-				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 28.0), 16.0, game.BUILD_KINDS[kind].col, f)
+				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 20.0), 16.0, game.BUILD_KINDS[kind].col, f)
 				tx += 22.0
 			var fs: int = game._hud_fs(f, str(it[1]), float(it[3]) - (tx - x))
-			game._text(self, f, Vector2(tx, 36.0), str(it[1]), fs, it[2])
+			game._text(self, f, Vector2(tx, 26.0), str(it[1]), fs, it[2])
+			var rate: Array = game._hud_rate(str(it[4]))   # recent net flow into this bank, per minute
+			game._text(self, f, Vector2(tx, 44.0), str(rate[0]), 12, rate[1], float(it[3]) - (tx - x) - 4.0, HORIZONTAL_ALIGNMENT_LEFT)
 			x += float(it[3])   # a fixed column: the next item never moves when this number grows
 		var obj: Array = game._objective_lines()   # the win, always on screen: needed / total, your count, who holds it
 		var room := size.x - x - 8.0

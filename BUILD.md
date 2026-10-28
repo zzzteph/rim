@@ -86,6 +86,7 @@ godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet 
 godot --headless --path . --script tests/capture_test.gd     # deterministic capture: outcomes, timing, same-step order, Worm stages
 godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn, Skirmish and Multiplayer open at once; skip is guidance
 godot --headless --path . --script tests/objective_test.gd   # the majority objective: one source, HUD lines, hold countdown and reset
+godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -134,6 +135,17 @@ join your Bots on arrival (cargo flights with `keep`). What stations do not carr
 for operations, and a **shipping priority** biases which resource ships first. Each bank has a cap
 of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
 incoming shipments reserve destination room (`incoming`).
+
+Economic accounting (Milestone A). Every bank movement goes through `_add_bank` (income, or loss to the
+cap) or `_spend` (spending), each with a **cause** — trickle, production, delivered, stolen, returned,
+refunds, buildings, manufacturing, research, couriers, converters, upkeep; cargo whose route breaks and
+storage drained by a Packet siphon are recorded as lost (`cargo`, `siphoned`), and each delivery also
+records its source host (`from:<host>`). `_ledger_add` keeps 1-s buckets over the last `LEDGER_SECS` (30) s
+per botnet; `_econ_rates(fac, res)` turns them into per-minute received/spent/lost rates by cause (marked
+early, "~", during the first 30 s) and `_incoming_eta` reports cargo on the road. The HUD shows each
+resource's net rate under its stock, a tooltip breaks it down, and the **Economy** overview (top-bar
+button, clicking the HUD, or `E`) lists sources, spending, cargo on the road and losses. The ledger is
+presentation only: it is not part of the lockstep fingerprint (`_mp_hash`).
 
 Cards are **researched once, then manufactured**. A blueprint is learned in the single
 research slot (`_do_research`/`_tick_research`, cost + time in `cards.gd` `RESEARCH`); five

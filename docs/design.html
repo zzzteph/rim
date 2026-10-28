@@ -103,7 +103,7 @@ ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 4px; max-width: 80
 <header class="intro">
   <h1>RIM rules reference</h1>
   <p>The whole design of RIM as the game runs it today: how a match flows, how the map and hosts work, every economic formula, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers and every constant for analysis.</p>
-  <p class="meta">RIM 0.5.0-a · branch claude/amazing-einstein-jc1hrr · commit 3f12656 · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
+  <p class="meta">RIM 0.5.0-a · branch claude/amazing-einstein-jc1hrr · commit f1fd396 · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
   <nav class="toc" aria-label="Contents">
     <div><b>Flow</b><a href="#overview">Overview and core loop</a><a href="#flow">Match flow</a><a href="#time">Time model</a></div>
     <div><b>World</b><a href="#map">Map and network</a><a href="#hosts">Host types</a><a href="#fog">Sight and fog</a></div>
@@ -252,6 +252,19 @@ spendable   = what is in the bank at your main node (nothing else counts)
 income      = main-node trickle (1 of each per 5 s, while the main node is held and not under DDoS)
             + building output that reaches the bank</pre>
   <p>Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and couriers are not sent to a full bank (shipments on the road reserve their room).</p>
+  <h3>Accounting: what the rates mean</h3>
+  <p>Every change to a bank is recorded once, with its cause, in one-second buckets over the last 30 s of play. The rates shown are measured, not predicted: what actually reached or left the bank, scaled to a minute. During the first 30 s of a match they are marked as an early estimate (~).</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>Kind</th><th>Causes</th></tr></thead>
+    <tbody>
+      <tr><th>Received</th><td>trickle (the main node), production (buildings on the main node, Bot stations' Bots), delivered (cargo from your hosts), stolen (Phishing, Siphon and Vault-raid loot), returned (a Phishing that ended), refunds (a cancelled build, copy or project)</td></tr>
+      <tr><th>Spent</th><td>buildings, manufacturing, research, couriers (a bank Bot sent to fetch a unit), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)</td></tr>
+      <tr><th>Lost</th><td>cap (income that arrived at a full bank), cargo (a shipment whose route broke), siphoned (storage drained by a rival's Packet siphon)</td></tr>
+    </tbody>
+  </table></div>
+  <pre class="code">net rate(resource) = (received − spent) over the window × 60 / window seconds
+on the road        = shipments in flight to the bank, the next arrival, and how many no longer have a route home</pre>
+  <p>Within the window the recorded flows reconcile exactly with the bank. The ledger is presentation only: it is not part of the multiplayer fingerprint.</p>
 </section>
 
 <section id="production">
@@ -520,7 +533,8 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <h2>Interface and controls</h2>
   <div class="rules">
     <div class="rule"><h4>Screen</h4>
-      <ul><li><b>HUD</b> (top): the five banks with cap and incoming arrows; to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.</li>
+      <ul><li><b>HUD</b> (top): the five banks with cap and incoming arrows, each with its measured net rate per minute underneath (hover for received, spent and lost by cause); to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.</li>
+      <li><b>Economy</b> (top-bar button, a click on the banks, or <b>E</b>): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.</li>
       <li><b>Map</b>: hosts (with slot counts), territories, roads, packets, effects.</li>
       <li><b>Sidebar</b>: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.</li>
       <li><b>Deck</b> (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.</li>
@@ -528,7 +542,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
     <div class="rule"><h4>Controls</h4>
       <ul><li>Click a host: select (yours) or inspect (foreign). Shift-drag: box-select.</li>
       <li>Drag empty map: pan · wheel: zoom · middle-drag: pan · <b>0</b>: recentre.</li>
-      <li><b>C</b>: pull the deck up or down · <b>Space</b>: pause (single player) · <b>Esc</b>: menu or clear selection.</li>
+      <li><b>C</b>: pull the deck up or down · <b>E</b>: Economy overview · <b>Space</b>: pause (single player) · <b>Esc</b>: menu or clear selection.</li>
       <li>Drag a card onto a host to play it; drag a building card onto a slot to build.</li></ul></div>
   </div>
 </section>
