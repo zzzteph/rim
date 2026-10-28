@@ -45,6 +45,7 @@ func run() -> void:
 		await settle()
 		await cards(res)
 		await chips(res)
+		await research_tab(res)
 		hud(res)
 		build_cards()
 		await map_names(res, "spiral match")
@@ -84,15 +85,20 @@ func cards(res: Vector2i) -> void:
 		for status in ["Researching · 100%", "Making · 100%", "Paused · 100%", "Waiting · 100%"]:
 			check(w(status, 13) <= tile.size.x - 110.0, "%s @%s: status '%s' fits" % [recipe, res, status])
 		check(w("Click to resume · Drag to play", 10) <= width, "card hint fits")
+		var cost_w: float = game._draw_cost_row(game, game._card_cost(recipe), game._card_time(recipe), Vector2.ZERO, 13, 15.0, false)
+		check(cost_w <= width - MARGIN, "%s @%s: the price row (Bots included) fits the card (%.0f of %.0f px)" % [recipe, res, cost_w, width])
 		report.append("%s %d/%d" % [recipe, game._sentences(shown).size(), game._sentences(rules).size()])
 	print("cards @%s (rule sentences shown/total): %s" % [res, ", ".join(PackedStringArray(report))])
 	game._set_deck_open(false)
 
 
 # ---- mini cards in the pushed-down strip: the count is never cut ----
-func chips(res: Vector2i) -> void:
+func chips(res: Vector2i) -> void:   # the worst case: every recipe learned, so all fifteen mini cards share the strip
+	var was: Dictionary = (game.known[game.PLAYER] as Dictionary).duplicate()
+	for r in game.CARD_ORDER: game.known[game.PLAYER][r] = true
 	game._layout_deck(); await settle()
 	for chip in game._deck_chip_nodes():
+		if not (chip as Control).visible: continue
 		var sx: float = (chip as Control).size.x
 		if sx >= 84.0:
 			var title := str(game.CARDS[game._card_of(chip.key)].get("short", ""))
@@ -103,6 +109,38 @@ func chips(res: Vector2i) -> void:
 			var fs := fitted("12", 12, room, 9)
 			check(glyph >= 18.0, "chip picture stays legible @%s (%.0f px)" % [res, glyph])
 			check(fs >= 10 and w("12", fs) <= room, "chip count '12' fits at %d px in %.0f px @%s" % [fs, room, res])
+	game.known[game.PLAYER] = was
+	game._layout_deck()
+
+
+# ---- the deck tabs and the RESEARCH tab's tree: every label inside its box ----
+func research_tab(res: Vector2i) -> void:
+	for label in ["ATTACK x12", "DEFENCE x12", "RESEARCH 100%", "RESEARCH hold", "RESEARCH +10"]:
+		check(w(label, 14) <= game.DECK_TAB_W - 20.0 - MARGIN, "deck tab '%s' fits @%s" % [label, res])
+	game._card_bank = "research"; game._set_deck_open(true); game._refresh_hand()
+	await settle()
+	var nodes: Array = game.research_tree.get_children()
+	check(nodes.size() == game.CARD_ORDER.size(), "the tree has a node for every recipe @%s" % res)
+	var rects := []
+	for node in nodes:
+		var sx: float = (node as Control).size.x
+		var recipe := str(node.recipe)
+		var card: Dictionary = game.CARDS[recipe]
+		var title := str(card.name) if w(str(card.name), 13) <= sx - 40.0 else str(card.get("short", card.name))
+		check(w(title, 13) <= sx - 40.0, "%s @%s: tree title '%s' fits" % [recipe, res, title])
+		var lines := ["Researching 100%", "Paused 100%", "In the %s tab" % game.BANK_NAME[str(card.bank)], "x12 ready"]
+		if game.RESEARCH.has(recipe):
+			lines.append("Research · %d s" % int(game._research_time(recipe)))
+			lines.append("Needs %s" % str(game.CARDS[str(game.RESEARCH[recipe].prereq)].get("short", "")))
+			var cw: float = game._draw_cost_row(game, game._research_cost(recipe), -1.0, Vector2.ZERO, 11, 12.0, false)
+			check(cw <= sx - 20.0, "%s @%s: research price fits its node (%.0f of %.0f px)" % [recipe, res, cw, sx - 20.0])
+		for line in lines:
+			check(w(line, 11) <= sx - 20.0, "%s @%s: tree line '%s' fits" % [recipe, res, line])
+		var r := Rect2((node as Control).position, (node as Control).size)
+		for other in rects: check(not r.grow(2.0).intersects(other), "%s @%s: tree nodes keep apart" % [recipe, res])
+		rects.append(r)
+		check(r.end.y <= game.research_tree.size.y and r.position.x >= 0.0 and r.end.x <= game.research_tree.size.x, "%s @%s: node inside the deck" % [recipe, res])
+	game._card_bank = "attack"; game._set_deck_open(false)
 
 
 # ---- HUD: five fixed columns inside the bar; even a 4-digit bank stays in its column ----

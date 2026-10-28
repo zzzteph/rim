@@ -104,6 +104,7 @@ const CARD_DOCK_GAP := 12.0
 const MAP_CELL := 190.0         # world size of one town cell; each host sits in its own cell (territories are drawn per cell)
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
+const DECK_TAB_W := 136.0       # each of the three deck tabs: ATTACK, DEFENCE, RESEARCH (room for 15 mini cards at 1280 px)
 const MENU_W := 384.0           # menu panel width
 const GAME_VERSION := "0.4.0"
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
@@ -270,6 +271,8 @@ var deck_handle: Button          # pull the deck up / push it down
 var _card_bank := "attack"
 var _deck_open := false          # the deck starts pushed down: the map gets the room
 var _deck_page := 0              # which four of the open bank's cards the pulled-up deck shows
+var research_tree: Control       # the RESEARCH tab: the development tree, in place of the cards
+var _known_sig := ""             # which recipes the player knows, last time the deck was laid out
 var deck_pager: HBoxContainer    # ← page n / m → in the strip while the deck is up and its bank holds more than four
 var _deck_drag_restore := false  # the deck was pushed down for a card drag; pull it back up when the drag ends
 var _bank_alert := {}            # bank -> Time.get_ticks_msec() until which its tab blinks (a card became ready)
@@ -363,15 +366,21 @@ func _ready() -> void:
 	hand_bar.position = Vector2.ZERO
 	hand_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hand_panel.add_child(hand_bar)
+	research_tree = ResearchTree.new(); research_tree.game = self; research_tree.name = "ResearchTree"
+	research_tree.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); research_tree.visible = false
+	hand_panel.add_child(research_tree)
 	card_banks = HBoxContainer.new(); card_banks.add_theme_constant_override("separation", 8)
 	add_child(card_banks)
-	for bank in ["attack", "defense"]:
+	for bank in ["attack", "defense", "research"]:
 		var button := Button.new(); button.name = str(BANK_NAME[bank])
-		button.custom_minimum_size = Vector2(176, DECK_BAR_HEIGHT)   # fixed: a longer label never shifts the strip
+		button.custom_minimum_size = Vector2(DECK_TAB_W, DECK_BAR_HEIGHT)   # fixed: a longer label never shifts the strip
 		button.clip_text = true; button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.add_theme_font_size_override("font_size", 14)
 		button.focus_mode = Control.FOCUS_NONE
 		button.pressed.connect(_bank_pressed.bind(bank))
+		button.tooltip_text = {"attack": "Attack cards you can make: click one to make a copy, drag a copy onto a foreign host.",
+			"defense": "Defence cards you can make: drag a copy onto one of your hosts, or into a Firewall there.",
+			"research": "The development tree: learn new recipes here. +n = blueprints you can research now."}[bank]
 		card_banks.add_child(button)
 	deck_chips = HBoxContainer.new(); deck_chips.add_theme_constant_override("separation", 16)
 	deck_chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2509,7 +2518,8 @@ func _pointer_over_panel() -> bool:
 	return panel != null and panel.visible and panel.get_global_rect().has_point(get_viewport().get_mouse_position())
 
 
-# Every recipe has a permanent card; the pulled-up deck shows four of the open bank at a time (paged).
+# ATTACK and DEFENCE hold the recipes you know (the cards you can make), four at a time (paged);
+# RESEARCH shows the development tree instead.
 func _refresh_hand() -> void:
 	if hand_bar == null: return
 	if hand_bar.get_child_count() != CARD_ORDER.size():
@@ -2525,11 +2535,19 @@ func _refresh_hand() -> void:
 		tile.visible = index >= _deck_page * 4 and index < _deck_page * 4 + 4
 		tile.custom_minimum_size = Vector2(width, CARD_DOCK_HEIGHT); tile.queue_redraw()
 	hand_bar.size = hand_panel.size
+	hand_bar.visible = _card_bank != "research"
+	if research_tree != null:
+		research_tree.visible = _card_bank == "research"
+		if research_tree.visible: research_tree.call("relayout")
 	_update_card_banks()
 
 
-func _deck_cards() -> Array:   # the open bank's recipes, in deck order
-	return CfgCards.DEFENSE_ORDER if _card_bank == "defense" else CfgCards.ATTACK_ORDER
+func _deck_cards() -> Array:   # the open bank's KNOWN recipes, in deck order (unknown ones live in the RESEARCH tab)
+	if _card_bank == "research": return []
+	return _known_of(CfgCards.DEFENSE_ORDER if _card_bank == "defense" else CfgCards.ATTACK_ORDER)
+
+
+func _known_of(order: Array) -> Array: return order.filter(func(r): return _known(PLAYER, str(r)))
 
 
 func _deck_pages() -> int:
@@ -2537,7 +2555,7 @@ func _deck_pages() -> int:
 
 
 func _deck_page_of(recipe: String) -> int:   # the page a recipe sits on in its own bank
-	var order: Array = CfgCards.DEFENSE_ORDER if _is_defense(recipe) else CfgCards.ATTACK_ORDER
+	var order: Array = _known_of(CfgCards.DEFENSE_ORDER if _is_defense(recipe) else CfgCards.ATTACK_ORDER)
 	return maxi(0, order.find(recipe)) / 4
 
 
@@ -2549,17 +2567,18 @@ func _deck_turn(step: int) -> void:   # page the pulled-up deck; wraps round
 func _update_card_banks(chips := true) -> void:   # tab text (owned · progress), tab look (open / closed / blinking), handle arrow; chips = repaint the mini cards
 	if card_banks == null or deck_handle == null: return
 	var now := Time.get_ticks_msec()
-	for index in 2:
-		var bank: String = ["attack", "defense"][index]
+	if _known_sig != _known_signature():   # a recipe was learned: its mini card and big card join the deck
+		_known_sig = _known_signature()
+		_layout_deck(); _refresh_hand()
+	for index in 3:
+		var bank: String = ["attack", "defense", "research"][index]
 		var button: Button = card_banks.get_child(index)
-		var owned := 0; var progress := ""
-		for card in (CfgCards.DEFENSE_ORDER if bank == "defense" else CfgCards.ATTACK_ORDER):
-			var state := _card_research_state(_card_key(card, "linked"))
-			owned += int(state.count)
-			if str(state.status) == "Researching": progress = " · %d%%" % int(float(state.progress) * 100)
-			elif str(state.status) == "Waiting": progress = " · wait"
-			elif bool(state.queued) and progress == "": progress = " · next"
-		button.text = "%s  x%d%s" % [BANK_NAME[bank], owned, progress]
+		if bank == "research":
+			button.text = "%s%s" % [BANK_NAME[bank], _research_tab_note()]
+		else:   # copies in hand; what each lane is making shows on its own card
+			var owned := 0
+			for card in _known_of(CfgCards.DEFENSE_ORDER if bank == "defense" else CfgCards.ATTACK_ORDER): owned += _held(PLAYER, str(card))
+			button.text = "%s x%d" % [BANK_NAME[bank], owned]
 		var shown := _deck_open and bank == _card_bank
 		var blink := not shown and now < int(_bank_alert.get(bank, 0)) and (now / 250) % 2 == 0
 		var look := "flash" if blink else ("open" if shown else "closed")
@@ -2574,6 +2593,62 @@ func _update_card_banks(chips := true) -> void:   # tab text (owned · progress)
 		(deck_pager.get_node("PageLabel") as Label).text = "Page %d / %d" % [mini(_deck_page, pages - 1) + 1, pages]
 	if deck_chips.visible and chips:
 		for chip in _deck_chip_nodes(): chip.queue_redraw()
+
+
+func _known_signature() -> String:
+	var bits := ""
+	for r in CARD_ORDER: bits += "1" if _known(PLAYER, str(r)) else "0"
+	return bits
+
+
+func _research_tab_note() -> String:   # " 45%" while researching, " hold" while paused, else " +n": blueprints open to research
+	var job: Dictionary = research_job.get(PLAYER, {})
+	if not job.is_empty():
+		if bool(job.get("paused", false)): return " hold"
+		return " %d%%" % int(100.0 * clampf(float(job.progress) / maxf(0.001, _research_time(str(job.key))), 0.0, 1.0))
+	var open := 0
+	for r in RESEARCH:
+		if _can_research(PLAYER, str(r)) == "": open += 1
+	return " +%d" % open if open > 0 else ""
+
+
+func _research_node_state(recipe: String) -> Dictionary:   # one node of the development tree, as the RESEARCH tab draws it
+	var job: Dictionary = research_job.get(PLAYER, {})
+	var out := {"state": "locked", "progress": 0.0, "line": ""}
+	if _known(PLAYER, recipe):
+		out.state = "known"; out.line = "In the %s tab" % BANK_NAME[str(CARDS[recipe].bank)]
+	elif str(job.get("key", "")) == recipe:
+		out.progress = clampf(float(job.progress) / maxf(0.001, _research_time(recipe)), 0.0, 1.0)
+		var paused := bool(job.get("paused", false))
+		out.state = "paused" if paused else "working"
+		out.line = ("Paused %d%%" if paused else "Researching %d%%") % int(float(out.progress) * 100)
+	elif _can_research(PLAYER, recipe) == "":
+		out.state = "open"; out.line = "Research · %d s" % int(_research_time(recipe))
+	else:
+		out.line = "Needs %s" % str(CARDS[str(RESEARCH[recipe].prereq)].get("short", ""))
+	return out
+
+
+func _research_node_click(recipe: String) -> void:
+	if menu_open or won or lost: return
+	if _known(PLAYER, recipe):   # already learned: its copies are made in its own tab
+		_bank_pressed(str(CARDS[recipe].bank)); return
+	if not RESEARCH.has(recipe): return
+	_cmd(["research", recipe])
+
+
+func _research_tooltip(recipe: String) -> String:
+	var t := _card_tooltip(recipe)
+	if RESEARCH.has(recipe):
+		var c := _research_cost(recipe)
+		var parts := []
+		for r in RES:
+			if float(c.get(r, 0.0)) > 0.0: parts.append("%d %s" % [int(c[r]), RES_NAME[r]])
+		t += "\n\nResearch: %s, %d s. Needs %s. Click to research it; click again to pause." % [", ".join(parts), int(_research_time(recipe)), str(CARDS[str(RESEARCH[recipe].prereq)].name)]
+	else:
+		t += "\n\nKnown from the start."
+	if _known(PLAYER, recipe): t += " Click to open its tab and make copies."
+	return t
 
 
 func _style_bank_tab(button: Button, bank: String, look: String) -> void:   # red ATTACK / blue DEFENCE, filled while its cards show
@@ -2621,9 +2696,11 @@ func _layout_deck() -> void:
 	var left := card_banks.position.x + card_banks.size.x + 16.0
 	var room := deck_handle.position.x - 12.0 - left
 	var chips := _deck_chip_nodes()
+	for chip in chips: chip.visible = _known(PLAYER, _card_of(str(chip.key)))   # the cards you can make; the rest are research
+	chips = chips.filter(func(c): return c.visible)
 	var group_gap := float(deck_chips.get_theme_constant("separation"))
 	var chip_gap := float((deck_chips.get_child(0) as Control).get_theme_constant("separation"))
-	var width := floorf((room - group_gap - chip_gap * float(chips.size() - 2)) / float(chips.size()))
+	var width := floorf((room - group_gap - chip_gap * float(maxi(0, chips.size() - 2))) / float(maxi(1, chips.size())))
 	for chip in chips: chip.custom_minimum_size = Vector2(clampf(width, 40.0, 150.0), DECK_BAR_HEIGHT)
 	deck_chips.position = Vector2(left, bar_top); deck_chips.size = deck_chips.get_combined_minimum_size()
 	deck_chips.visible = playing and not _deck_open
@@ -3955,8 +4032,8 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a station Bot to carry Intel home.", "w": "Without a station, a Bot from your bank fetches it and is used up.", "role": "home", "pause": false},
 		]
 		2: return [
-			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Click Known exploit in the deck to start researching it.", "w": "Research unlocks the recipe. It does not give you a free card.", "role": "", "ui": "card:exploit", "pause": true},
-			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "After it unlocks, click Known exploit to manufacture a copy.", "w": "The blueprint is the prerequisite; a copy is made separately.", "role": "", "ui": "card:exploit", "pause": false},
+			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Open the RESEARCH tab and click Known exploit.", "w": "Research unlocks the recipe. It does not give you a free card.", "role": "", "ui": "card:exploit", "pause": true},
+			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once learned, click Known exploit in the ATTACK tab to make a copy.", "w": "The blueprint is the prerequisite; a copy is made separately.", "role": "", "ui": "card:exploit", "pause": false},
 			{"t": "Use it", "r": "You captured a security-2 host.", "a": "Launch Known exploit at the Corporate Gateway.", "w": "Known exploit reaches security 2.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
 		]
 		3: return [
@@ -4020,6 +4097,9 @@ func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck c
 
 
 func _camp_card_ctrls(recipe: String) -> Array:
+	if not _known(PLAYER, recipe):   # still to research: point at the RESEARCH tab, then at its node in the tree
+		if not _deck_open or _card_bank != "research": return [card_banks.get_child(2)]
+		return research_tree.get_children().filter(func(c): return str(c.get("recipe")) == recipe)
 	if not _deck_open: return _deck_chip_nodes().filter(func(c): return _card_of(str(c.key)) == recipe)
 	var bank := _bank_of(recipe)
 	if bank != _card_bank: return [card_banks.get_child(0 if bank == "attack" else 1)]
@@ -4825,6 +4905,12 @@ func _cycle_text(i: int) -> String:   # what one production cycle on this host d
 	return "Every %d s: %s" % [int(PROD_CYCLE), " · ".join(parts)]
 
 
+func _input_here(i: int, res: String) -> bool:   # a converter's input is in this host's storage (the bank at the main node) or made here
+	if _st_get(i, int(hosts[i].owner), res) >= 1.0: return true
+	var maker: String = {"intel": "intel", "cash": "cash"}.get(res, "")
+	return maker != "" and _count(i, maker) > 0
+
+
 func _store_text(i: int) -> String:   # this host's storage, and why it is not leaving
 	var tot := {}
 	for fac in (hosts[i].store as Dictionary):
@@ -4913,7 +4999,7 @@ func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, f
 	var font := get_theme_default_font()
 	var x := at.x
 	var items := 0
-	for res in ["intel", "cash", "creds", "research"]:
+	for res in ["bots", "intel", "cash", "creds", "research"]:
 		if not cost.has(res) or float(cost[res]) <= 0.0: continue
 		if items > 0: x += icon * 0.7
 		var kind: String = _COST_ICON[res]
@@ -5812,6 +5898,15 @@ func _draw_kind_icon(c: CanvasItem, kind: String, centre: Vector2, sz: float, co
 			c.draw_colored_polygon(fl, col)
 			c.draw_colored_polygon(PackedVector2Array([centre + Vector2(-sz * 0.3, sz * 0.2), centre + Vector2(sz * 0.3, sz * 0.2), centre + Vector2(sz * 0.38, sz * 0.4), centre + Vector2(-sz * 0.38, sz * 0.4)]), ink)
 			c.draw_circle(centre + Vector2(-sz * 0.1, sz * 0.06), sz * 0.05, ink)
+		"wall":   # a brick wall: three courses, the middle one offset
+			var bw := sz * 0.3; var bh := sz * 0.22; var gap := sz * 0.04
+			for row in 3:
+				var y := centre.y - sz * 0.38 + float(row) * (bh + gap)
+				var x0 := centre.x - sz * 0.46 - (bw * 0.5 if row == 1 else 0.0)
+				for k in 4:
+					var x := x0 + float(k) * (bw + gap)
+					var l := maxf(x, centre.x - sz * 0.46); var r := minf(x + bw, centre.x + sz * 0.46)
+					if r - l > gap: c.draw_rect(Rect2(l, y, r - l, bh), col, true)
 		_:
 			c.draw_rect(Rect2(centre - Vector2(sz * 0.4, sz * 0.4), Vector2(sz * 0.8, sz * 0.8)), col, false, 2.0)
 
@@ -6120,7 +6215,7 @@ class CardTile extends Control:
 		game._text(self, font, Vector2(14, size.y - 41), status, 13, status_colour, size.x - 110, HORIZONTAL_ALIGNMENT_LEFT)
 		draw_rect(Rect2(14, size.y - 30, size.x - 28, 8), Color(0.17, 0.20, 0.26))
 		draw_rect(Rect2(14, size.y - 30, (size.x - 28) * float(state.progress), 8), status_colour)
-		var hint := "Click to resume" if str(state.status) == "Paused" else ("Click to pause" if bool(state.queued) else "Click to research")
+		var hint := "Click to resume" if str(state.status) == "Paused" else ("Click to pause" if bool(state.queued) else "Click to make a copy")
 		if int(state.count) > 0: hint += " · Drag to play"
 		game._text(self, font, Vector2(14, size.y - 8), hint, 10, game.C_DIM, size.x - 28, HORIZONTAL_ALIGNMENT_LEFT)
 
@@ -6211,6 +6306,101 @@ class DeckChip extends Control:   # a mini card in the pushed-down deck: click =
 			game._text(self, font, Vector2(glyph + 8.0, size.y * 0.5 + fs * 0.38), count, fs, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
 		if bool(state.queued):   # research progress along the bottom edge
 			draw_rect(Rect2(3, size.y - 5, (size.x - 6) * float(state.progress), 3), game.C_WARN if warn else Color.WHITE)
+
+
+class ResearchTree extends Control:   # the RESEARCH tab: every recipe as a node under the one it is researched from
+	var game
+	var col := {}; var depth := {}; var columns := 1
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_PASS
+	func _ready() -> void:
+		var kids := {}
+		for r in game.CARD_ORDER:
+			if game.RESEARCH.has(r):
+				var p := str(game.RESEARCH[r].prereq)
+				if not kids.has(p): kids[p] = []
+				kids[p].append(str(r))
+		var next := [0]
+		var place := func(self_ref: Callable, r: String, d: int) -> void:   # leaves take the next column; a parent sits over its children
+			depth[r] = d
+			var ch: Array = kids.get(r, [])
+			if ch.is_empty():
+				col[r] = float(next[0]); next[0] += 1
+			else:
+				for c in ch: self_ref.call(self_ref, str(c), d + 1)
+				col[r] = (float(col[ch[0]]) + float(col[ch[-1]])) * 0.5
+		for r in game.CARD_ORDER:
+			if not game.RESEARCH.has(r): place.call(place, str(r), 0)
+		columns = next[0]
+		for r in game.CARD_ORDER:
+			var node := ResearchNode.new(); node.game = game; node.recipe = str(r); node.name = "Research_%s" % r
+			add_child(node)
+		relayout()
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_RESIZED: relayout()
+	func node_rect(r: String) -> Rect2:
+		var cw := size.x / float(maxi(1, columns))
+		var h := 72.0; var gap := (size.y - 16.0 - 3.0 * h) / 2.0
+		return Rect2(float(col[r]) * cw + 6.0, 8.0 + float(depth[r]) * (h + gap), cw - 12.0, h)
+	func relayout() -> void:
+		if col.is_empty(): return
+		for node in get_children():
+			var rect := node_rect(str(node.recipe))
+			node.position = rect.position; node.size = rect.size
+		queue_redraw()
+	func _process(_dt: float) -> void:
+		if visible: queue_redraw()
+	func _draw() -> void:   # the links: a parent's bottom to each child's top, lit once the parent is known
+		for r in game.CARD_ORDER:
+			if not game.RESEARCH.has(r): continue
+			var a := node_rect(str(game.RESEARCH[r].prereq)); var b := node_rect(str(r))
+			var lit: bool = game._known(game.PLAYER, str(game.RESEARCH[r].prereq))
+			var c: Color = Color(game.BANK_COL.research, 0.9) if lit else Color(0.3, 0.34, 0.42)
+			var top := Vector2(a.get_center().x, a.end.y); var bottom := Vector2(b.get_center().x, b.position.y)
+			var mid := (top.y + bottom.y) * 0.5
+			draw_polyline(PackedVector2Array([top, Vector2(top.x, mid), Vector2(bottom.x, mid), bottom]), c, 2.0, true)
+
+
+class ResearchNode extends Control:   # one recipe in the tree: known, researching, open to research, or locked
+	var game
+	var recipe := ""
+	var press_position := Vector2.ZERO
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	func _ready() -> void:
+		tooltip_text = game._research_tooltip(recipe)
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed: press_position = event.position
+			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
+				game._research_node_click(recipe); accept_event()
+	func _draw() -> void:
+		var font := get_theme_default_font()
+		var card: Dictionary = game.CARDS[recipe]
+		var st: Dictionary = game._research_node_state(recipe)
+		var fam: Color = game.FAMILY_COL[str(card.fam)]
+		var state := str(st.state)
+		var hot := Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
+		var edge: Color = {"known": fam, "working": Color.WHITE, "paused": game.C_WARN, "open": game.BANK_COL.research, "locked": Color(0.3, 0.34, 0.42)}[state]
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105))
+		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.C_TEXT if hot and state != "locked" else edge, false, 2 if state in ["working", "open"] or hot else 1)
+		var dim := state == "locked"
+		game._draw_card_glyph(self, recipe, Vector2(18, 18), 22, Color(1, 1, 1, 0.4 if dim else 1.0), font)
+		var room := size.x - 40.0
+		var title := str(card.name) if game._text_w(font, str(card.name), 13) <= room else str(card.get("short", card.name))
+		game._text(self, font, Vector2(34, 22), title, 13, game.C_DIM if dim else game.C_TEXT, room, HORIZONTAL_ALIGNMENT_LEFT)
+		if game.RESEARCH.has(recipe) and state in ["open", "locked"]:
+			game._draw_cost_row(self, game._research_cost(recipe), -1.0, Vector2(10, 42), 11, 12.0)
+		elif state == "known":
+			game._text(self, font, Vector2(10, 46), "x%d ready" % game._held(game.PLAYER, recipe), 12, fam.lightened(0.3), size.x - 20, HORIZONTAL_ALIGNMENT_LEFT)
+		var line_col: Color = game.C_WARN if state == "paused" else (game.C_DIM if state in ["locked", "known"] else game.C_TEXT)
+		game._text(self, font, Vector2(10, 64), str(st.line), 11, line_col, size.x - 20, HORIZONTAL_ALIGNMENT_LEFT)
+		if state in ["working", "paused"]:
+			draw_rect(Rect2(10, size.y - 4, size.x - 20, 2), Color(0.17, 0.20, 0.26))
+			draw_rect(Rect2(10, size.y - 4, (size.x - 20) * float(st.progress), 2), Color.WHITE if state == "working" else game.C_WARN)
 
 
 class TypeBadge extends Control:   # "what this building is": its picture, name, slots and multipliers
@@ -6344,9 +6534,11 @@ class SlotBox extends Control:
 		if kind in ["cash", "cred", "lab"]:
 			if game._producer_paused(host, slot): footer = "Paused · click"
 			elif game._slot_active(host, slot):
-				var input := "cash" if kind == "lab" else "intel"
-				footer = "Needs Crypto" if input == "cash" else "Needs Intel"
-				if game._pool(int(h.owner), input) > 0.01: footer = "Click to pause"
+				footer = "Click to pause"
+				for input in (game.BUILD_KINDS[kind].use as Dictionary):   # its input must be made on this host (or be in the bank at the main node)
+					if not game._input_here(host, str(input)): footer = "Needs %s here" % game.RES_NAME[str(input)]
+		elif kind == "wall":
+			footer = "%d/%d loaded" % [(h.sockets as Array).size(), game._sockets(host)] if bool(h.get("fw_on", true)) else "OFF: no Intel"
 		if not job.is_empty():
 			footer = ""
 			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else "■  %.0fs" % float(job.left)

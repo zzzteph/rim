@@ -85,8 +85,8 @@ const MANUFACTURE_LANES := 3
 const READY_SLOTS := 12            # active manufacturing jobs + ready copies, across all lanes
 
 # the two deck tabs: red ATTACK, blue DEFENCE (internal key stays "defense")
-const BANK_NAME := {"attack": "ATTACK", "defense": "DEFENCE"}
-const BANK_COL := {"attack": Color(1.0, 0.36, 0.33), "defense": Color(0.36, 0.6, 1.0)}
+const BANK_NAME := {"attack": "ATTACK", "defense": "DEFENCE", "research": "RESEARCH"}
+const BANK_COL := {"attack": Color(1.0, 0.36, 0.33), "defense": Color(0.36, 0.6, 1.0), "research": Color(0.75, 0.55, 1.0)}
 const FAMILY_NAME := {"recon": "recon", "breach": "credential breach", "exploit": "known exploits", "phish": "phishing", "siphon": "packet siphon", "vault": "vault raids", "dos": "denial of service", "zeroday": "0day exploits", "worm": "worms", "supply": "supply-chain sabotage", "patch": "patches", "response": "incident response", "filter": "traffic filters", "cover": "courier cover", "express": "express routes"}
 # Schematic art: one picture per family (assets/cards/schematic/; make_art.py draws vault, worm, siphon,
 # cover and express in the style of the hand-made ones). tests/text_fit_test.gd checks no two cards share one.

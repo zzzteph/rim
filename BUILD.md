@@ -125,11 +125,15 @@ response). A known recipe is manufactured into single-use copies in one of three
 **manufacturing lanes** (`MANUFACTURE_LANES`, `_lane_*`/`_tick_manufacture`); each copy pays its
 `make` cost up front and takes `make_time` seconds, and finished copies sit in a 12-slot ready
 inventory (`READY_SLOTS`, `_ready_total`). A lane can **Repeat**. The deck drawer at the bottom
-has a red ATTACK tab and a blue DEFENCE tab. Pushed down, its strip shows all fifteen recipes as
-mini cards (click = research / pause, drag a held copy = play). Pulled up (a tab, the handle or
-`C`), it shows four detailed cards of the open tab at a time; ← / → in the strip page through the
-rest (`_deck_page`: ATTACK has three pages, DEFENCE two). Drag a ready copy onto the map to play
-it, or launch from a host's panel. Drag a held ATTACK card onto a reachable foreign host, a DEFENCE
+has three tabs: a red ATTACK tab and a blue DEFENCE tab hold only the recipes you **know** — the
+cards you can make — and a purple **RESEARCH** tab shows the development tree (`ResearchTree`,
+`ResearchNode`): every recipe under the one it is researched from, marked known, researching,
+open to research (with its price and time) or locked (`_research_node_state`); clicking an open
+node researches it, a known one opens its own tab. Pushed down, the strip shows the known recipes
+as mini cards (click = make a copy / pause, drag a held copy = play). Pulled up (a tab, the handle
+or `C`), ATTACK and DEFENCE show four detailed cards at a time; ← / → in the strip page through the
+rest (`_deck_page`, over the known recipes only). Drag a ready copy onto the map to play it, or
+launch from a host's panel. Drag a held ATTACK card onto a reachable foreign host, a DEFENCE
 (support) card onto one of your own hosts (including your rig).
 
 Hosts have a **security class** 1–3 (`SEC_BY_TYPE` by host type, `_security`): a capture card
