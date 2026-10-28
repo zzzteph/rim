@@ -149,10 +149,10 @@ func manufacture_into_inventory() -> void:
 	fresh(); fat_bank()
 	g._lane_set(P, 0, "breach")
 	check(g._held(P, "breach") == 0, "No ready Breach copy before manufacture finishes")
-	var cash_before: float = float(g.bank[P]["cash"])
+	var creds_before: float = float(g.bank[P]["creds"])
 	g._lane_manufacture(P, 0)
 	step(g.SIM_DT)   # the lane charges its cost on the step it starts (before income can refill a capped bank)
-	check(float(g.bank[P]["cash"]) < cash_before - 2.0, "Manufacturing charges the recipe cost up front (cash fell ~3)")
+	check(float(g.bank[P]["creds"]) < creds_before - float(g.CARDS.breach.make.creds) + 1.0, "Manufacturing charges the recipe cost up front (Credentials fell by Breach's price)")
 	step(g._make_time("breach") + 1.0)
 	check(g._held(P, "breach") == 1, "A lane manufactures one ready Breach copy after its make time")
 
@@ -219,6 +219,7 @@ func recon_and_worm() -> void:
 func capture_end_to_end() -> void:
 	fresh()
 	var t := neutral_neighbour("iot")
+	g.capture_luck = 0.0   # a roll that always lands, so the rest of the path is what is tested
 	g.cards[P] = {"breach": 1}
 	var why: String = g._can_play(P, "breach", t)
 	check(why == "", "Breach is playable on a reachable security-1 neighbour (%s)" % ("ok" if why == "" else why))
@@ -226,3 +227,16 @@ func capture_end_to_end() -> void:
 	check(ok and g._held(P, "breach") == 0, "Playing Breach consumes the copy and launches an operation")
 	step(float(g.CARDS["breach"].exec) + 12.0)   # travel + 8 s execution + margin
 	check(int(g.hosts[t].owner) == P, "The operation captures the host after travel and execution")
+	# a miss: the roll is above the card's chance, the card is spent and the host stays as it was
+	var u := neutral_neighbour("pc")
+	g.capture_luck = 0.9
+	g.cards[P] = {"breach": 1}
+	var before: int = g.intrusions_resolved
+	g._play_card(P, "breach", u)
+	step(float(g.CARDS["breach"].exec) + 12.0)
+	check(int(g.hosts[u].owner) == g.NEUTRAL and g._held(P, "breach") == 0 and g.intrusions_resolved == before + 1,
+		"A roll above Breach's %d%% chance misses: the card is spent, the host stays neutral" % int(float(g.CARDS.breach.chance) * 100.0))
+	g.capture_luck = -1.0
+	var hits := 0
+	for k in 400: hits += 1 if g._capture_roll({"id": k, "target": u, "stage": 1}) < float(g.CARDS.breach.chance) else 0
+	check(hits > 60 and hits < 140, "Breach's real rolls land about one time in four (%d of 400)" % hits)

@@ -99,7 +99,8 @@ func run() -> void:
 	var end_owned := 0
 	for o in owned_a:
 		if int(o) != a.NEUTRAL: end_owned += 1
-	check(end_owned > start_owned, "A Breach capture landed during the match (owned %d -> %d), exercising flights and execution" % [start_owned, end_owned])
+	check(a.intrusions_resolved >= 1 and a.intrusions_resolved == b.intrusions_resolved and end_owned >= start_owned,
+		"Breach rolls resolved alike on both screens (%d resolved, owned %d -> %d), exercising flights, execution and the roll" % [a.intrusions_resolved, start_owned, end_owned])
 
 	# negative control: one extra command on one screen must show up in the fingerprint
 	b._apply_cmd(2, ["reserve", 20])

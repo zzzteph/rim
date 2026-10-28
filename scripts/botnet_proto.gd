@@ -1178,6 +1178,10 @@ func _st_add(i: int, fac: int, res: String, amt: float) -> float:   # credit wha
 
 func _st_take(i: int, fac: int, res: String, amt: float) -> void:
 	if _st_local(i, fac): _spend(fac, res, amt); return
+	_store_take(i, fac, res, amt)
+
+
+func _store_take(i: int, fac: int, res: String, amt: float) -> void:   # from the host's storage dictionary itself, never a bank
 	var st := _store_of(i, fac)
 	if st.is_empty(): return
 	var left := float(st.get(res, 0.0)) - amt
@@ -1740,8 +1744,10 @@ func _revert_phish(i: int) -> void:   # the thief's unsent storage on this host 
 	for fac in store.keys():
 		if int(fac) == owner: continue
 		for res in (store[fac] as Dictionary):
-			if not store.has(owner): store[owner] = {}
-			store[owner][res] = float((store[owner] as Dictionary).get(res, 0.0)) + float(store[fac][res])
+			if _st_local(i, owner): _add_bank(owner, str(res), float(store[fac][res]))   # their own main node: straight into the bank
+			else:
+				if not store.has(owner): store[owner] = {}
+				store[owner][res] = float((store[owner] as Dictionary).get(res, 0.0)) + float(store[fac][res])
 		store.erase(fac)
 
 
@@ -1848,7 +1854,7 @@ func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, els
 	if not _recon_fresh(fac, t) and str(CARDS[recipe].effect) in ["capture", "worm"]: pass   # capture needs no Recon; security is public
 	var eff := str(CARDS[recipe].effect)
 	if eff in ["capture", "worm"] and _security(t) > int(CARDS[recipe].get("sec_max", 3)): return "security %d is above this card's reach" % _security(t)
-	if eff == "vault" and not bool(hosts[t].get("rig", false)): return "Vault raid targets a rival's main node"
+	if eff == "vault" and int(hosts[t].owner) == NEUTRAL: return "Vault raid needs a rival's host"
 	if _routing_down(int(rig[fac])) and t != int(rig[fac]): return "your main node's routing is cut"
 	if not _op_reachable(fac, t): return "no route from your main node — capture a path toward it first"
 	# one capture-or-raid intrusion per attacker/target at a time
@@ -1899,9 +1905,10 @@ func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void
 			hosts[t].steal_by = fac; hosts[t].steal_until = _t + float(CARDS[recipe].dur)
 			if _fire_socket(t, "response", what): _apply_response(t)
 		"ddos":
-			if float(hosts[t].get("filter_until", 0.0)) <= _t:
-				if _fire_socket(t, "filter", what): _apply_filter(t)
-				else: hosts[t].ddos_until = _t + float(CARDS[recipe].dur)
+			for h in _nearest_of_owner(t, int(CARDS[recipe].get("reach", 1))):
+				if float(hosts[h].get("filter_until", 0.0)) > _t: continue   # a Filter here: the flood is absorbed
+				if _fire_socket(h, "filter", what): _apply_filter(h)
+				else: hosts[h].ddos_until = _t + float(CARDS[recipe].dur)
 		"sabotage":
 			for h in _chain_hosts(t, int(CARDS[recipe].reach), int(hosts[t].owner)):
 				hosts[int(h)].sabot_until = _t + float(CARDS[recipe].dur)
@@ -1913,8 +1920,20 @@ func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void
 			var exec_s := float(CARDS[recipe].get("exec", 8.0))
 			if eff == "worm": exec_s = float(CARDS[recipe].exec)
 			if eff == "capture" and bool(hosts[t].get("rig", false)): exec_s = float(CARDS[recipe].get("exec_rig", exec_s))
-			_start_exec({"id": int(f.id), "fac": fac, "card": recipe, "effect": eff, "target": t, "gen": int(hosts[t].gen), "ends": _t + exec_s, "stage": 1, "victim": int(hosts[t].owner)})
+			_start_exec({"id": int(f.id), "fac": fac, "card": recipe, "effect": eff, "target": t, "gen": int(hosts[t].gen), "ends": _t + exec_s, "stage": 1, "victim": int(hosts[t].owner), "seen": [t]})
 	if fac == PLAYER or _mine(t): _refresh_panel()
+
+
+func _nearest_of_owner(t: int, n: int) -> Array:   # t and the n-1 hosts of t's owner closest to it on the map
+	var out := [t]
+	var owner := int(hosts[t].owner)
+	if owner == NEUTRAL or n <= 1: return out
+	var others := []
+	for i in hosts.size():
+		if i != t and int(hosts[i].owner) == owner: others.append([(hosts[t].pos as Vector2).distance_to(hosts[i].pos), i])
+	others.sort_custom(func(a, b): return float(a[0]) < float(b[0]) if float(a[0]) != float(b[0]) else int(a[1]) < int(b[1]))
+	for k in mini(n - 1, others.size()): out.append(int(others[k][1]))
+	return out
 
 
 func _chain_hosts(start: int, reach: int, owner: int) -> Array:   # start + up to reach-1 adjacent same-owner hosts, by shortest edge then id
@@ -1948,18 +1967,44 @@ func _tick_execs() -> void:
 		var eff := str(e.effect)
 		if eff == "vault":
 			_resolve_vault(fac, t)
-		elif eff == "worm":
-			if _security(t) <= 1 and _op_reachable(fac, t):
-				_capture(t, fac)
-				if int(e.stage) < int(CARDS.worm.reach):   # advance to the next eligible neighbour
-					var nxt := _worm_next(fac, t, int(e.get("victim", NEUTRAL)))
-					if nxt >= 0: _start_exec({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + float(CARDS.worm.exec), "stage": int(e.stage) + 1, "victim": int(e.get("victim", NEUTRAL))}, still)
+		elif eff == "worm":   # Known exploit on up to 3 linked hosts: each gets its own roll, and a miss does not stop it
+			if _security(t) <= int(CARDS.worm.sec_max) and (int(e.stage) > 1 or _op_reachable(fac, t)):
+				_capture_try(e)
+			if int(e.stage) < int(CARDS.worm.reach):
+				var seen: Array = (e.get("seen", [t]) as Array).duplicate()
+				var nxt := _worm_next(fac, t, int(e.get("victim", NEUTRAL)), seen)
+				if nxt >= 0:
+					seen.append(nxt)
+					_start_exec({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + float(CARDS.worm.exec), "stage": int(e.stage) + 1, "victim": int(e.get("victim", NEUTRAL)), "seen": seen}, still)
 		else:   # capture family
 			if _security(t) <= int(CARDS[str(e.card)].get("sec_max", 3)) and _op_reachable(fac, t):
-				_capture(t, fac)
+				_capture_try(e)
 			elif fac == PLAYER:
-				_flash("%s failed on %s — its security rose" % [str(CARDS[str(e.card)].name), str(hosts[t].name)], 1)
+				_flash("%s failed on %s — no route to it any more" % [str(CARDS[str(e.card)].name), str(hosts[t].name)], 1)
 	_execs = still
+
+
+var capture_luck := -1.0   # tests only: ≥ 0 replaces every capture roll with this number
+var intrusions_resolved := 0   # captures and misses decided so far (the lockstep test checks both screens agree)
+
+
+func _capture_roll(e: Dictionary) -> float:   # a 0..1 draw, the same on every lockstep screen, different for every intrusion
+	if capture_luck >= 0.0: return capture_luck
+	if _camp and _camp_chapter < CAMP_OPEN: return 0.0   # the guided chapters teach the card, not the odds
+	var h := hash("%d:%d:%d:%d" % [town_seed, int(e.id), int(e.target), int(e.get("stage", 1))])
+	return float(posmod(h, 1000003)) / 1000003.0
+
+
+func _capture_try(e: Dictionary) -> void:   # execution ran to the end: the card's chance decides
+	var t := int(e.target); var fac := int(e.fac)
+	var card: Dictionary = CARDS[str(e.card)]
+	intrusions_resolved += 1
+	if _capture_roll(e) < float(card.get("chance", 1.0)):
+		_capture(t, fac)
+		return
+	hosts[t].card_result = "%s missed" % str(card.name)
+	if fac == PLAYER: _flash("%s on %s missed (%d%% chance) — the card is spent" % [str(card.name), str(hosts[t].name), int(round(float(card.chance) * 100.0))], 1)
+	elif int(hosts[t].owner) == PLAYER: _flash("%s held off %s's %s" % [str(hosts[t].name), fname(fac), str(card.name)], 0)
 
 
 func _start_exec(e: Dictionary, into = null) -> void:   # an intrusion begins: a Patch in the target's Firewall stops it on the spot
@@ -1972,17 +2017,17 @@ func _start_exec(e: Dictionary, into = null) -> void:   # an intrusion begins: a
 	else: _execs.append(e)
 
 
-func _worm_next(fac: int, from: int, victim: int) -> int:   # the nearest visible security-1 host of the same owner as the first target
+func _worm_next(fac: int, from: int, victim: int, seen: Array = []) -> int:   # the nearest visible host the Worm can still try: same owner as its first target
 	var best := -1; var bd := INF
 	for nb in hosts[from].links:
 		var n := int(nb)
-		if int(hosts[n].owner) != victim or int(hosts[n].owner) == fac or _security(n) > 1 or not _visible_to(fac, n): continue
+		if seen.has(n) or int(hosts[n].owner) != victim or int(hosts[n].owner) == fac or _security(n) > int(CARDS.worm.sec_max) or not _visible_to(fac, n): continue
 		var d := (hosts[from].pos as Vector2).distance_to(hosts[n].pos)
 		if d < bd or (d == bd and n < best): bd = d; best = n
 	return best
 
 
-func _resolve_vault(fac: int, t: int) -> void:   # a share of their stored Crypto, carried home by your couriers
+func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the target and its nearest linked hosts; your couriers carry it home
 	var victim := int(hosts[t].owner)
 	if victim == NEUTRAL or _eliminated.has(victim): return
 	var rt := _home_route(fac, t)
@@ -1990,21 +2035,27 @@ func _resolve_vault(fac: int, t: int) -> void:   # a share of their stored Crypt
 		if fac == PLAYER: _flash("Vault raid on %s: no way home for the loot" % str(hosts[t].name), 1)
 		return
 	var card: Dictionary = CARDS.vault
-	var stock := int(floor(_avail(victim, "cash")))
-	var share := maxi(int(floor(stock * float(card.cargo_pct))), mini(int(card.cargo_min), stock))   # a quarter, at least 10
+	var left := int(card.cargo)
 	var haulers := int(floor(maxf(0.0, _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))))
-	var room := int(floor(_room(fac, "cash")))
-	var take := mini(mini(int(card.cargo), share), mini(haulers, room))
-	if take <= 0:
-		if fac == PLAYER: _flash("Vault raid on %s returned nothing" % str(hosts[t].name), 1)
+	var took := 0
+	for h in _chain_hosts(t, int(card.reach), victim):
+		var store: Dictionary = hosts[int(h)].store
+		for owner_key in store.keys():
+			if int(owner_key) == fac: continue   # your own stolen goods waiting there stay yours
+			for res in RES:
+				var have := int(floor(float((store.get(owner_key, {}) as Dictionary).get(res, 0.0))))   # emptied entries disappear
+				var n := mini(mini(have, left), mini(haulers, int(floor(_room(fac, res)))))
+				for k in n:
+					_store_take(int(h), int(owner_key), res, 1.0)
+					_spend(fac, "bots", 1.0); committed[fac] = float(committed.get(fac, 0.0)) + 1.0
+					_reserve_incoming(fac, res, 1.0)
+					flights.append(_schedule(rt, _t, fac, "cargo", false, {"res": res, "payer": fac, "covered": false, "intercepted": false, "src": t}))
+				left -= n; haulers -= n; took += n
+	if took <= 0:
+		if fac == PLAYER: _flash("Vault raid on %s found nothing to carry" % str(hosts[t].name), 1)
 		return
-	_spend(victim, "cash", float(take))
-	for k in take:
-		_spend(fac, "bots", 1.0); committed[fac] = float(committed.get(fac, 0.0)) + 1.0
-		_reserve_incoming(fac, "cash", 1.0)
-		flights.append(_schedule(rt, _t, fac, "cargo", false, {"res": "cash", "payer": fac, "covered": false, "intercepted": false, "src": t}))
-	if fac == PLAYER: _flash("Vault raid on %s: %d Crypto returning" % [str(hosts[t].name), take], 0)
-	elif victim == PLAYER: _flash("%s raided your vault: %d Crypto taken" % [fname(fac), take], 2)
+	if fac == PLAYER: _flash("Vault raid on %s: %d units returning" % [str(hosts[t].name), took], 0)
+	elif victim == PLAYER: _flash("%s emptied your storage near %s: %d units taken" % [fname(fac), str(hosts[t].name), took], 2)
 
 
 # ---- Packet siphon: couriers of one resource leaving or passing a siphoned host turn for the thief's main node ----
@@ -2284,12 +2335,13 @@ func _ai_develop(fac: int, mine: Array) -> void:   # every host gets a layout th
 
 func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host i should hold
 	var n := int(hosts[i].slots)
-	if i == int(rig[fac]): return ["intel", "bot", "cash", "lab", "cred"].slice(0, n)   # converters here use the bank
+	if i == int(rig[fac]): return ["intel", "bot", _ai_conv(fac, true), "lab", "cred"].slice(0, n)   # converters here use the bank
 	if n == 1: return ["bot"]   # a lone slot: Bots that walk home on their own
 	var conv := _ai_conv(fac)
 	var plan := ["bot", "intel", conv, conv, "intel"].slice(0, n)   # the station first (its Bots carry everything), then Intel and its converters
 	var b: Array = hosts[i].builds
-	if n == 3 and held >= 3 and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
+	var wants_research := held >= 3 or _ai_capture_need(fac) >= 2   # Known exploit runs on Research
+	if n == 3 and wants_research and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
 		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; a bank courier fetches it)
 	if n >= 4 and not _ai_has_lab_host(fac, i): plan[2] = "cash"; plan[3] = "lab"   # a Miner beside the Lab feeds it Crypto
 	elif n >= 4 and held >= 6 and not _ai_has_firewall(fac): plan[3] = "wall"   # one guarded host once the network is worth guarding
@@ -2302,12 +2354,12 @@ func _ai_has_lab_host(fac: int, except: int) -> bool:   # a host other than `exc
 	return false
 
 
-func _ai_conv(fac: int) -> String:   # Intel, Crypto or Credentials: what the next card is short of, else the emptiest bank
+func _ai_conv(fac: int, at_main := false) -> String:   # what the next card is short of, else the emptiest bank (a Lab only where the bank feeds it)
 	var want := _ai_wanted(fac)
 	var best := "cred"; var lo := INF
-	for kind in ["cred", "cash", "intel"]:
-		var res := {"cred": "creds", "cash": "cash", "intel": "intel"}[kind] as String
-		var fill := _avail(fac, res) / maxf(1.0, _cap(fac, res)) - (1.0 if float(want.get(res, 0.0)) > _avail(fac, res) else 0.0)
+	for kind in (["cred", "cash", "intel", "lab"] if at_main else ["cred", "cash", "intel"]):
+		var res := {"cred": "creds", "cash": "cash", "intel": "intel", "lab": "research"}[kind] as String
+		var fill := _avail(fac, res) / maxf(1.0, _cap(fac, res)) - (1.0 if 2.0 * float(want.get(res, 0.0)) > _avail(fac, res) else 0.0)   # short of two copies
 		if fill < lo: lo = fill; best = kind
 	return best
 
@@ -2328,7 +2380,7 @@ func _ai_rebalance(fac: int, sites: Array) -> void:   # a bank that overflows wh
 	for i in sites:
 		if not (hosts[i].jobs as Dictionary).is_empty(): return   # one retool at a time
 	var makes := {"cash": "cash", "cred": "creds", "intel": "intel"}
-	var full := ""; var short := ""; var lo := 0.25; var hi := 0.6
+	var full := ""; var short := ""; var lo := 0.15; var hi := 0.4
 	for kind in makes:
 		var fill := _avail(fac, makes[kind]) / maxf(1.0, _cap(fac, makes[kind]))
 		if fill >= hi: hi = fill; full = kind
@@ -4029,7 +4081,7 @@ func _camp_steps(chapter: int) -> Array:
 		0: return [
 			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 seconds — already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "w": "Resources are only spendable once they reach your main node.", "role": "home", "pause": true},
 			{"t": "Manufacture a card", "r": "A Credential breach copy is being manufactured.", "a": "Click Credential breach in the deck to manufacture one copy.", "w": "You already know the basic recipes. Manufacturing spends resources once.", "role": "", "ui": "card:breach", "pause": true},
-			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "Drag the ready Credential breach onto the Neighborhood Relay.", "w": "Credential breach captures one security-1 host after a short execution.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": true},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "Drag the ready Credential breach onto the Neighborhood Relay.", "w": "Breach takes a security-1 host after 15 s. In open play it works one time in four.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": true},
 		]
 		1: return [
 			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s — but it is not home yet.", "a": "Select the relay and build an Intel harvester in a slot.", "w": "What a host makes waits in its storage until a Bot carries it home.", "role": "relay", "ui": "build:intel", "pause": true},

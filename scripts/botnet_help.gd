@@ -80,7 +80,7 @@ const LEADS := {
 	"deliver": ["A resource made outside your main node waits in its host's storage.", "Bot stations carry it home; a Bot from the bank is used up."],
 	"produce": ["Every 5 s a harvester makes 2 Intel; a converter uses 1.", "A Lab needs 1 Intel and 1 Crypto on the same host."],
 	"build": ["One research slot and three manufacturing lanes.", "Repeat makes more copies when resources and slots allow."],
-	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid takes stored Crypto. Capture cards have a security cap."],
+	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid empties storage. Captures have odds and a security cap."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {

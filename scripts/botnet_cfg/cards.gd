@@ -12,38 +12,39 @@
 #   make          {bots,intel,cash,creds,research} paid once when a copy STARTS manufacturing; make_time seconds.
 #                 Bots stay 0: Bots are the couriers that carry what the network makes, not an ingredient.
 #   sec_max       capture ceiling (capture cards only)
+#   chance        the odds a capture succeeds when its execution ends (a miss spends the card)
 #   exec          execution seconds after travel (capture/raid/worm-stage)
 #   dur           timed-effect seconds (theft/disruption/support)
-#   reach         how many hosts a chain covers (worm/sabotage)
+#   reach         how many hosts it covers (worm, sabotage, DDoS, Vault raid)
 #   needs_link    the first target must have one of your connections into it
 const CARDS := {
 	"recon":     {"name": "Recon", "short": "Recon", "fam": "recon", "bank": "attack", "effect": "recon", "known": true, "dur": 45.0,
 		"make": {"bots": 0, "intel": 8, "cash": 0, "creds": 0, "research": 0}, "make_time": 3.0,
 		"lead": "Reveal a host's contents for 45 s.", "rules": "Shows its installations, storage and Firewall cards. The snapshot goes stale after 45 s. Not an alarm, and not needed to capture."},
-	"breach":    {"name": "Credential breach", "short": "Breach", "fam": "breach", "bank": "attack", "effect": "capture", "known": true, "sec_max": 1, "exec": 8.0,
-		"make": {"bots": 0, "intel": 18, "cash": 6, "creds": 8, "research": 0}, "make_time": 10.0,
-		"lead": "Capture one security-1 host.", "rules": "Travels from your main node, then executes for 8 s. A Patch, a lost route or a new owner stops it."},
-	"exploit":   {"name": "Known exploit", "short": "Exploit", "fam": "exploit", "bank": "attack", "effect": "capture", "known": false, "sec_max": 2, "exec": 10.0,
-		"make": {"bots": 0, "intel": 24, "cash": 10, "creds": 10, "research": 6}, "make_time": 14.0,
-		"lead": "Capture one host up to security 2.", "rules": "Travels, then executes for 10 s. Breach is cheaper against a security-1 host."},
+	"breach":    {"name": "Credential breach", "short": "Breach", "fam": "breach", "bank": "attack", "effect": "capture", "known": true, "sec_max": 1, "exec": 15.0, "chance": 0.25,
+		"make": {"bots": 0, "intel": 10, "cash": 0, "creds": 10, "research": 0}, "make_time": 10.0,
+		"lead": "Capture security 1, 25% chance.", "rules": "Travels from your main node, then executes for 15 s. Then it takes the host one time in four; a miss spends the card. A Patch, a lost route or a new owner stops it."},
+	"exploit":   {"name": "Known exploit", "short": "Exploit", "fam": "exploit", "bank": "attack", "effect": "capture", "known": false, "sec_max": 2, "exec": 10.0, "chance": 0.25,
+		"make": {"bots": 0, "intel": 12, "cash": 0, "creds": 0, "research": 12}, "make_time": 14.0,
+		"lead": "Capture up to security 2, 25% chance.", "rules": "Travels, then executes for 10 s. Then it takes the host one time in four; a miss spends the card. Breach is cheaper against a security-1 host."},
 	"phish":     {"name": "Phishing", "short": "Phish", "fam": "phish", "bank": "attack", "effect": "phish", "known": true, "dur": 60.0,
 		"make": {"bots": 0, "intel": 18, "cash": 6, "creds": 8, "research": 4}, "make_time": 12.0,
 		"lead": "Divert new output for 60 s.", "rules": "Everything a rival host makes goes to you, its Bot stations' couriers too. They keep the host but get nothing from it. Incident response ends it."},
 	"siphon":    {"name": "Packet siphon", "short": "Siphon", "fam": "siphon", "bank": "attack", "effect": "siphon", "known": false, "dur": 30.0, "cargo": 30,
 		"make": {"bots": 0, "intel": 20, "cash": 6, "creds": 6, "research": 5}, "make_time": 12.0,
-		"lead": "Divert up to 30 couriers in 30 s.", "rules": "Pick a resource. Its couriers leaving or passing this host come to you instead. Best on a junction their supply line must cross. Courier cover protects cargo."},
-	"vault":     {"name": "Vault raid", "short": "Vault", "fam": "vault", "bank": "attack", "effect": "vault", "known": false, "exec": 10.0, "cargo": 80, "cargo_pct": 0.34, "cargo_min": 10,
+		"lead": "Hijack couriers crossing a host.", "rules": "Pick a resource. For 30 s, their couriers carrying it that leave or pass this host bring it to you instead, up to 30. Best on a host their deliveries cross. Courier cover protects cargo."},
+	"vault":     {"name": "Vault raid", "short": "Vault", "fam": "vault", "bank": "attack", "effect": "vault", "known": false, "exec": 10.0, "cargo": 30, "reach": 3,
 		"make": {"bots": 0, "intel": 24, "cash": 0, "creds": 10, "research": 8}, "make_time": 16.0,
-		"lead": "Steal a third of their Crypto.", "rules": "Raids a rival's main node for 10 s. Takes a third of their stored Crypto, from 10 up to 80. Each unit rides home on one of your Bots. Patch or a lost route stops it."},
-	"ddos":      {"name": "DDoS", "short": "DDoS", "fam": "dos", "bank": "attack", "effect": "ddos", "known": false, "dur": 45.0,
+		"lead": "Empty the storage of 3 linked hosts.", "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Each unit rides home on one of your Bots. A Patch stops it."},
+	"ddos":      {"name": "DDoS", "short": "DDoS", "fam": "dos", "bank": "attack", "effect": "ddos", "known": false, "dur": 45.0, "reach": 3,
 		"make": {"bots": 0, "intel": 34, "cash": 14, "creds": 0, "research": 5}, "make_time": 14.0,
-		"lead": "Halt a host's output for 45 s.", "rules": "Stops its producers, main-node income and outgoing couriers. Incoming cargo still arrives. Traffic filter clears it."},
-	"zeroday":   {"name": "0day", "short": "0day", "fam": "zeroday", "bank": "attack", "effect": "capture", "known": false, "sec_max": 3, "exec": 10.0, "exec_rig": 16.0,
-		"make": {"bots": 0, "intel": 40, "cash": 18, "creds": 14, "research": 30}, "make_time": 26.0,
-		"lead": "Capture one host up to security 3.", "rules": "Travels, then executes for 10 s. On an active rival main node it executes for 16 s, with a countdown they can see. Patch or a lost route stops it."},
-	"worm":      {"name": "Worm", "short": "Worm", "fam": "worm", "bank": "attack", "effect": "worm", "known": false, "sec_max": 1, "exec": 5.0, "reach": 3,
-		"make": {"bots": 0, "intel": 36, "cash": 12, "creds": 24, "research": 12}, "make_time": 22.0,
-		"lead": "Capture up to 3 linked hosts.", "rules": "Takes adjacent visible security-1 hosts of one owner. Only the first needs a route; each capture opens the next. Each takes 5 s; Patch or a change stops the chain."},
+		"lead": "Halt 3 hosts' output for 45 s.", "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing couriers; incoming cargo still arrives. Traffic filter clears it."},
+	"zeroday":   {"name": "0day", "short": "0day", "fam": "zeroday", "bank": "attack", "effect": "capture", "known": false, "sec_max": 3, "exec": 7.0, "exec_rig": 15.0, "chance": 0.5,
+		"make": {"bots": 0, "intel": 16, "cash": 12, "creds": 12, "research": 16}, "make_time": 26.0,
+		"lead": "Capture up to security 3, 50% chance.", "rules": "Travels, then executes for 7 s, or 15 s on a rival main node with a countdown they see. Then it takes the host one time in two. A Patch or a lost route stops it."},
+	"worm":      {"name": "Worm", "short": "Worm", "fam": "worm", "bank": "attack", "effect": "worm", "known": false, "sec_max": 2, "exec": 10.0, "chance": 0.25, "reach": 3,
+		"make": {"bots": 0, "intel": 24, "cash": 0, "creds": 0, "research": 24}, "make_time": 22.0,
+		"lead": "Known exploit on 3 linked hosts.", "rules": "Tries up to 3 linked hosts of one owner, security 2 or less. Each gets 10 s and a 25% roll; a miss does not stop it. Only the first needs a route. A Patch stops the chain."},
 	"sabotage":  {"name": "Supply-chain sabotage", "short": "Sabotage", "fam": "supply", "bank": "attack", "effect": "sabotage", "known": false, "dur": 60.0, "reach": 3,
 		"make": {"bots": 0, "intel": 36, "cash": 12, "creds": 8, "research": 14}, "make_time": 22.0,
 		"lead": "Shut producers on 3 hosts for 60 s.", "rules": "Hits the target and up to 2 adjacent hosts of its owner. Routing and dispatch keep working. Incident response clears it."},

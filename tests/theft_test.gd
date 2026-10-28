@@ -1,6 +1,6 @@
 extends SceneTree
 ## Theft must arrive: Phishing, Packet siphon and Vault raid bring their loot home through your own network,
-## in the amounts the cards promise, from targets that are not next to your main node.
+## in the amounts the cards promise, from targets that are not next to your main node. DDoS hits three hosts.
 ## godot --headless --path . --script tests/theft_test.gd
 var g
 var P := 1
@@ -72,6 +72,7 @@ func run() -> void:
 	phishing()
 	siphon()
 	vault()
+	ddos()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -105,19 +106,42 @@ func siphon() -> void:
 	check(float(g.bank[P].bots) >= bots_before + secs * float(g.MAIN_INCOME) - 1.0, "siphon: the diverted couriers are theirs, not yours")
 
 
-func vault() -> void:
+func vault() -> void:   # Vault raid empties the storage of the target and its 2 nearest linked hosts of that owner
 	fresh()
-	var home: int = int(g.rig[R])
-	reach(home)
-	g.bank[R].cash = 200.0
+	var v := rival_outpost(); reach(v)
+	g._set_builds(v, [])
+	g.bot_reserve[R] = 999   # their couriers stay home, so what is stored stays put until the raid
+	var chain: Array = g._chain_hosts(v, int(g.CARDS.vault.reach), R)
+	var put := 0
+	for h in chain:
+		if int(h) == int(g.rig[R]): continue   # the main node keeps its output in the bank, not in storage
+		g.hosts[int(h)].store = {R: {"intel": 5.0, "cash": 4.0}}
+		put += 9
 	g.cards[P] = {"vault": 1}
-	check(g._can_play(P, "vault", home) == "", "vault: playable on the rival main node (%s)" % g._can_play(P, "vault", home))
-	g._play_card(P, "vault", home)
-	var secs := 60.0   # 10 s of raid, then a long convoy queues through the links home
+	check(g._can_play(P, "vault", v) == "", "vault: playable on a rival host that is not a main node (%s)" % g._can_play(P, "vault", v))
+	check(put >= 9, "vault: there is storage to raid (%d units on %d hosts)" % [put, chain.size()])
+	g._play_card(P, "vault", v)
+	var secs := 50.0
 	step(secs)
-	var card: Dictionary = g.CARDS.vault
-	var promised := float(mini(int(card.get("cargo", 8)), maxi(int(200.0 * float(card.get("cargo_pct", 0.0))), int(card.get("cargo_min", 0)))))
-	var stolen: float = float(g.bank[P].cash) - secs * float(g.MAIN_INCOME)
-	check(promised >= 40.0, "vault: a 200-Crypto bank is worth a real raid (%.0f promised)" % promised)
-	check(stolen >= promised - 2.0, "vault: the loot reaches you (%.0f of %.0f Crypto)" % [stolen, promised])
-	check(float(g.bank[R].cash) <= 200.0 + secs * float(g.MAIN_INCOME) - promised + 2.0, "vault: the rival loses it (%.0f left)" % float(g.bank[R].cash))
+	var stolen: float = float(g.bank[P].intel) + float(g.bank[P].cash) - 2.0 * secs * float(g.MAIN_INCOME)
+	var promised := mini(put, int(g.CARDS.vault.cargo))
+	check(stolen >= float(promised) - 1.0, "vault: the storage reaches you (%.0f of %d units)" % [stolen, promised])
+	var left := 0.0
+	for h in chain: left += g._store_total(int(h))
+	check(left < 1.0, "vault: their storage on those hosts is empty (%.0f left)" % left)
+
+
+func ddos() -> void:   # DDoS takes down the target and its owner's 2 nearest hosts at once
+	fresh()
+	var v := rival_outpost(); reach(v)
+	var n := 0
+	for i in g.hosts.size():   # make sure the rival has at least three hosts
+		if int(g.hosts[i].owner) == R: n += 1
+	for i in g.hosts.size():
+		if n >= 4: break
+		if int(g.hosts[i].owner) == g.NEUTRAL and g.hosts[int(g.rig[R])].links.has(i): g._capture(i, R); n += 1
+	var hit: Array = g._nearest_of_owner(v, int(g.CARDS.ddos.reach))
+	g._op_land(P, "ddos", v, int(g.hosts[v].gen), {"id": 9200})
+	var down := 0
+	for h in hit: down += 1 if g._ddos_down(int(h)) else 0
+	check(hit.size() == 3 and down == 3, "ddos: the target and its owner's 2 nearest hosts all go down (%d of %d)" % [down, hit.size()])

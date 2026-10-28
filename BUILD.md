@@ -239,7 +239,10 @@ Operations (cards do all the fighting; `cards.gd` `CARDS`, resolved in `_play_ca
 flight** from your main node along a route through your own network to the target
 (`_attack_route` / `_op_reachable` — you must own a path toward it). Capture and raid cards
 then **execute** on arrival for the card's `exec` seconds before they resolve
-(`_execs`); a lost route, a changed owner, or a defender's Patch can stop them mid-execution.
+(`_execs`); a lost route, a changed owner, or a defender's Patch can stop them mid-execution. A capture
+that runs to the end then succeeds with its card's `chance` (`_capture_try`): the draw (`_capture_roll`) is a
+hash of the town seed and the intrusion, so every lockstep screen rolls alike; the guided campaign
+chapters always succeed, and tests can force it with `capture_luck`. A miss spends the card.
 Support (DEFENCE) cards apply locally and instantly to one of your hosts.
 
 The ten ATTACK/information recipes: **Recon**, **Credential breach**, **Known exploit**,
