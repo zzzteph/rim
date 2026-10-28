@@ -68,6 +68,7 @@ func run() -> void:
 	research_unlock()
 	manufacture_into_inventory()
 	security_and_firewall()
+	recon_and_worm()
 	capture_end_to_end()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
@@ -191,6 +192,28 @@ func security_and_firewall() -> void:
 	check(not bool(g.hosts[n].fw_on), "Without Intel on its host the Firewall switches off")
 	g._op_land(R, "ddos", n, int(g.hosts[n].gen), {"id": 9003})
 	check(g._ddos_down(n) and (g.hosts[n].sockets as Array).has("filter"), "A switched-off Firewall does not fire: the DDoS lands, the Filter waits")
+
+
+func recon_and_worm() -> void:
+	fresh()
+	var R: int = g.RIVAL
+	var home: int = int(g.rig[P])
+	var soft := []   # two neutral neighbours of your main node, made security-1
+	for nb in g.hosts[home].links:
+		if int(g.hosts[int(nb)].owner) == g.NEUTRAL and soft.size() < 2:
+			g.hosts[int(nb)].type = "iot"; soft.append(int(nb))
+	g.hosts[soft[1]].owner = R; g.hosts[soft[1]].gen += 1
+	g._set_builds(soft[1], ["intel"])
+	g._refresh_sight()
+	check(g._worm_next(P, home, R) == soft[1], "Worm: the chain only moves to hosts of the first target's owner")
+	check(g._worm_next(P, home, R) != soft[0], "Worm: a neutral soft host next to the chain is skipped")
+	check(not g._scanned(P, soft[1]), "Recon: a rival host's slots are hidden before a scan")
+	g._op_land(P, "recon", soft[1], int(g.hosts[soft[1]].gen), {"id": 9100})
+	check(g._scanned(P, soft[1]) and g._seen_build(P, soft[1], 0) == "intel", "Recon: the scan shows what the host holds")
+	g._set_builds(soft[1], ["cash"])
+	check(g._seen_build(P, soft[1], 0) == "intel", "Recon: you see the snapshot, not later changes")
+	step(float(g.CARDS.recon.dur) + 1.0)
+	check(not g._scanned(P, soft[1]), "Recon: the view expires after %d s" % int(g.CARDS.recon.dur))
 
 
 func capture_end_to_end() -> void:

@@ -773,10 +773,16 @@ func _has_firewall(i: int) -> bool: return (hosts[i].builds as Array).has("wall"
 
 
 # ---- Recon: a dated snapshot of a foreign host's installations + buffers; your own hosts are always "known" ----
-func _scanned(fac: int, t: int) -> bool:   # you know this host's contents (own, or a fresh-enough Recon)
+func _scanned(fac: int, t: int) -> bool:   # you know this host's contents (own, or a Recon still fresh)
 	if t < 0 or fac == NEUTRAL: return false
 	if int(hosts[t].owner) == fac: return true
-	return (recon.get(fac, {}) as Dictionary).has(t)
+	return _recon_fresh(fac, t)
+
+
+func _seen_build(fac: int, t: int, slot: int) -> String:   # what a slot held when you last scanned it (your own: what it holds)
+	if int(hosts[t].owner) == fac: return str(hosts[t].builds[slot])
+	var seen: Array = ((recon.get(fac, {}) as Dictionary).get(t, {}) as Dictionary).get("builds", [])
+	return str(seen[slot]) if slot < seen.size() else ""
 
 
 func _recon_fresh(fac: int, t: int) -> bool:   # a Recon snapshot within its 30 s freshness window
@@ -1883,8 +1889,9 @@ func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void
 	if _eliminated.has(fac) or not CARDS.has(recipe) or t < 0: return
 	if int(hosts[t].gen) != gen and gen >= 0: return   # the host changed hands in transit
 	var eff := str(CARDS[recipe].effect)
-	hosts[t].hit_t = _t
-	_fx.append({"host": t, "until": _t + 2.0, "col": fcol(fac)})
+	if eff != "recon":   # a scan is quiet: no red frame, no pulse on the target
+		hosts[t].hit_t = _t
+		_fx.append({"host": t, "until": _t + 2.0, "col": fcol(fac)})
 	var what := str(CARDS[recipe].name)
 	match eff:
 		"recon": _mark_scanned(fac, t)
@@ -1906,7 +1913,7 @@ func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void
 			var exec_s := float(CARDS[recipe].get("exec", 8.0))
 			if eff == "worm": exec_s = float(CARDS[recipe].exec)
 			if eff == "capture" and bool(hosts[t].get("rig", false)): exec_s = float(CARDS[recipe].get("exec_rig", exec_s))
-			_start_exec({"id": int(f.id), "fac": fac, "card": recipe, "effect": eff, "target": t, "gen": int(hosts[t].gen), "ends": _t + exec_s, "stage": 1})
+			_start_exec({"id": int(f.id), "fac": fac, "card": recipe, "effect": eff, "target": t, "gen": int(hosts[t].gen), "ends": _t + exec_s, "stage": 1, "victim": int(hosts[t].owner)})
 	if fac == PLAYER or _mine(t): _refresh_panel()
 
 
@@ -1945,8 +1952,8 @@ func _tick_execs() -> void:
 			if _security(t) <= 1 and _op_reachable(fac, t):
 				_capture(t, fac)
 				if int(e.stage) < int(CARDS.worm.reach):   # advance to the next eligible neighbour
-					var nxt := _worm_next(fac, t)
-					if nxt >= 0: _start_exec({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + float(CARDS.worm.exec), "stage": int(e.stage) + 1}, still)
+					var nxt := _worm_next(fac, t, int(e.get("victim", NEUTRAL)))
+					if nxt >= 0: _start_exec({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + float(CARDS.worm.exec), "stage": int(e.stage) + 1, "victim": int(e.get("victim", NEUTRAL))}, still)
 		else:   # capture family
 			if _security(t) <= int(CARDS[str(e.card)].get("sec_max", 3)) and _op_reachable(fac, t):
 				_capture(t, fac)
@@ -1965,11 +1972,11 @@ func _start_exec(e: Dictionary, into = null) -> void:   # an intrusion begins: a
 	else: _execs.append(e)
 
 
-func _worm_next(fac: int, from: int) -> int:
+func _worm_next(fac: int, from: int, victim: int) -> int:   # the nearest visible security-1 host of the same owner as the first target
 	var best := -1; var bd := INF
 	for nb in hosts[from].links:
 		var n := int(nb)
-		if int(hosts[n].owner) == fac or _security(n) > 1 or not _visible_to(fac, n): continue
+		if int(hosts[n].owner) != victim or int(hosts[n].owner) == fac or _security(n) > 1 or not _visible_to(fac, n): continue
 		var d := (hosts[from].pos as Vector2).distance_to(hosts[n].pos)
 		if d < bd or (d == bd and n < best): bd = d; best = n
 	return best
@@ -6581,7 +6588,7 @@ class PeekSlot extends Control:   # read-only view of ONE slot of a building you
 			var baseline := size.y * 0.5 + (f.get_ascent(26) - f.get_descent(26)) * 0.5
 			game._text(self, f, Vector2(0, baseline), "?", 26, Color(0.5, 0.6, 0.75, 0.7), size.x, HORIZONTAL_ALIGNMENT_CENTER)
 			return
-		var kind := str(game.hosts[host].builds[slot])
+		var kind: String = game._seen_build(game.PLAYER, host, slot)   # the Recon snapshot, not the live host
 		if kind == "":
 			draw_line(size * 0.5 - Vector2(7, 0), size * 0.5 + Vector2(7, 0), Color(0.5, 0.58, 0.7), 2)
 		else:
