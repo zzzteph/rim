@@ -88,6 +88,7 @@ godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn,
 godot --headless --path . --script tests/objective_test.gd   # the majority objective: one source, HUD lines, hold countdown and reset
 godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
 godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
+godot --headless --path . --script tests/preview_test.gd     # target preview: legality, route/arrival, execution, fog-safe areas, dated Recon
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -158,6 +159,14 @@ fix. `_route_eta` reports hops, travel and the queueing a packet leaving now wou
 capacity; `_host_delivered` reads the ledger's per-host "from" entries. On the map the selected host's links you
 can see, its route home (green, chevrons pointing home) and a tag with hops and time are drawn; a host with no
 route home rings its cut-off segment (`_cut_off`) in red. None of this changes the simulation.
+
+Target preview (Milestone A). `_target_preview(fac, card, host)` says, before anything is spent: whether the card can
+launch and why not (`_can_play`), the security tier and eligibility, the route from the main node with arrival time
+and queueing, the execution time and what stops it, the hosts an area or chain effect would hit as far as the player
+can see (`_preview_nearest`, `_preview_chain` — never hosts out of sight), the Worm's next stage (`_worm_next`),
+public defences (an armed Patch, a Filter) and the last Recon snapshot with its age (`_known_defences`; loaded
+sockets are never read live). The foreign host's panel shows it with the verdict beside Launch; while a card is
+dragged over a host the same preview follows the cursor (`_paint_drag_preview`). The card is used only on launch.
 
 Cards are **researched once, then manufactured**. A blueprint is learned in the single
 research slot (`_do_research`/`_tick_research`, cost + time in `cards.gd` `RESEARCH`); five

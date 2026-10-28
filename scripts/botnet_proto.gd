@@ -1960,6 +1960,180 @@ func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, els
 	return ""
 
 
+# ---- target preview (Milestone A, brief §12.2): what launching this card here would do, from what you can know ----
+# It only reads: legality, security, route and travel, the execution and what stops it, the hosts an area or chain
+# effect would hit as far as you can see, and defences that are public or in a dated Recon snapshot.
+func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag := false) -> Dictionary:   # {ok, why, lines [[text, colour]]}
+	var recipe := _card_of(key)
+	var lines := []
+	if not CARDS.has(recipe) or not _host_ok(t): return {"ok": false, "why": "no target", "lines": lines}
+	var card: Dictionary = CARDS[recipe]
+	var why := _can_play(fac, key, t)
+	if why == "": lines.append(["Ready: %s on %s." % [str(card.name), str(hosts[t].name)], C_GOOD])
+	else: lines.append(["Cannot launch: %s." % why, C_BAD])
+	if _is_defense(recipe):
+		lines.append_array(_support_preview(recipe, t))
+		return {"ok": why == "", "why": why, "lines": lines}
+	var eff := str(card.effect)
+	var sec := _security(t)
+	if eff in ["capture", "worm"]:
+		var reach := int(card.get("sec_max", 3))
+		lines.append(["Security %d · %s reaches %d: %s." % [sec, str(card.short), reach, "eligible" if sec <= reach else "not eligible"], C_DIM if sec <= reach else C_BAD])
+	else: lines.append(["Security %d does not limit %s." % [sec, str(card.name)], C_DIM])
+	var rt := _attack_route(fac, t)
+	var arrive := 0.0
+	if rt.is_empty(): lines.append(["Route: none from your main node.", C_BAD])
+	else:
+		var eta := _route_eta(rt)
+		arrive = float(eta.travel) + float(eta.wait)
+		var s := "Route: %d hop%s from your main node, arrives in ~%.1f s" % [int(eta.hops), "" if int(eta.hops) == 1 else "s", arrive]
+		if float(eta.wait) >= 0.1: s += " (%.1f s of it queueing)" % float(eta.wait)
+		lines.append([s + ".", C_DIM])
+	var owner_name := fname(int(hosts[t].owner)) if int(hosts[t].owner) != NEUTRAL else "neutral"
+	var ex := float(card.get("exec", 0.0))
+	if eff == "capture" and bool(hosts[t].get("rig", false)): ex = float(card.get("exec_rig", ex))
+	match eff:
+		"capture": lines.append(["Then executes for %d s. It captures the host unless a Patch, a lost route or a change of owner stops it first." % int(ex), C_TEXT])
+		"worm":
+			lines.append(["Then executes for %d s. After a capture it moves on to the nearest linked %s host you can see (%d hosts in all); a Patch or a lost route ends the chain." % [int(ex), owner_name, int(card.reach)], C_TEXT])
+			var nxt := _worm_next(fac, t, int(hosts[t].owner), [t])
+			lines.append(["Next if it captures: %s." % (str(hosts[nxt].name) if nxt >= 0 else "no eligible host in sight"), C_DIM])
+		"vault":
+			lines.append(["Then executes for %d s and empties up to %d units from this host and its owner's linked hosts; your spare Bots carry them home." % [int(ex), int(card.cargo)], C_TEXT])
+			lines.append(["Would raid, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
+			lines.append(["Spare Bots to carry loot right now: %d." % int(floor(maxf(0.0, _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT))))), C_DIM])
+		"phish":
+			lines.append(["On arrival, what this host makes goes to you for %d s. Incident response ends it." % int(card.dur), C_TEXT])
+			lines.append([_recon_production(fac, t), C_DIM])
+		"ddos":
+			lines.append(["On arrival, production and routing stop for %d s on this host and the %d %s hosts nearest to it." % [int(card.dur), int(card.reach) - 1, owner_name], C_TEXT])
+			lines.append(["Would hit, as far as you can see: %s." % _names(_preview_nearest(fac, t, int(card.reach))), C_DIM])
+		"sabotage":
+			lines.append(["On arrival, producers stop for %d s on this host and up to %d linked %s hosts, nearest first." % [int(card.dur), int(card.reach) - 1, owner_name], C_TEXT])
+			lines.append(["Would hit, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
+		"siphon":
+			var res := siphon_res if RES.has(siphon_res) and siphon_res != "bots" else "cash"
+			lines.append(["On arrival, for %d s, up to %d %s couriers leaving or passing this host turn toward your main node." % [int(card.dur), int(card.cargo), RES_NAME[res]], C_TEXT])
+			if by_drag: lines.append(["A drag takes Crypto; choose another resource in the host's panel.", C_DIM])
+		"recon": lines.append(["On arrival, shows its installations, storage and Firewall cards; the snapshot is fresh for %d s." % int(card.dur), C_TEXT])
+	lines.append_array(_known_defences(fac, t, eff, arrive + ex))
+	lines.append(["The card is used only when you launch it.", C_DIM])
+	return {"ok": why == "", "why": why, "lines": lines}
+
+
+func _support_preview(recipe: String, t: int) -> Array:   # a defence card on your own host: loaded into a socket, or used now
+	var out := []
+	if _socketable(recipe) and _socket_free(t) and not _trigger_now(recipe, t):
+		out.append(["Loads into the Firewall here; it fires when %s." % str(SOCKET_TRIGGER[recipe]), C_TEXT])
+	else: out.append(["Takes effect at once: %s" % str(CARDS[recipe].get("lead", CARDS[recipe].rules)), C_TEXT])
+	out.append(["The card is used only when you play it.", C_DIM])
+	return out
+
+
+func _preview_nearest(fac: int, t: int, n: int) -> Array:   # DDoS: t and the n-1 hosts of its owner nearest to it, among those fac can see
+	var out := [t]
+	var owner := int(hosts[t].owner)
+	if owner == NEUTRAL or n <= 1: return out
+	var others := []
+	for i in hosts.size():
+		if i != t and int(hosts[i].owner) == owner and _visible_to(fac, i): others.append([(hosts[t].pos as Vector2).distance_to(hosts[i].pos), i])
+	others.sort_custom(func(a, b): return float(a[0]) < float(b[0]) if float(a[0]) != float(b[0]) else int(a[1]) < int(b[1]))
+	for k in mini(n - 1, others.size()): out.append(int(others[k][1]))
+	return out
+
+
+func _preview_chain(fac: int, t: int, reach: int) -> Array:   # Sabotage / Vault: the chain of linked same-owner hosts, through hosts fac can see
+	var owner := int(hosts[t].owner)
+	var hit := [t]; var seen := {t: true}; var current := t
+	while hit.size() < reach:
+		var best := -1; var bd := INF
+		for nb in hosts[current].links:
+			var n := int(nb)
+			if seen.has(n) or int(hosts[n].owner) != owner or not _visible_to(fac, n): continue
+			var d := (hosts[current].pos as Vector2).distance_to(hosts[n].pos)
+			if d < bd or (d == bd and n < best): bd = d; best = n
+		if best < 0: break
+		hit.append(best); seen[best] = true; current = best
+	return hit
+
+
+func _recon_production(fac: int, t: int) -> String:   # Phishing: what a dated Recon showed this host making, never live contents
+	var rec: Dictionary = (recon.get(fac, {}) as Dictionary).get(t, {})
+	if rec.is_empty(): return "Its production is unknown without Recon."
+	var kinds := []
+	for b in (rec.get("builds", []) as Array):
+		if str(b) in PRODUCER_KINDS: kinds.append(str(BUILD_KINDS[str(b)].name))
+	var age := _ago(float(rec.get("at", _t)))
+	if kinds.is_empty(): return "Recon %d s ago: no producers." % age
+	return "Recon %d s ago: %s." % [age, ", ".join(kinds)]
+
+
+func _ago(at: float) -> int: return int(floor(_t - at + 0.001))   # whole seconds since `at`, steady against step rounding
+
+
+const COUNTER_OF := {"capture": "patch", "worm": "patch", "vault": "patch", "phish": "response", "sabotage": "response", "siphon": "response", "ddos": "filter"}
+
+
+func _known_defences(fac: int, t: int, eff: String, resolve_in: float) -> Array:   # public effects and the last Recon, dated
+	var out := []
+	var armed := float(hosts[t].get("patch_armed_until", 0.0)) - _t
+	if eff in ["capture", "worm", "vault"] and armed > 0.0:   # an armed Patch is shown on the map
+		out.append(["Patch armed here for %d s: an intrusion ending while it is armed is stopped (yours would end in ~%d s)." % [int(ceil(armed)), int(ceil(resolve_in))], C_WARN])
+	if eff == "ddos" and float(hosts[t].get("filter_until", 0.0)) > _t:
+		out.append(["Filter active here for %d s: the flood is absorbed on this host." % int(ceil(float(hosts[t].filter_until) - _t)), C_WARN])
+	if eff == "recon": return out
+	var rec: Dictionary = (recon.get(fac, {}) as Dictionary).get(t, {})
+	if rec.is_empty():
+		out.append(["Defences unknown: no Recon on this host.", C_DIM])
+		return out
+	var age := _ago(float(rec.get("at", _t)))
+	var stale := "" if _recon_fresh(fac, t) else " (out of date)"
+	if not (rec.get("builds", []) as Array).has("wall"):
+		out.append(["Recon %d s ago%s: no Firewall." % [age, stale], C_DIM])
+		return out
+	var socks := []
+	for r in (rec.get("sockets", []) as Array): socks.append(str(CARDS[str(r)].name))
+	var counter := str(COUNTER_OF.get(eff, ""))
+	var hit := counter != "" and (rec.get("sockets", []) as Array).has(counter)
+	out.append(["Recon %d s ago%s: Firewall holding %s%s" % [age, stale, ", ".join(socks) if not socks.is_empty() else "nothing",
+		(" — its %s would fire against this card." % str(CARDS[counter].name)) if hit else "."], C_WARN if hit else C_DIM])
+	return out
+
+
+func _wrap_text(f: Font, s: String, fs: int, width: float) -> Array:   # words into lines no wider than width
+	var out := []; var cur := ""
+	for word in s.split(" "):
+		var next := word if cur == "" else cur + " " + word
+		if cur != "" and _text_w(f, next, fs) > width: out.append(cur); cur = word
+		else: cur = next
+	if cur != "": out.append(cur)
+	return out
+
+
+const PREVIEW_W := 360.0
+func _paint_drag_preview(f: Font) -> void:   # screen space: the preview beside the cursor while a card is held over a host
+	var dk := _dragged_card()
+	if dk == "": return
+	var mouse := get_local_mouse_position()
+	var t := _host_at(mouse)
+	if t < 0: return
+	var pv := _target_preview(PLAYER, dk, t, "", true)
+	var rows := []   # [text, colour]
+	for l in pv.lines:
+		for w in _wrap_text(f, str(l[0]), 13, PREVIEW_W - 20.0): rows.append([w, l[1]])
+	var h := 12.0 + 18.0 * rows.size()
+	var area := _map_rect().grow(-6.0)
+	var pos := mouse + Vector2(24.0, 16.0)
+	if pos.x + PREVIEW_W > area.end.x: pos.x = mouse.x - 24.0 - PREVIEW_W
+	pos = pos.clamp(area.position, area.end - Vector2(PREVIEW_W, h))
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var box := Rect2(pos, Vector2(PREVIEW_W, h))
+	_cv.draw_rect(box, Color(0.03, 0.05, 0.08, 0.94), true)
+	_cv.draw_rect(box, C_GOOD if bool(pv.ok) else C_BAD, false, 1.5)
+	for k in rows.size(): _text(_cv, f, pos + Vector2(10.0, 20.0 + 18.0 * k), str(rows[k][0]), 13, rows[k][1])
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
+
+
 func _intrusion_busy(fac: int, t: int) -> bool:
 	for f in flights:
 		if str(f.kind) == "op" and int(f.owner) == fac and int(f.get("target", -1)) == t and str(CARDS[str(f.get("card", ""))].effect) in ["capture", "worm", "vault"]: return true
@@ -5517,9 +5691,10 @@ func _panel_node_in(t: int) -> void:   # the attack launcher on a foreign host's
 			for res in ["intel", "cash", "creds", "research"]:
 				srow.append([RES_NAME[res], func(rr = res): _chosen_siphon_res = rr; _refresh_panel(), _chosen_siphon_res != res])
 			_plabel("Siphon resource", 12, C_DIM); _btn_row(srow)
+		var pv := _target_preview(PLAYER, _chosen_attack, t, _chosen_siphon_res)   # the verdict beside the button, the details under it
+		_plabel(str(pv.lines[0][0]), 12, pv.lines[0][1])
 		_action_button("Launch", func(): _cmd(["card", _chosen_attack, t, _chosen_siphon_res]), null, why == "")
-		if why != "": _plabel(why.capitalize(), 12, C_WARN)
-		else: _plabel(str(CARDS[_chosen_attack].rules), 12, C_DIM)
+		for line in (pv.lines as Array).slice(1): _plabel(str(line[0]), 12, line[1])
 
 
 func _cycle_assault_pct() -> void: pass
@@ -5960,6 +6135,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.08), true)
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
 	_paint_route_tag(f)
+	_paint_drag_preview(f)
 	if _camp: _paint_camp_guide(f)
 
 
