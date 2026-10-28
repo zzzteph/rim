@@ -103,7 +103,7 @@ ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 4px; max-width: 80
 <header class="intro">
   <h1>RIM rules reference</h1>
   <p>The whole design of RIM as the game runs it today: how a match flows, how the map and hosts work, every economic formula, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers and every constant for analysis.</p>
-  <p class="meta">RIM 0.4.0 · branch claude/amazing-einstein-jc1hrr · commit 587db90 · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
+  <p class="meta">RIM 0.5.0-a · branch claude/amazing-einstein-jc1hrr · commit d877dca · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
   <nav class="toc" aria-label="Contents">
     <div><b>Flow</b><a href="#overview">Overview and core loop</a><a href="#flow">Match flow</a><a href="#time">Time model</a></div>
     <div><b>World</b><a href="#map">Map and network</a><a href="#hosts">Host types</a><a href="#fog">Sight and fog</a></div>
@@ -133,7 +133,7 @@ flowchart LR
   P -->|"disrupt or defend"| B</pre><figcaption>The core loop. Every arrow out of a building passes through logistics: a resource can be spent only once it is home.</figcaption></figure>
   <ul class="plain">
     <li><b>Everything is delivered.</b> Output made away from the main node is worth nothing until a Bot carries it home along your own hosts.</li>
-    <li><b>Cards do all the fighting.</b> Captures have execution times and odds; theft and disruption have durations; defence answers them.</li>
+    <li><b>Cards do all the fighting.</b> Captures have execution times and succeed unless stopped; theft and disruption have durations; defence answers them.</li>
     <li><b>Timing and information.</b> Fog hides rival hosts; execution countdowns give the defender a window; a Firewall lets you decide the defence in advance.</li>
   </ul>
 </section>
@@ -161,8 +161,8 @@ flowchart LR
   <div class="tablebox"><table>
     <thead><tr><th>Phase</th><th>Typical time</th><th>What happens</th></tr></thead>
     <tbody>
-      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (10 Intel, 10 Credentials: the start bank covers it).</td></tr>
-      <tr><th>Expansion</th><td class="num">1–6 min</td><td>Breach security-1 hosts: at 25% odds, about 4 cards per host taken. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
+      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.</td></tr>
+      <tr><th>Expansion</th><td class="num">1–6 min</td><td>Breach security-1 hosts: each Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
       <tr><th>Contact</th><td class="num">5–10 min</td><td>Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.</td></tr>
       <tr><th>End game</th><td class="num">10 min +</td><td>0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
     </tbody>
@@ -183,7 +183,7 @@ flowchart LR
       <tr><th>Construction</th><td class="num">10 s (+5 s to replace)</td><td></td></tr>
       <tr><th>Research</th><td class="num">30–70 s</td><td>One at a time.</td></tr>
       <tr><th>Manufacturing</th><td class="num">3–26 s per copy</td><td>Three lanes in parallel.</td></tr>
-      <tr><th>Execution (reaction window)</th><td class="num">7–15 s</td><td>Breach 15, Known exploit 10, 0day 7 (15 on a main node), Worm 10 per host, Vault raid 10.</td></tr>
+      <tr><th>Execution (reaction window)</th><td class="num">10–15 s</td><td>Breach 15, Known exploit 12, 0day 10 (15 on a main node), Worm 12 per stage, Vault raid 10.</td></tr>
       <tr><th>Effects</th><td class="num">30–60 s</td><td>Siphon 30, DDoS 45, Phishing 60, Sabotage 60; Filter and Cover 30, Express 45; Recon view 45.</td></tr>
       <tr><th>Win hold</th><td class="num">51 s</td><td>Continuous.</td></tr>
       <tr><th>Multiplayer turn</th><td class="num">0.1 s</td><td>3 steps per turn; commands run 2 turns (0.2 s) after they are sent.</td></tr>
@@ -333,23 +333,20 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
     <div class="rule"><h4>Flight and arrival</h4>
       <p>The card flies from your main node along that path. It always arrives (the route is checked again when it resolves), unless the target changed owner on the way: then it is void. Effects (Recon, Phishing, Siphon, DDoS, Sabotage) apply on arrival. <b>Intrusions</b> (captures, Worm stages, Vault raid) start an execution countdown that the owner sees on the host.</p></div>
     <div class="rule"><h4>When an execution ends</h4>
-      <p>An armed Patch blocks it; a target that changed owner voids it; a capture with no route left fails. Otherwise a capture rolls its <b>chance</b>: a deterministic draw from the town seed and the intrusion, the same on every multiplayer screen. Success: the host is yours, wiped. Miss: the card is spent and nothing changes.</p></div>
+      <p>Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (<b>countered</b>); a target that changed owner first voids it (<b>owner changed</b>; a host can never be captured twice from the same generation); no path left fails it (<b>route failed</b>). Otherwise it is <b>captured</b>: the host is yours, wiped. There is no roll. Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.</p></div>
     <div class="rule"><h4>Defence cards</h4>
       <p>Played on one of your own hosts; they act at once, wherever the host is, even cut off or under DDoS. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket instead, unless their attack is already there.</p></div>
   </div>
   <figure><pre class="mermaid">%%{init: {'theme':'neutral'}}%%
 stateDiagram-v2
   [*] --> InFlight: card played
-  InFlight --> Void: target changed owner
+  InFlight --> OwnerChanged: target changed owner
   InFlight --> Executing: arrives (a Patch loaded in a Firewall stops it here)
-  Executing --> Blocked: Patch by hand or armed
-  Executing --> Void: target changed owner
-  Executing --> Failed: no route left
-  Executing --> Roll: countdown ends
-  Roll --> Captured: draw below the chance
-  Roll --> Missed: draw at or above the chance
-  Captured --> [*]
-  Missed --> [*]</pre><figcaption>The life of a capture card.</figcaption></figure>
+  Executing --> Countered: Patch by hand or armed
+  Executing --> OwnerChanged: target changed owner first
+  Executing --> RouteFailed: no route left
+  Executing --> Captured: countdown ends
+  Captured --> [*]</pre><figcaption>The life of a capture card.</figcaption></figure>
 </section>
 
 <section id="attack">
@@ -362,24 +359,24 @@ stateDiagram-v2
   <dl><dt>Why it exists</dt><dd>Tells you whether an expensive card will pay off: what a host holds, how full its storage is, and whether a Patch waits in its Firewall.</dd><dt>Play it when</dt><dd>Before an 0day, Vault raid, Worm or Sabotage, or to find a rival&#x27;s richest host.</dd><dt>Target</dt><dd>Any foreign host your operations can reach.</dd><dt>Timing</dt><dd>Travels, then takes effect on arrival. No execution.</dd><dt>Effect</dt><dd>Takes a snapshot of the host: what is in each slot, how full its storage is, and which cards wait in its Firewall. You see the snapshot, not later changes, for 45 s; then the slots go back to “?”.</dd><dt>Quiet</dt><dd>The target gets no red frame and no pulse. It is the only attack card that does not show.</dd><dt>Not needed for</dt><dd>Capture. Security is always public.</dd></dl>
 </article><article class="sheet attack" id="card-breach">
   <header><h3>Credential breach</h3><span class="tag attack">ATTACK</span><span class="tag">Known from the start</span></header>
-  <p class="lead">Capture security 1, 25% chance.</p>
-  <div class="price"><span class="label">Make</span><span class="chip r-intel"><b>10</b> Intel</span><span class="chip r-creds"><b>10</b> Creds</span><span class="chip time"><b>10</b> s</span><span class="wait">≈ 50 s early · 17 s mid of Credentials income</span></div>
-  <dl><dt>Why it exists</dt><dd>The way to grow: every host adds slots, and holding 51% of all hosts wins.</dd><dt>Play it when</dt><dd>Whenever security-1 hosts are in reach; neutral hosts first, as nobody defends them.</dd><dt>Target</dt><dd>A foreign host of security ≤ 1: PCs and IoT devices, neutral or a rival’s.</dd><dt>Timing</dt><dd>Travels, then executes for 15 s on the host. The owner sees “Breach executing” and has that long to react.</dd><dt>Odds</dt><dd>When execution ends it takes the host <b>25%</b> of the time. A miss spends the card and leaves the host as it was.</dd><dt>Effect</dt><dd>On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots.</dd><dt>Stopped by</dt><dd>A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile.</dd><dt>Limit</dt><dd>One capture or raid per attacker per host at a time.</dd></dl>
+  <p class="lead">Capture a security-1 host.</p>
+  <div class="price"><span class="label">Make</span><span class="chip r-intel"><b>12</b> Intel</span><span class="chip r-creds"><b>12</b> Creds</span><span class="chip time"><b>12</b> s</span><span class="wait">≈ 60 s early · 20 s mid of Credentials income</span></div>
+  <dl><dt>Why it exists</dt><dd>The way to grow: every host adds slots, and holding 51% of all hosts wins.</dd><dt>Play it when</dt><dd>Whenever security-1 hosts are in reach; neutral hosts first, as nobody defends them.</dd><dt>Target</dt><dd>A foreign host of security ≤ 1: PCs and IoT devices, neutral or a rival’s.</dd><dt>Timing</dt><dd>Travels, then executes for 15 s on the host. The owner sees “Breach executing” and has that long to react.</dd><dt>Outcome</dt><dd>When its execution ends the host is captured. Before that it can only be stopped, each way with its own message: a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>), or another owner taking it first (<b>owner changed</b>). There is no roll.</dd><dt>Effect</dt><dd>On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots.</dd><dt>Stopped by</dt><dd>A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile.</dd><dt>Limit</dt><dd>One capture or raid per attacker per host at a time.</dd></dl>
 </article><article class="sheet attack" id="card-exploit">
   <header><h3>Known exploit</h3><span class="tag attack">ATTACK</span><span class="tag">Research after Credential breach</span></header>
-  <p class="lead">Capture up to security 2, 25% chance.</p>
-  <div class="price"><span class="label">Make</span><span class="chip r-intel"><b>12</b> Intel</span><span class="chip r-research"><b>12</b> Research</span><span class="chip time"><b>14</b> s</span><span class="wait">≈ 60 s early · 30 s mid of Research income</span></div>
-  <dl><dt>Why it exists</dt><dd>Opens the first rich hosts: servers, web servers and file servers.</dd><dt>Play it when</dt><dd>When the security-1 hosts near you are gone.</dd><dt>Target</dt><dd>A foreign host of security ≤ 2: also servers, web servers and file servers.</dd><dt>Timing</dt><dd>Travels, then executes for 10 s.</dd><dt>Odds</dt><dd><b>25%</b>; a miss spends the card.</dd><dt>Effect</dt><dd>As Credential breach: the host becomes yours, wiped.</dd><dt>Stopped by</dt><dd>As Credential breach.</dd></dl>
+  <p class="lead">Capture a host up to security 2.</p>
+  <div class="price"><span class="label">Make</span><span class="chip r-intel"><b>14</b> Intel</span><span class="chip r-research"><b>12</b> Research</span><span class="chip time"><b>14</b> s</span><span class="wait">≈ 60 s early · 30 s mid of Research income</span></div>
+  <dl><dt>Why it exists</dt><dd>Opens the first rich hosts: servers, web servers and file servers.</dd><dt>Play it when</dt><dd>When the security-1 hosts near you are gone.</dd><dt>Target</dt><dd>A foreign host of security ≤ 2: also servers, web servers and file servers.</dd><dt>Timing</dt><dd>Travels, then executes for 12 s.</dd><dt>Outcome</dt><dd>As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed.</dd><dt>Effect</dt><dd>As Credential breach: the host becomes yours, wiped.</dd><dt>Stopped by</dt><dd>As Credential breach.</dd></dl>
 </article><article class="sheet attack" id="card-zeroday">
   <header><h3>0day</h3><span class="tag attack">ATTACK</span><span class="tag">Research after Known exploit</span></header>
-  <p class="lead">Capture up to security 3, 50% chance.</p>
+  <p class="lead">Capture a host up to security 3.</p>
   <div class="price"><span class="label">Make</span><span class="chip r-intel"><b>16</b> Intel</span><span class="chip r-cash"><b>12</b> Crypto</span><span class="chip r-creds"><b>12</b> Creds</span><span class="chip r-research"><b>16</b> Research</span><span class="chip time"><b>26</b> s</span><span class="wait">≈ 80 s early · 40 s mid of Research income</span></div>
-  <dl><dt>Why it exists</dt><dd>The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.</dd><dt>Play it when</dt><dd>After a Recon shows no Patch waiting, or after a cheaper card has used it up.</dd><dt>Target</dt><dd>Any foreign host (security ≤ 3): also databases, ERP systems and a rival’s active main node.</dd><dt>Timing</dt><dd>Travels, then executes for 7 s; 15 s on an active rival main node, with a countdown the owner sees.</dd><dt>Odds</dt><dd><b>50%</b>; a miss spends the card.</dd><dt>Effect</dt><dd>The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host.</dd><dt>Stopped by</dt><dd>As Credential breach.</dd></dl>
+  <dl><dt>Why it exists</dt><dd>The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.</dd><dt>Play it when</dt><dd>After a Recon shows no Patch waiting, or after a cheaper card has used it up.</dd><dt>Target</dt><dd>Any foreign host (security ≤ 3): also databases, ERP systems and a rival’s active main node.</dd><dt>Timing</dt><dd>Travels, then executes for 10 s; 15 s on an active rival main node, with a countdown the owner sees.</dd><dt>Outcome</dt><dd>As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed.</dd><dt>Effect</dt><dd>The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host.</dd><dt>Stopped by</dt><dd>As Credential breach.</dd></dl>
 </article><article class="sheet attack" id="card-worm">
   <header><h3>Worm</h3><span class="tag attack">ATTACK</span><span class="tag">Research after Known exploit</span></header>
-  <p class="lead">Known exploit on 3 linked hosts.</p>
+  <p class="lead">Known exploit on 2 linked hosts.</p>
   <div class="price"><span class="label">Make</span><span class="chip r-intel"><b>24</b> Intel</span><span class="chip r-research"><b>24</b> Research</span><span class="chip time"><b>22</b> s</span><span class="wait">≈ 120 s early · 60 s mid of Research income</span></div>
-  <dl><dt>Why it exists</dt><dd>Three Known exploits in one launch, reaching hosts behind a rival&#x27;s front line.</dd><dt>Play it when</dt><dd>When a rival holds a chain of hosts of security 2 or less.</dd><dt>Target</dt><dd>A foreign host of security ≤ 2 that your operations can reach.</dd><dt>What it is</dt><dd>Known exploit on up to 3 linked hosts, one after another.</dd><dt>Timing</dt><dd>Travels; each host gets 10 s of execution.</dd><dt>Odds</dt><dd>Each host gets its own <b>25%</b> roll. A miss does not stop the Worm: it jumps on to the nearest visible host of security ≤ 2 of the <b>same owner</b> as the first target that it has not tried yet.</dd><dt>Routes</dt><dd>Only the first host needs a route from your network; the later ones are reached through the chain.</dd><dt>Stops when</dt><dd>A Patch cancels a stage (by hand, armed, or from a Firewall on that host), no such neighbour is left, or a target changes hands.</dd></dl>
+  <dl><dt>Why it exists</dt><dd>Three Known exploits in one launch, reaching hosts behind a rival&#x27;s front line.</dd><dt>Play it when</dt><dd>When a rival holds a chain of hosts of security 2 or less.</dd><dt>Target</dt><dd>A foreign host of security ≤ 2 that your operations can reach.</dd><dt>What it is</dt><dd>Known exploit on up to 2 linked hosts, one after the other.</dd><dt>Timing</dt><dd>Travels; each stage executes for 12 s, and each can be stopped on its own.</dd><dt>Chain</dt><dd>Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target and has security ≤ 2. It never jumps to another owner.</dd><dt>Stops when</dt><dd>A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured.</dd></dl>
 </article><article class="sheet attack" id="card-phish">
   <header><h3>Phishing</h3><span class="tag attack">ATTACK</span><span class="tag">Known from the start</span></header>
   <p class="lead">Divert new output for 60 s.</p>
@@ -464,8 +461,8 @@ stateDiagram-v2
   <div class="tablebox"><table>
     <thead><tr><th>Attack</th><th>By hand</th><th>Loaded in a Firewall</th><th>Other answers</th></tr></thead>
     <tbody>
-      <tr><th>Breach · Known exploit · 0day</th><td>Patch during execution</td><td>Patch: stopped as it starts</td><td>cut the attacker's route; the odds</td></tr>
-      <tr><th>Worm</th><td>Patch on the host it is executing on</td><td>Patch on any chain host</td><td>the odds</td></tr>
+      <tr><th>Breach · Known exploit · 0day</th><td>Patch during execution</td><td>Patch: stopped as it starts</td><td>cut the attacker's route; take the host first</td></tr>
+      <tr><th>Worm</th><td>Patch on the host it is executing on</td><td>Patch on either chain host</td><td>cut its route</td></tr>
       <tr><th>Vault raid</th><td>Patch on the target</td><td>Patch on the target</td><td>keep storage empty (Bot stations, spare couriers)</td></tr>
       <tr><th>Phishing</th><td>Incident response</td><td>Response: ends it on landing</td><td></td></tr>
       <tr><th>Packet siphon</th><td>Response on the siphoned host; Cover on the sending hosts</td><td>Response or Cover</td><td>Express route; route around it</td></tr>
@@ -542,7 +539,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
   2  construction jobs advance and finish
   3  research advances (paying as it goes)
   4  manufacturing lanes advance; pending copies start if affordable
-  5  intrusions whose countdown ended resolve, earliest first (Patch, owner and route checks, then the roll)
+  5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
   6  production: main-node trickle; each host's 5-s cycle when its phase comes round
   7  dispatch: bank couriers for what waits in storage
   8  Packet siphons turn couriers leaving or passing their host
@@ -562,15 +559,15 @@ losing your main node = elimination: your bank, cards, research and flights are 
     </tbody>
   </table></div>
   <p class="meta">per minute; the trickle is included</p>
-  <h3>Expected price of one captured host</h3>
+  <h3>What a capture costs</h3>
   <div class="tablebox"><table>
-    <thead><tr><th>Card</th><th>Price per copy</th><th>Chance</th><th>Copies per host</th><th>Expected price per host</th><th>Early · mid seconds per host</th></tr></thead>
-    <tbody><tr><th>Credential breach</th><td class='nowrap'><span class="chip r-intel"><b>10</b> Intel</span><span class="chip r-creds"><b>10</b> Creds</span></td><td class='num'>25%</td><td class='num'>4.00</td><td class='num'>80 units</td><td class='num'>200 s · 67 s</td></tr><tr><th>Known exploit</th><td class='nowrap'><span class="chip r-intel"><b>12</b> Intel</span><span class="chip r-research"><b>12</b> Research</span></td><td class='num'>25%</td><td class='num'>4.00</td><td class='num'>96 units</td><td class='num'>240 s · 120 s</td></tr><tr><th>0day</th><td class='nowrap'><span class="chip r-intel"><b>16</b> Intel</span><span class="chip r-cash"><b>12</b> Crypto</span><span class="chip r-creds"><b>12</b> Creds</span><span class="chip r-research"><b>16</b> Research</span></td><td class='num'>50%</td><td class='num'>2.00</td><td class='num'>112 units</td><td class='num'>160 s · 80 s</td></tr><tr><th>Worm</th><td class='nowrap'><span class="chip r-intel"><b>24</b> Intel</span><span class="chip r-research"><b>24</b> Research</span></td><td class='num'>25% (3 tries per card)</td><td class='num'>1.33</td><td class='num'>64 units</td><td class='num'>160 s · 80 s</td></tr></tbody>
+    <thead><tr><th>Card</th><th>Price per copy</th><th>Make</th><th>Execution (reaction window)</th><th>Early · mid seconds of income</th></tr></thead>
+    <tbody><tr><th>Credential breach</th><td class='nowrap'><span class="chip r-intel"><b>12</b> Intel</span><span class="chip r-creds"><b>12</b> Creds</span></td><td class='num'>12 s</td><td class='num'>15 s</td><td class='num'>60 s (Credentials) · 20 s (Credentials)</td></tr><tr><th>Known exploit</th><td class='nowrap'><span class="chip r-intel"><b>14</b> Intel</span><span class="chip r-research"><b>12</b> Research</span></td><td class='num'>14 s</td><td class='num'>12 s</td><td class='num'>60 s (Research) · 30 s (Research)</td></tr><tr><th>0day</th><td class='nowrap'><span class="chip r-intel"><b>16</b> Intel</span><span class="chip r-cash"><b>12</b> Crypto</span><span class="chip r-creds"><b>12</b> Creds</span><span class="chip r-research"><b>16</b> Research</span></td><td class='num'>26 s</td><td class='num'>10 s (15 s on a main node)</td><td class='num'>80 s (Research) · 40 s (Research)</td></tr><tr><th>Worm</th><td class='nowrap'><span class="chip r-intel"><b>24</b> Intel</span><span class="chip r-research"><b>24</b> Research</span></td><td class='num'>22 s</td><td class='num'>12 s per stage, 2 stages</td><td class='num'>120 s (Research) · 60 s (Research)</td></tr></tbody>
   </table></div>
-  <h3>Building payback</h3>
+  <h3>What buildings add</h3>
   <div class="tablebox"><table>
-    <thead><tr><th>Building</th><th>Price</th><th>Adds per cycle</th><th>Pays back its price in</th></tr></thead>
-    <tbody><tr><th>Intel harvester</th><td class='nowrap'><span class="chip r-intel"><b>12</b> Intel</span></td><td>+2 Intel (+3 on the Server main node)</td><td>6 cycles, 30 s (main node: 20 s)</td></tr><tr><th>Bot station</th><td class='nowrap'><span class="chip r-intel"><b>12</b> Intel</span><span class="chip r-cash"><b>4</b> Crypto</span></td><td>+2 Bots, and 2 deliveries no bank courier has to make</td><td>about 4 cycles, 20 s, counting the couriers it saves</td></tr><tr><th>Crypto miner</th><td class='nowrap'><span class="chip r-intel"><b>15</b> Intel</span></td><td>+1 Crypto (from 1 Intel)</td><td>15 cycles, 75 s</td></tr><tr><th>Credential harvester</th><td class='nowrap'><span class="chip r-intel"><b>15</b> Intel</span><span class="chip r-cash"><b>4</b> Crypto</span></td><td>+1 Credential (from 1 Intel)</td><td>19 cycles, 95 s</td></tr><tr><th>Research lab</th><td class='nowrap'><span class="chip r-intel"><b>20</b> Intel</span><span class="chip r-cash"><b>8</b> Crypto</span></td><td>+1 Research (from 1 Intel + 1 Crypto)</td><td>28 cycles, 140 s</td></tr><tr><th>Firewall</th><td class='nowrap'><span class="chip r-intel"><b>25</b> Intel</span><span class="chip r-cash"><b>15</b> Crypto</span></td><td>3 sockets; costs 1 Intel per cycle</td><td>never directly: it pays in what its cards save</td></tr></tbody>
+    <thead><tr><th>Building</th><th>Price</th><th>Each cycle</th><th>What it is worth</th></tr></thead>
+    <tbody><tr><th>Intel harvester</th><td class='nowrap'><span class="chip r-intel"><b>12</b> Intel</span></td><td>+2 Intel (+3 on a Server, +4 on a database or file server)</td><td>Raw input: everything else converts it.</td></tr><tr><th>Bot station</th><td class='nowrap'><span class="chip r-intel"><b>12</b> Intel</span><span class="chip r-cash"><b>4</b> Crypto</span></td><td>+2 Bots that carry 2 units home and join the bank</td><td>Saves the 2 bank couriers those units would consume.</td></tr><tr><th>Crypto miner</th><td class='nowrap'><span class="chip r-intel"><b>15</b> Intel</span></td><td>+1 Crypto, uses 1 Intel on its host</td><td>Turns Intel into Crypto: worth it only while Crypto limits your plan.</td></tr><tr><th>Credential harvester</th><td class='nowrap'><span class="chip r-intel"><b>15</b> Intel</span><span class="chip r-cash"><b>4</b> Crypto</span></td><td>+1 Credential, uses 1 Intel on its host</td><td>The capture and theft budget early in a match.</td></tr><tr><th>Research lab</th><td class='nowrap'><span class="chip r-intel"><b>20</b> Intel</span><span class="chip r-cash"><b>8</b> Crypto</span></td><td>+1 Research, uses 1 Intel and 1 Crypto on its host</td><td>Needs a Miner beside it away from the main node; its output usually rides a bank courier.</td></tr><tr><th>Firewall</th><td class='nowrap'><span class="chip r-intel"><b>25</b> Intel</span><span class="chip r-cash"><b>15</b> Crypto</span></td><td>3 sockets; uses 1 Intel on its host</td><td>Returns nothing directly: its value is what its loaded cards stop.</td></tr></tbody>
   </table></div>
   <h3>Theft and denial yields</h3>
   <div class="tablebox"><table>
@@ -588,8 +585,8 @@ losing your main node = elimination: your bank, cards, research and flights are 
 <section id="prices">
   <h2>Price table <small>make cost per copy</small></h2>
   <div class="tablebox"><table>
-    <thead><tr><th>Card</th><th class="r-intel">Intel</th><th class="r-cash">Crypto</th><th class="r-creds">Creds</th><th class="r-research">Res.</th><th>Total</th><th>Make</th><th>Early</th><th>Mid</th></tr></thead>
-    <tbody><tr><th>Recon</th><td class='num'>8</td><td class='num'>·</td><td class='num'>·</td><td class='num'>·</td><td class='num'>8</td><td class='num'>3 s</td><td class='num'>10 s <small>Intel</small></td><td class='num'>6 s <small>Intel</small></td></tr><tr><th>Credential breach</th><td class='num'>10</td><td class='num'>·</td><td class='num'>10</td><td class='num'>·</td><td class='num'>20</td><td class='num'>10 s</td><td class='num'>50 s <small>Credentials</small></td><td class='num'>17 s <small>Credentials</small></td></tr><tr><th>Known exploit</th><td class='num'>12</td><td class='num'>·</td><td class='num'>·</td><td class='num'>12</td><td class='num'>24</td><td class='num'>14 s</td><td class='num'>60 s <small>Research</small></td><td class='num'>30 s <small>Research</small></td></tr><tr><th>0day</th><td class='num'>16</td><td class='num'>12</td><td class='num'>12</td><td class='num'>16</td><td class='num'>56</td><td class='num'>26 s</td><td class='num'>80 s <small>Research</small></td><td class='num'>40 s <small>Research</small></td></tr><tr><th>Worm</th><td class='num'>24</td><td class='num'>·</td><td class='num'>·</td><td class='num'>24</td><td class='num'>48</td><td class='num'>22 s</td><td class='num'>120 s <small>Research</small></td><td class='num'>60 s <small>Research</small></td></tr><tr><th>Phishing</th><td class='num'>18</td><td class='num'>6</td><td class='num'>8</td><td class='num'>4</td><td class='num'>36</td><td class='num'>12 s</td><td class='num'>40 s <small>Credentials</small></td><td class='num'>13 s <small>Credentials</small></td></tr><tr><th>Packet siphon</th><td class='num'>20</td><td class='num'>6</td><td class='num'>6</td><td class='num'>5</td><td class='num'>37</td><td class='num'>12 s</td><td class='num'>30 s <small>Credentials</small></td><td class='num'>14 s <small>Intel</small></td></tr><tr><th>Vault raid</th><td class='num'>24</td><td class='num'>·</td><td class='num'>10</td><td class='num'>8</td><td class='num'>42</td><td class='num'>16 s</td><td class='num'>50 s <small>Credentials</small></td><td class='num'>20 s <small>Research</small></td></tr><tr><th>DDoS</th><td class='num'>34</td><td class='num'>14</td><td class='num'>·</td><td class='num'>5</td><td class='num'>53</td><td class='num'>14 s</td><td class='num'>42 s <small>Intel</small></td><td class='num'>24 s <small>Intel</small></td></tr><tr><th>Supply-chain sabotage</th><td class='num'>36</td><td class='num'>12</td><td class='num'>8</td><td class='num'>14</td><td class='num'>70</td><td class='num'>22 s</td><td class='num'>70 s <small>Research</small></td><td class='num'>35 s <small>Research</small></td></tr><tr><th>Patch</th><td class='num'>12</td><td class='num'>4</td><td class='num'>·</td><td class='num'>3</td><td class='num'>19</td><td class='num'>8 s</td><td class='num'>15 s <small>Intel</small></td><td class='num'>9 s <small>Intel</small></td></tr><tr><th>Incident response</th><td class='num'>12</td><td class='num'>3</td><td class='num'>3</td><td class='num'>2</td><td class='num'>20</td><td class='num'>6 s</td><td class='num'>15 s <small>Intel</small></td><td class='num'>9 s <small>Intel</small></td></tr><tr><th>Traffic filter</th><td class='num'>14</td><td class='num'>4</td><td class='num'>·</td><td class='num'>2</td><td class='num'>20</td><td class='num'>8 s</td><td class='num'>18 s <small>Intel</small></td><td class='num'>10 s <small>Intel</small></td></tr><tr><th>Courier cover</th><td class='num'>12</td><td class='num'>4</td><td class='num'>·</td><td class='num'>2</td><td class='num'>18</td><td class='num'>8 s</td><td class='num'>15 s <small>Intel</small></td><td class='num'>9 s <small>Intel</small></td></tr><tr><th>Express route</th><td class='num'>14</td><td class='num'>4</td><td class='num'>·</td><td class='num'>2</td><td class='num'>20</td><td class='num'>10 s</td><td class='num'>18 s <small>Intel</small></td><td class='num'>10 s <small>Intel</small></td></tr></tbody>
+    <thead><tr><th>Card</th><th class="r-intel">Intel</th><th class="r-cash">Crypto</th><th class="r-creds">Creds</th><th class="r-research">Res.</th><th>Make</th><th>Early</th><th>Mid</th></tr></thead>
+    <tbody><tr><th>Recon</th><td class='num'>8</td><td class='num'>·</td><td class='num'>·</td><td class='num'>·</td><td class='num'>3 s</td><td class='num'>10 s <small>Intel</small></td><td class='num'>6 s <small>Intel</small></td></tr><tr><th>Credential breach</th><td class='num'>12</td><td class='num'>·</td><td class='num'>12</td><td class='num'>·</td><td class='num'>12 s</td><td class='num'>60 s <small>Credentials</small></td><td class='num'>20 s <small>Credentials</small></td></tr><tr><th>Known exploit</th><td class='num'>14</td><td class='num'>·</td><td class='num'>·</td><td class='num'>12</td><td class='num'>14 s</td><td class='num'>60 s <small>Research</small></td><td class='num'>30 s <small>Research</small></td></tr><tr><th>0day</th><td class='num'>16</td><td class='num'>12</td><td class='num'>12</td><td class='num'>16</td><td class='num'>26 s</td><td class='num'>80 s <small>Research</small></td><td class='num'>40 s <small>Research</small></td></tr><tr><th>Worm</th><td class='num'>24</td><td class='num'>·</td><td class='num'>·</td><td class='num'>24</td><td class='num'>22 s</td><td class='num'>120 s <small>Research</small></td><td class='num'>60 s <small>Research</small></td></tr><tr><th>Phishing</th><td class='num'>18</td><td class='num'>6</td><td class='num'>8</td><td class='num'>4</td><td class='num'>12 s</td><td class='num'>40 s <small>Credentials</small></td><td class='num'>13 s <small>Credentials</small></td></tr><tr><th>Packet siphon</th><td class='num'>20</td><td class='num'>6</td><td class='num'>6</td><td class='num'>5</td><td class='num'>12 s</td><td class='num'>30 s <small>Credentials</small></td><td class='num'>14 s <small>Intel</small></td></tr><tr><th>Vault raid</th><td class='num'>24</td><td class='num'>·</td><td class='num'>10</td><td class='num'>8</td><td class='num'>16 s</td><td class='num'>50 s <small>Credentials</small></td><td class='num'>20 s <small>Research</small></td></tr><tr><th>DDoS</th><td class='num'>34</td><td class='num'>14</td><td class='num'>·</td><td class='num'>5</td><td class='num'>14 s</td><td class='num'>42 s <small>Intel</small></td><td class='num'>24 s <small>Intel</small></td></tr><tr><th>Supply-chain sabotage</th><td class='num'>36</td><td class='num'>12</td><td class='num'>8</td><td class='num'>14</td><td class='num'>22 s</td><td class='num'>70 s <small>Research</small></td><td class='num'>35 s <small>Research</small></td></tr><tr><th>Patch</th><td class='num'>12</td><td class='num'>4</td><td class='num'>·</td><td class='num'>3</td><td class='num'>8 s</td><td class='num'>15 s <small>Intel</small></td><td class='num'>9 s <small>Intel</small></td></tr><tr><th>Incident response</th><td class='num'>12</td><td class='num'>3</td><td class='num'>3</td><td class='num'>2</td><td class='num'>6 s</td><td class='num'>15 s <small>Intel</small></td><td class='num'>9 s <small>Intel</small></td></tr><tr><th>Traffic filter</th><td class='num'>14</td><td class='num'>4</td><td class='num'>·</td><td class='num'>2</td><td class='num'>8 s</td><td class='num'>18 s <small>Intel</small></td><td class='num'>10 s <small>Intel</small></td></tr><tr><th>Courier cover</th><td class='num'>12</td><td class='num'>4</td><td class='num'>·</td><td class='num'>2</td><td class='num'>8 s</td><td class='num'>15 s <small>Intel</small></td><td class='num'>9 s <small>Intel</small></td></tr><tr><th>Express route</th><td class='num'>14</td><td class='num'>4</td><td class='num'>·</td><td class='num'>2</td><td class='num'>10 s</td><td class='num'>18 s <small>Intel</small></td><td class='num'>10 s <small>Intel</small></td></tr></tbody>
   </table></div>
 </section>
 
@@ -768,17 +765,16 @@ losing your main node = elimination: your bank, cards, research and flights are 
     &quot;known&quot;: true,
     &quot;sec_max&quot;: 1,
     &quot;exec&quot;: 15.0,
-    &quot;chance&quot;: 0.25,
     &quot;make&quot;: {
      &quot;bots&quot;: 0,
-     &quot;intel&quot;: 10,
+     &quot;intel&quot;: 12,
      &quot;cash&quot;: 0,
-     &quot;creds&quot;: 10,
+     &quot;creds&quot;: 12,
      &quot;research&quot;: 0
     },
-    &quot;make_time&quot;: 10.0,
-    &quot;lead&quot;: &quot;Capture security 1, 25% chance.&quot;,
-    &quot;rules&quot;: &quot;Travels from your main node, then executes for 15 s. Then it takes the host one time in four; a miss spends the card. A Patch, a lost route or a new owner stops it.&quot;
+    &quot;make_time&quot;: 12.0,
+    &quot;lead&quot;: &quot;Capture a security-1 host.&quot;,
+    &quot;rules&quot;: &quot;Travels from your main node, then executes for 15 s. It captures the host unless a Patch, a lost route or a change of owner stops it first.&quot;
    },
    &quot;exploit&quot;: {
     &quot;name&quot;: &quot;Known exploit&quot;,
@@ -788,18 +784,17 @@ losing your main node = elimination: your bank, cards, research and flights are 
     &quot;effect&quot;: &quot;capture&quot;,
     &quot;known&quot;: false,
     &quot;sec_max&quot;: 2,
-    &quot;exec&quot;: 10.0,
-    &quot;chance&quot;: 0.25,
+    &quot;exec&quot;: 12.0,
     &quot;make&quot;: {
      &quot;bots&quot;: 0,
-     &quot;intel&quot;: 12,
+     &quot;intel&quot;: 14,
      &quot;cash&quot;: 0,
      &quot;creds&quot;: 0,
      &quot;research&quot;: 12
     },
     &quot;make_time&quot;: 14.0,
-    &quot;lead&quot;: &quot;Capture up to security 2, 25% chance.&quot;,
-    &quot;rules&quot;: &quot;Travels, then executes for 10 s. Then it takes the host one time in four; a miss spends the card. Breach is cheaper against a security-1 host.&quot;
+    &quot;lead&quot;: &quot;Capture a host up to security 2.&quot;,
+    &quot;rules&quot;: &quot;Travels, then executes for 12 s. It captures unless a Patch, a lost route or a change of owner stops it first. Breach is cheaper against a security-1 host.&quot;
    },
    &quot;phish&quot;: {
     &quot;name&quot;: &quot;Phishing&quot;,
@@ -889,9 +884,8 @@ losing your main node = elimination: your bank, cards, research and flights are 
     &quot;effect&quot;: &quot;capture&quot;,
     &quot;known&quot;: false,
     &quot;sec_max&quot;: 3,
-    &quot;exec&quot;: 7.0,
+    &quot;exec&quot;: 10.0,
     &quot;exec_rig&quot;: 15.0,
-    &quot;chance&quot;: 0.5,
     &quot;make&quot;: {
      &quot;bots&quot;: 0,
      &quot;intel&quot;: 16,
@@ -900,8 +894,8 @@ losing your main node = elimination: your bank, cards, research and flights are 
      &quot;research&quot;: 16
     },
     &quot;make_time&quot;: 26.0,
-    &quot;lead&quot;: &quot;Capture up to security 3, 50% chance.&quot;,
-    &quot;rules&quot;: &quot;Travels, then executes for 7 s, or 15 s on a rival main node with a countdown they see. Then it takes the host one time in two. A Patch or a lost route stops it.&quot;
+    &quot;lead&quot;: &quot;Capture a host up to security 3.&quot;,
+    &quot;rules&quot;: &quot;Travels, then executes for 10 s, or 15 s on a rival main node with a countdown they see. It captures unless a Patch, a lost route or a change of owner stops it.&quot;
    },
    &quot;worm&quot;: {
     &quot;name&quot;: &quot;Worm&quot;,
@@ -911,9 +905,8 @@ losing your main node = elimination: your bank, cards, research and flights are 
     &quot;effect&quot;: &quot;worm&quot;,
     &quot;known&quot;: false,
     &quot;sec_max&quot;: 2,
-    &quot;exec&quot;: 10.0,
-    &quot;chance&quot;: 0.25,
-    &quot;reach&quot;: 3,
+    &quot;exec&quot;: 12.0,
+    &quot;reach&quot;: 2,
     &quot;make&quot;: {
      &quot;bots&quot;: 0,
      &quot;intel&quot;: 24,
@@ -922,8 +915,8 @@ losing your main node = elimination: your bank, cards, research and flights are 
      &quot;research&quot;: 24
     },
     &quot;make_time&quot;: 22.0,
-    &quot;lead&quot;: &quot;Known exploit on 3 linked hosts.&quot;,
-    &quot;rules&quot;: &quot;Tries up to 3 linked hosts of one owner, security 2 or less. Each gets 10 s and a 25% roll; a miss does not stop it. Only the first needs a route. A Patch stops the chain.&quot;
+    &quot;lead&quot;: &quot;Known exploit on 2 linked hosts.&quot;,
+    &quot;rules&quot;: &quot;Captures the target, then its nearest linked host of the same owner, security 2 or less. Each stage executes for 12 s and can be stopped on its own. A Patch, a lost route or a change of owner ends it.&quot;
    },
    &quot;sabotage&quot;: {
     &quot;name&quot;: &quot;Supply-chain sabotage&quot;,
@@ -1520,7 +1513,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
     8
    ]
   ],
-  &quot;GAME_VERSION&quot;: &quot;0.4.0&quot;,
+  &quot;GAME_VERSION&quot;: &quot;0.5.0-a&quot;,
   &quot;MAP_CELL&quot;: 190.0,
   &quot;SOCKET_TRIGGER&quot;: {
    &quot;patch&quot;: &quot;a capture, Worm or Vault raid starts here&quot;,
@@ -1558,8 +1551,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <ol class="review">
     <li><b>Firewall (confirmed):</b> it adds no security; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.</li>
     <li><b>Cards cost no Bots:</b> Bots only carry resources. Their old Bot price moved to Intel; DDoS, which was priced in Bots, now costs 34 Intel and 14 Crypto.</li>
-    <li><b>Capture odds:</b> Breach and Known exploit 25%, 0day 50%; a miss spends the card. The draw is the same on every multiplayer screen. The guided campaign chapters always succeed so they teach the card, not the odds.</li>
-    <li><b>Expected price of a capture</b> is the card's price divided by its odds (see <a href="#derived">Derived numbers</a>). Expansion is several times slower than before the odds.</li>
+    <li><b>Deterministic capture (Milestone A):</b> no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.</li>
     <li><b>Vault raid on storage</b> only pays where output piles up. A network with Bot stations everywhere keeps little in storage.</li>
     <li><b>Loading beats acting.</b> On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.</li>
     <li><b>DDoS on a junction destroys cargo</b> already routed through it that arrives while it is down, not just new traffic.</li>

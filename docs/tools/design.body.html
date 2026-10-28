@@ -32,7 +32,7 @@ flowchart LR
   P -->|"disrupt or defend"| B</pre><figcaption>The core loop. Every arrow out of a building passes through logistics: a resource can be spent only once it is home.</figcaption></figure>
   <ul class="plain">
     <li><b>Everything is delivered.</b> Output made away from the main node is worth nothing until a Bot carries it home along your own hosts.</li>
-    <li><b>Cards do all the fighting.</b> Captures have execution times and odds; theft and disruption have durations; defence answers them.</li>
+    <li><b>Cards do all the fighting.</b> Captures have execution times and succeed unless stopped; theft and disruption have durations; defence answers them.</li>
     <li><b>Timing and information.</b> Fog hides rival hosts; execution countdowns give the defender a window; a Firewall lets you decide the defence in advance.</li>
   </ul>
 </section>
@@ -60,8 +60,8 @@ flowchart LR
   <div class="tablebox"><table>
     <thead><tr><th>Phase</th><th>Typical time</th><th>What happens</th></tr></thead>
     <tbody>
-      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (10 Intel, 10 Credentials: the start bank covers it).</td></tr>
-      <tr><th>Expansion</th><td class="num">1–6 min</td><td>Breach security-1 hosts: at 25% odds, about 4 cards per host taken. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
+      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.</td></tr>
+      <tr><th>Expansion</th><td class="num">1–6 min</td><td>Breach security-1 hosts: each Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
       <tr><th>Contact</th><td class="num">5–10 min</td><td>Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.</td></tr>
       <tr><th>End game</th><td class="num">10 min +</td><td>0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
     </tbody>
@@ -82,7 +82,7 @@ flowchart LR
       <tr><th>Construction</th><td class="num">10 s (+5 s to replace)</td><td></td></tr>
       <tr><th>Research</th><td class="num">30–70 s</td><td>One at a time.</td></tr>
       <tr><th>Manufacturing</th><td class="num">3–26 s per copy</td><td>Three lanes in parallel.</td></tr>
-      <tr><th>Execution (reaction window)</th><td class="num">7–15 s</td><td>Breach 15, Known exploit 10, 0day 7 (15 on a main node), Worm 10 per host, Vault raid 10.</td></tr>
+      <tr><th>Execution (reaction window)</th><td class="num">10–15 s</td><td>Breach 15, Known exploit 12, 0day 10 (15 on a main node), Worm 12 per stage, Vault raid 10.</td></tr>
       <tr><th>Effects</th><td class="num">30–60 s</td><td>Siphon 30, DDoS 45, Phishing 60, Sabotage 60; Filter and Cover 30, Express 45; Recon view 45.</td></tr>
       <tr><th>Win hold</th><td class="num">51 s</td><td>Continuous.</td></tr>
       <tr><th>Multiplayer turn</th><td class="num">0.1 s</td><td>3 steps per turn; commands run 2 turns (0.2 s) after they are sent.</td></tr>
@@ -232,23 +232,20 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
     <div class="rule"><h4>Flight and arrival</h4>
       <p>The card flies from your main node along that path. It always arrives (the route is checked again when it resolves), unless the target changed owner on the way: then it is void. Effects (Recon, Phishing, Siphon, DDoS, Sabotage) apply on arrival. <b>Intrusions</b> (captures, Worm stages, Vault raid) start an execution countdown that the owner sees on the host.</p></div>
     <div class="rule"><h4>When an execution ends</h4>
-      <p>An armed Patch blocks it; a target that changed owner voids it; a capture with no route left fails. Otherwise a capture rolls its <b>chance</b>: a deterministic draw from the town seed and the intrusion, the same on every multiplayer screen. Success: the host is yours, wiped. Miss: the card is spent and nothing changes.</p></div>
+      <p>Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (<b>countered</b>); a target that changed owner first voids it (<b>owner changed</b>; a host can never be captured twice from the same generation); no path left fails it (<b>route failed</b>). Otherwise it is <b>captured</b>: the host is yours, wiped. There is no roll. Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.</p></div>
     <div class="rule"><h4>Defence cards</h4>
       <p>Played on one of your own hosts; they act at once, wherever the host is, even cut off or under DDoS. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket instead, unless their attack is already there.</p></div>
   </div>
   <figure><pre class="mermaid">%%{init: {'theme':'neutral'}}%%
 stateDiagram-v2
   [*] --> InFlight: card played
-  InFlight --> Void: target changed owner
+  InFlight --> OwnerChanged: target changed owner
   InFlight --> Executing: arrives (a Patch loaded in a Firewall stops it here)
-  Executing --> Blocked: Patch by hand or armed
-  Executing --> Void: target changed owner
-  Executing --> Failed: no route left
-  Executing --> Roll: countdown ends
-  Roll --> Captured: draw below the chance
-  Roll --> Missed: draw at or above the chance
-  Captured --> [*]
-  Missed --> [*]</pre><figcaption>The life of a capture card.</figcaption></figure>
+  Executing --> Countered: Patch by hand or armed
+  Executing --> OwnerChanged: target changed owner first
+  Executing --> RouteFailed: no route left
+  Executing --> Captured: countdown ends
+  Captured --> [*]</pre><figcaption>The life of a capture card.</figcaption></figure>
 </section>
 
 <section id="attack">
@@ -288,8 +285,8 @@ stateDiagram-v2
   <div class="tablebox"><table>
     <thead><tr><th>Attack</th><th>By hand</th><th>Loaded in a Firewall</th><th>Other answers</th></tr></thead>
     <tbody>
-      <tr><th>Breach · Known exploit · 0day</th><td>Patch during execution</td><td>Patch: stopped as it starts</td><td>cut the attacker's route; the odds</td></tr>
-      <tr><th>Worm</th><td>Patch on the host it is executing on</td><td>Patch on any chain host</td><td>the odds</td></tr>
+      <tr><th>Breach · Known exploit · 0day</th><td>Patch during execution</td><td>Patch: stopped as it starts</td><td>cut the attacker's route; take the host first</td></tr>
+      <tr><th>Worm</th><td>Patch on the host it is executing on</td><td>Patch on either chain host</td><td>cut its route</td></tr>
       <tr><th>Vault raid</th><td>Patch on the target</td><td>Patch on the target</td><td>keep storage empty (Bot stations, spare couriers)</td></tr>
       <tr><th>Phishing</th><td>Incident response</td><td>Response: ends it on landing</td><td></td></tr>
       <tr><th>Packet siphon</th><td>Response on the siphoned host; Cover on the sending hosts</td><td>Response or Cover</td><td>Express route; route around it</td></tr>
@@ -366,7 +363,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
   2  construction jobs advance and finish
   3  research advances (paying as it goes)
   4  manufacturing lanes advance; pending copies start if affordable
-  5  intrusions whose countdown ended resolve, earliest first (Patch, owner and route checks, then the roll)
+  5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
   6  production: main-node trickle; each host's 5-s cycle when its phase comes round
   7  dispatch: bank couriers for what waits in storage
   8  Packet siphons turn couriers leaving or passing their host
@@ -386,14 +383,14 @@ losing your main node = elimination: your bank, cards, research and flights are 
     </tbody>
   </table></div>
   <p class="meta">per minute; the trickle is included</p>
-  <h3>Expected price of one captured host</h3>
+  <h3>What a capture costs</h3>
   <div class="tablebox"><table>
-    <thead><tr><th>Card</th><th>Price per copy</th><th>Chance</th><th>Copies per host</th><th>Expected price per host</th><th>Early · mid seconds per host</th></tr></thead>
+    <thead><tr><th>Card</th><th>Price per copy</th><th>Make</th><th>Execution (reaction window)</th><th>Early · mid seconds of income</th></tr></thead>
     <tbody>{{CAPTURE_EV}}</tbody>
   </table></div>
-  <h3>Building payback</h3>
+  <h3>What buildings add</h3>
   <div class="tablebox"><table>
-    <thead><tr><th>Building</th><th>Price</th><th>Adds per cycle</th><th>Pays back its price in</th></tr></thead>
+    <thead><tr><th>Building</th><th>Price</th><th>Each cycle</th><th>What it is worth</th></tr></thead>
     <tbody>{{PAYBACK}}</tbody>
   </table></div>
   <h3>Theft and denial yields</h3>
@@ -412,7 +409,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
 <section id="prices">
   <h2>Price table <small>make cost per copy</small></h2>
   <div class="tablebox"><table>
-    <thead><tr><th>Card</th><th class="r-intel">Intel</th><th class="r-cash">Crypto</th><th class="r-creds">Creds</th><th class="r-research">Res.</th><th>Total</th><th>Make</th><th>Early</th><th>Mid</th></tr></thead>
+    <thead><tr><th>Card</th><th class="r-intel">Intel</th><th class="r-cash">Crypto</th><th class="r-creds">Creds</th><th class="r-research">Res.</th><th>Make</th><th>Early</th><th>Mid</th></tr></thead>
     <tbody>{{PRICES}}</tbody>
   </table></div>
 </section>
@@ -440,8 +437,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <ol class="review">
     <li><b>Firewall (confirmed):</b> it adds no security; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.</li>
     <li><b>Cards cost no Bots:</b> Bots only carry resources. Their old Bot price moved to Intel; DDoS, which was priced in Bots, now costs 34 Intel and 14 Crypto.</li>
-    <li><b>Capture odds:</b> Breach and Known exploit 25%, 0day 50%; a miss spends the card. The draw is the same on every multiplayer screen. The guided campaign chapters always succeed so they teach the card, not the odds.</li>
-    <li><b>Expected price of a capture</b> is the card's price divided by its odds (see <a href="#derived">Derived numbers</a>). Expansion is several times slower than before the odds.</li>
+    <li><b>Deterministic capture (Milestone A):</b> no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.</li>
     <li><b>Vault raid on storage</b> only pays where output piles up. A network with Bot stations everywhere keeps little in storage.</li>
     <li><b>Loading beats acting.</b> On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.</li>
     <li><b>DDoS on a junction destroys cargo</b> already routed through it that arrives while it is down, not just new traffic.</li>

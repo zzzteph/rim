@@ -84,7 +84,7 @@ D["recon"] = [
 D["breach"] = [
     ("Target", f"A foreign host of security ≤ {n(C['breach']['sec_max'])}: PCs and IoT devices, neutral or a rival’s."),
     ("Timing", f"Travels, then executes for {n(C['breach']['exec'])} s on the host. The owner sees “Breach executing” and has that long to react."),
-    ("Odds", f"When execution ends it takes the host <b>{int(float(C['breach']['chance']) * 100)}%</b> of the time. A miss spends the card and leaves the host as it was."),
+    ("Outcome", "When its execution ends the host is captured. Before that it can only be stopped, each way with its own message: a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>), or another owner taking it first (<b>owner changed</b>). There is no roll."),
     ("Effect", "On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots."),
     ("Stopped by", "A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile."),
     ("Limit", "One capture or raid per attacker per host at a time."),
@@ -92,24 +92,23 @@ D["breach"] = [
 D["exploit"] = [
     ("Target", f"A foreign host of security ≤ {n(C['exploit']['sec_max'])}: also servers, web servers and file servers."),
     ("Timing", f"Travels, then executes for {n(C['exploit']['exec'])} s."),
-    ("Odds", f"<b>{int(float(C['exploit']['chance']) * 100)}%</b>; a miss spends the card."),
+    ("Outcome", "As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed."),
     ("Effect", "As Credential breach: the host becomes yours, wiped."),
     ("Stopped by", "As Credential breach."),
 ]
 D["zeroday"] = [
     ("Target", f"Any foreign host (security ≤ {n(C['zeroday']['sec_max'])}): also databases, ERP systems and a rival’s active main node."),
     ("Timing", f"Travels, then executes for {n(C['zeroday']['exec'])} s; {n(C['zeroday']['exec_rig'])} s on an active rival main node, with a countdown the owner sees."),
-    ("Odds", f"<b>{int(float(C['zeroday']['chance']) * 100)}%</b>; a miss spends the card."),
+    ("Outcome", "As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed."),
     ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host."),
     ("Stopped by", "As Credential breach."),
 ]
 D["worm"] = [
     ("Target", f"A foreign host of security ≤ {n(C['worm']['sec_max'])} that your operations can reach."),
-    ("What it is", f"Known exploit on up to {n(C['worm']['reach'])} linked hosts, one after another."),
-    ("Timing", f"Travels; each host gets {n(C['worm']['exec'])} s of execution."),
-    ("Odds", f"Each host gets its own <b>{int(float(C['worm']['chance']) * 100)}%</b> roll. A miss does not stop the Worm: it jumps on to the nearest visible host of security ≤ {n(C['worm']['sec_max'])} of the <b>same owner</b> as the first target that it has not tried yet."),
-    ("Routes", "Only the first host needs a route from your network; the later ones are reached through the chain."),
-    ("Stops when", "A Patch cancels a stage (by hand, armed, or from a Firewall on that host), no such neighbour is left, or a target changes hands."),
+    ("What it is", f"Known exploit on up to {n(C['worm']['reach'])} linked hosts, one after the other."),
+    ("Timing", f"Travels; each stage executes for {n(C['worm']['exec'])} s, and each can be stopped on its own."),
+    ("Chain", f"Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target and has security ≤ {n(C['worm']['sec_max'])}. It never jumps to another owner."),
+    ("Stops when", "A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured."),
 ]
 D["phish"] = [
     ("Target", "A foreign host (a rival’s; a neutral host makes nothing)."),
@@ -239,7 +238,7 @@ def price_row(k):
     c = C[k]
     e, ew = wait(c["make"], EARLY); m, mw = wait(c["make"], MID)
     total = sum(c["make"].values())
-    return f"<tr><th>{html.escape(c['name'])}</th>" + "".join(f"<td class='num'>{c['make'][r] or '·'}</td>" for r in RES[1:]) + f"<td class='num'>{total}</td><td class='num'>{n(c['time'])} s</td><td class='num'>{e:.0f} s <small>{ew}</small></td><td class='num'>{m:.0f} s <small>{mw}</small></td></tr>"
+    return f"<tr><th>{html.escape(c['name'])}</th>" + "".join(f"<td class='num'>{c['make'][r] or '·'}</td>" for r in RES[1:]) + f"<td class='num'>{n(c['time'])} s</td><td class='num'>{e:.0f} s <small>{ew}</small></td><td class='num'>{m:.0f} s <small>{mw}</small></td></tr>"
 
 import json, os
 DATA = json.load(open(f"{ROOT}/docs/rim_constants.json"))
@@ -314,22 +313,21 @@ def layouts():
     return "".join(out)
 def inc_row(inc):
     return "".join(f"<td class='num'>{inc[r]}</td>" for r in RES)
-def capture_ev():
+def capture_ev():   # what a capture costs: a vector, its times and the reaction window it gives (no unit sums)
     rows = []
     for k in ["breach", "exploit", "zeroday", "worm"]:
-        c = C[k]; tot = sum(c["make"].values()); p = float(c["chance"])
-        per = 1.0 / (p * (3 if k == "worm" else 1))   # a Worm tries up to 3 hosts
-        e, _ = wait(c["make"], EARLY); m, _ = wait(c["make"], MID)
-        note = " (3 tries per card)" if k == "worm" else ""
-        rows.append(f"<tr><th>{html.escape(c['name'])}</th><td class='nowrap'>{chips(c['make'])}</td><td class='num'>{int(p * 100)}%{note}</td><td class='num'>{per:.2f}</td><td class='num'>{tot * per:.0f} units</td><td class='num'>{e * per:.0f} s · {m * per:.0f} s</td></tr>")
+        c = C[k]
+        e, ew = wait(c["make"], EARLY); m, mw = wait(c["make"], MID)
+        ex = f"{n(c['exec'])} s" + (f" ({n(c['exec_rig'])} s on a main node)" if c.get("exec_rig") else "") + (f" per stage, {n(c['reach'])} stages" if k == "worm" else "")
+        rows.append(f"<tr><th>{html.escape(c['name'])}</th><td class='nowrap'>{chips(c['make'])}</td><td class='num'>{n(c['time'])} s</td><td class='num'>{ex}</td><td class='num'>{e:.0f} s ({ew}) · {m:.0f} s ({mw})</td></tr>")
     return "".join(rows)
-PAYBACK = [
-    ("Intel harvester", {"intel": 12}, "+2 Intel (+3 on the Server main node)", "6 cycles, 30 s (main node: 20 s)"),
-    ("Bot station", {"intel": 12, "cash": 4}, "+2 Bots, and 2 deliveries no bank courier has to make", "about 4 cycles, 20 s, counting the couriers it saves"),
-    ("Crypto miner", {"intel": 15}, "+1 Crypto (from 1 Intel)", "15 cycles, 75 s"),
-    ("Credential harvester", {"intel": 15, "cash": 4}, "+1 Credential (from 1 Intel)", "19 cycles, 95 s"),
-    ("Research lab", {"intel": 20, "cash": 8}, "+1 Research (from 1 Intel + 1 Crypto)", "28 cycles, 140 s"),
-    ("Firewall", {"intel": 25, "cash": 15}, "3 sockets; costs 1 Intel per cycle", "never directly: it pays in what its cards save"),
+PAYBACK = [   # what each building adds and uses; no single "payback" number: the resources are not interchangeable
+    ("Intel harvester", {"intel": 12}, "+2 Intel (+3 on a Server, +4 on a database or file server)", "Raw input: everything else converts it."),
+    ("Bot station", {"intel": 12, "cash": 4}, "+2 Bots that carry 2 units home and join the bank", "Saves the 2 bank couriers those units would consume."),
+    ("Crypto miner", {"intel": 15}, "+1 Crypto, uses 1 Intel on its host", "Turns Intel into Crypto: worth it only while Crypto limits your plan."),
+    ("Credential harvester", {"intel": 15, "cash": 4}, "+1 Credential, uses 1 Intel on its host", "The capture and theft budget early in a match."),
+    ("Research lab", {"intel": 20, "cash": 8}, "+1 Research, uses 1 Intel and 1 Crypto on its host", "Needs a Miner beside it away from the main node; its output usually rides a bank courier."),
+    ("Firewall", {"intel": 25, "cash": 15}, "3 sockets; uses 1 Intel on its host", "Returns nothing directly: its value is what its loaded cards stop."),
 ]
 def payback():
     return "".join(f"<tr><th>{html.escape(nm)}</th><td class='nowrap'>{chips(c)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>" for nm, c, a, b in PAYBACK)

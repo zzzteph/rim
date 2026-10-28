@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.4.0 · commit 587db90
+RIM 0.5.0-a · commit d877dca
 
 ## Contents
 
@@ -61,7 +61,7 @@ flowchart LR
 *The core loop. Every arrow out of a building passes through logistics: a resource can be spent only once it is home.*
 
 - **Everything is delivered.** Output made away from the main node is worth nothing until a Bot carries it home along your own hosts.
-- **Cards do all the fighting.** Captures have execution times and odds; theft and disruption have durations; defence answers them.
+- **Cards do all the fighting.** Captures have execution times and succeed unless stopped; theft and disruption have durations; defence answers them.
 - **Timing and information.** Fog hides rival hosts; execution countdowns give the defender a window; a Firewall lets you decide the defence in advance.
 
 ## Match flow
@@ -91,12 +91,12 @@ flowchart LR
 
 The match ends when one network holds the majority for 51 s or is the last with a main node. In single player, losing your main node loses the match; in multiplayer you are out and the others play on. Space pauses a single-player match; multiplayer never pauses.
 
-| Phase     | Typical time | What happens                                                                                                                                                                                               |
-|-----------|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Opening   | 0–1 min      | Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (10 Intel, 10 Credentials: the start bank covers it).                        |
-| Expansion | 1–6 min      | Breach security-1 hosts: at 25% odds, about 4 cards per host taken. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price. |
-| Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.    |
-| End game  | 10 min +     | 0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                             |
+| Phase     | Typical time | What happens                                                                                                                                                                                                      |
+|-----------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Opening   | 0–1 min      | Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host. |
+| Expansion | 1–6 min      | Breach security-1 hosts: each Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.    |
+| Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.           |
+| End game  | 10 min +     | 0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                    |
 
 Measured sample: four AIs on a Medium spiral (41 hosts) grow from 8 held hosts to about 20 in 6 minutes, resolving ~50 capture attempts.
 
@@ -112,7 +112,7 @@ Measured sample: four AIs on a Medium spiral (41 hosts) grow from 8 held hosts t
 | Construction                | 10 s (+5 s to replace)                |                                                                                                                                       |
 | Research                    | 30–70 s                               | One at a time.                                                                                                                        |
 | Manufacturing               | 3–26 s per copy                       | Three lanes in parallel.                                                                                                              |
-| Execution (reaction window) | 7–15 s                                | Breach 15, Known exploit 10, 0day 7 (15 on a main node), Worm 10 per host, Vault raid 10.                                             |
+| Execution (reaction window) | 10–15 s                               | Breach 15, Known exploit 12, 0day 10 (15 on a main node), Worm 12 per stage, Vault raid 10.                                           |
 | Effects                     | 30–60 s                               | Siphon 30, DDoS 45, Phishing 60, Sabotage 60; Filter and Cover 30, Express 45; Recon view 45.                                         |
 | Win hold                    | 51 s                                  | Continuous.                                                                                                                           |
 | Multiplayer turn            | 0.1 s                                 | 3 steps per turn; commands run 2 turns (0.2 s) after they are sent.                                                                   |
@@ -297,7 +297,7 @@ The card flies from your main node along that path. It always arrives (the route
 
 #### When an execution ends
 
-An armed Patch blocks it; a target that changed owner voids it; a capture with no route left fails. Otherwise a capture rolls its **chance**: a deterministic draw from the town seed and the intrusion, the same on every multiplayer screen. Success: the host is yours, wiped. Miss: the card is spent and nothing changes.
+Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (**countered**); a target that changed owner first voids it (**owner changed**; a host can never be captured twice from the same generation); no path left fails it (**route failed**). Otherwise it is **captured**: the host is yours, wiped. There is no roll. Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.
 
 #### Defence cards
 
@@ -307,16 +307,13 @@ Played on one of your own hosts; they act at once, wherever the host is, even cu
 %%{init: {'theme':'neutral'}}%%
 stateDiagram-v2
   [*] --> InFlight: card played
-  InFlight --> Void: target changed owner
+  InFlight --> OwnerChanged: target changed owner
   InFlight --> Executing: arrives (a Patch loaded in a Firewall stops it here)
-  Executing --> Blocked: Patch by hand or armed
-  Executing --> Void: target changed owner
-  Executing --> Failed: no route left
-  Executing --> Roll: countdown ends
-  Roll --> Captured: draw below the chance
-  Roll --> Missed: draw at or above the chance
+  Executing --> Countered: Patch by hand or armed
+  Executing --> OwnerChanged: target changed owner first
+  Executing --> RouteFailed: no route left
+  Executing --> Captured: countdown ends
   Captured --> [*]
-  Missed --> [*]
 ```
 
 *The life of a capture card.*
@@ -345,15 +342,15 @@ Reveal a host's contents for 45 s.
 
 `ATTACK` `Known from the start`
 
-Capture security 1, 25% chance.
+Capture a security-1 host.
 
-**Make:** 10 Intel, 10 Creds, 10 s (≈ 50 s early · 17 s mid of Credentials income)
+**Make:** 12 Intel, 12 Creds, 12 s (≈ 60 s early · 20 s mid of Credentials income)
 
 - **Why it exists:** The way to grow: every host adds slots, and holding 51% of all hosts wins.
 - **Play it when:** Whenever security-1 hosts are in reach; neutral hosts first, as nobody defends them.
 - **Target:** A foreign host of security ≤ 1: PCs and IoT devices, neutral or a rival’s.
 - **Timing:** Travels, then executes for 15 s on the host. The owner sees “Breach executing” and has that long to react.
-- **Odds:** When execution ends it takes the host **25%** of the time. A miss spends the card and leaves the host as it was.
+- **Outcome:** When its execution ends the host is captured. Before that it can only be stopped, each way with its own message: a Patch (**countered**), losing your path to it (**route failed**), or another owner taking it first (**owner changed**). There is no roll.
 - **Effect:** On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots.
 - **Stopped by:** A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile.
 - **Limit:** One capture or raid per attacker per host at a time.
@@ -362,15 +359,15 @@ Capture security 1, 25% chance.
 
 `ATTACK` `Research after Credential breach`
 
-Capture up to security 2, 25% chance.
+Capture a host up to security 2.
 
-**Make:** 12 Intel, 12 Research, 14 s (≈ 60 s early · 30 s mid of Research income)
+**Make:** 14 Intel, 12 Research, 14 s (≈ 60 s early · 30 s mid of Research income)
 
 - **Why it exists:** Opens the first rich hosts: servers, web servers and file servers.
 - **Play it when:** When the security-1 hosts near you are gone.
 - **Target:** A foreign host of security ≤ 2: also servers, web servers and file servers.
-- **Timing:** Travels, then executes for 10 s.
-- **Odds:** **25%**; a miss spends the card.
+- **Timing:** Travels, then executes for 12 s.
+- **Outcome:** As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed.
 - **Effect:** As Credential breach: the host becomes yours, wiped.
 - **Stopped by:** As Credential breach.
 
@@ -378,15 +375,15 @@ Capture up to security 2, 25% chance.
 
 `ATTACK` `Research after Known exploit`
 
-Capture up to security 3, 50% chance.
+Capture a host up to security 3.
 
 **Make:** 16 Intel, 12 Crypto, 12 Creds, 16 Research, 26 s (≈ 80 s early · 40 s mid of Research income)
 
 - **Why it exists:** The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.
 - **Play it when:** After a Recon shows no Patch waiting, or after a cheaper card has used it up.
 - **Target:** Any foreign host (security ≤ 3): also databases, ERP systems and a rival’s active main node.
-- **Timing:** Travels, then executes for 7 s; 15 s on an active rival main node, with a countdown the owner sees.
-- **Odds:** **50%**; a miss spends the card.
+- **Timing:** Travels, then executes for 10 s; 15 s on an active rival main node, with a countdown the owner sees.
+- **Outcome:** As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed.
 - **Effect:** The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host.
 - **Stopped by:** As Credential breach.
 
@@ -394,18 +391,17 @@ Capture up to security 3, 50% chance.
 
 `ATTACK` `Research after Known exploit`
 
-Known exploit on 3 linked hosts.
+Known exploit on 2 linked hosts.
 
 **Make:** 24 Intel, 24 Research, 22 s (≈ 120 s early · 60 s mid of Research income)
 
 - **Why it exists:** Three Known exploits in one launch, reaching hosts behind a rival's front line.
 - **Play it when:** When a rival holds a chain of hosts of security 2 or less.
 - **Target:** A foreign host of security ≤ 2 that your operations can reach.
-- **What it is:** Known exploit on up to 3 linked hosts, one after another.
-- **Timing:** Travels; each host gets 10 s of execution.
-- **Odds:** Each host gets its own **25%** roll. A miss does not stop the Worm: it jumps on to the nearest visible host of security ≤ 2 of the **same owner** as the first target that it has not tried yet.
-- **Routes:** Only the first host needs a route from your network; the later ones are reached through the chain.
-- **Stops when:** A Patch cancels a stage (by hand, armed, or from a Firewall on that host), no such neighbour is left, or a target changes hands.
+- **What it is:** Known exploit on up to 2 linked hosts, one after the other.
+- **Timing:** Travels; each stage executes for 12 s, and each can be stopped on its own.
+- **Chain:** Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the **same owner** as the first target and has security ≤ 2. It never jumps to another owner.
+- **Stops when:** A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured.
 
 ### Phishing
 
@@ -585,8 +581,8 @@ Each Firewall eats 1 Intel from its own host every cycle, before any converter. 
 
 | Attack                        | By hand                                                   | Loaded in a Firewall         | Other answers                                     |
 |-------------------------------|-----------------------------------------------------------|------------------------------|---------------------------------------------------|
-| Breach · Known exploit · 0day | Patch during execution                                    | Patch: stopped as it starts  | cut the attacker's route; the odds                |
-| Worm                          | Patch on the host it is executing on                      | Patch on any chain host      | the odds                                          |
+| Breach · Known exploit · 0day | Patch during execution                                    | Patch: stopped as it starts  | cut the attacker's route; take the host first     |
+| Worm                          | Patch on the host it is executing on                      | Patch on either chain host   | cut its route                                     |
 | Vault raid                    | Patch on the target                                       | Patch on the target          | keep storage empty (Bot stations, spare couriers) |
 | Phishing                      | Incident response                                         | Response: ends it on landing |                                                   |
 | Packet siphon                 | Response on the siphoned host; Cover on the sending hosts | Response or Cover            | Express route; route around it                    |
@@ -665,7 +661,7 @@ every 1/30 s:
   2  construction jobs advance and finish
   3  research advances (paying as it goes)
   4  manufacturing lanes advance; pending copies start if affordable
-  5  intrusions whose countdown ended resolve, earliest first (Patch, owner and route checks, then the roll)
+  5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
   6  production: main-node trickle; each host's 5-s cycle when its phase comes round
   7  dispatch: bank couriers for what waits in storage
   8  Packet siphons turn couriers leaving or passing their host
@@ -685,25 +681,25 @@ Reference networks used for every “seconds of income” figure on this page:
 
 per minute; the trickle is included
 
-### Expected price of one captured host
+### What a capture costs
 
-| Card              | Price per copy                             | Chance                 | Copies per host | Expected price per host | Early · mid seconds per host |
-|-------------------|--------------------------------------------|------------------------|-----------------|-------------------------|------------------------------|
-| Credential breach | 10 Intel, 10 Creds                         | 25%                    | 4.00            | 80 units                | 200 s · 67 s                 |
-| Known exploit     | 12 Intel, 12 Research                      | 25%                    | 4.00            | 96 units                | 240 s · 120 s                |
-| 0day              | 16 Intel, 12 Crypto, 12 Creds, 16 Research | 50%                    | 2.00            | 112 units               | 160 s · 80 s                 |
-| Worm              | 24 Intel, 24 Research                      | 25% (3 tries per card) | 1.33            | 64 units                | 160 s · 80 s                 |
+| Card              | Price per copy                             | Make | Execution (reaction window) | Early · mid seconds of income           |
+|-------------------|--------------------------------------------|------|-----------------------------|-----------------------------------------|
+| Credential breach | 12 Intel, 12 Creds                         | 12 s | 15 s                        | 60 s (Credentials) · 20 s (Credentials) |
+| Known exploit     | 14 Intel, 12 Research                      | 14 s | 12 s                        | 60 s (Research) · 30 s (Research)       |
+| 0day              | 16 Intel, 12 Crypto, 12 Creds, 16 Research | 26 s | 10 s (15 s on a main node)  | 80 s (Research) · 40 s (Research)       |
+| Worm              | 24 Intel, 24 Research                      | 22 s | 12 s per stage, 2 stages    | 120 s (Research) · 60 s (Research)      |
 
-### Building payback
+### What buildings add
 
-| Building             | Price               | Adds per cycle                                        | Pays back its price in                               |
-|----------------------|---------------------|-------------------------------------------------------|------------------------------------------------------|
-| Intel harvester      | 12 Intel            | +2 Intel (+3 on the Server main node)                 | 6 cycles, 30 s (main node: 20 s)                     |
-| Bot station          | 12 Intel, 4 Crypto  | +2 Bots, and 2 deliveries no bank courier has to make | about 4 cycles, 20 s, counting the couriers it saves |
-| Crypto miner         | 15 Intel            | +1 Crypto (from 1 Intel)                              | 15 cycles, 75 s                                      |
-| Credential harvester | 15 Intel, 4 Crypto  | +1 Credential (from 1 Intel)                          | 19 cycles, 95 s                                      |
-| Research lab         | 20 Intel, 8 Crypto  | +1 Research (from 1 Intel + 1 Crypto)                 | 28 cycles, 140 s                                     |
-| Firewall             | 25 Intel, 15 Crypto | 3 sockets; costs 1 Intel per cycle                    | never directly: it pays in what its cards save       |
+| Building             | Price               | Each cycle                                                 | What it is worth                                                                          |
+|----------------------|---------------------|------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| Intel harvester      | 12 Intel            | +2 Intel (+3 on a Server, +4 on a database or file server) | Raw input: everything else converts it.                                                   |
+| Bot station          | 12 Intel, 4 Crypto  | +2 Bots that carry 2 units home and join the bank          | Saves the 2 bank couriers those units would consume.                                      |
+| Crypto miner         | 15 Intel            | +1 Crypto, uses 1 Intel on its host                        | Turns Intel into Crypto: worth it only while Crypto limits your plan.                     |
+| Credential harvester | 15 Intel, 4 Crypto  | +1 Credential, uses 1 Intel on its host                    | The capture and theft budget early in a match.                                            |
+| Research lab         | 20 Intel, 8 Crypto  | +1 Research, uses 1 Intel and 1 Crypto on its host         | Needs a Miner beside it away from the main node; its output usually rides a bank courier. |
+| Firewall             | 25 Intel, 15 Crypto | 3 sockets; uses 1 Intel on its host                        | Returns nothing directly: its value is what its loaded cards stop.                        |
 
 ### Theft and denial yields
 
@@ -717,23 +713,23 @@ per minute; the trickle is included
 
 ## Price table
 
-| Card                  | Intel | Crypto | Creds | Res. | Total | Make | Early              | Mid                |
-|-----------------------|-------|--------|-------|------|-------|------|--------------------|--------------------|
-| Recon                 | 8     | ·      | ·     | ·    | 8     | 3 s  | 10 s (Intel)       | 6 s (Intel)        |
-| Credential breach     | 10    | ·      | 10    | ·    | 20    | 10 s | 50 s (Credentials) | 17 s (Credentials) |
-| Known exploit         | 12    | ·      | ·     | 12   | 24    | 14 s | 60 s (Research)    | 30 s (Research)    |
-| 0day                  | 16    | 12     | 12    | 16   | 56    | 26 s | 80 s (Research)    | 40 s (Research)    |
-| Worm                  | 24    | ·      | ·     | 24   | 48    | 22 s | 120 s (Research)   | 60 s (Research)    |
-| Phishing              | 18    | 6      | 8     | 4    | 36    | 12 s | 40 s (Credentials) | 13 s (Credentials) |
-| Packet siphon         | 20    | 6      | 6     | 5    | 37    | 12 s | 30 s (Credentials) | 14 s (Intel)       |
-| Vault raid            | 24    | ·      | 10    | 8    | 42    | 16 s | 50 s (Credentials) | 20 s (Research)    |
-| DDoS                  | 34    | 14     | ·     | 5    | 53    | 14 s | 42 s (Intel)       | 24 s (Intel)       |
-| Supply-chain sabotage | 36    | 12     | 8     | 14   | 70    | 22 s | 70 s (Research)    | 35 s (Research)    |
-| Patch                 | 12    | 4      | ·     | 3    | 19    | 8 s  | 15 s (Intel)       | 9 s (Intel)        |
-| Incident response     | 12    | 3      | 3     | 2    | 20    | 6 s  | 15 s (Intel)       | 9 s (Intel)        |
-| Traffic filter        | 14    | 4      | ·     | 2    | 20    | 8 s  | 18 s (Intel)       | 10 s (Intel)       |
-| Courier cover         | 12    | 4      | ·     | 2    | 18    | 8 s  | 15 s (Intel)       | 9 s (Intel)        |
-| Express route         | 14    | 4      | ·     | 2    | 20    | 10 s | 18 s (Intel)       | 10 s (Intel)       |
+| Card                  | Intel | Crypto | Creds | Res. | Make | Early              | Mid                |
+|-----------------------|-------|--------|-------|------|------|--------------------|--------------------|
+| Recon                 | 8     | ·      | ·     | ·    | 3 s  | 10 s (Intel)       | 6 s (Intel)        |
+| Credential breach     | 12    | ·      | 12    | ·    | 12 s | 60 s (Credentials) | 20 s (Credentials) |
+| Known exploit         | 14    | ·      | ·     | 12   | 14 s | 60 s (Research)    | 30 s (Research)    |
+| 0day                  | 16    | 12     | 12    | 16   | 26 s | 80 s (Research)    | 40 s (Research)    |
+| Worm                  | 24    | ·      | ·     | 24   | 22 s | 120 s (Research)   | 60 s (Research)    |
+| Phishing              | 18    | 6      | 8     | 4    | 12 s | 40 s (Credentials) | 13 s (Credentials) |
+| Packet siphon         | 20    | 6      | 6     | 5    | 12 s | 30 s (Credentials) | 14 s (Intel)       |
+| Vault raid            | 24    | ·      | 10    | 8    | 16 s | 50 s (Credentials) | 20 s (Research)    |
+| DDoS                  | 34    | 14     | ·     | 5    | 14 s | 42 s (Intel)       | 24 s (Intel)       |
+| Supply-chain sabotage | 36    | 12     | 8     | 14   | 22 s | 70 s (Research)    | 35 s (Research)    |
+| Patch                 | 12    | 4      | ·     | 3    | 8 s  | 15 s (Intel)       | 9 s (Intel)        |
+| Incident response     | 12    | 3      | 3     | 2    | 6 s  | 15 s (Intel)       | 9 s (Intel)        |
+| Traffic filter        | 14    | 4      | ·     | 2    | 8 s  | 18 s (Intel)       | 10 s (Intel)       |
+| Courier cover         | 12    | 4      | ·     | 2    | 8 s  | 15 s (Intel)       | 9 s (Intel)        |
+| Express route         | 14    | 4      | ·     | 2    | 10 s | 18 s (Intel)       | 10 s (Intel)       |
 
 ## All constants
 
@@ -761,14 +757,13 @@ Choices made in the last rounds that are worth a second look.
 
 1.  **Firewall (confirmed):** it adds no security; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.
 2.  **Cards cost no Bots:** Bots only carry resources. Their old Bot price moved to Intel; DDoS, which was priced in Bots, now costs 34 Intel and 14 Crypto.
-3.  **Capture odds:** Breach and Known exploit 25%, 0day 50%; a miss spends the card. The draw is the same on every multiplayer screen. The guided campaign chapters always succeed so they teach the card, not the odds.
-4.  **Expected price of a capture** is the card's price divided by its odds (see [Derived numbers](#derived)). Expansion is several times slower than before the odds.
-5.  **Vault raid on storage** only pays where output piles up. A network with Bot stations everywhere keeps little in storage.
-6.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
-7.  **DDoS on a junction destroys cargo** already routed through it that arrives while it is down, not just new traffic.
-8.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
-9.  **Packet siphon dragged onto the map takes Crypto.** Picking another resource needs the host panel's Launch row.
-10. **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
-11. **The AI** never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see [AI](#ai)).
-12. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).
+3.  **Deterministic capture (Milestone A):** no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.
+4.  **Vault raid on storage** only pays where output piles up. A network with Bot stations everywhere keeps little in storage.
+5.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
+6.  **DDoS on a junction destroys cargo** already routed through it that arrives while it is down, not just new traffic.
+7.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
+8.  **Packet siphon dragged onto the map takes Crypto.** Picking another resource needs the host panel's Launch row.
+9.  **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
+10. **The AI** never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see [AI](#ai)).
+11. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).
 

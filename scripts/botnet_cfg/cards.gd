@@ -12,8 +12,7 @@
 #   make          {bots,intel,cash,creds,research} paid once when a copy STARTS manufacturing; make_time seconds.
 #                 Bots stay 0: Bots are the couriers that carry what the network makes, not an ingredient.
 #   sec_max       capture ceiling (capture cards only)
-#   chance        the odds a capture succeeds when its execution ends (a miss spends the card)
-#   exec          execution seconds after travel (capture/raid/worm-stage)
+#   exec          execution seconds after travel (capture/raid/worm-stage); a capture that runs to the end succeeds
 #   dur           timed-effect seconds (theft/disruption/support)
 #   reach         how many hosts it covers (worm, sabotage, DDoS, Vault raid)
 #   needs_link    the first target must have one of your connections into it
@@ -21,12 +20,12 @@ const CARDS := {
 	"recon":     {"name": "Recon", "short": "Recon", "fam": "recon", "bank": "attack", "effect": "recon", "known": true, "dur": 45.0,
 		"make": {"bots": 0, "intel": 8, "cash": 0, "creds": 0, "research": 0}, "make_time": 3.0,
 		"lead": "Reveal a host's contents for 45 s.", "rules": "Shows its installations, storage and Firewall cards. The snapshot goes stale after 45 s. Not an alarm, and not needed to capture."},
-	"breach":    {"name": "Credential breach", "short": "Breach", "fam": "breach", "bank": "attack", "effect": "capture", "known": true, "sec_max": 1, "exec": 15.0, "chance": 0.25,
-		"make": {"bots": 0, "intel": 10, "cash": 0, "creds": 10, "research": 0}, "make_time": 10.0,
-		"lead": "Capture security 1, 25% chance.", "rules": "Travels from your main node, then executes for 15 s. Then it takes the host one time in four; a miss spends the card. A Patch, a lost route or a new owner stops it."},
-	"exploit":   {"name": "Known exploit", "short": "Exploit", "fam": "exploit", "bank": "attack", "effect": "capture", "known": false, "sec_max": 2, "exec": 10.0, "chance": 0.25,
-		"make": {"bots": 0, "intel": 12, "cash": 0, "creds": 0, "research": 12}, "make_time": 14.0,
-		"lead": "Capture up to security 2, 25% chance.", "rules": "Travels, then executes for 10 s. Then it takes the host one time in four; a miss spends the card. Breach is cheaper against a security-1 host."},
+	"breach":    {"name": "Credential breach", "short": "Breach", "fam": "breach", "bank": "attack", "effect": "capture", "known": true, "sec_max": 1, "exec": 15.0,
+		"make": {"bots": 0, "intel": 12, "cash": 0, "creds": 12, "research": 0}, "make_time": 12.0,
+		"lead": "Capture a security-1 host.", "rules": "Travels from your main node, then executes for 15 s. It captures the host unless a Patch, a lost route or a change of owner stops it first."},
+	"exploit":   {"name": "Known exploit", "short": "Exploit", "fam": "exploit", "bank": "attack", "effect": "capture", "known": false, "sec_max": 2, "exec": 12.0,
+		"make": {"bots": 0, "intel": 14, "cash": 0, "creds": 0, "research": 12}, "make_time": 14.0,
+		"lead": "Capture a host up to security 2.", "rules": "Travels, then executes for 12 s. It captures unless a Patch, a lost route or a change of owner stops it first. Breach is cheaper against a security-1 host."},
 	"phish":     {"name": "Phishing", "short": "Phish", "fam": "phish", "bank": "attack", "effect": "phish", "known": true, "dur": 60.0,
 		"make": {"bots": 0, "intel": 18, "cash": 6, "creds": 8, "research": 4}, "make_time": 12.0,
 		"lead": "Divert new output for 60 s.", "rules": "Everything a rival host makes goes to you, its Bot stations' couriers too. They keep the host but get nothing from it. Incident response ends it."},
@@ -39,12 +38,12 @@ const CARDS := {
 	"ddos":      {"name": "DDoS", "short": "DDoS", "fam": "dos", "bank": "attack", "effect": "ddos", "known": false, "dur": 45.0, "reach": 3,
 		"make": {"bots": 0, "intel": 34, "cash": 14, "creds": 0, "research": 5}, "make_time": 14.0,
 		"lead": "Halt 3 hosts' output for 45 s.", "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing couriers; incoming cargo still arrives. Traffic filter clears it."},
-	"zeroday":   {"name": "0day", "short": "0day", "fam": "zeroday", "bank": "attack", "effect": "capture", "known": false, "sec_max": 3, "exec": 7.0, "exec_rig": 15.0, "chance": 0.5,
+	"zeroday":   {"name": "0day", "short": "0day", "fam": "zeroday", "bank": "attack", "effect": "capture", "known": false, "sec_max": 3, "exec": 10.0, "exec_rig": 15.0,
 		"make": {"bots": 0, "intel": 16, "cash": 12, "creds": 12, "research": 16}, "make_time": 26.0,
-		"lead": "Capture up to security 3, 50% chance.", "rules": "Travels, then executes for 7 s, or 15 s on a rival main node with a countdown they see. Then it takes the host one time in two. A Patch or a lost route stops it."},
-	"worm":      {"name": "Worm", "short": "Worm", "fam": "worm", "bank": "attack", "effect": "worm", "known": false, "sec_max": 2, "exec": 10.0, "chance": 0.25, "reach": 3,
+		"lead": "Capture a host up to security 3.", "rules": "Travels, then executes for 10 s, or 15 s on a rival main node with a countdown they see. It captures unless a Patch, a lost route or a change of owner stops it."},
+	"worm":      {"name": "Worm", "short": "Worm", "fam": "worm", "bank": "attack", "effect": "worm", "known": false, "sec_max": 2, "exec": 12.0, "reach": 2,
 		"make": {"bots": 0, "intel": 24, "cash": 0, "creds": 0, "research": 24}, "make_time": 22.0,
-		"lead": "Known exploit on 3 linked hosts.", "rules": "Tries up to 3 linked hosts of one owner, security 2 or less. Each gets 10 s and a 25% roll; a miss does not stop it. Only the first needs a route. A Patch stops the chain."},
+		"lead": "Known exploit on 2 linked hosts.", "rules": "Captures the target, then its nearest linked host of the same owner, security 2 or less. Each stage executes for 12 s and can be stopped on its own. A Patch, a lost route or a change of owner ends it."},
 	"sabotage":  {"name": "Supply-chain sabotage", "short": "Sabotage", "fam": "supply", "bank": "attack", "effect": "sabotage", "known": false, "dur": 60.0, "reach": 3,
 		"make": {"bots": 0, "intel": 36, "cash": 12, "creds": 8, "research": 14}, "make_time": 22.0,
 		"lead": "Shut producers on 3 hosts for 60 s.", "rules": "Hits the target and up to 2 adjacent hosts of its owner. Routing and dispatch keep working. Incident response clears it."},

@@ -106,7 +106,7 @@ const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENC
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const DECK_TAB_W := 136.0       # each of the three deck tabs: ATTACK, DEFENCE, RESEARCH (room for 15 mini cards at 1280 px)
 const MENU_W := 384.0           # menu panel width
-const GAME_VERSION := "0.4.0"
+const GAME_VERSION := "0.5.0-a"   # Milestone A of the 0.5.0 core-loop revision: deterministic capture changes the rules (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1893,7 +1893,10 @@ func _play_card(fac: int, key: String, t: int, res := "") -> bool:
 
 func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void:
 	if _eliminated.has(fac) or not CARDS.has(recipe) or t < 0: return
-	if int(hosts[t].gen) != gen and gen >= 0: return   # the host changed hands in transit
+	if int(hosts[t].gen) != gen and gen >= 0:   # the host changed hands in transit: the card is void
+		if str(CARDS[recipe].effect) in ["capture", "worm", "vault"]: _op_outcome({"id": int(f.get("id", 0)), "fac": fac, "card": recipe, "target": t}, "owner_changed")
+		elif fac == PLAYER: _flash("Your %s on %s did nothing: the host changed owner while it flew" % [str(CARDS[recipe].name), str(hosts[t].name)], 1)
+		return
 	var eff := str(CARDS[recipe].effect)
 	if eff != "recon":   # a scan is quiet: no red frame, no pulse on the target
 		hosts[t].hit_t = _t
@@ -1951,67 +1954,67 @@ func _chain_hosts(start: int, reach: int, owner: int) -> Array:   # start + up t
 
 
 func _tick_execs() -> void:
+	# Intrusions whose countdown has ended resolve earliest end first; equal end times in launch order (operation id).
+	# Commands for a turn (a manual Patch included) are applied before the turn's steps, so they always come first.
 	var still := []
 	_execs.sort_custom(func(a, b): return float(a.ends) < float(b.ends) if absf(float(a.ends) - float(b.ends)) > 0.0001 else int(a.id) < int(b.id))
 	for e in _execs:
 		var t := int(e.target); var fac := int(e.fac)
-		if _eliminated.has(fac) or int(hosts[t].gen) != int(e.gen):
-			continue   # the target changed hands or the attacker is gone: the intrusion is void
+		if _eliminated.has(fac): continue   # the attacker is gone: nothing to report to anyone
+		if int(hosts[t].gen) != int(e.gen):   # someone else took (or lost) the host first: a stale generation never captures
+			_op_outcome(e, "owner_changed")
+			continue
 		if float(e.ends) > _t: still.append(e); continue
 		# an armed Patch on the target consumes this intrusion instead of letting it resolve
 		if float(hosts[t].get("patch_armed_until", 0.0)) > _t:
 			hosts[t].patch_armed_until = 0.0; hosts[t].patch_recover_until = _t + float(CARDS.patch.dur)
-			hosts[t].card_result = "blocked by Patch"
-			if fac == PLAYER: _flash("Patch blocked your %s on %s" % [str(CARDS[str(e.card)].name), str(hosts[t].name)], 1)
+			_op_outcome(e, "countered", "armed Patch")
 			continue
 		var eff := str(e.effect)
 		if eff == "vault":
 			_resolve_vault(fac, t)
-		elif eff == "worm":   # Known exploit on up to 3 linked hosts: each gets its own roll, and a miss does not stop it
-			if _security(t) <= int(CARDS.worm.sec_max) and (int(e.stage) > 1 or _op_reachable(fac, t)):
-				_capture_try(e)
-			if int(e.stage) < int(CARDS.worm.reach):
+		elif not _op_reachable(fac, t):   # the attacker no longer holds a path to it: this capture (and a Worm's chain) ends
+			_op_outcome(e, "route_failed")
+		elif _security(t) > int(CARDS[str(e.card)].get("sec_max", 3)):
+			_op_outcome(e, "route_failed", "security")   # cannot happen with today's fixed security tiers; kept explicit
+		else:
+			_op_outcome(e, "captured")
+			_capture(t, fac)
+			if eff == "worm" and int(e.stage) < int(CARDS.worm.reach):   # a Worm moves on only from a host it took
 				var seen: Array = (e.get("seen", [t]) as Array).duplicate()
 				var nxt := _worm_next(fac, t, int(e.get("victim", NEUTRAL)), seen)
 				if nxt >= 0:
 					seen.append(nxt)
 					_start_exec({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + float(CARDS.worm.exec), "stage": int(e.stage) + 1, "victim": int(e.get("victim", NEUTRAL)), "seen": seen}, still)
-		else:   # capture family
-			if _security(t) <= int(CARDS[str(e.card)].get("sec_max", 3)) and _op_reachable(fac, t):
-				_capture_try(e)
-			elif fac == PLAYER:
-				_flash("%s failed on %s — no route to it any more" % [str(CARDS[str(e.card)].name), str(hosts[t].name)], 1)
 	_execs = still
 
 
-var capture_luck := -1.0   # tests only: ≥ 0 replaces every capture roll with this number
-var intrusions_resolved := 0   # captures and misses decided so far (the lockstep test checks both screens agree)
+var intrusions_resolved := 0   # intrusions decided so far, whatever the outcome (the lockstep test checks both screens agree)
+var op_outcomes := []          # the last OP_OUTCOME_KEEP intrusion outcomes: {t, fac, card, target, victim, outcome, via} (tests, event log)
+const OP_OUTCOME_KEEP := 256
+const OUTCOME_TEXT := {"captured": "captured", "countered": "stopped by a Patch", "route_failed": "failed: no route to the host any more",
+	"owner_changed": "stopped: the host changed owner first"}
 
 
-func _capture_roll(e: Dictionary) -> float:   # a 0..1 draw, the same on every lockstep screen, different for every intrusion
-	if capture_luck >= 0.0: return capture_luck
-	if _camp and _camp_chapter < CAMP_OPEN: return 0.0   # the guided chapters teach the card, not the odds
-	var h := hash("%d:%d:%d:%d" % [town_seed, int(e.id), int(e.target), int(e.get("stage", 1))])
-	return float(posmod(h, 1000003)) / 1000003.0
-
-
-func _capture_try(e: Dictionary) -> void:   # execution ran to the end: the card's chance decides
+func _op_outcome(e: Dictionary, outcome: String, via := "") -> void:   # one intrusion ended: record it and tell both sides
 	var t := int(e.target); var fac := int(e.fac)
-	var card: Dictionary = CARDS[str(e.card)]
+	var victim := int(hosts[t].owner)
 	intrusions_resolved += 1
-	if _capture_roll(e) < float(card.get("chance", 1.0)):
-		_capture(t, fac)
-		return
-	hosts[t].card_result = "%s missed" % str(card.name)
-	if fac == PLAYER: _flash("%s on %s missed (%d%% chance) — the card is spent" % [str(card.name), str(hosts[t].name), int(round(float(card.chance) * 100.0))], 1)
-	elif int(hosts[t].owner) == PLAYER: _flash("%s held off %s's %s" % [str(hosts[t].name), fname(fac), str(card.name)], 0)
+	op_outcomes.append({"t": _t, "fac": fac, "card": str(e.card), "target": t, "victim": victim, "outcome": outcome, "via": via, "stage": int(e.get("stage", 1))})
+	if op_outcomes.size() > OP_OUTCOME_KEEP: op_outcomes.pop_front()
+	if outcome == "captured": return   # _capture says it
+	var card := str(CARDS[str(e.card)].name)
+	var how: String = OUTCOME_TEXT[outcome]
+	if outcome == "countered" and via != "": how = "stopped by %s" % via
+	hosts[t].card_result = "%s %s" % [card, how]
+	if fac == PLAYER: _flash("Your %s on %s %s" % [card, str(hosts[t].name), how], 1)
+	elif victim == PLAYER: _flash("%s's %s on %s %s" % [fname(fac), card, str(hosts[t].name), how], 0)
 
 
 func _start_exec(e: Dictionary, into = null) -> void:   # an intrusion begins: a Patch in the target's Firewall stops it on the spot
 	var t := int(e.target)
 	if _fire_socket(t, "patch", str(CARDS[str(e.card)].name)):
-		hosts[t].card_result = "blocked by the Firewall's Patch"
-		if int(e.fac) == PLAYER: _flash("A Firewall Patch on %s stopped your %s" % [str(hosts[t].name), str(CARDS[str(e.card)].name)], 1)
+		_op_outcome(e, "countered", "the Firewall's Patch")
 		return
 	if into != null: (into as Array).append(e)
 	else: _execs.append(e)
@@ -2133,14 +2136,16 @@ func _apply_cover(t: int) -> void:   # Courier cover: this host's couriers in fl
 		if str(f.kind) == "cargo" and int(f.get("src", -1)) == t and int(f.owner) == int(hosts[t].owner): f.covered = true
 
 
-func _patch_cancel(fac: int, t: int) -> bool:   # cancel the earliest-ending capture/raid executing on t; true if one was cancelled
-	var best := -1; var bi := -1
+func _patch_cancel(_fac: int, t: int) -> bool:   # cancel the earliest-ending capture/raid executing on t; true if one was cancelled
+	var bi := -1
 	for n in _execs.size():
 		var e: Dictionary = _execs[n]
 		if int(e.target) == t and str(e.effect) in ["capture", "worm", "vault"]:
-			if bi < 0 or float(e.ends) < float(_execs[bi].ends): bi = n
+			if bi < 0 or float(e.ends) < float(_execs[bi].ends) or (float(e.ends) == float(_execs[bi].ends) and int(e.id) < int(_execs[bi].id)): bi = n
 	if bi < 0: return false
+	var cancelled: Dictionary = _execs[bi]
 	_execs.remove_at(bi)
+	_op_outcome(cancelled, "countered", "a Patch")
 	return true
 
 
@@ -4081,7 +4086,7 @@ func _camp_steps(chapter: int) -> Array:
 		0: return [
 			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 seconds — already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "w": "Resources are only spendable once they reach your main node.", "role": "home", "pause": true},
 			{"t": "Manufacture a card", "r": "A Credential breach copy is being manufactured.", "a": "Click Credential breach in the deck to manufacture one copy.", "w": "You already know the basic recipes. Manufacturing spends resources once.", "role": "", "ui": "card:breach", "pause": true},
-			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "Drag the ready Credential breach onto the Neighborhood Relay.", "w": "Breach takes a security-1 host after 15 s. In open play it works one time in four.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": true},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "Drag the ready Credential breach onto the Neighborhood Relay.", "w": "Breach takes a security-1 host after 15 s, unless a Patch or a lost route stops it.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": true},
 		]
 		1: return [
 			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s — but it is not home yet.", "a": "Select the relay and build an Intel harvester in a slot.", "w": "What a host makes waits in its storage until a Bot carries it home.", "role": "relay", "ui": "build:intel", "pause": true},

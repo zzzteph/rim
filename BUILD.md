@@ -83,6 +83,7 @@ Run the automated mechanics and layout checks before exporting:
 ```bash
 godot --headless --path . --script tests/economy_test.gd     # cycles, storage, stations, caps, research, Firewall sockets, capture
 godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet siphon, Vault raid: the loot reaches home
+godot --headless --path . --script tests/capture_test.gd     # deterministic capture: outcomes, timing, same-step order, Worm stages
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -253,10 +254,14 @@ Operations (cards do all the fighting; `cards.gd` `CARDS`, resolved in `_play_ca
 flight** from your main node along a route through your own network to the target
 (`_attack_route` / `_op_reachable` — you must own a path toward it). Capture and raid cards
 then **execute** on arrival for the card's `exec` seconds before they resolve
-(`_execs`); a lost route, a changed owner, or a defender's Patch can stop them mid-execution. A capture
-that runs to the end then succeeds with its card's `chance` (`_capture_try`): the draw (`_capture_roll`) is a
-hash of the town seed and the intrusion, so every lockstep screen rolls alike; the guided campaign
-chapters always succeed, and tests can force it with `capture_luck`. A miss spends the card.
+(`_execs`). Capture is deterministic: there is no roll. An intrusion resolves in exactly one outcome,
+recorded by `_op_outcome` in `op_outcomes` with its own message for both sides: **countered** (a Patch: by
+hand, armed, or loaded in a Firewall), **owner changed** (the target's ownership generation moved first, so
+a host is never captured twice from one generation), **route failed** (no path from the attacker's main
+node when it ends) or **captured**. Intrusions resolve earliest end first, equal end times by operation id
+(launch order), and a turn's commands — a manual Patch included — apply before that turn's steps. A Worm
+captures its target, then runs one more stage on the nearest visible linked host of the same original owner
+(security ≤ 2); a stopped stage ends the chain.
 Support (DEFENCE) cards apply locally and instantly to one of your hosts.
 
 The ten ATTACK/information recipes: **Recon**, **Credential breach**, **Known exploit**,
