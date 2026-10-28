@@ -1,40 +1,42 @@
-## What you build INSIDE a host — the producers (and the Firewall) for the RIM redesign.
+## What you build INSIDE a host — the producers and the Firewall.
 ## Edit the numbers here; scripts/botnet_proto.gd reads them through aliases and never defines them itself.
 ## A changed value needs the scene restarted (constants are read when the script loads).
 
 const BUILD_TIME := 10.0           # seconds of fully funded work a build job needs (also in tuning.gd)
 const DEMOLISH_TIME := 5.0         # seconds to clear an occupied slot first (replace = DEMOLISH_TIME + BUILD_TIME)
 
-# Each producer: its output resource and per-second rate at ×1, its input resource and rate, the build price
-# (paid over BUILD_TIME), and the capacity it adds to its output bank. Type multipliers scale output AND input.
-# Firewall is an installation, not a producer: one slot, +1 security (cap 3), no upkeep or storage.
+# Every host runs one production cycle each PROD_CYCLE (5 s): Intel harvesters first, then the Firewall's upkeep,
+# then the converters (Miner, Credential harvester, Research lab) from what is in THAT host's storage (at the main
+# node: the bank), then the Bot stations, whose new Bots leave at once carrying what the host made.
+# "rate" is output per cycle at x1, "use" the input per cycle; host type multipliers scale both.
 const BUILD_KINDS := {
 	"intel": {"name": "Intel harvester",      "card": "Intel harv.",  "short": "I", "col": Color(0.4, 0.85, 1.0),
-		"out": "intel", "rate": 2.0, "in": "",     "in_rate": 0.0, "cost": {"intel": 20.0, "cash": 10.0}, "cap": 50.0,
-		"desc": "2 Intel/s, no input. +50 Intel cap. Its output still needs a courier home."},
-	"bot":   {"name": "Bot farm",             "card": "Bot farm",     "short": "B", "col": Color(0.45, 0.95, 0.6),
-		"out": "bots", "rate": 2.0, "in": "intel", "in_rate": 1.0, "cost": {"intel": 15.0, "cash": 20.0}, "cap": 50.0,
-		"desc": "Turns 1 Intel into 2 Bots/s. New Bots deliver themselves home. +50 Bot cap."},
+		"out": "intel", "rate": 2.0, "use": {}, "cost": {"intel": 12.0}, "cap": 50.0,
+		"desc": "Makes 2 Intel every 5 s. The Miner, Credential harvester and Lab on this host use it first."},
+	"bot":   {"name": "Bot station",          "card": "Bot station",  "short": "B", "col": Color(0.45, 0.95, 0.6),
+		"out": "bots", "rate": 2.0, "use": {}, "cost": {"intel": 12.0, "cash": 4.0}, "cap": 50.0,
+		"desc": "Every 5 s sends 2 new Bots home, each carrying 1 unit from this host. They join your Bots."},
 	"cash":  {"name": "Crypto miner",         "card": "Miner",        "short": "C", "col": Color(1.0, 0.85, 0.3),
-		"out": "cash", "rate": 1.0, "in": "intel", "in_rate": 1.0, "cost": {"intel": 25.0, "cash": 10.0}, "cap": 50.0,
-		"desc": "Turns 1 Intel into 1 Crypto/s. A courier carries each unit home. +50 Crypto cap."},
+		"out": "cash", "rate": 1.0, "use": {"intel": 1.0}, "cost": {"intel": 15.0}, "cap": 50.0,
+		"desc": "Every 5 s turns 1 Intel on this host into 1 Crypto."},
 	"cred":  {"name": "Credential harvester", "card": "Cred. harv.",  "short": "K", "col": Color(1.0, 0.6, 0.45),
-		"out": "creds", "rate": 1.0, "in": "intel", "in_rate": 1.0, "cost": {"intel": 25.0, "cash": 15.0}, "cap": 50.0,
-		"desc": "Turns 1 Intel into 1 Credential/s. +50 Credential cap."},
+		"out": "creds", "rate": 1.0, "use": {"intel": 1.0}, "cost": {"intel": 15.0, "cash": 4.0}, "cap": 50.0,
+		"desc": "Every 5 s turns 1 Intel on this host into 1 Credential."},
 	"lab":   {"name": "Research lab",         "card": "Research lab", "short": "R", "col": Color(0.75, 0.55, 1.0),
-		"out": "research", "rate": 1.0, "in": "cash", "in_rate": 1.0, "cost": {"intel": 25.0, "cash": 25.0}, "cap": 50.0,
-		"desc": "Turns 1 Crypto into 1 Research/s. +50 Research cap."},
+		"out": "research", "rate": 1.0, "use": {"intel": 1.0, "cash": 1.0}, "cost": {"intel": 20.0, "cash": 8.0}, "cap": 50.0,
+		"desc": "Every 5 s turns 1 Intel and 1 Crypto on this host into 1 Research."},
 	"wall":  {"name": "Firewall",             "card": "Firewall",     "short": "F", "col": Color(0.9, 0.5, 0.5),
-		"out": "", "rate": 0.0, "in": "", "in_rate": 0.0, "cost": {"intel": 20.0, "cash": 20.0}, "cap": 0.0,
-		"desc": "+1 security (max 3). One per host. No upkeep or storage."},
+		"out": "", "rate": 0.0, "use": {"intel": 1.0}, "cost": {"intel": 25.0, "cash": 15.0}, "cap": 0.0,
+		"desc": "3 sockets for defence cards, which fire on their own when this host is hit. Uses 1 Intel every 5 s."},
 }
-const PRODUCER_KINDS := ["intel", "bot", "cash", "cred", "lab"]   # the five that make and ship a resource
+const PRODUCER_KINDS := ["intel", "bot", "cash", "cred", "lab"]   # the five that make a resource
+const CONVERT_ORDER := ["cash", "cred", "lab"]                    # converters run in this order (a Lab can use the Miner's Crypto)
 const BUILD_COSTS := {
-	"intel": {"intel": 20.0, "cash": 10.0},
-	"bot":   {"intel": 15.0, "cash": 20.0},
-	"cash":  {"intel": 25.0, "cash": 10.0},
-	"cred":  {"intel": 25.0, "cash": 15.0},
-	"lab":   {"intel": 25.0, "cash": 25.0},
-	"wall":  {"intel": 20.0, "cash": 20.0},
+	"intel": {"intel": 12.0},
+	"bot":   {"intel": 12.0, "cash": 4.0},
+	"cash":  {"intel": 15.0},
+	"cred":  {"intel": 15.0, "cash": 4.0},
+	"lab":   {"intel": 20.0, "cash": 8.0},
+	"wall":  {"intel": 25.0, "cash": 15.0},
 }
 const BUILD_COST_INTEL := 20.0     # legacy alias

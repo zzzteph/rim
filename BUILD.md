@@ -81,7 +81,8 @@ engine-exit noise, **not** script errors. Only `SCRIPT ERROR` / `Parse Error` ma
 
 Run the automated mechanics and layout checks before exporting:
 ```bash
-godot --headless --path . --script tests/economy_test.gd     # income, caps, research, manufacture, security, capture
+godot --headless --path . --script tests/economy_test.gd     # cycles, storage, stations, caps, research, Firewall sockets, capture
+godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet siphon, Vault raid: the loot reaches home
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -100,15 +101,22 @@ These checks cover scripted behavior and layout; human usability testing is stil
 
 Economy (research–manufacture–deliver, 0.4.0). There are five resources (`RES` in
 tuning.gd): **Bots**, **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
-spendable once they reach your **main node** (your rig). The main node makes one of every
-resource per second, delivered locally with no courier (`MAIN_INCOME`, `_tick_production`
-step 1). Producers you build on other hosts emit output into a per-producer local buffer
-(`BUFFER_CAP`); a **courier** then carries it home — one Bot per non-Bot unit, consumed on
-arrival (`_tick_dispatch`/`_dispatch_for`/`_deliver`). New Bots deliver themselves. A main-node
-**Bots reserve** (`BOT_RESERVE_CHOICES`) keeps couriers back for operations, and a **shipping
-priority** biases which resource ships first. Each bank has a cap of `BASE_CAP[res]` plus
-`CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`); incoming shipments
-reserve destination room (`incoming`).
+spendable once they reach your **main node** (your rig). The main node itself only trickles one of
+every resource every 5 s (`MAIN_INCOME`), so a network that builds nothing stalls: the economy is
+what you build. Every held host runs one **production cycle** every `PROD_CYCLE` (5) s on its own
+phase (`_tick_production` → `_run_cycle`): Intel harvesters first, then each Firewall's upkeep, then
+the converters in `CONVERT_ORDER` (Miner, Credential harvester, Research lab), then the Bot stations.
+Converters use only what is in **their own host's storage** — at the main node that is the bank —
+so a remote Miner needs an Intel harvester beside it. A remote host keeps what it made in a
+**storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary);
+full storage stops its producers. A **Bot station** makes 2 Bots a cycle that leave at once, each
+carrying one unit of the host's storage (`_station_send`, priority first, then round robin), and
+join your Bots on arrival (cargo flights with `keep`). What stations do not carry waits for a
+**courier from the bank**, one Bot per unit, used up on the way (`_tick_dispatch`/`_dispatch_for`/
+`_do_dispatch`/`_deliver`). A main-node **Bots reserve** (`BOT_RESERVE_CHOICES`) keeps couriers back
+for operations, and a **shipping priority** biases which resource ships first. Each bank has a cap
+of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
+incoming shipments reserve destination room (`incoming`).
 
 Cards are **researched once, then manufactured**. A blueprint is learned in the single
 research slot (`_do_research`/`_tick_research`, cost + time in `cards.gd` `RESEARCH`); five
@@ -126,9 +134,9 @@ it, or launch from a host's panel. Drag a held ATTACK card onto a reachable fore
 
 Hosts have a **security class** 1–3 (`SEC_BY_TYPE` by host type, `_security`): a capture card
 only takes a host whose security is at or below the card's reach (`sec_max` — Breach 1,
-Exploit 2, 0day 3). Installing a **Firewall** (`wall`) raises a host's security by one, to a
-cap of `SEC_MAX` (3); a main node is pinned to `SEC_MAIN` (3). Security is public; Recon is
-optional for capture and reveals installations, buffers and mission access for 30 s.
+Exploit 2, 0day 3). Security comes from the host type only; a main node is pinned to `SEC_MAIN`
+(3). Security is public; Recon is optional for capture and reveals installations, storage and
+Firewall cards for 45 s.
 
 The idle right sidebar shows compact standings automatically; selecting a node replaces it
 with node controls (installations, build palette, logistics on the main node). Help uses six
@@ -151,20 +159,26 @@ their buildings, and borders are inset so two botnets' lines never touch (`_terr
 recomputed only when sight or ownership changes).
 
 Installations (`BUILD_KINDS` in buildings.gd) go in a host's slots. Producers
-(`PRODUCER_KINDS`: Intel, Bot, Crypto, Credential and Research-lab) turn an input bank
-resource into an output resource at `rate` (input paid from the host **owner's** available
-bank at `in_rate`); output goes to a local buffer and is couriered home, or straight to the
-bank when the producer sits on the main node. A short input scales output down that tick;
-a capped bank or full buffer makes a producer idle and burn no input. A **Firewall** (`wall`)
-is not a producer: it raises the host's security (see above). Build jobs are paid evenly over
-`BUILD_TIME` s of funded work with the full price (`BUILD_COSTS`) reserved to queue;
-demolition takes `DEMOLISH_TIME` s. Click an installed producer to pause/resume; DDoS,
-Supply-chain sabotage, a running construction or the owner's pause stops one
-(`_producer_active`). During Phishing, a victim host's new producer output is diverted to the
-caster (who still pays a courier home per stolen non-Bot unit).
+(`PRODUCER_KINDS`): the **Intel harvester** makes 2 Intel a cycle from nothing; the **Crypto
+miner** and **Credential harvester** each turn 1 Intel into 1 of their resource; the **Research
+lab** turns 1 Intel and 1 Crypto into 1 Research; the **Bot station** makes 2 courier Bots. Host
+type multipliers scale output and input (`_tmult`). A **Firewall** (`wall`) is not a producer: each
+one gives the host `FIREWALL_SOCKETS` (3) **sockets** for defence cards and eats 1 Intel a cycle
+from its host's storage (`fw_on`; without Intel it switches off and its cards wait). A Patch,
+Incident response, Traffic filter or Courier cover played on a host with a free socket is loaded
+instead of spent, unless its attack is already there (`_apply_support`, `_trigger_now`); it then
+fires on its own when its trigger hits (`_fire_socket`, `SOCKET_TRIGGER`: an intrusion starting
+for Patch via `_start_exec`, Phishing/siphon/sabotage landing for Response, a DDoS landing for
+Filter, a siphon grabbing this host's courier for Cover). Express route cannot be loaded. Build
+jobs pay their full price (`BUILD_COSTS`) when they start and take `BUILD_TIME` s; demolition takes
+`DEMOLISH_TIME` s. Click an installed producer to pause/resume; DDoS, Supply-chain sabotage, a
+running construction or the owner's pause stops one (`_producer_active`). During Phishing, all of
+a victim host's new output is the caster's, its Bot stations' couriers included.
 
-The AI botnets all play `_ai_think` (one economic AI, no difficulty setting): it develops
-producers, learns blueprints, manufactures known cards and uses them to capture, steal and
+The AI botnets all play `_ai_think` (one economic AI, no difficulty setting): it gives every
+host a self-feeding layout (`_ai_plan`: a Bot station first, then an Intel harvester and its
+converters; a Lab host with a Miner beside it; one Firewall once the network is worth guarding),
+retools a producer whose bank overflows (`_ai_rebalance`), learns blueprints, manufactures known cards and uses them to capture, steal and
 defend, under the same income, delivery, prices, lane/reserve limits and fog as a person.
 
 Map layouts (New game → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
@@ -224,19 +238,11 @@ then **execute** on arrival for the card's `exec` seconds before they resolve
 (`_execs`); a lost route, a changed owner, or a defender's Patch can stop them mid-execution.
 Support (DEFENCE) cards apply locally and instantly to one of your hosts.
 
-The ten ATTACK/information recipes: **Recon** (reveal for 30 s), **Credential breach** (capture
-a security-1 host), **Known exploit** (capture up to security 2), **Phishing** (divert a host's
-new producer output to you for 24 s), **Packet siphon** (redirect up to six courier packets of
-a chosen resource for 18 s), **Vault raid** (steal up to eight stored Crypto from a rival main
-node), **DDoS** (stop a host's producers, income and dispatch for 18 s), **0day** (capture up to
-security 3; longer on an active rival main node), **Worm** (chain up to three adjacent visible
-security-1 hosts of one owner), **Supply-chain sabotage** (disable producers on the target and
-up to two adjacent same-owner hosts for 20 s). The five DEFENCE/support recipes: **Patch**
-(cancel the earliest hostile capture/raid executing on this host, else arm one interception
-for 20 s), **Incident response** (clear Phishing, Packet siphon and sabotage here; undispatched
-stolen output reverts), **Traffic filter** (clear a DDoS and block a new one for 12 s), **Courier
-cover** (protect cargo this host emits from Packet siphon for 16 s), **Express route** (halve
-delivery travel time for this host's shipments for 16 s). A main node whose routing is cut can
+The ten ATTACK/information recipes: **Recon**, **Credential breach**, **Known exploit**,
+**Phishing**, **Packet siphon**, **Vault raid**, **DDoS**, **0day**, **Worm** and **Supply-chain
+sabotage**; the five DEFENCE/support recipes: **Patch**, **Incident response**, **Traffic filter**,
+**Courier cover** and **Express route**. Their numbers live in `cards.gd`; what each one is for,
+when to play it, what counters it and what it costs in income is in `docs/CARDS.md`. A main node whose routing is cut can
 still play support on itself but cannot send attacks. Card art lives in
 `assets/cards/schematic/`: every recipe has its own picture (`FAMILY_ART`, by `fam`); five of them
 (vault, worm, siphon, cover, express) are drawn by `assets/cards/schematic/make_art.py` in the style of

@@ -53,6 +53,7 @@ const DEMOLISH_TIME := CfgBuildings.DEMOLISH_TIME
 const BUILD_COSTS := CfgBuildings.BUILD_COSTS
 const BUILD_KINDS := CfgBuildings.BUILD_KINDS
 const PRODUCER_KINDS := CfgBuildings.PRODUCER_KINDS
+const CONVERT_ORDER := CfgBuildings.CONVERT_ORDER
 
 const CARDS := CfgCards.CARDS
 const RESEARCH := CfgCards.RESEARCH
@@ -76,7 +77,9 @@ const START := CfgTuning.START
 const BASE_CAP := CfgTuning.BASE_CAP
 const CAP_PER_PRODUCER := CfgTuning.CAP_PER_PRODUCER
 const MAIN_INCOME := CfgTuning.MAIN_INCOME
-const BUFFER_CAP := CfgTuning.BUFFER_CAP
+const PROD_CYCLE := CfgTuning.PROD_CYCLE
+const STORE_CAP := CfgTuning.STORE_CAP
+const FIREWALL_SOCKETS := CfgTuning.FIREWALL_SOCKETS
 const BOT_RESERVE_CHOICES := CfgTuning.BOT_RESERVE_CHOICES
 const BOT_RESERVE_DEFAULT := CfgTuning.BOT_RESERVE_DEFAULT
 const SHIP_PRIORITY_TURNS := CfgTuning.SHIP_PRIORITY_TURNS
@@ -189,6 +192,7 @@ var _hold := {}        # faction -> seconds it has continuously held the majorit
 var card_plays := {}   # faction -> operations launched (probes and the result screen)
 
 # ── traffic and operations ──
+var _delivered := {}   # faction -> cargo units that reached its main node (the campaign's delivery step)
 var flights := []      # packets: {id, kind:"cargo"|"newbot"|"op", route, hops, node, depart_t, arrive_t, owner, ...}
 var _execs := []       # executing capture/raid/worm: {id, fac, card, target, gen, ends, chain, stage}
 var _res := {}         # "a>b" -> sorted entry times reserved on that link direction (capacity)
@@ -462,7 +466,7 @@ func _gen() -> void:
 	rng.seed = town_seed
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; _roads = {}; flights = []; _execs = []; _res = {}; _flight_id = 0
-	bank = {}; incoming = {}; committed = {}; bot_reserve = {}; ship_pri = {}; ship_cursor = {}; known = {}; research_job = {}; lanes = {}; cards = {}; recon = {}
+	bank = {}; incoming = {}; _delivered = {}; committed = {}; bot_reserve = {}; ship_pri = {}; ship_cursor = {}; known = {}; research_job = {}; lanes = {}; cards = {}; recon = {}
 	_ai = {}; _fx = []; _worms = []; _hold = {}; card_plays = {}
 	for fac in botnets:
 		bank[fac] = {}
@@ -554,7 +558,8 @@ func _add_host(p: Vector2, c: Vector2i, is_hub: bool, value: int, ntype: String)
 	hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
 		"name": "HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
 		"links": [], "owner": NEUTRAL, "gen": 0, "value": value, "slots": slots,
-		"builds": _slot_array([], slots), "jobs": {}, "buf": {}, "producer_paused": {}, "junction": false,
+		"builds": _slot_array([], slots), "jobs": {}, "store": {}, "producer_paused": {}, "junction": false,
+		"cyc": PROD_CYCLE * (0.2 + 0.8 * fposmod(float(hosts.size()) * 0.618034, 1.0)), "fw_on": true, "sockets": [], "ship_rr": 0,
 		"ddos_until": 0.0, "filter_until": 0.0, "sabot_until": 0.0, "steal_by": -1, "steal_until": 0.0,
 		"siphon": {}, "patch_armed_until": 0.0, "patch_recover_until": 0.0, "cover_until": 0.0, "express_until": 0.0,
 		"hit_t": -100.0, "card_result": ""})
@@ -729,7 +734,7 @@ func _components() -> Array:   # connected groups of buildings over the street n
 func _claim(i: int, fac: int, is_rig: bool, nm: String) -> void:   # every botnet starts with a Server main node + an empty PC
 	hosts[i].owner = fac; hosts[i].value = 1; hosts[i].gen = int(hosts[i].get("gen", 0)) + 1
 	hosts[i].type = "server" if is_rig else "pc"; hosts[i].slots = int(NODE_TYPES[hosts[i].type].slots)
-	hosts[i].buf = {}; hosts[i].jobs = {}; hosts[i].producer_paused = {}
+	hosts[i].store = {}; hosts[i].jobs = {}; hosts[i].producer_paused = {}; hosts[i].sockets = []
 	if is_rig:
 		hosts[i].rig = true; rig[fac] = i; hosts[i].builds = _slot_array(["intel", "bot"], int(hosts[i].slots))
 	else:
@@ -750,11 +755,9 @@ func _pick_type(value: int) -> String:   # weighted by district: soft IoT and PC
 
 
 # ---- security (a discrete eligibility class, not health) ----
-func _security(i: int) -> int:   # type class, +1 for a Firewall, main node pinned to SEC_MAIN; capped SEC_MAX
+func _security(i: int) -> int:   # the host type's class; an active main node is pinned to SEC_MAIN
 	if int(hosts[i].owner) != NEUTRAL and bool(hosts[i].rig): return SEC_MAIN
-	var s := int(SEC_BY_TYPE.get(str(hosts[i].get("type", "pc")), 1))
-	if _has_firewall(i): s += 1
-	return clampi(s, 1, SEC_MAX)
+	return clampi(int(SEC_BY_TYPE.get(str(hosts[i].get("type", "pc")), 1)), 1, SEC_MAX)
 
 
 func _has_firewall(i: int) -> bool: return (hosts[i].builds as Array).has("wall")
@@ -774,7 +777,7 @@ func _recon_fresh(fac: int, t: int) -> bool:   # a Recon snapshot within its 30 
 
 func _mark_scanned(fac: int, t: int) -> void:   # record a Recon snapshot (also used by scripts/campaign)
 	if not recon.has(fac): recon[fac] = {}
-	recon[fac][t] = {"at": _t, "builds": (hosts[t].builds as Array).duplicate(), "buf": _buf_total(t)}
+	recon[fac][t] = {"at": _t, "builds": (hosts[t].builds as Array).duplicate(), "store": _store_total(t)}
 
 
 # ---- producers ----
@@ -1124,170 +1127,232 @@ func _release_incoming(fac: int, res: String, amt: float) -> void:
 func _pool(fac: int, res: String) -> float: return _avail(fac, res)   # legacy alias used by some callers
 
 
-# ---- local output buffers (per producer, keyed by slot, split by beneficiary) ----
-func _buf_slot(i: int, slot: int) -> float:
-	var b: Dictionary = (hosts[i].buf as Dictionary).get(slot, {})
+# ---- host storage: what a remote host has made and not yet sent home, split by beneficiary ----
+# At the beneficiary's own main node the storage IS the bank: production there is credited at once.
+func _store_of(i: int, fac: int) -> Dictionary:
+	return (hosts[i].store as Dictionary).get(fac, {})
+
+
+func _store_total(i: int) -> float:
 	var s := 0.0
-	for benef in b: s += float(b[benef])
+	for fac in (hosts[i].store as Dictionary):
+		for res in (hosts[i].store[fac] as Dictionary): s += float(hosts[i].store[fac][res])
 	return s
 
 
-func _buf_total(i: int) -> float:
-	var s := 0.0
-	for slot in (hosts[i].buf as Dictionary): s += _buf_slot(i, int(slot))
-	return s
+func _buf_total(i: int) -> float: return _store_total(i)   # legacy name (Recon snapshots, tests)
 
 
-func _buf_add(i: int, slot: int, benef: int, amt: float) -> void:
-	if not (hosts[i].buf as Dictionary).has(slot): hosts[i].buf[slot] = {}
-	hosts[i].buf[slot][benef] = float((hosts[i].buf[slot] as Dictionary).get(benef, 0.0)) + amt
+func _st_local(i: int, fac: int) -> bool: return i == int(rig.get(fac, -1))
 
 
-# ---- income + production (Layer 4) ----
+func _st_get(i: int, fac: int, res: String) -> float:
+	if _st_local(i, fac): return _avail(fac, res)
+	return float(_store_of(i, fac).get(res, 0.0))
+
+
+func _st_add(i: int, fac: int, res: String, amt: float) -> float:   # credit what fits; returns it
+	if amt <= 0.0: return 0.0
+	if _st_local(i, fac): return _add_bank(fac, res, amt)
+	var fit := minf(amt, maxf(0.0, STORE_CAP - _store_total(i)))
+	if fit <= 0.0: return 0.0
+	if not (hosts[i].store as Dictionary).has(fac): hosts[i].store[fac] = {}
+	hosts[i].store[fac][res] = float((hosts[i].store[fac] as Dictionary).get(res, 0.0)) + fit
+	return fit
+
+
+func _st_take(i: int, fac: int, res: String, amt: float) -> void:
+	if _st_local(i, fac): _spend(fac, res, amt); return
+	var st := _store_of(i, fac)
+	if st.is_empty(): return
+	var left := float(st.get(res, 0.0)) - amt
+	if left <= 0.0001: st.erase(res)
+	else: st[res] = left
+	if st.is_empty(): (hosts[i].store as Dictionary).erase(fac)
+
+
+# ---- income + production (Layer 4): one cycle per host every PROD_CYCLE seconds ----
 func _main_ok(fac: int) -> bool:   # the faction's main node is operational (held and not DDoSed)
 	var home := int(rig.get(fac, -1))
 	return home >= 0 and int(hosts[home].owner) == fac and not _prod_down(home)
 
 
 func _tick_production(dt: float) -> void:
-	# 1) the main node makes one of each resource per second, delivered locally (no courier, clamped to cap)
+	# 1) the main node makes one of each resource every 5 s, delivered locally (no courier, clamped to cap)
 	for fac in botnets:
 		if _eliminated.has(fac) or not _main_ok(fac): continue
 		for res in RES: _add_bank(fac, res, MAIN_INCOME * dt)
-	# 2) installed producers: input paid from the OWNER's available bank, output to a local buffer (remote) or bank (local)
-	var cands := []; var demand := {}   # demand: owner*8 + input-slot -> input amount
+	# 2) every held host runs its cycle on its own phase, so the network does not pulse all at once
 	for i in hosts.size():
 		var owner := int(hosts[i].owner)
 		if owner == NEUTRAL or not botnets.has(owner) or _eliminated.has(owner): continue
-		var benef := _benef(i)
-		if not botnets.has(benef) or _eliminated.has(benef): continue
-		var home_of_benef := int(rig.get(benef, -1))
-		var local: bool = i == home_of_benef
-		for slot in (hosts[i].builds as Array).size():
-			var kind := str(hosts[i].builds[slot])
-			if kind == "" or not (kind in PRODUCER_KINDS) or not _producer_active(i, slot): continue
-			var spec: Dictionary = BUILD_KINDS[kind]
-			var out := str(spec.out); var inp := str(spec.get("in", ""))
-			var mult := _tmult(i, out)
-			var out_amt := float(spec.rate) * mult * dt
-			var room := 0.0
-			if local: room = maxf(0.0, _cap(benef, out) - _avail(benef, out))
-			else: room = BUFFER_CAP - _buf_slot(i, slot)
-			out_amt = minf(out_amt, room)
-			if out_amt <= 0.0: continue           # a capped/full producer burns no input
-			var inp_amt := 0.0
-			if inp != "":
-				inp_amt = float(spec.in_rate) * mult * dt * (out_amt / maxf(0.000001, float(spec.rate) * mult * dt))
-				var key := owner * 8 + RES.find(inp)
-				demand[key] = float(demand.get(key, 0.0)) + inp_amt
-			cands.append({"host": i, "slot": slot, "out": out, "in": inp, "owner": owner, "benef": benef, "local": local, "out_amt": out_amt, "inp_amt": inp_amt})
-	for c in cands:
-		var scale := 1.0
-		if str(c.in) != "":
-			var key := int(c.owner) * 8 + RES.find(str(c.in))
-			scale = minf(1.0, _avail(int(c.owner), str(c.in)) / maxf(0.000001, float(demand[key])))
-		var out_amt := float(c.out_amt) * scale
-		if out_amt <= 0.0: continue
-		if str(c.in) != "": _spend(int(c.owner), str(c.in), float(c.inp_amt) * scale)
-		if bool(c.local): _add_bank(int(c.benef), str(c.out), out_amt)
-		else: _buf_add(int(c.host), int(c.slot), int(c.benef), out_amt)
+		hosts[i].cyc = float(hosts[i].get("cyc", PROD_CYCLE)) - dt
+		if float(hosts[i].cyc) > 0.00001: continue
+		hosts[i].cyc = float(hosts[i].cyc) + PROD_CYCLE
+		_run_cycle(i)
 
 
-# ---- dispatch: one courier per non-Bot unit; new Bots deliver themselves (Layer 4) ----
+func _cycle_kinds(i: int, kind: String) -> int: return _count(i, kind)   # active producers of a kind this cycle
+
+
+func _run_cycle(i: int) -> void:
+	var owner := int(hosts[i].owner)
+	var benef := _benef(i)
+	if not botnets.has(benef) or _eliminated.has(benef): benef = owner
+	# a) Intel harvesters: no input
+	var n := _cycle_kinds(i, "intel")
+	if n > 0: _st_add(i, benef, "intel", float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * n)
+	# b) the Firewall's upkeep, paid by the owner from this host before any converter eats the Intel
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0:
+		var need := float(BUILD_KINDS.wall.use.intel) * walls
+		var have := _st_get(i, owner, "intel")
+		if owner != benef: have += _st_get(i, benef, "intel")   # phished: the Firewall still eats what lands here
+		hosts[i].fw_on = have >= need - 0.0001
+		if bool(hosts[i].fw_on):
+			var own := minf(need, _st_get(i, owner, "intel"))
+			_st_take(i, owner, "intel", own)
+			if need - own > 0.0001: _st_take(i, benef, "intel", need - own)
+	# c) converters, from this host's own storage (the bank at the main node)
+	for kind in CONVERT_ORDER:
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var out := str(spec.out)
+		var m := _tmult(i, out)
+		for k in _cycle_kinds(i, kind):
+			var frac := 1.0
+			for r in (spec.use as Dictionary):
+				frac = minf(frac, _st_get(i, benef, str(r)) / maxf(0.000001, float(spec.use[r]) * m))
+			if _st_local(i, benef): frac = minf(frac, _room_now(benef, out) / maxf(0.000001, float(spec.rate) * m))
+			if frac <= 0.0001: break
+			for r in (spec.use as Dictionary): _st_take(i, benef, str(r), float(spec.use[r]) * m * frac)
+			_st_add(i, benef, out, float(spec.rate) * m * frac)
+	# d) Bot stations: their new Bots leave at once, each carrying one unit home, and join the bank on arrival
+	var bots := 0
+	for k in _cycle_kinds(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
+	if bots > 0: _station_send(i, benef, bots)
+
+
+func _walls_building(i: int) -> int:   # Firewalls still under construction (no upkeep, no sockets yet)
+	var n := 0
+	for slot_key in (hosts[i].jobs as Dictionary):
+		var slot := int(hosts[i].jobs[slot_key].slot)
+		if str(hosts[i].builds[slot]) == "wall": n += 1
+	return n
+
+
+func _room_now(fac: int, res: String) -> float: return maxf(0.0, _cap(fac, res) - _avail(fac, res))
+
+
+func _station_send(i: int, fac: int, bots: int) -> void:
+	if _st_local(i, fac):                       # at your own main node they are simply new Bots
+		_add_bank(fac, "bots", float(bots))
+		return
+	if _routing_down(i): return                 # DDoS: nothing leaves, the new Bots never form
+	var rt := _home_route(fac, i)
+	if rt.is_empty(): return
+	var express := float(hosts[i].get("express_until", 0.0)) > _t
+	var covered := float(hosts[i].get("cover_until", 0.0)) > _t
+	for b in bots:
+		var res := _next_cargo(i, fac)
+		if res == "" and _room(fac, "bots") < 1.0: continue   # nothing to carry and no room for the Bot: it is not made
+		_reserve_incoming(fac, "bots", 1.0)
+		if res == "":
+			flights.append(_schedule(rt, _t, fac, "newbot", express, {"res": "bots"}))
+			continue
+		_st_take(i, fac, res, 1.0)
+		_reserve_incoming(fac, res, 1.0)
+		flights.append(_schedule(rt, _t, fac, "cargo", express, {"res": res, "payer": fac, "covered": covered, "intercepted": false, "src": i, "keep": true}))
+
+
+func _next_cargo(i: int, fac: int) -> String:   # the next whole unit a courier should take from this host: priority first, then round robin
+	var pri := str(ship_pri.get(fac, ""))
+	if pri != "" and _st_get(i, fac, pri) >= 1.0 and _room(fac, pri) >= 1.0: return pri
+	var start := int(hosts[i].get("ship_rr", 0))
+	for k in RES.size():
+		var res: String = RES[(start + k) % RES.size()]
+		if res == "bots": continue
+		if _st_get(i, fac, res) >= 1.0 and _room(fac, res) >= 1.0:
+			hosts[i].ship_rr = (start + k + 1) % RES.size()
+			return res
+	return ""
+
+
+# ---- dispatch: what a host's Bot stations did not take waits in storage until a courier from the bank fetches it ----
 func _tick_dispatch(_dt: float) -> void:
-	# Build the list of whole units ready to leave, in a stable host/slot order, then serve by weighted round robin.
-	var ready := {}   # beneficiary -> [{host, slot, res, newbot}]
+	var ready := {}   # beneficiary -> [{host, res}]
 	for i in hosts.size():
 		if _routing_down(i): continue            # DDoS stops outgoing dispatch; sabotage leaves it open
-		var buf: Dictionary = hosts[i].buf
-		for slot in buf.keys():
-			var benefs: Dictionary = buf[slot]
-			for benef_key in benefs.keys():
-				var benef := int(benef_key)
-				if float(benefs[benef_key]) < 1.0 or _eliminated.has(benef): continue
-				var res := str(BUILD_KINDS[str(hosts[i].builds[slot])].out)
-				if not ready.has(benef): ready[benef] = []
-				ready[benef].append({"host": i, "slot": int(slot), "res": res, "newbot": res == "bots"})
-	for benef in ready:
-		_dispatch_for(int(benef), ready[benef])
+		var store: Dictionary = hosts[i].store
+		for fac_key in store.keys():
+			var fac := int(fac_key)
+			if _eliminated.has(fac) or _st_local(i, fac): continue
+			for res in (store[fac_key] as Dictionary).keys():
+				if float(store[fac_key][res]) < 1.0: continue
+				if not ready.has(fac): ready[fac] = []
+				ready[fac].append({"host": i, "res": str(res)})
+	for fac in ready:
+		_dispatch_for(int(fac), ready[fac])
 
 
 func _dispatch_for(fac: int, items: Array) -> void:
 	var home := int(rig.get(fac, -1))
 	if home < 0 or int(hosts[home].owner) != fac: return
-	# weighted round robin: the chosen priority resource gets more turns; stable by (host, slot)
-	items.sort_custom(func(a, b): return (a.host * 16 + a.slot) < (b.host * 16 + b.slot))
+	# weighted round robin: the chosen priority resource gets more turns; stable by (host, resource)
+	items.sort_custom(func(a, b): return (int(a.host) * 8 + RES.find(str(a.res))) < (int(b.host) * 8 + RES.find(str(b.res))))
 	var pri := str(ship_pri.get(fac, ""))
 	var guard := 0
-	while guard < 4000:
+	while guard < 4000 and not items.is_empty():
 		guard += 1
 		var picked := -1
 		for n in items.size():
-			var k := (int(ship_cursor.get(fac, 0)) + n) % maxi(1, items.size())
+			var k := (int(ship_cursor.get(fac, 0)) + n) % items.size()
 			if _can_dispatch(fac, items[k]): picked = k; break
 		if picked < 0: break
-		var it: Dictionary = items[picked]
-		if not _do_dispatch(fac, it, it.host == home): pass
+		_do_dispatch(fac, items[picked])
 		ship_cursor[fac] = picked + 1
-		# priority resource gets an extra turn by not advancing the cursor past it once more
-		if pri != "" and str(it.res) == pri:
+		if pri != "" and str(items[picked].res) == pri:   # the priority resource gets extra turns
 			for extra in range(SHIP_PRIORITY_TURNS - 1):
 				var again := -1
 				for n in items.size():
 					if str(items[n].res) == pri and _can_dispatch(fac, items[n]): again = n; break
 				if again < 0: break
-				_do_dispatch(fac, items[again], items[again].host == home)
-		# a producer with less than one whole unit left drops out of the rotation
-		items = items.filter(func(x): return _buf_unit(x))
-		if items.is_empty(): break
-
-
-func _buf_unit(it: Dictionary) -> bool:
-	return _buf_benef(int(it.host), int(it.slot)) >= 1.0
-
-
-func _buf_benef(i: int, slot: int) -> float:
-	var b: Dictionary = (hosts[i].buf as Dictionary).get(slot, {})
-	var s := 0.0
-	for benef in b: s += float(b[benef])
-	return s
+				_do_dispatch(fac, items[again])
+		items = items.filter(func(x): return _st_get(int(x.host), fac, str(x.res)) >= 1.0)
 
 
 func _can_dispatch(fac: int, it: Dictionary) -> bool:
-	if _buf_benef(int(it.host), int(it.slot)) < 1.0: return false
+	if _st_get(int(it.host), fac, str(it.res)) < 1.0: return false
 	if _room(fac, str(it.res)) < 1.0: return false              # no destination room
-	var home := int(rig.get(fac, -1))
-	if int(it.host) == home: return true                        # a producer at your own main node credits locally
 	if _attack_route_none(fac, int(it.host)): return false      # no path home
-	if not bool(it.newbot) and _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)) < 1.0: return false  # no spare courier
+	if _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)) < 1.0: return false  # no spare courier
 	return true
 
 
 func _attack_route_none(fac: int, src: int) -> bool:   # true if src cannot reach the main node
 	var home := int(rig.get(fac, -1))
 	if src == home: return false
-	return _route(src, home).is_empty()
+	return _home_route(fac, src).is_empty()
 
 
-func _do_dispatch(fac: int, it: Dictionary, local: bool) -> bool:
-	var i := int(it.host); var slot := int(it.slot); var res := str(it.res)
-	# take one whole unit tagged to this beneficiary
-	(hosts[i].buf[slot] as Dictionary)[fac] = float((hosts[i].buf[slot] as Dictionary).get(fac, 0.0)) - 1.0
-	if float(hosts[i].buf[slot][fac]) <= 0.0001: (hosts[i].buf[slot] as Dictionary).erase(fac)
-	if local:                                   # at your own main node: credited at once, no courier
-		_add_bank(fac, res, 1.0)
-		return true
-	var rt := _route(i, int(rig[fac]))
+func _home_route(fac: int, src: int) -> Array:   # how fac's cargo travels home from src, always through fac's own network
+	var home := int(rig.get(fac, -1))
+	if home < 0 or src < 0 or src == home: return []
+	if int(hosts[src].owner) == fac: return _route(src, home)
+	var back := _attack_route(fac, src)   # stolen goods leave a foreign host the way the operation came in
+	back.reverse()
+	return back
+
+
+func _do_dispatch(fac: int, it: Dictionary) -> void:   # a courier from the bank fetches one unit; it is used up on the way
+	var i := int(it.host); var res := str(it.res)
+	_st_take(i, fac, res, 1.0)
+	var rt := _home_route(fac, i)
 	_reserve_incoming(fac, res, 1.0)
+	_spend(fac, "bots", 1.0)                    # a courier leaves available stock
+	committed[fac] = float(committed.get(fac, 0.0)) + 1.0
 	var express := float(hosts[i].get("express_until", 0.0)) > _t
-	if bool(it.newbot):                         # a new Bot delivers itself: no courier consumed
-		flights.append(_schedule(rt, _t, fac, "newbot", express, {"res": "bots"}))
-	else:
-		_spend(fac, "bots", 1.0)                # a courier leaves available stock
-		committed[fac] = float(committed.get(fac, 0.0)) + 1.0
-		var covered := float(hosts[i].get("cover_until", 0.0)) > _t
-		flights.append(_schedule(rt, _t, fac, "cargo", express, {"res": res, "payer": fac, "covered": covered, "intercepted": false, "src": i}))
-	return true
+	var covered := float(hosts[i].get("cover_until", 0.0)) > _t
+	flights.append(_schedule(rt, _t, fac, "cargo", express, {"res": res, "payer": fac, "covered": covered, "intercepted": false, "src": i}))
 
 
 # ---- construction (producers / Firewall) ----
@@ -1309,8 +1374,40 @@ func _build_cost_text(kind: String) -> String:
 	return " + ".join(parts)
 
 
-func _firewall_full(i: int) -> bool:   # a Firewall that would add nothing (already at the security ceiling)
-	return _has_firewall(i) or _security(i) >= SEC_MAX
+# ---- the Firewall: FIREWALL_SOCKETS defence cards per Firewall, each firing itself when its attack hits this host ----
+const SOCKET_TRIGGER := {"patch": "a capture, Worm or Vault raid starts here", "response": "Phishing, Packet siphon or sabotage lands here",
+	"filter": "a DDoS lands here", "cover": "a Packet siphon grabs a courier from here"}
+
+
+func _sockets(i: int) -> int: return FIREWALL_SOCKETS * maxi(0, _count_all(i, "wall") - _walls_building(i))
+func _socketable(recipe: String) -> bool: return SOCKET_TRIGGER.has(recipe)
+func _socket_free(i: int) -> bool: return (hosts[i].sockets as Array).size() < _sockets(i)
+func _fw_live(i: int) -> bool: return _sockets(i) > 0 and bool(hosts[i].get("fw_on", true))
+
+
+func _trim_sockets(i: int) -> void:   # a demolished Firewall loses the cards it held
+	while (hosts[i].sockets as Array).size() > _sockets(i): (hosts[i].sockets as Array).pop_back()
+
+
+func _trigger_now(recipe: String, i: int) -> bool:   # the attack this card answers is already running here
+	match recipe:
+		"patch":
+			for e in _execs:
+				if int(e.target) == i and str(e.effect) in ["capture", "worm", "vault"]: return true
+		"response": return _phished(i) or _sabotaged(i) or not (hosts[i].get("siphon", {}) as Dictionary).is_empty()
+		"filter": return _ddos_down(i)
+	return false
+
+
+func _fire_socket(i: int, recipe: String, what: String) -> bool:   # a loaded card answers an attack; true if it fired
+	if not _fw_live(i) or not (hosts[i].sockets as Array).has(recipe): return false
+	(hosts[i].sockets as Array).erase(recipe)
+	var owner := int(hosts[i].owner)
+	hosts[i].hit_t = _t
+	_fx.append({"host": i, "until": _t + 2.0, "col": fcol(owner)})
+	hosts[i].card_result = "Firewall fired %s" % str(CARDS[recipe].name)
+	if owner == PLAYER: _flash("Firewall on %s fired %s against %s" % [str(hosts[i].name), str(CARDS[recipe].name), what], 0)
+	return true
 
 
 func _job_cost_left(job: Dictionary) -> Dictionary:
@@ -1327,7 +1424,6 @@ func _job_cost_total(job: Dictionary) -> Dictionary:
 
 func _start_job(i: int, kind: String, slot := -1) -> bool:
 	if i < 0 or int(hosts[i].owner) == NEUTRAL or not BUILD_KINDS.has(kind): return false
-	if kind == "wall" and _firewall_full(i): return false
 	if slot < 0: slot = _free_slot(i)
 	if slot < 0 or slot >= (hosts[i].builds as Array).size() or _slot_busy(i, slot): return false
 	var cur := str(hosts[i].builds[slot])
@@ -1349,7 +1445,6 @@ func _can_drop(i: int, slot: int, kind: String) -> bool:
 func _can_build(fac: int, i: int, slot: int, kind: String) -> bool:
 	if not _owns(fac, i) or not BUILD_KINDS.has(kind): return false
 	if slot < 0 or slot >= (hosts[i].builds as Array).size() or _slot_busy(i, slot): return false
-	if kind == "wall" and _firewall_full(i): return false
 	return _can_afford_build(fac, kind)
 
 
@@ -1358,9 +1453,6 @@ func _drop_build(i: int, slot: int, kind: String) -> void: _cmd(["build", i, slo
 
 func _do_build(fac: int, i: int, slot: int, kind: String) -> void:
 	if not _owns(fac, i) or not BUILD_KINDS.has(kind): return   # a malformed command from the wire does nothing
-	if kind == "wall" and _firewall_full(i):
-		if fac == PLAYER: _flash("Already at maximum security")
-		return
 	if not _can_afford_build(fac, kind):
 		if fac == PLAYER: _flash("Need %s" % _build_cost_text(kind))
 		return
@@ -1426,12 +1518,13 @@ func _tick_jobs(dt: float) -> void:
 			var slot := int(job.slot)
 			if str(job.phase) == "demolish":
 				hosts[i].builds[slot] = ""
-				(hosts[i].buf as Dictionary).erase(slot)
+				_trim_sockets(i)
 				if str(job.kind) != "":
 					job.phase = "build"; job.left = BUILD_TIME; job.total = BUILD_TIME
 					continue
 			else:
 				hosts[i].builds[slot] = str(job.kind)
+				if str(job.kind) == "wall": hosts[i].fw_on = true
 			jobs.erase(slot_key)
 			if fac == PLAYER: _flash("%s · slot %d ready" % [str(hosts[i].name), slot + 1], 0)
 
@@ -1458,7 +1551,7 @@ func _eliminate(fac: int) -> void:
 	for i in hosts.size():
 		if int(hosts[i].owner) != fac: continue
 		hosts[i].owner = NEUTRAL; hosts[i].gen = int(hosts[i].get("gen", 0)) + 1
-		hosts[i].builds = _slot_array([], int(hosts[i].slots)); hosts[i].jobs = {}; hosts[i].buf = {}
+		hosts[i].builds = _slot_array([], int(hosts[i].slots)); hosts[i].jobs = {}; hosts[i].store = {}; hosts[i].sockets = []
 		hosts[i].producer_paused = {}; hosts[i].rig = false
 		_clear_effects(i)
 	flights = flights.filter(func(f): return int(f.owner) != fac)
@@ -1597,6 +1690,7 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (L
 	if not won and not lost: _tick_execs()        # 4) capture / raid / worm resolutions, after accepted defenses
 	_tick_production(dt)                          # 5) income, local credit, buffers
 	_tick_dispatch(dt)                            # 6) self-delivering Bots and courier cargo
+	_tick_siphons()                               #    Packet siphon turns couriers leaving its host
 	_tick_effects(dt)                             #    phishing diversion expiry reverts undispatched output
 	_route_memo = null
 	if not won and not lost and not _ai_paused: _ai_tick(dt)
@@ -1625,15 +1719,15 @@ func _tick_effects(dt: float) -> void:
 		if not sp.is_empty() and float(sp.get("until", 0.0)) <= _t: hosts[i].siphon = {}
 
 
-func _revert_phish(i: int) -> void:   # move the thief's undispatched buffer back to the host owner
+func _revert_phish(i: int) -> void:   # the thief's unsent storage on this host goes back to the host owner
 	var owner := int(hosts[i].owner)
-	var buf: Dictionary = hosts[i].buf
-	for slot in buf.keys():
-		var benefs: Dictionary = buf[slot]
-		for b in benefs.keys():
-			if int(b) != owner:
-				benefs[owner] = float(benefs.get(owner, 0.0)) + float(benefs[b])
-				benefs.erase(b)
+	var store: Dictionary = hosts[i].store
+	for fac in store.keys():
+		if int(fac) == owner: continue
+		for res in (store[fac] as Dictionary):
+			if not store.has(owner): store[owner] = {}
+			store[owner][res] = float((store[owner] as Dictionary).get(res, 0.0)) + float(store[fac][res])
+		store.erase(fac)
 
 
 # ---- delivery (cargo / self-delivering Bots / operation packets) ----
@@ -1667,8 +1761,13 @@ func _deliver(f: Dictionary) -> void:
 	var arrived := not _eliminated.has(fac) and home >= 0 and int(hosts[home].owner) == fac and _route_intact(f)
 	_release_incoming(fac, res, 1.0)
 	if kind == "cargo":
-		committed[fac] = maxf(0.0, float(committed.get(fac, 0.0)) - 1.0)   # the courier is consumed either way
-		if arrived: _add_bank(fac, res, 1.0)
+		if bool(f.get("keep", false)):            # a Bot-station courier: it joins your Bots with its cargo
+			_release_incoming(fac, "bots", 1.0)
+			if arrived: _add_bank(fac, "bots", 1.0)
+		else: committed[fac] = maxf(0.0, float(committed.get(fac, 0.0)) - 1.0)   # a bank courier is used up either way
+		if arrived:
+			_add_bank(fac, res, 1.0)
+			_delivered[fac] = int(_delivered.get(fac, 0)) + 1
 		elif fac == PLAYER: _flash("A %s shipment was lost — its route broke" % RES_NAME[res], 1)
 	else:   # newbot: no courier; it either becomes an available Bot or is lost
 		if arrived: _add_bank(fac, "bots", 1.0)
@@ -1680,7 +1779,7 @@ func _capture(t: int, fac: int) -> void:
 	var nm := str(hosts[t].name)
 	hosts[t].owner = fac; hosts[t].gen = int(hosts[t].get("gen", 0)) + 1
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # cleared: no salvage, the new owner develops empty slots
-	hosts[t].jobs = {}; hosts[t].buf = {}; hosts[t].producer_paused = {}
+	hosts[t].jobs = {}; hosts[t].store = {}; hosts[t].producer_paused = {}; hosts[t].sockets = []
 	_clear_effects(t)
 	if bool(hosts[t].get("rig", false)) and prev != NEUTRAL: hosts[t].rig = false   # a captured main node is an ordinary host
 	# any operation addressed to the old ownership generation is now invalid
@@ -1777,22 +1876,28 @@ func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void
 	var eff := str(CARDS[recipe].effect)
 	hosts[t].hit_t = _t
 	_fx.append({"host": t, "until": _t + 2.0, "col": fcol(fac)})
+	var what := str(CARDS[recipe].name)
 	match eff:
 		"recon": _mark_scanned(fac, t)
 		"phish":
 			hosts[t].steal_by = fac; hosts[t].steal_until = _t + float(CARDS[recipe].dur)
+			if _fire_socket(t, "response", what): _apply_response(t)
 		"ddos":
-			if float(hosts[t].get("filter_until", 0.0)) <= _t: hosts[t].ddos_until = _t + float(CARDS[recipe].dur)
+			if float(hosts[t].get("filter_until", 0.0)) <= _t:
+				if _fire_socket(t, "filter", what): _apply_filter(t)
+				else: hosts[t].ddos_until = _t + float(CARDS[recipe].dur)
 		"sabotage":
 			for h in _chain_hosts(t, int(CARDS[recipe].reach), int(hosts[t].owner)):
 				hosts[int(h)].sabot_until = _t + float(CARDS[recipe].dur)
+				if _fire_socket(int(h), "response", what): _apply_response(int(h))
 		"siphon":
-			hosts[t].siphon = {"by": fac, "res": str(f.get("res", "cash")), "until": _t + float(CARDS[recipe].dur), "left": int(CARDS[recipe].cargo)}
+			hosts[t].siphon = {"by": fac, "res": str(f.get("res", "cash")), "since": _t, "until": _t + float(CARDS[recipe].dur), "left": int(CARDS[recipe].cargo)}
+			if _fire_socket(t, "response", what): _apply_response(t)
 		"capture", "worm", "vault":
 			var exec_s := float(CARDS[recipe].get("exec", 8.0))
 			if eff == "worm": exec_s = float(CARDS[recipe].exec)
 			if eff == "capture" and bool(hosts[t].get("rig", false)): exec_s = float(CARDS[recipe].get("exec_rig", exec_s))
-			_execs.append({"id": int(f.id), "fac": fac, "card": recipe, "effect": eff, "target": t, "gen": int(hosts[t].gen), "ends": _t + exec_s, "stage": 1})
+			_start_exec({"id": int(f.id), "fac": fac, "card": recipe, "effect": eff, "target": t, "gen": int(hosts[t].gen), "ends": _t + exec_s, "stage": 1})
 	if fac == PLAYER or _mine(t): _refresh_panel()
 
 
@@ -1832,13 +1937,23 @@ func _tick_execs() -> void:
 				_capture(t, fac)
 				if int(e.stage) < int(CARDS.worm.reach):   # advance to the next eligible neighbour
 					var nxt := _worm_next(fac, t)
-					if nxt >= 0: _execs.append({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + float(CARDS.worm.exec), "stage": int(e.stage) + 1})
+					if nxt >= 0: _start_exec({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + float(CARDS.worm.exec), "stage": int(e.stage) + 1}, still)
 		else:   # capture family
 			if _security(t) <= int(CARDS[str(e.card)].get("sec_max", 3)) and _op_reachable(fac, t):
 				_capture(t, fac)
 			elif fac == PLAYER:
 				_flash("%s failed on %s — its security rose" % [str(CARDS[str(e.card)].name), str(hosts[t].name)], 1)
 	_execs = still
+
+
+func _start_exec(e: Dictionary, into = null) -> void:   # an intrusion begins: a Patch in the target's Firewall stops it on the spot
+	var t := int(e.target)
+	if _fire_socket(t, "patch", str(CARDS[str(e.card)].name)):
+		hosts[t].card_result = "blocked by the Firewall's Patch"
+		if int(e.fac) == PLAYER: _flash("A Firewall Patch on %s stopped your %s" % [str(hosts[t].name), str(CARDS[str(e.card)].name)], 1)
+		return
+	if into != null: (into as Array).append(e)
+	else: _execs.append(e)
 
 
 func _worm_next(fac: int, from: int) -> int:
@@ -1851,23 +1966,68 @@ func _worm_next(fac: int, from: int) -> int:
 	return best
 
 
-func _resolve_vault(fac: int, t: int) -> void:
+func _resolve_vault(fac: int, t: int) -> void:   # a share of their stored Crypto, carried home by your couriers
 	var victim := int(hosts[t].owner)
 	if victim == NEUTRAL or _eliminated.has(victim): return
+	var rt := _home_route(fac, t)
+	if rt.is_empty():
+		if fac == PLAYER: _flash("Vault raid on %s: no way home for the loot" % str(hosts[t].name), 1)
+		return
+	var card: Dictionary = CARDS.vault
+	var stock := int(floor(_avail(victim, "cash")))
+	var share := maxi(int(floor(stock * float(card.cargo_pct))), mini(int(card.cargo_min), stock))   # a quarter, at least 10
 	var haulers := int(floor(maxf(0.0, _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))))
 	var room := int(floor(_room(fac, "cash")))
-	var take := int(min(min(int(CARDS.vault.cargo), int(floor(_avail(victim, "cash")))), min(haulers, room)))
+	var take := mini(mini(int(card.cargo), share), mini(haulers, room))
 	if take <= 0:
 		if fac == PLAYER: _flash("Vault raid on %s returned nothing" % str(hosts[t].name), 1)
 		return
 	_spend(victim, "cash", float(take))
-	var rt := _route(t, int(rig[fac]))
-	if rt.is_empty(): rt = [t, int(rig[fac])]
 	for k in take:
 		_spend(fac, "bots", 1.0); committed[fac] = float(committed.get(fac, 0.0)) + 1.0
 		_reserve_incoming(fac, "cash", 1.0)
 		flights.append(_schedule(rt, _t, fac, "cargo", false, {"res": "cash", "payer": fac, "covered": false, "intercepted": false, "src": t}))
 	if fac == PLAYER: _flash("Vault raid on %s: %d Crypto returning" % [str(hosts[t].name), take], 0)
+	elif victim == PLAYER: _flash("%s raided your vault: %d Crypto taken" % [fname(fac), take], 2)
+
+
+# ---- Packet siphon: couriers of one resource leaving or passing a siphoned host turn for the thief's main node ----
+func _tick_siphons() -> void:
+	var taps := []
+	for i in hosts.size():
+		var sp: Dictionary = hosts[i].get("siphon", {})
+		if not sp.is_empty() and float(sp.get("until", 0.0)) > _t and int(sp.get("left", 0)) > 0: taps.append(i)
+	if taps.is_empty(): return
+	for idx in flights.size():
+		var f: Dictionary = flights[idx]
+		if str(f.kind) != "cargo" or bool(f.get("covered", false)): continue   # Courier cover: safe all the way
+		var rt: Array = f.route
+		for t in taps:
+			var sp: Dictionary = hosts[t].siphon
+			var thief := int(sp.by)
+			if int(f.owner) == thief or str(f.get("res", "")) != str(sp.res) or int(sp.left) <= 0: continue
+			var k := rt.find(t)
+			if k < 0 or k >= rt.size() - 1: continue                  # not on its way, or this is where it is going
+			var leaves := float(f.hops[k])                            # when it leaves the siphoned host
+			if leaves <= float(sp.get("since", 0.0)) or leaves > _t: continue
+			var src := int(f.get("src", -1))
+			if src >= 0 and int(hosts[src].owner) == int(f.owner) and _fire_socket(src, "cover", "Packet siphon"):
+				_apply_cover(src)
+				break
+			var back := _home_route(thief, t)
+			if back.is_empty(): continue
+			var victim := int(f.owner); var res := str(f.res)        # their courier and its cargo now head for you
+			var keep := bool(f.get("keep", false))
+			_release_incoming(victim, res, 1.0); _reserve_incoming(thief, res, 1.0)
+			if keep:                                                  # a Bot-station courier joins your Bots instead
+				_release_incoming(victim, "bots", 1.0); _reserve_incoming(thief, "bots", 1.0)
+			else:
+				committed[victim] = maxf(0.0, float(committed.get(victim, 0.0)) - 1.0)
+				committed[thief] = float(committed.get(thief, 0.0)) + 1.0
+			flights[idx] = _schedule(back, _t, thief, "cargo", false, {"res": res, "payer": victim, "covered": false, "intercepted": true, "src": t, "keep": keep})
+			sp.left = int(sp.left) - 1
+			if int(sp.left) == 0 and thief == PLAYER: _flash("Packet siphon on %s: full haul diverted" % str(hosts[t].name), 0)
+			break
 
 
 # ---- support cards (applied locally, instantly) ----
@@ -1875,19 +2035,35 @@ func _apply_support(fac: int, recipe: String, t: int) -> void:
 	var eff := str(CARDS[recipe].effect)
 	hosts[t].hit_t = _t
 	_fx.append({"host": t, "until": _t + 2.0, "col": fcol(fac)})
+	if _socketable(recipe) and _socket_free(t) and not _trigger_now(recipe, t):
+		(hosts[t].sockets as Array).append(recipe)
+		if fac == PLAYER: _flash("%s loaded into the Firewall on %s: it fires when %s" % [str(CARDS[recipe].name), str(hosts[t].name), str(SOCKET_TRIGGER[recipe])], 0)
+		return
 	match eff:
 		"patch":
 			var cancelled := _patch_cancel(fac, t)
 			if cancelled: hosts[t].patch_recover_until = _t + float(CARDS.patch.dur)
 			else: hosts[t].patch_armed_until = _t + float(CARDS.patch.dur)
-		"response":
-			if int(hosts[t].get("steal_by", -1)) >= 0: _revert_phish(t)
-			hosts[t].steal_by = -1; hosts[t].steal_until = 0.0
-			hosts[t].sabot_until = 0.0; hosts[t].siphon = {}
-		"filter": hosts[t].ddos_until = 0.0; hosts[t].filter_until = _t + float(CARDS.filter.dur)
-		"cover": hosts[t].cover_until = _t + float(CARDS.cover.dur)
+		"response": _apply_response(t)
+		"filter": _apply_filter(t)
+		"cover": _apply_cover(t)
 		"express": hosts[t].express_until = _t + float(CARDS.express.dur)
 	if fac == PLAYER: _flash("%s on %s" % [str(CARDS[recipe].name), str(hosts[t].name)])
+
+
+func _apply_response(t: int) -> void:   # Incident response: theft and sabotage here end, unsent stolen output comes back
+	if int(hosts[t].get("steal_by", -1)) >= 0: _revert_phish(t)
+	hosts[t].steal_by = -1; hosts[t].steal_until = 0.0
+	hosts[t].sabot_until = 0.0; hosts[t].siphon = {}
+
+
+func _apply_filter(t: int) -> void: hosts[t].ddos_until = 0.0; hosts[t].filter_until = _t + float(CARDS.filter.dur)
+
+
+func _apply_cover(t: int) -> void:   # Courier cover: this host's couriers in flight and new ones are safe from siphons
+	hosts[t].cover_until = _t + float(CARDS.cover.dur)
+	for f in flights:
+		if str(f.kind) == "cargo" and int(f.get("src", -1)) == t and int(f.owner) == int(hosts[t].owner): f.covered = true
 
 
 func _patch_cancel(fac: int, t: int) -> bool:   # cancel the earliest-ending capture/raid executing on t; true if one was cancelled
@@ -2073,38 +2249,106 @@ func _ai_think(fac: int) -> void:
 	_ai_research(fac)
 	_ai_manufacture(fac)
 	_ai_operate(fac, mine)
+	_ai_defend(fac, mine)
 
 
-func _ai_develop(fac: int, mine: Array) -> void:   # fill empty slots with a balanced producer mix with a road home
-	var have := {}
-	for kind in PRODUCER_KINDS: have[kind] = 0
-	for i in mine:
-		for k in hosts[i].builds:
-			if str(k) in PRODUCER_KINDS: have[str(k)] = int(have[str(k)]) + 1
-	# income and couriers first (every other producer and every operation needs Bots and Intel), then the chains
-	var want := ["intel", "bot", "cash", "cred", "lab"]
-	var room := 2 + mine.size() / 2   # a bigger network supports more of each producer
-	for i in mine:
+func _ai_develop(fac: int, mine: Array) -> void:   # every host gets a layout that feeds itself and carries its own output home
+	var home := int(rig[fac])
+	var sites := mine.duplicate()
+	sites.erase(home); sites.push_front(home)   # the main node first: what it makes needs no courier
+	for i in sites:
 		if not (hosts[i].jobs as Dictionary).is_empty(): continue
-		var slot := _free_slot(i)
-		if slot < 0: continue
-		if i != int(rig[fac]) and _route(i, int(rig[fac])).is_empty(): continue   # a producer needs a road home
-		for kind in want:
-			if int(have[kind]) >= room: continue
-			if _can_afford_build(fac, kind) and _start_job(i, kind, slot):
-				have[kind] = int(have[kind]) + 1
+		if i != home and _home_route(fac, i).is_empty(): continue   # a producer needs a road home
+		var plan := _ai_plan(fac, i, mine.size())
+		for slot in mini(plan.size(), (hosts[i].builds as Array).size()):   # the first empty slot whose planned kind it can pay for
+			if str(hosts[i].builds[slot]) != "" or _slot_busy(i, slot): continue
+			if _can_afford_build(fac, str(plan[slot])):
+				_start_job(i, str(plan[slot]), slot)
 				break
+	_ai_rebalance(fac, sites)
+
+
+func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host i should hold
+	var n := int(hosts[i].slots)
+	if i == int(rig[fac]): return ["intel", "bot", "cash", "lab", "cred"].slice(0, n)   # converters here use the bank
+	if n == 1: return ["bot"]   # a lone slot: Bots that walk home on their own
+	var conv := _ai_conv(fac)
+	var plan := ["bot", "intel", conv, conv, "intel"].slice(0, n)   # the station first (its Bots carry everything), then Intel and its converters
+	var b: Array = hosts[i].builds
+	if n == 3 and held >= 3 and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
+		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; a bank courier fetches it)
+	if n >= 4 and not _ai_has_lab_host(fac, i): plan[2] = "cash"; plan[3] = "lab"   # a Miner beside the Lab feeds it Crypto
+	elif n >= 4 and held >= 6 and not _ai_has_firewall(fac): plan[3] = "wall"   # one guarded host once the network is worth guarding
+	return plan
+
+
+func _ai_has_lab_host(fac: int, except: int) -> bool:   # a host other than `except` (and not the main node) already runs a Lab
+	for i in hosts.size():
+		if i != except and int(hosts[i].owner) == fac and i != int(rig[fac]) and (hosts[i].builds as Array).has("lab"): return true
+	return false
+
+
+func _ai_conv(fac: int) -> String:   # Intel, Crypto or Credentials: what the next card is short of, else the emptiest bank
+	var want := _ai_wanted(fac)
+	var best := "cred"; var lo := INF
+	for kind in ["cred", "cash", "intel"]:
+		var res := {"cred": "creds", "cash": "cash", "intel": "intel"}[kind] as String
+		var fill := _avail(fac, res) / maxf(1.0, _cap(fac, res)) - (1.0 if float(want.get(res, 0.0)) > _avail(fac, res) else 0.0)
+		if fill < lo: lo = fill; best = kind
+	return best
+
+
+func _ai_free_socket(fac: int) -> bool:
+	for i in hosts.size():
+		if int(hosts[i].owner) == fac and _socket_free(i): return true
+	return false
+
+
+func _ai_has_firewall(fac: int) -> bool:
+	for i in hosts.size():
+		if int(hosts[i].owner) == fac and (hosts[i].builds as Array).has("wall"): return true
+	return false
+
+
+func _ai_rebalance(fac: int, sites: Array) -> void:   # a bank that overflows while another runs dry: retool one producer
+	for i in sites:
+		if not (hosts[i].jobs as Dictionary).is_empty(): return   # one retool at a time
+	var makes := {"cash": "cash", "cred": "creds", "intel": "intel"}
+	var full := ""; var short := ""; var lo := 0.25; var hi := 0.6
+	for kind in makes:
+		var fill := _avail(fac, makes[kind]) / maxf(1.0, _cap(fac, makes[kind]))
+		if fill >= hi: hi = fill; full = kind
+		elif fill < lo: lo = fill; short = kind
+	if full == "" or short == "" or not _can_afford_build(fac, short): return
+	for i in sites:   # the main node first: its converters eat the bank's surplus directly
+		var first := 0 if i == int(rig[fac]) else 2   # on other hosts never the station or the harvester that feeds them
+		for k in range(first, (hosts[i].builds as Array).size()):
+			if str(hosts[i].builds[k]) == full and _start_job(i, short, k): return
+
+
+func _ai_wanted(fac: int) -> Dictionary:   # the price of the card the AI is working towards: its capture card, else Breach
+	var need := _ai_capture_need(fac)
+	var card := _ai_cheapest_for_sec(fac, need) if need > 0 else ""
+	return _recipe_cost(card if card != "" else "breach")
 
 
 func _ai_research(fac: int) -> void:
 	if not research_job.get(fac, {}).is_empty(): return
-	# capture ladder first (reach is what wins ground), then a counter, disruption, theft, then the rest
+	# capture ladder first (reach is what wins ground), then a counter, disruption, theft, then the rest.
+	# Research is paid as it progresses and pauses when short, so it starts as soon as the prerequisite is known.
+	# The first capture upgrade starts at once (it is how the AI expands past security-1 hosts); the rest only
+	# from a surplus, so research never starves the cards it is meant to unlock.
+	var first := true
 	for recipe in ["exploit", "filter", "ddos", "zeroday", "worm", "siphon", "cover", "sabotage", "vault", "express"]:
-		if _known(fac, recipe) or _can_research(fac, recipe) != "": continue
-		var cost := _research_cost(recipe); var ok := true
-		for r in cost:
-			if _avail(fac, r) < float(cost[r]): ok = false; break
-		if ok: _do_research(fac, recipe); return
+		if _known(fac, recipe): continue
+		if _can_research(fac, recipe) != "": first = false; continue
+		var spare := true
+		if not (first and recipe == "exploit"):
+			var cost := _research_cost(recipe)
+			for r in cost:
+				if _avail(fac, r) < 1.5 * float(cost[r]): spare = false; break
+		if spare: _do_research(fac, recipe)
+		return
 
 
 func _ai_first_known(fac: int, options: Array) -> String:
@@ -2137,9 +2381,14 @@ func _ai_manufacture(fac: int) -> void:
 	if need > 0:
 		var cap_card := _ai_cheapest_for_sec(fac, need)   # "" if we must still research the right tier
 		if cap_card != "" and _held(fac, cap_card) < 3: plan.append(cap_card)
-	if _known(fac, "patch") and _held(fac, "patch") < 2: plan.append("patch")
-	var press := _ai_first_known(fac, ["ddos", "phish", "siphon"])
-	if press != "" and _held(fac, press) < 2: plan.append(press)
+	var threatened := false   # a hostile capture or raid is executing on one of our hosts
+	for e in _execs:
+		if int(e.fac) != fac and int(hosts[int(e.target)].owner) == fac: threatened = true; break
+	if _known(fac, "patch") and _held(fac, "patch") < (2 if threatened else 1): plan.append("patch")
+	for recipe in ["response", "filter"]:   # a Firewall socket with room gets a card that fires on its own
+		if _known(fac, recipe) and _held(fac, recipe) < 1 and _ai_free_socket(fac): plan.append(recipe); break
+	for press in ["ddos", "phish"]:   # pressure only with somewhere to apply it: an idle copy is resources thrown away
+		if _known(fac, press) and _held(fac, press) < 1 and _ai_press_target(fac, press) >= 0: plan.append(press); break
 	var li := 0
 	for lane in L.size():
 		if not (L[lane].paid as Dictionary).is_empty(): continue   # busy this tick
@@ -2150,21 +2399,39 @@ func _ai_manufacture(fac: int) -> void:
 			L[lane].recipe = ""; L[lane].pending = false   # nothing useful to make: idle the lane
 
 
+func _ai_press_target(fac: int, recipe: String) -> int:   # the reachable rival host with the most producers, else -1
+	var best := -1; var most := 0
+	for t in hosts.size():
+		var owner := int(hosts[t].owner)
+		if owner == fac or owner == NEUTRAL or not _op_reachable(fac, t): continue
+		if (recipe == "phish" and _phished(t)) or (recipe == "ddos" and _ddos_down(t)): continue
+		var n := 0
+		for k in hosts[t].builds: if str(k) in PRODUCER_KINDS: n += 1
+		if n > most: most = n; best = t
+	return best
+
+
 func _ai_capture_for(fac: int, sec: int) -> String:   # the cheapest held card that cracks this security, else ""
 	for recipe in ["breach", "exploit", "zeroday"]:
 		if _held(fac, recipe) > 0 and sec <= int(CARDS[recipe].get("sec_max", 0)): return recipe
 	return ""
 
 
-func _ai_defend(fac: int, _mine: Array) -> void:   # Patch an enemy capture or raid executing on one of our hosts
-	if _held(fac, "patch") <= 0: return
-	for e in _execs:
-		if int(e.fac) == fac: continue
-		var t := int(e.target)
-		if int(hosts[t].owner) != fac: continue
-		if str(CARDS[str(e.card)].effect) in ["capture", "worm", "vault"] and _can_play(fac, "patch", t) == "":
-			_play_card(fac, "patch", t)
-			if _held(fac, "patch") <= 0: return
+func _ai_defend(fac: int, mine: Array) -> void:   # answer an intrusion with Patch; keep spare defence cards in Firewall sockets
+	if _held(fac, "patch") > 0:
+		for e in _execs:
+			if int(e.fac) == fac: continue
+			var t := int(e.target)
+			if int(hosts[t].owner) != fac: continue
+			if str(CARDS[str(e.card)].effect) in ["capture", "worm", "vault"] and _can_play(fac, "patch", t) == "":
+				_play_card(fac, "patch", t)
+				if _held(fac, "patch") <= 0: break
+	for i in mine:   # the attacks the AI cannot watch for get a card that fires on its own
+		if not _socket_free(i): continue
+		for recipe in ["response", "filter", "patch"]:
+			if _held(fac, recipe) > (1 if recipe == "patch" else 0) and not (hosts[i].sockets as Array).has(recipe) and _can_play(fac, recipe, i) == "":
+				_play_card(fac, recipe, i)
+				break
 
 
 func _ai_operate(fac: int, mine: Array) -> void:
@@ -2184,13 +2451,11 @@ func _ai_operate(fac: int, mine: Array) -> void:
 		if best < 0: break
 		if not _play_card(fac, best_card, best): break
 		launches -= 1
-	# no capture available: apply DDoS pressure on a producing rival neighbour
-	if _held(fac, "ddos") > 0:
-		for i in mine:
-			for nb in hosts[i].links:
-				var t := int(nb)
-				if int(hosts[t].owner) != fac and int(hosts[t].owner) != NEUTRAL and not _ddos_down(t) and _can_play(fac, "ddos", t) == "":
-					_play_card(fac, "ddos", t); return
+	# pressure: Phishing steals the output of, DDoS stops, the reachable rival host with the most producers
+	for press in ["phish", "ddos"]:
+		if _held(fac, press) <= 0: continue
+		var t := _ai_press_target(fac, press)
+		if t >= 0 and _can_play(fac, press, t) == "": _play_card(fac, press, t)
 
 
 # -- knowledge helpers kept for the UI/tests (dated Recon, public security) --
@@ -3043,7 +3308,7 @@ func _mp_end_turn() -> void:
 func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
 	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size()), str(_execs.size())])
 	for h in hosts:
-		parts.append("%d,%d,%s,%s,%s" % [int(h.owner), int(h.gen), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.buf)])
+		parts.append("%d,%d,%s,%s,%s,%s,%d,%d" % [int(h.owner), int(h.gen), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.store), ",".join(PackedStringArray(h.sockets)), int(h.fw_on), int(round(float(h.cyc) * 30.0))])
 		parts.append("%d,%d,%d,%d,%d" % [roundi(float(h.get("ddos_until", 0.0)) * 100.0), roundi(float(h.get("sabot_until", 0.0)) * 100.0), int(h.get("steal_by", -1)), roundi(float(h.get("steal_until", 0.0)) * 100.0), roundi(float(h.get("express_until", 0.0)) * 100.0)])
 	for fac in botnets:
 		for res in RES: parts.append(str(roundi(_avail(fac, res) * 1000.0)))
@@ -3485,7 +3750,7 @@ func _submit_feedback() -> void:
 # ---------------------------------------------------------------- TUTORIAL
 func _tut_stages() -> Array:
 	return [
-		{"title": "Your main node", "text": "Your main node makes one of each resource every second. Resources made elsewhere must be delivered home by a Bot courier."},
+		{"title": "Your main node", "text": "Your main node makes one of each resource every 5 seconds. What other hosts make waits in their storage until a Bot carries it home."},
 		{"title": "Manufacture", "text": "Click a known card in the deck to manufacture a copy, then drag it from the deck onto a target to launch it."},
 		{"title": "Win", "text": "Hold at least 51% of the hosts for 51 seconds, or be the last network with its main node."},
 	]
@@ -3497,8 +3762,8 @@ func _tut_stages() -> Array:
 # (no placeholder round trip, so text like "30 Crypto" or "0day" can never be corrupted). "" = leave the word as typed.
 const RICH_TERMS := {
 	# installations: their building-card colour + pictogram
-	"Intel harvester": "kind:intel", "Crypto miner": "kind:cash", "Bot farm": "kind:bot", "Bot farms": "kind:bot",
-	"Credential harvester": "kind:cred", "Research lab": "kind:lab", "farms": "tint:bot",
+	"Intel harvester": "kind:intel", "Crypto miner": "kind:cash", "Bot station": "kind:bot", "Bot stations": "kind:bot",
+	"Credential harvester": "kind:cred", "Research lab": "kind:lab", "Firewall": "kind:wall", "stations": "tint:bot",
 	# resources: the HUD's colour + pictogram
 	"Intel": "kind:intel", "Crypto": "kind:cash", "Credentials": "kind:cred", "Creds": "kind:cred", "Research": "kind:lab",
 	"bots": "kind:bot", "defenders": "tint:bot",
@@ -3680,14 +3945,14 @@ func _camp_chapters() -> Array:
 func _camp_steps(chapter: int) -> Array:
 	match chapter:
 		0: return [
-			{"t": "Your main node", "r": "Your main node makes one of every resource each second — already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "w": "Resources are only spendable once they reach your main node.", "role": "home", "pause": true},
+			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 seconds — already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "w": "Resources are only spendable once they reach your main node.", "role": "home", "pause": true},
 			{"t": "Manufacture a card", "r": "A Credential breach copy is being manufactured.", "a": "Click Credential breach in the deck to manufacture one copy.", "w": "You already know the basic recipes. Manufacturing spends resources once.", "role": "", "ui": "card:breach", "pause": true},
 			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "Drag the ready Credential breach onto the Neighborhood Relay.", "w": "Credential breach captures one security-1 host after a short execution.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": true},
 		]
 		1: return [
-			{"t": "Make Intel", "r": "The Intel harvester is producing — but its output is not home yet.", "a": "Select the relay and build an Intel harvester in a slot.", "w": "A remote producer fills a local buffer; a courier must carry it home.", "role": "relay", "ui": "build:intel", "pause": true},
-			{"t": "Bot farm", "r": "The Bot farm makes Bots that deliver themselves.", "a": "Build a Bot farm in another slot of the relay.", "w": "One Intel becomes two Bots. New Bots travel home on their own.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Delivery", "r": "A resource arrived home and its courier was consumed.", "a": "Wait for an Intel courier to reach your main node.", "w": "One Bot carries one unit and is spent on arrival.", "role": "home", "pause": false},
+			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s — but it is not home yet.", "a": "Select the relay and build an Intel harvester in a slot.", "w": "What a host makes waits in its storage until a Bot carries it home.", "role": "relay", "ui": "build:intel", "pause": true},
+			{"t": "Bot station", "r": "The Bot station sends 2 Bots home every 5 s, each carrying 1 unit.", "a": "Build a Bot station in another slot of the relay.", "w": "Its Bots carry the host's output home, then join your Bots.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a station Bot to carry Intel home.", "w": "Without a station, a Bot from your bank fetches it and is used up.", "role": "home", "pause": false},
 		]
 		2: return [
 			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Click Known exploit in the deck to start researching it.", "w": "Research unlocks the recipe. It does not give you a free card.", "role": "", "ui": "card:exploit", "pause": true},
@@ -3695,7 +3960,7 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Use it", "r": "You captured a security-2 host.", "a": "Launch Known exploit at the Corporate Gateway.", "w": "Known exploit reaches security 2.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
 		]
 		3: return [
-			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Manufacture and launch Phishing on the Practice host.", "w": "Phishing diverts new output; you still need couriers to collect it.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
+			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Manufacture and launch Phishing on the Practice host.", "w": "Phishing sends you everything the host makes, its station Bots too.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
 			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "Launch Incident response on the Neighborhood Relay.", "w": "Incident response clears theft from your own host.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
 		]
 		_: return [
@@ -3858,26 +4123,26 @@ func _camp_setup(chapter: int) -> void:
 	if _camp_gateway >= 0: hosts[_camp_gateway].name = "Corporate Gateway"
 	match chapter:
 		0:
-			_camp_grant(20, 40, 20, 12, 8)
+			_camp_grant(20, 40, 20, 20, 10)
 		1:
 			_camp_own(_camp_relay); _camp_slots(_camp_relay, 4)
-			_camp_grant(40, 120, 60, 20, 10)
+			_camp_grant(20, 60, 20, 15, 10)
 		2:
 			_camp_own(_camp_relay); _set_builds(_camp_relay, ["intel", "bot"])
 			# a security-2 gateway for Known exploit
 			if _camp_gateway >= 0:
 				hosts[_camp_gateway].owner = RIVAL; hosts[_camp_gateway].gen += 1; hosts[_camp_gateway].type = "server"
-			_camp_grant(60, 200, 200, 120, 120)
+			_camp_grant(30, 80, 40, 40, 50)
 		3:
 			_camp_own(_camp_relay); _set_builds(_camp_relay, ["intel", "bot", "cash"])
 			for p in [_camp_practice]:
 				if p >= 0:
 					hosts[p].owner = RIVAL; hosts[p].gen += 1; _camp_slots(p, 3); _set_builds(p, ["intel", "cash"]); hosts[p].name = "Practice host"
-			_camp_grant(80, 200, 200, 200, 120)
+			_camp_grant(30, 80, 40, 40, 40)
 			for recipe in ["phish", "response"]: _camp_supply(recipe)
 		CAMP_OPEN:
 			_camp_own(_camp_relay); _set_builds(_camp_relay, ["intel", "bot", "cash", "cred", "lab"])
-			_camp_grant(80, 150, 150, 120, 120)
+			_camp_grant(40, 80, 50, 40, 40)
 	_msg_t = 0.0; _msg_priority = 0
 	_refresh_sight()
 
@@ -4026,7 +4291,7 @@ func _camp_step_done(chapter: int, step: int) -> bool:
 			match step:
 				0: return _count_all(_camp_relay, "intel") >= 1
 				1: return _count_all(_camp_relay, "bot") >= 1
-				2: return _avail(PLAYER, "intel") > 40.5 or _count_all(_camp_relay, "intel") >= 2
+				2: return int(_delivered.get(PLAYER, 0)) > 0
 		2:
 			match step:
 				0: return _known(PLAYER, "exploit")
@@ -4513,18 +4778,20 @@ func _panel_build(i: int) -> void:
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
 		box.custom_minimum_size = Vector2(112, 140); row.add_child(box)
 	panel_box.add_child(row)
-	# per-producer delivery state
-	var prod := []
-	for kv in _built(i):
-		var kind := str(kv[1])
-		if kind in PRODUCER_KINDS:
-			var out := str(BUILD_KINDS[kind].out)
-			var line := "%s → %s" % [str(BUILD_KINDS[kind].card), RES_NAME[out]]
-			if _producer_paused(i, int(kv[0])): line += " · paused"
-			elif _buf_slot(i, int(kv[0])) >= BUFFER_CAP - 0.5: line += " · buffer full"
-			elif i != int(rig.get(PLAYER, -1)) and _buf_slot(i, int(kv[0])) >= 1.0 and _route(i, int(rig[PLAYER])).is_empty(): line += " · no route home"
-			prod.append(line)
-	for p in prod: _plabel(p, 12, C_DIM)
+	var cyc := _cycle_text(i)
+	if cyc != "": _plabel(cyc, 12, C_DIM)
+	if i != int(rig.get(PLAYER, -1)):
+		var st := _store_text(i)
+		var col := C_WARN if _store_total(i) >= STORE_CAP - 0.5 else C_DIM
+		if st != "": _plabel(st, 12, col)
+	if _sockets(i) > 0:
+		var held := []
+		for r in (h.sockets as Array): held.append(str(CARDS[str(r)].short))
+		for k in _sockets(i) - held.size(): held.append("empty")
+		var fw := "Firewall sockets: %s" % ", ".join(held)
+		if not bool(h.get("fw_on", true)): fw += " · OFF until this host has Intel"
+		_plabel(fw, 12, C_WARN if not bool(h.get("fw_on", true)) else C_DIM)
+		if _socket_free(i): _plabel("Play Patch, Response, Filter or Cover here to load one.", 12, C_DIM)
 	_plabel("Build · %d s of funded work each" % int(BUILD_TIME), 16, C_TEXT)
 	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", PALETTE_GAP)
 	palette.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -4532,6 +4799,46 @@ func _panel_build(i: int) -> void:
 		var card := BuildCard.new(); card.game = self; card.kind = kind
 		card.custom_minimum_size = Vector2(_palette_card_w(), 140); palette.add_child(card)
 	panel_box.add_child(palette)
+
+
+func _amt(x: float) -> String: return "%d" % int(round(x)) if absf(x - round(x)) < 0.05 else "%.1f" % x
+
+
+func _cycle_text(i: int) -> String:   # what one production cycle on this host does, in words
+	var parts := []
+	var n := _count(i, "intel")
+	if n > 0: parts.append("+%s Intel" % _amt(float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * n))
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0: parts.append("Firewall uses %d Intel" % walls if bool(hosts[i].get("fw_on", true)) else "Firewall OFF: no Intel here")
+	for kind in CONVERT_ORDER:
+		var k := _count(i, kind)
+		if k == 0: continue
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var m := _tmult(i, str(spec.out))
+		var ins := []
+		for r in (spec.use as Dictionary): ins.append("%s %s" % [_amt(float(spec.use[r]) * m * k), RES_NAME[r]])
+		parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(spec.rate) * m * k), RES_NAME[str(spec.out)]])
+	var bots := 0
+	for k in _count(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
+	if bots > 0: parts.append("+%d Bots" % bots if i == int(rig.get(int(hosts[i].owner), -1)) else "%d Bots carry %d home" % [bots, bots])
+	if parts.is_empty(): return ""
+	return "Every %d s: %s" % [int(PROD_CYCLE), " · ".join(parts)]
+
+
+func _store_text(i: int) -> String:   # this host's storage, and why it is not leaving
+	var tot := {}
+	for fac in (hosts[i].store as Dictionary):
+		for res in (hosts[i].store[fac] as Dictionary): tot[res] = float(tot.get(res, 0.0)) + float(hosts[i].store[fac][res])
+	var parts := []
+	for res in RES:
+		if float(tot.get(res, 0.0)) >= 0.05: parts.append("%s %s" % [_amt(float(tot[res])), RES_NAME[res]])
+	var line := "Storage %s/%d" % [_amt(_store_total(i)), int(STORE_CAP)]
+	if not parts.is_empty(): line += ": " + ", ".join(parts)
+	var owner := int(hosts[i].owner)
+	if _store_total(i) >= STORE_CAP - 0.5: line += " · full, production stops"
+	elif _store_total(i) >= 1.0 and owner != NEUTRAL and _attack_route_none(owner, i): line += " · no route home"
+	elif _store_total(i) >= 1.0 and owner != NEUTRAL and _avail(owner, "bots") - float(bot_reserve.get(owner, BOT_RESERVE_DEFAULT)) < 1.0: line += " · waiting for courier Bots"
+	return line
 
 
 const PALETTE_GAP := 4
@@ -5926,9 +6233,9 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 
 # A building card (palette and slots share it), in fixed bands so nothing overlaps at 112 x 140:
 # title 4-28 · icon 32-72 · two effect lines (88, 101) · bottom band 108-136: the price as icons (palette) or a status (slots).
-const BUILD_EFFECT := {
-	"bot": ["+2 Bots/s", "1 Intel each"], "intel": ["+2 Intel/s", "+50 cap"], "cash": ["+1 Crypto/s", "1 Intel each"],
-	"cred": ["+1 Cred/s", "1 Intel each"], "lab": ["+1 Research/s", "1 Crypto each"], "wall": ["+1 security", "max 3"],
+const BUILD_EFFECT := {   # per 5-s cycle (the host panel says "Every 5 s")
+	"bot": ["+2 Bots", "carry 2 home"], "intel": ["+2 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
+	"cred": ["+1 Cred", "uses 1 Intel"], "lab": ["+1 Research", "Intel+Crypto"], "wall": ["3 sockets", "uses 1 Intel"],
 }
 func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:
 	var font := canvas.get_theme_default_font()

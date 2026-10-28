@@ -5,15 +5,18 @@
 # ── the five resources. RES[k] is the order used by banks, hud and the state hash ──
 const RES := ["bots", "intel", "cash", "creds", "research"]
 const RES_NAME := {"bots": "Bots", "intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}
-const START := {"bots": 20.0, "intel": 30.0, "cash": 20.0, "creds": 12.0, "research": 8.0}
+const START := {"bots": 20.0, "intel": 40.0, "cash": 20.0, "creds": 15.0, "research": 10.0}   # a producer or two and a first Breach
 const BASE_CAP := {"bots": 200.0, "intel": 150.0, "cash": 300.0, "creds": 150.0, "research": 150.0}
 const CAP_PER_PRODUCER := 50.0     # each installed producer adds this to its own output resource's cap
 
-# ── the main node (rig). While operational it makes one of EACH resource per second, delivered locally. ──
-const MAIN_INCOME := 1.0           # per resource per second, no type multiplier, one allowance per living faction
+# ── production: every host runs one cycle each PROD_CYCLE seconds ──
+const PROD_CYCLE := 5.0            # seconds per production cycle (all producers, the Firewall's upkeep, Bot stations)
+const STORE_CAP := 10.0            # what a remote host can hold before its producers stop (all resources together)
+
+# ── the main node (rig). While operational it makes one of EACH resource per cycle, delivered locally. ──
+const MAIN_INCOME := 0.2           # per resource per second (one of each every 5 s): a trickle that keeps a stalled player alive; producers are the economy
 
 # ── couriers and delivery ──
-const BUFFER_CAP := 20.0           # a remote producer's own local output buffer (per producer, per beneficiary)
 const BOT_RESERVE_CHOICES := [0, 5, 10, 20, 40]
 const BOT_RESERVE_DEFAULT := 10    # Bots kept available for operations; shipping and raid collection keep this
 const SHIP_PRIORITY_TURNS := 2     # weighted round robin: the chosen resource gets this many turns, others one
@@ -28,7 +31,10 @@ const EXPRESS_MULT := 0.5          # Express route: half per-link travel and for
 # ── security (a discrete eligibility threshold, not damageable health) ──
 const SEC_BY_TYPE := {"iot": 1, "pc": 1, "server": 2, "web": 2, "file": 2, "db": 3, "erp": 3}
 const SEC_MAIN := 3                # an active main node is always security 3, overriding its host type
-const SEC_MAX := 3                 # the ceiling a Firewall can reach
+const SEC_MAX := 3                 # the security ceiling
+
+# ── the Firewall ──
+const FIREWALL_SOCKETS := 3        # defence cards one Firewall holds; each fires itself on its trigger
 
 # ── construction ──
 const BUILD_TIME := 10.0           # seconds of fully funded work a build job needs

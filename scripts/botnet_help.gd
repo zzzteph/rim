@@ -77,18 +77,18 @@ func _draw() -> void:
 # every lead line fits on one line with room to spare, every caption fits in two lines.
 const LEADS := {
 	"research": ["Learn a blueprint once to unlock its recipe.", "Manufacture copies, then launch a ready card."],
-	"deliver": ["A resource made outside your main node is not spendable yet.", "One Bot carries one unit home and is consumed on arrival."],
-	"produce": ["Harvesters make Intel. A Bot farm turns 1 Intel into 2 Bots.", "Miners and labs convert; the output still needs a courier."],
+	"deliver": ["A resource made outside your main node waits in its host's storage.", "Bot stations carry it home; a Bot from the bank is used up."],
+	"produce": ["Every 5 s a harvester makes 2 Intel; a converter uses 1.", "A Lab needs 1 Intel and 1 Crypto on the same host."],
 	"build": ["One research slot and three manufacturing lanes.", "Repeat makes more copies when resources and slots allow."],
 	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid takes stored Crypto. Capture cards have a security cap."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {
 	"research": "Research unlocks a recipe — it gives no free card. Manufacturing pays once; launching spends the copy.",
-	"deliver": "4 delivered/s needs 4 courier Bots/s. New Bots deliver themselves; the main node makes 1 of each resource locally.",
-	"produce": "No input stops production. No courier or route stops dispatch. A full local buffer stops production.",
+	"deliver": "A Bot station sends 2 Bots every 5 s; each carries 1 unit home and joins your Bots. The main node adds 1 of each every 5 s.",
+	"produce": "Converters use only their own host's Intel (the bank at the main node). A host's storage holds 10; full storage stops it.",
 	"build": "A paused lane leaves the others running. Each producing copy reserves one of 12 ready slots.",
-	"attack": "Stolen resources help only when they reach your main node. Patch, Response, Filter and Cover defend.",
+	"attack": "Stolen resources help only when they reach your main node. A Firewall holds 3 defence cards that fire on their own.",
 	"goal": "Lose your main node and you are eliminated. Watch the objective bar for the exact host count.",
 }
 const LEAD_FS := 14

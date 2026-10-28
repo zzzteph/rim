@@ -7,7 +7,7 @@ extends SceneTree
 var screens := []
 var checks := 0
 var failures := []
-const TURNS := 360   # 360 turns × 3 steps × 1/30 s = 36 s of match
+const TURNS := 600   # 600 turns × 3 steps × 1/30 s = 60 s of match: long enough for a 40-s research after its restart
 
 
 func _initialize() -> void: run.call_deferred()
@@ -65,6 +65,8 @@ func run() -> void:
 	check(a._mp_on and b._mp_on and a.PLAYER == 1 and b.PLAYER == 2, "Both screens start the match, as faction 1 and faction 2")
 	check(a.hosts.size() == b.hosts.size() and a.hosts.size() > 0 and a._mp_hash() == b._mp_hash(), "Same seed builds the same town on both screens")
 	soften(neutral_next_to(a, int(a.rig[1]))); soften(neutral_next_to(a, int(a.rig[2])))
+	for g in screens:   # the same well-stocked banks on both screens, so research and lanes run in the time the test has
+		for fac in [1, 2]: g.bank[fac] = {"bots": 150.0, "intel": 200.0, "cash": 150.0, "creds": 120.0, "research": 120.0}
 	var plan := script_for(a)
 	var start_owned := 0
 	for i in a.hosts.size():
