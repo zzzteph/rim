@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit f1fd396
+RIM 0.5.0-a · commit 5ff266e
 
 ## Contents
 
@@ -239,6 +239,23 @@ m      = the host type's multiplier for that resource
 | Database: station + harvester + 2 Cred. harvesters        | 4 Intel → 1 Intel + 3 Credentials; 2 Bots     | 2 by the station, 2 by bank couriers     | +12 Intel, +36 Creds                                     |
 | Main node (Server): Intel harvester + Bot station + Miner | 3 Intel → 2 Intel + 1 Crypto; 2 Bots          | straight into the bank, plus the trickle | +36 Bots, +36 Intel, +24 Crypto, +12 Creds, +12 Research |
 | \+ a Firewall on the host                                 | uses 1 Intel                                  | —                                        | −12 Intel                                                |
+
+### Host status
+
+A selected host's panel names its status from the first problem that applies, in this order. The next-cycle preview is worked out exactly as the cycle will run, so it never shows output the host cannot make.
+
+| Status                   | When                                                                                                                 | What the panel suggests                                                            |
+|--------------------------|----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| under DDoS               | a DDoS is active here                                                                                                | nothing is made or sent until it ends                                              |
+| sabotaged                | a Sabotage is active here                                                                                            | producers are off; cargo still passes                                              |
+| phished                  | a rival's Phishing is active here                                                                                    | output goes to them until it ends (Incident response clears it)                    |
+| no route                 | no chain of your hosts links it to your main node                                                                    | retake a host between them                                                         |
+| starved                  | a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty | build the missing harvester or Miner here, or replace the converter                |
+| blocked                  | storage full, or the bank for what is stored (or a main-node converter's output) is at its cap                       | spend that resource, pause the converter, or add a Bot station / lower the reserve |
+| waiting for couriers     | units are stored but no Bot is spare above the reserve                                                               | lower the reserve or build a Bot station here                                      |
+| Firewall off             | the next cycle cannot pay the Firewall's Intel                                                                       | build an Intel harvester here                                                      |
+| paused · building · idle | every producer paused by you · nothing finished yet · nothing installed                                              | —                                                                                  |
+| operating                | none of the above                                                                                                    | —                                                                                  |
 
 ## Logistics
 
@@ -661,7 +678,8 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 - **HUD** (top): the five banks with cap and incoming arrows, each with its measured net rate per minute underneath (hover for received, spent and lost by cause); to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.
 - **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
-- **Sidebar**: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.
+- **Sidebar**: standings when idle; your host's panel when selected, in this order: role and status (e.g. RESEARCH HOST · starved), each problem with its cause and a fix, the next cycle as it will really run (and, when that falls short, the output at full capacity), delivery (route home with hops, travel and queueing, who carries, storage, what reached the bank from this host recently), then installations, Firewall sockets and the build palette; on the main node also logistics: reserve and shipping priority. A foreign host's panel shows its security, Recon view and the Launch row.
+- **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
 - **Menu** (Esc): Resume, Learn (the guided campaign; recommended until finished or skipped), Skirmish, Multiplayer, Help (six illustrated pages), Feedback, Exit. Nothing is locked behind the campaign.
 

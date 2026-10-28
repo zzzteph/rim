@@ -1342,7 +1342,7 @@ func _station_send(i: int, fac: int, bots: int) -> void:
 		if res == "" and _room(fac, "bots") < 1.0: continue   # nothing to carry and no room for the Bot: it is not made
 		_reserve_incoming(fac, "bots", 1.0)
 		if res == "":
-			flights.append(_schedule(rt, _t, fac, "newbot", express, {"res": "bots"}))
+			flights.append(_schedule(rt, _t, fac, "newbot", express, {"res": "bots", "src": i}))
 			continue
 		_st_take(i, fac, res, 1.0)
 		_reserve_incoming(fac, res, 1.0)
@@ -1873,7 +1873,9 @@ func _deliver(f: Dictionary) -> void:
 		var cause := "stolen" if bool(f.get("intercepted", false)) or bool(f.get("loot", false)) or (src >= 0 and int(hosts[src].owner) != fac) else "delivered"
 		if bool(f.get("keep", false)):            # a Bot-station courier: it joins your Bots with its cargo
 			_release_incoming(fac, "bots", 1.0)
-			if arrived: _add_bank(fac, "bots", 1.0, cause)
+			if arrived:
+				_add_bank(fac, "bots", 1.0, cause)
+				if src >= 0: _ledger_add(fac, "from", str(src), "bots", 1.0)
 			else: _ledger_add(fac, "lost", "cargo", "bots", 1.0)
 		else: committed[fac] = maxf(0.0, float(committed.get(fac, 0.0)) - 1.0)   # a bank courier is used up either way
 		if arrived:
@@ -1884,7 +1886,9 @@ func _deliver(f: Dictionary) -> void:
 			_ledger_add(fac, "lost", "cargo", res, 1.0)
 			if fac == PLAYER: _flash("A %s shipment was lost — its route broke" % RES_NAME[res], 1)
 	else:   # newbot: no courier; it either becomes an available Bot or is lost
-		if arrived: _add_bank(fac, "bots", 1.0, "delivered")
+		if arrived:
+			_add_bank(fac, "bots", 1.0, "delivered")
+			if src >= 0: _ledger_add(fac, "from", str(src), "bots", 1.0)
 		else: _ledger_add(fac, "lost", "cargo", "bots", 1.0)
 
 
@@ -4198,7 +4202,7 @@ func _camp_steps(chapter: int) -> Array:
 		1: return [
 			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s — but it is not home yet.", "a": "Select the relay and build an Intel harvester in a slot.", "w": "What a host makes waits in its storage until a Bot carries it home.", "role": "relay", "ui": "build:intel", "pause": true},
 			{"t": "Bot station", "r": "The Bot station sends 2 Bots home every 5 s, each carrying 1 unit.", "a": "Build a Bot station in another slot of the relay.", "w": "Its Bots carry the host's output home, then join your Bots.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a station Bot to carry Intel home.", "w": "Without a station, a Bot from your bank fetches it and is used up.", "role": "home", "pause": false},
+			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a station Bot to carry Intel home.", "w": "Without a station, a bank Bot fetches it and is used up. A host's panel shows its status and route home.", "role": "home", "pause": false},
 		]
 		2: return [
 			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Open the RESEARCH tab and click Known exploit.", "w": "Research unlocks the recipe. It does not give you a free card.", "role": "", "ui": "card:exploit", "pause": true},
@@ -5031,12 +5035,6 @@ func _panel_build(i: int) -> void:
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
 		box.custom_minimum_size = Vector2(112, 140); row.add_child(box)
 	panel_box.add_child(row)
-	var cyc := _cycle_text(i)
-	if cyc != "": _plabel(cyc, 12, C_DIM)
-	if i != int(rig.get(PLAYER, -1)):
-		var st := _store_text(i)
-		var col := C_WARN if _store_total(i) >= STORE_CAP - 0.5 else C_DIM
-		if st != "": _plabel(st, 12, col)
 	if _sockets(i) > 0:
 		var held := []
 		for r in (h.sockets as Array): held.append(str(CARDS[str(r)].short))
@@ -5100,6 +5098,290 @@ func _store_text(i: int) -> String:   # this host's storage, and why it is not l
 	return line
 
 
+# ---- host diagnosis (Milestone A, brief §9.3): role → status → next cycle → delivery, read from the simulation ----
+# _cycle_preview works out the host's next cycle exactly as _run_cycle will, on copies: nothing in the game changes.
+func _cycle_preview(i: int) -> Dictionary:
+	var owner := int(hosts[i].owner)
+	var benef := _benef(i)
+	if not botnets.has(benef) or _eliminated.has(benef): benef = owner
+	var S := {"st": {}, "total": _store_total(i)}
+	for fac in [owner, benef]:
+		S.st[fac] = {}
+		for res in RES: S.st[fac][res] = _st_get(i, fac, res)
+	var out := {"benef": benef, "conv": [], "bots": 0, "sent": [], "unmade": 0, "bots_why": ""}
+	# a) Intel harvesters
+	var n := _cycle_kinds(i, "intel")
+	if n > 0:
+		var want := float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * n
+		out["intel"] = [_pv_add(S, i, benef, "intel", want), want]
+	# b) the Firewall's upkeep
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0:
+		var need := float(BUILD_KINDS.wall.use.intel) * walls
+		var have := float(S.st[owner].intel)
+		if owner != benef: have += float(S.st[benef].intel)
+		var on := have >= need - 0.0001
+		out["fw"] = {"need": need, "on": on}
+		if on:
+			var own := minf(need, float(S.st[owner].intel))
+			_pv_take(S, i, owner, "intel", own)
+			if need - own > 0.0001: _pv_take(S, i, benef, "intel", need - own)
+	# c) converters, in order
+	for kind in CONVERT_ORDER:
+		var count := _cycle_kinds(i, kind)
+		if count == 0: continue
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var res_out := str(spec.out)
+		var m := _tmult(i, res_out)
+		var row := {"kind": kind, "n": count, "frac": 0.0, "short": "", "made": 0.0, "use": {}}
+		var done := 0.0
+		for k in count:
+			var frac := 1.0; var lim := ""
+			for r in (spec.use as Dictionary):
+				var fr := float(S.st[benef][str(r)]) / maxf(0.000001, float(spec.use[r]) * m)
+				if fr < frac: frac = fr; lim = str(r)
+			if _st_local(i, benef):
+				var fr2 := maxf(0.0, _cap(benef, res_out) - float(S.st[benef][res_out])) / maxf(0.000001, float(spec.rate) * m)
+				if fr2 < frac: frac = fr2; lim = "cap"
+			if frac < 0.9999 and str(row.short) == "": row.short = lim
+			if frac <= 0.0001: break
+			for r in (spec.use as Dictionary):
+				_pv_take(S, i, benef, str(r), float(spec.use[r]) * m * frac)
+				row.use[str(r)] = float((row.use as Dictionary).get(str(r), 0.0)) + float(spec.use[r]) * m * frac
+			row.made = float(row.made) + _pv_add(S, i, benef, res_out, float(spec.rate) * m * frac)
+			done += frac
+		row.frac = done / float(count)
+		out.conv.append(row)
+	# d) Bot stations
+	var bots := 0
+	for k in _cycle_kinds(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
+	out.bots = bots
+	if bots > 0:
+		if _st_local(i, benef): out["bots_in"] = _pv_add(S, i, benef, "bots", float(bots))
+		elif _routing_down(i): out.bots_why = "ddos"
+		elif _home_route(benef, i).is_empty(): out.bots_why = "route"
+		else:
+			var room := {}
+			for res in RES: room[res] = _room(benef, res)
+			var rr := int(hosts[i].get("ship_rr", 0))
+			var pri := str(ship_pri.get(benef, ""))
+			for b in bots:
+				var pick := ""
+				if pri != "" and float(S.st[benef][pri]) >= 1.0 and float(room[pri]) >= 1.0: pick = pri
+				else:
+					for k in RES.size():
+						var res: String = RES[(rr + k) % RES.size()]
+						if res == "bots": continue
+						if float(S.st[benef][res]) >= 1.0 and float(room[res]) >= 1.0:
+							pick = res; rr = (rr + k + 1) % RES.size(); break
+				if pick == "" and float(room.bots) < 1.0: out.unmade = int(out.unmade) + 1; continue
+				room.bots = float(room.bots) - 1.0
+				out.sent.append(pick)
+				if pick != "":
+					_pv_take(S, i, benef, pick, 1.0)
+					room[pick] = float(room[pick]) - 1.0
+	out["after"] = S.st[benef]
+	out["after_owner"] = S.st[owner]
+	return out
+
+
+func _pv_add(S: Dictionary, i: int, fac: int, res: String, amt: float) -> float:   # _st_add on the preview's copy
+	if amt <= 0.0: return 0.0
+	var local := _st_local(i, fac)
+	var room := _cap(fac, res) - float(S.st[fac][res]) if local else STORE_CAP - float(S.total)
+	var fit := minf(amt, maxf(0.0, room))
+	if fit <= 0.0: return 0.0
+	S.st[fac][res] = float(S.st[fac][res]) + fit
+	if not local: S.total = float(S.total) + fit
+	return fit
+
+
+func _pv_take(S: Dictionary, i: int, fac: int, res: String, amt: float) -> void:   # _st_take on the preview's copy
+	var have := float(S.st[fac][res])
+	var left := maxf(0.0, have - amt)
+	if not _st_local(i, fac):
+		if have - amt <= 0.0001: left = 0.0
+		S.total = float(S.total) - (have - left)
+	S.st[fac][res] = left
+
+
+func _host_role(i: int) -> String:   # what the host is for, from what is installed
+	if i == int(rig.get(int(hosts[i].owner), -1)): return "MAIN NODE"
+	var outs := []
+	for kind in ["lab", "cred", "cash"]:
+		if _count_all(i, kind) > 0: outs.append({"lab": "RESEARCH", "cred": "CREDENTIAL", "cash": "CRYPTO"}[kind])
+	if outs.is_empty() and _count_all(i, "intel") > 0: outs.append("INTEL")
+	if not outs.is_empty(): return " + ".join(outs) + " HOST"
+	if _count_all(i, "bot") > 0: return "BOT STATION HOST"
+	if _count_all(i, "wall") > 0: return "FIREWALL HOST"
+	return "EMPTY HOST"
+
+
+const _MAKER_OF := {"intel": "an Intel harvester", "cash": "a Crypto miner"}
+
+
+func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, colour]], next, full, pv}: the first problem names the status
+	var owner := int(hosts[i].owner)
+	var main := i == int(rig.get(owner, -1))
+	var pv := _cycle_preview(i)
+	var probs := []   # [status, colour, text]; status "" = a note that does not change the headline
+	var producers := 0; var paused := 0
+	for k in (hosts[i].builds as Array).size():
+		if str(hosts[i].builds[k]) in PRODUCER_KINDS and not _slot_busy(i, k):
+			producers += 1
+			if _producer_paused(i, k): paused += 1
+	if _ddos_down(i): probs.append(["under DDoS", C_BAD, "Under DDoS for %d s: nothing is made or sent from here." % int(ceil(float(hosts[i].ddos_until) - _t))])
+	if _sabotaged(i): probs.append(["sabotaged", C_BAD, "Sabotaged for %d s: producers are off; cargo still passes through." % int(ceil(float(hosts[i].sabot_until) - _t))])
+	if _phished(i): probs.append(["phished", C_BAD, "Phished by %s for %d s: what is made here goes to them." % [fname(int(hosts[i].steal_by)), int(ceil(float(hosts[i].steal_until) - _t))]])
+	if not main and (producers > 0 or _store_total(i) >= 1.0) and _attack_route_none(owner, i):
+		probs.append(["no route", C_BAD, "No route home: no chain of your hosts links this one to your main node. Retake a host between them."])
+	for row in pv.conv:
+		if float(row.frac) >= 0.9999: continue
+		var nm := str(BUILD_KINDS[str(row.kind)].name)
+		var lim := str(row.short)
+		var out_res := str(BUILD_KINDS[str(row.kind)].out)
+		if lim == "cap": probs.append(["blocked", C_WARN, "%s stops: your %s bank is full. Spend some, or pause the %s." % [nm, RES_NAME[out_res], nm]])
+		elif main: probs.append(["starved", C_WARN, "%s has no %s in your bank to use." % [nm, RES_NAME[lim]]])
+		elif float(row.frac) > 0.0001: probs.append(["starved", C_WARN, "%s runs at %d%%: not enough %s on this host." % [nm, int(round(100.0 * float(row.frac))), RES_NAME[lim]]])
+		elif not _input_here(i, lim):
+			probs.append(["starved", C_WARN, "%s needs %s here; none is stored or made on this host. Your bank's %s cannot reach a remote converter. Build %s here, or replace the %s." % [nm, RES_NAME[lim], RES_NAME[lim], _MAKER_OF.get(lim, "its input"), nm]])
+		else: probs.append(["starved", C_WARN, "%s gets no %s: the converters before it use it all. Add %s here, or pause one." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "more input")]])
+	if pv.has("fw") and not bool(pv.fw.on):
+		probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here and none is left. Build an Intel harvester here." % _amt(float(pv.fw.need))])
+	if not main and not _ddos_down(i):
+		var spare := _avail(owner, "bots") - float(bot_reserve.get(owner, BOT_RESERVE_DEFAULT))
+		var bank_full := []
+		for res in RES:
+			if _st_get(i, owner, res) >= 1.0 and _room(owner, res) < 1.0: bank_full.append(str(RES_NAME[res]))
+		var waits := "No courier Bots are spare: %d in your bank, %d kept in reserve." % [int(_avail(owner, "bots")), int(bot_reserve.get(owner, BOT_RESERVE_DEFAULT))]
+		if _store_total(i) >= STORE_CAP - 0.5:
+			var why := "Storage %d/%d: producers here stop until it ships." % [int(round(_store_total(i))), int(STORE_CAP)]
+			if not bank_full.is_empty(): why += " Your %s bank is full, so it waits." % " and ".join(bank_full)
+			elif spare < 1.0: why += " " + waits
+			probs.append(["blocked", C_WARN, why])
+		elif not bank_full.is_empty(): probs.append(["blocked", C_WARN, "Your %s bank is full: what is stored here waits." % " and ".join(bank_full)])
+		elif _store_total(i) >= 1.0 and spare < 1.0 and not _attack_route_none(owner, i):
+			probs.append(["waiting for couriers", C_WARN, waits + " Lower the reserve on your main node, or build a Bot station here."])
+	if int(pv.unmade) > 0: probs.append(["", C_DIM, "%d Bots will not be made: nothing to carry and your Bots bank is full." % int(pv.unmade)])
+	if paused > 0: probs.append(["paused" if paused == producers else "", C_DIM, "%d producer%s paused by you." % [paused, "" if paused == 1 else "s"]])
+	for slot_key in (hosts[i].jobs as Dictionary):
+		var job: Dictionary = hosts[i].jobs[slot_key]
+		var what := str(BUILD_KINDS[str(job.kind)].name)
+		probs.append(["building" if producers == 0 else "", C_DIM, ("Building %s: %d s left." if str(job.phase) == "build" else "Clearing a slot for %s: %d s left.") % [what, int(ceil(float(job.left)))]])
+	if producers == 0 and _count_all(i, "wall") == 0 and (hosts[i].jobs as Dictionary).is_empty():
+		probs.append(["idle", C_DIM, "Nothing installed: drag a building onto an empty slot."])
+	var status := "operating"; var col := C_GOOD
+	for p in probs:
+		if str(p[0]) != "": status = str(p[0]); col = p[1]; break
+	var lines := []
+	for p in probs: lines.append([str(p[2]), p[1]])
+	var nxt := _next_cycle_text(i, pv)
+	var full := _cycle_text(i)
+	var short := false
+	for row in pv.conv: short = short or float(row.frac) < 0.9999
+	if pv.has("intel") and float(pv.intel[0]) < float(pv.intel[1]) - 0.05: short = true
+	return {"role": _host_role(i), "status": status, "col": col, "lines": lines, "next": nxt, "full": full if short else "", "pv": pv}
+
+
+func _next_cycle_text(i: int, pv: Dictionary) -> String:   # what the next cycle will really do (feasible, not theoretical)
+	var parts := []
+	if pv.has("intel"):
+		var got := float(pv.intel[0]); var want := float(pv.intel[1])
+		parts.append("+%s Intel" % _amt(got) + ("" if got >= want - 0.05 else " of %s (no room)" % _amt(want)))
+	if pv.has("fw"): parts.append("Firewall uses %s Intel" % _amt(float(pv.fw.need)) if bool(pv.fw.on) else "Firewall OFF")
+	for row in pv.conv:
+		var spec: Dictionary = BUILD_KINDS[str(row.kind)]
+		if float(row.made) < 0.05: parts.append("%s idle" % str(spec.card)); continue
+		var ins := []
+		for r in (spec.use as Dictionary): ins.append("%s %s" % [_amt(float((row.use as Dictionary).get(str(r), 0.0))), RES_NAME[str(r)]])
+		parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(row.made)), RES_NAME[str(spec.out)]])
+	var bots := int(pv.bots)
+	if bots > 0:
+		if pv.has("bots_in"): parts.append("+%s Bots" % _amt(float(pv.bots_in)))
+		elif str(pv.bots_why) == "route": parts.append("%d Bots not made: no route home" % bots)
+		elif str(pv.bots_why) == "":
+			var carry := 0
+			for x in pv.sent:
+				if str(x) != "": carry += 1
+			var sent := (pv.sent as Array).size()
+			if sent > 0: parts.append("%d Bots carry %d home" % [sent, carry] if carry > 0 else "%d Bots fly home empty" % sent)
+	if parts.is_empty(): return ""
+	return "Next cycle in %.1f s: %s" % [maxf(0.0, float(hosts[i].get("cyc", PROD_CYCLE))), " · ".join(parts)]
+
+
+func _route_eta(rt: Array, express := false) -> Dictionary:   # a packet leaving now: hops, travel, and queueing on top (nothing is reserved)
+	if rt.size() < 2: return {"hops": 0, "travel": 0.0, "wait": 0.0}
+	var lt := LINK_TIME * (EXPRESS_MULT if express else 1.0)
+	var fd := NODE_ROUTE_DELAY * (EXPRESS_MULT if express else 1.0)
+	var t := _t
+	for k in range(rt.size() - 1):
+		t = _link_entry(_lkey(int(rt[k]), int(rt[k + 1])), t) + lt
+		if k < rt.size() - 2: t += fd
+	var travel := _travel_time(rt, express)
+	return {"hops": rt.size() - 1, "travel": travel, "wait": maxf(0.0, (t - _t) - travel)}
+
+
+func _host_delivered(fac: int, i: int) -> Dictionary:   # res -> per minute that reached the bank from host i, over the ledger window
+	var out := {}
+	var per_min := 60.0 / _ledger_window()
+	var sums := _ledger_sums(fac)
+	for key in sums:
+		var parts := str(key).split(":")
+		if parts.size() == 3 and parts[0] == "from" and parts[1] == str(i): out[parts[2]] = float(sums[key]) * per_min
+	return out
+
+
+func _route_home_line(i: int) -> String:   # "Route home: 4 hops, ~4.8 s + 1.2 s queue"
+	var owner := int(hosts[i].owner)
+	var rt := _home_route(owner, i)
+	if rt.is_empty(): return "Route home: none"
+	var eta := _route_eta(rt, float(hosts[i].get("express_until", 0.0)) > _t)
+	var line := "Route home: %d hop%s, ~%.1f s" % [int(eta.hops), "" if int(eta.hops) == 1 else "s", float(eta.travel)]
+	if float(eta.wait) >= 0.1: line += " + %.1f s queue" % float(eta.wait)
+	return line
+
+
+func _delivery_lines(i: int) -> Array:   # [[text, colour]] for a remote host: route, who carries, storage, what arrived
+	var owner := int(hosts[i].owner)
+	var lines := []
+	var route := _route_home_line(i)
+	lines.append([route, C_BAD if route.ends_with("none") else C_DIM])
+	if _count_all(i, "bot") > 0: lines.append(["Delivery: Bots from the stations here carry 1 unit each and join your Bots; the rest waits for bank couriers.", C_DIM])
+	else: lines.append(["Delivery: bank couriers fetch each unit; each uses up 1 Bot from your bank.", C_DIM])
+	lines.append([_store_text(i), C_WARN if _store_total(i) >= STORE_CAP - 0.5 else C_DIM])
+	var got := _host_delivered(owner, i)
+	var parts := []
+	for res in RES:
+		if float(got.get(res, 0.0)) >= 0.5: parts.append("%d %s" % [int(round(float(got[res]))), RES_NAME[res]])
+	if parts.is_empty(): lines.append(["Delivered recently: nothing in the last %d s." % int(_ledger_window()), C_DIM])
+	else: lines.append(["Delivered recently: %s per min%s." % [", ".join(parts), " (early estimate)" if _t < float(LEDGER_SECS) else ""], C_DIM])
+	return lines
+
+
+func _cut_off(i: int) -> Array:   # your hosts that, with i, have no route to your main node (the disconnected segment)
+	var fac := int(hosts[i].owner)
+	if not _attack_route_none(fac, i): return []
+	var seen := {i: true}; var q := [i]; var head := 0
+	while head < q.size():
+		var c: int = q[head]; head += 1
+		for o in hosts[c].links:
+			if int(hosts[o].owner) == fac and not seen.has(int(o)): seen[int(o)] = true; q.append(int(o))
+	var out := seen.keys(); out.sort()
+	return out
+
+
+func _panel_host_econ(i: int) -> void:   # the order the brief asks for: role and status, problems, next cycle, delivery
+	var d := _host_diag(i)
+	_plabel("%s · %s" % [str(d.role), str(d.status)], 15, d.col)
+	for line in d.lines: _plabel(str(line[0]), 12, line[1])
+	if str(d.next) != "": _plabel(str(d.next), 12, C_TEXT)
+	if str(d.full) != "": _plabel("At full capacity: " + str(d.full).trim_prefix("Every %d s: " % int(PROD_CYCLE)), 12, C_DIM)
+	if i == int(rig.get(int(hosts[i].owner), -1)):
+		_plabel("Everything made here goes straight into your bank.", 12, C_DIM)
+		return
+	for line in _delivery_lines(i): _plabel(str(line[0]), 12, line[1])
+
+
 const PALETTE_GAP := 4
 
 
@@ -5117,6 +5399,7 @@ func _panel_selecting() -> void:
 	_plabel(_stage_line(source), 14, C_TEXT)
 	var fx := _effects_line(source)
 	if fx != "": _plabel(fx, 13, C_WARN)
+	if _mine(source): _panel_host_econ(source)
 	_panel_build(source)
 	# support cards you can apply to this host right now
 	var support := []
@@ -5659,6 +5942,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		var rem := clampf((float(x.until) - _t) / 3.0, 0.0, 1.0)
 		var xc: Color = x.col; xc.a = rem
 		_frame(hosts[int(x.host)].pos, _r(int(x.host)) + 10.0 + (1.0 - rem) * 14.0, xc, 1.5)
+	_paint_inspect_links(cx)
 	if focus_on and not _mine(aim) and rig.has(PLAYER):   # the automatic attack route to the focused foreign host
 		var rt := _attack_route(PLAYER, aim)
 		if not rt.is_empty(): _draw_dashed(rt, Color(1, 0.95, 0.55, 0.9), 1.6)   # no route: the sidebar says so (no map note over the name)
@@ -5675,7 +5959,49 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		var r := Rect2(ws, _mouse_world() - ws).abs()
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.08), true)
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
+	_paint_route_tag(f)
 	if _camp: _paint_camp_guide(f)
+
+
+func _picked() -> int:   # the one host whose panel is open: your selected host, or the foreign host you inspect
+	if sel.size() == 1: return int(sel.keys()[0])
+	return _inspect
+
+
+const ROUTE_HOME_COL := Color(0.4, 1.0, 0.7)
+func _paint_inspect_links(cx: Dictionary) -> void:   # world space: the picked host's links you can see, its route home, any cut-off hosts
+	var i := _picked()
+	if not _host_ok(i) or not (cx.vis as Dictionary).has(i): return
+	var sight: Dictionary = cx.sight
+	for nb in hosts[i].links:   # never a link into fog: both ends on your map, and the street touches your sight (as for packets)
+		var n := int(nb)
+		if (cx.vis as Dictionary).has(n) and (sight.has(i) or sight.has(n)): _cv.draw_line(hosts[i].pos, hosts[n].pos, Color(0.75, 0.85, 1.0, 0.4), 1.2, true)
+	if not _mine(i) or i == int(rig.get(PLAYER, -1)): return
+	var rt := _home_route(PLAYER, i)
+	if rt.is_empty():
+		for c in _cut_off(i): _frame(hosts[int(c)].pos, _r(int(c)) + 7.0, Color(C_BAD, 0.85), 2.0)
+		return
+	var pts := PackedVector2Array()
+	for n in rt: pts.append(hosts[int(n)].pos)
+	_cv.draw_polyline(pts, Color(ROUTE_HOME_COL, 0.2), 6.0, true)
+	_cv.draw_polyline(pts, Color(ROUTE_HOME_COL, 0.95), 2.0, true)
+	for k in range(rt.size() - 1):   # a chevron at each link's middle, pointing home
+		var a: Vector2 = hosts[int(rt[k])].pos; var b: Vector2 = hosts[int(rt[k + 1])].pos
+		var dir := (b - a).normalized(); var perp := Vector2(-dir.y, dir.x); var mid := a.lerp(b, 0.5)
+		_cv.draw_colored_polygon(PackedVector2Array([mid + dir * 5.0, mid - dir * 3.0 + perp * 4.5, mid - dir * 3.0 - perp * 4.5]), ROUTE_HOME_COL)
+
+
+func _paint_route_tag(f: Font) -> void:   # screen space: hops and travel time home beside your selected host
+	var i := _picked()
+	if not _mine(i) or i == int(rig.get(PLAYER, -1)): return
+	var line := _route_home_line(i)
+	var none := line.ends_with("none")
+	var txt := "No route home" if none else line.trim_prefix("Route home: ") + " home"
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var home := int(rig.get(PLAYER, -1))
+	var away: Vector2 = (hosts[i].pos as Vector2) - (hosts[home].pos as Vector2) if home >= 0 else Vector2.RIGHT
+	_camp_pill(f, _w2s(hosts[i].pos), maxf(16.0, _r(i) * _zoom), txt, C_BAD if none else ROUTE_HOME_COL, away)
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 
 
 func _paint_camp_guide(f: Font) -> void:   # screen space: a pulsing ring on the step's target; FROM -> TARGET/PROTECT arrow while a drag is due
@@ -5710,6 +6036,7 @@ func _camp_pill(f: Font, at: Vector2, r: float, txt: String, col: Color, away: V
 		var c: Vector2 = at + off
 		var cand := Rect2(c.x - w * 0.5, c.y - 11.0, w, 22.0)
 		if inside.encloses(cand) and not _camp_pill_blocked(f, cand): box = cand; break
+	box.position = box.position.clamp(inside.position, inside.end - box.size)   # never cut by the map's edge
 	_cv.draw_rect(box, Color(0.03, 0.05, 0.08, 0.92), true); _cv.draw_rect(box, col, false, 2.0)
 	_text(_cv, f, Vector2(box.position.x + 8.0, box.position.y + 16.0), txt, 14, col)
 

@@ -190,6 +190,23 @@ m      = the host type's multiplier for that resource</pre>
     <thead><tr><th>Layout (on a PC, ×1)</th><th>Made each cycle</th><th>Delivered each cycle</th><th>Net to the bank per minute</th></tr></thead>
     <tbody>{{LAYOUTS}}</tbody>
   </table></div>
+  <h3>Host status</h3>
+  <p>A selected host's panel names its status from the first problem that applies, in this order. The next-cycle preview is worked out exactly as the cycle will run, so it never shows output the host cannot make.</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>Status</th><th>When</th><th>What the panel suggests</th></tr></thead>
+    <tbody>
+      <tr><th>under DDoS</th><td>a DDoS is active here</td><td>nothing is made or sent until it ends</td></tr>
+      <tr><th>sabotaged</th><td>a Sabotage is active here</td><td>producers are off; cargo still passes</td></tr>
+      <tr><th>phished</th><td>a rival's Phishing is active here</td><td>output goes to them until it ends (Incident response clears it)</td></tr>
+      <tr><th>no route</th><td>no chain of your hosts links it to your main node</td><td>retake a host between them</td></tr>
+      <tr><th>starved</th><td>a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty</td><td>build the missing harvester or Miner here, or replace the converter</td></tr>
+      <tr><th>blocked</th><td>storage full, or the bank for what is stored (or a main-node converter's output) is at its cap</td><td>spend that resource, pause the converter, or add a Bot station / lower the reserve</td></tr>
+      <tr><th>waiting for couriers</th><td>units are stored but no Bot is spare above the reserve</td><td>lower the reserve or build a Bot station here</td></tr>
+      <tr><th>Firewall off</th><td>the next cycle cannot pay the Firewall's Intel</td><td>build an Intel harvester here</td></tr>
+      <tr><th>paused · building · idle</th><td>every producer paused by you · nothing finished yet · nothing installed</td><td>—</td></tr>
+      <tr><th>operating</th><td>none of the above</td><td>—</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <section id="logistics">
@@ -360,7 +377,8 @@ losing your main node = elimination: your bank, cards, research and flights are 
       <ul><li><b>HUD</b> (top): the five banks with cap and incoming arrows, each with its measured net rate per minute underneath (hover for received, spent and lost by cause); to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.</li>
       <li><b>Economy</b> (top-bar button, a click on the banks, or <b>E</b>): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.</li>
       <li><b>Map</b>: hosts (with slot counts), territories, roads, packets, effects.</li>
-      <li><b>Sidebar</b>: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.</li>
+      <li><b>Sidebar</b>: standings when idle; your host's panel when selected, in this order: role and status (e.g. RESEARCH HOST · starved), each problem with its cause and a fix, the next cycle as it will really run (and, when that falls short, the output at full capacity), delivery (route home with hops, travel and queueing, who carries, storage, what reached the bank from this host recently), then installations, Firewall sockets and the build palette; on the main node also logistics: reserve and shipping priority. A foreign host's panel shows its security, Recon view and the Launch row.</li>
+      <li><b>Route inspection</b>: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.</li>
       <li><b>Deck</b> (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.</li>
       <li><b>Menu</b> (Esc): Resume, Learn (the guided campaign; recommended until finished or skipped), Skirmish, Multiplayer, Help (six illustrated pages), Feedback, Exit. Nothing is locked behind the campaign.</li></ul></div>
     <div class="rule"><h4>Controls</h4>

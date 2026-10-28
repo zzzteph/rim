@@ -233,6 +233,18 @@ func panel_controls(res: Vector2i) -> void:
 	var P: int = game.PLAYER
 	game.sel = {int(game.rig[P]): true}; game._inspect = -1; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "main node panel @%s" % res)
+	var remote := -1   # a remote host with every kind of problem line: starved converters, full storage, a Firewall with no Intel
+	for i in game.hosts.size():
+		if int(game.hosts[i].owner) == P and i != int(game.rig[P]): remote = i; break
+	if remote >= 0:
+		var keep_builds: Array = (game.hosts[remote].builds as Array).duplicate(); var keep_slots: int = int(game.hosts[remote].slots)
+		var keep_store: Dictionary = (game.hosts[remote].store as Dictionary).duplicate(true)
+		game._set_builds(remote, ["lab", "wall", "cred"])
+		game.hosts[remote].store = {P: {"creds": 10.0}}
+		game.sel = {remote: true}; game._inspect = -1; game._refresh_panel(); await settle()
+		check(game._panel_text().contains("starved"), "diagnosed host panel shows its status @%s" % res)
+		controls_inside(game.panel_box, visible_area(game.panel_scroll), "diagnosed host panel @%s" % res)
+		game.hosts[remote].builds = keep_builds; game.hosts[remote].slots = keep_slots; game.hosts[remote].store = keep_store
 	var foreign := -1
 	for i in game.hosts.size():
 		if int(game.hosts[i].owner) != P and int(game.hosts[i].owner) != game.NEUTRAL: foreign = i; break

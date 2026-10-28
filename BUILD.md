@@ -87,6 +87,7 @@ godot --headless --path . --script tests/capture_test.gd     # deterministic cap
 godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn, Skirmish and Multiplayer open at once; skip is guidance
 godot --headless --path . --script tests/objective_test.gd   # the majority objective: one source, HUD lines, hold countdown and reset
 godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
+godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -146,6 +147,17 @@ early, "~", during the first 30 s) and `_incoming_eta` reports cargo on the road
 resource's net rate under its stock, a tooltip breaks it down, and the **Economy** overview (top-bar
 button, clicking the HUD, or `E`) lists sources, spending, cargo on the road and losses. The ledger is
 presentation only: it is not part of the lockstep fingerprint (`_mp_hash`).
+
+Host diagnoses and route inspection (Milestone A). A selected host's panel reads role → status → problems →
+next cycle → delivery → installations (`_panel_host_econ`). `_cycle_preview(i)` works the next cycle out exactly
+as `_run_cycle` will, on copies (`_pv_add`/`_pv_take`), so "Next cycle in 2.4 s: …" shows feasible output and the
+dim "At full capacity" line the theoretical one; `tests/diagnosis_test.gd` checks the preview against the real
+cycle. `_host_diag(i)` names the status from the first problem (under DDoS, sabotaged, phished, no route,
+starved, blocked, waiting for couriers, Firewall off, paused, building, idle; else operating) with a cause and a
+fix. `_route_eta` reports hops, travel and the queueing a packet leaving now would meet, without reserving link
+capacity; `_host_delivered` reads the ledger's per-host "from" entries. On the map the selected host's links you
+can see, its route home (green, chevrons pointing home) and a tag with hops and time are drawn; a host with no
+route home rings its cut-off segment (`_cut_off`) in red. None of this changes the simulation.
 
 Cards are **researched once, then manufactured**. A blueprint is learned in the single
 research slot (`_do_research`/`_tick_research`, cost + time in `cards.gd` `RESEARCH`); five
