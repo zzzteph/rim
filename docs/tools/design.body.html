@@ -1,0 +1,472 @@
+<div class="wrap">
+<header class="intro">
+  <h1>RIM rules reference</h1>
+  <p>The whole design of RIM as the game runs it today: how a match flows, how the map and hosts work, every economic formula, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers and every constant for analysis.</p>
+  <p class="meta">RIM {{VERSION}} · branch claude/amazing-einstein-jc1hrr · commit {{COMMIT}} · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
+  <nav class="toc" aria-label="Contents">
+    <div><b>Flow</b><a href="#overview">Overview and core loop</a><a href="#flow">Match flow</a><a href="#time">Time model</a></div>
+    <div><b>World</b><a href="#map">Map and network</a><a href="#hosts">Host types</a><a href="#fog">Sight and fog</a></div>
+    <div><b>Economy</b><a href="#economy">Resources and banks</a><a href="#production">Production cycle</a><a href="#logistics">Logistics</a><a href="#buildings">Buildings</a><a href="#research">Research and manufacturing</a></div>
+    <div><b>Conflict</b><a href="#operations">How cards resolve</a><a href="#attack">Attack cards</a><a href="#defence">Defence cards</a><a href="#firewall">Firewall</a><a href="#counters">Counters</a><a href="#winning">Winning and elimination</a></div>
+    <div><b>Systems</b><a href="#ai">AI</a><a href="#multiplayer">Multiplayer</a><a href="#interface">Interface and controls</a><a href="#step">Simulation step</a></div>
+    <div><b>Analysis</b><a href="#derived">Derived numbers</a><a href="#prices">Price table</a><a href="#constants">All constants</a><a href="#unused">Unused config</a><a href="#review">For review</a></div>
+  </nav>
+</header>
+
+<section id="overview">
+  <h2>Overview and core loop</h2>
+  <p>RIM is a real-time strategy game about botnets on a generated city network. Two to four networks (you and 1–3 AI rivals, or 2–3 players online) start in different parts of the town. There are no units to fight with: everything is done with <b>cards</b>. You build an economy inside the hosts you own, research card blueprints, manufacture single-use cards, and play them on hosts. Capture cards take hosts, theft cards take resources, disruption cards stop production, defence cards protect. You win by holding 51% of all hosts for 51 s in a row, or by being the last network with a main node.</p>
+  <figure><pre class="mermaid">%%{init: {'theme':'neutral'}}%%
+flowchart LR
+  H["Hosts you hold (slots)"] --> B["Buildings make resources every 5 s"]
+  B --> C["Bots carry the output home"]
+  C --> K["Bank at your main node"]
+  K --> B2["Build more"]
+  B2 --> B
+  K --> R["Research blueprints"]
+  R --> M["Manufacture cards"]
+  K --> M
+  M --> P["Play cards"]
+  P -->|"capture"| H
+  P -->|"steal"| K
+  P -->|"disrupt or defend"| B</pre><figcaption>The core loop. Every arrow out of a building passes through logistics: a resource can be spent only once it is home.</figcaption></figure>
+  <ul class="plain">
+    <li><b>Everything is delivered.</b> Output made away from the main node is worth nothing until a Bot carries it home along your own hosts.</li>
+    <li><b>Cards do all the fighting.</b> Captures have execution times and odds; theft and disruption have durations; defence answers them.</li>
+    <li><b>Timing and information.</b> Fog hides rival hosts; execution countdowns give the defender a window; a Firewall lets you decide the defence in advance.</li>
+  </ul>
+</section>
+
+<section id="flow">
+  <h2>Match flow</h2>
+  <div class="rules">
+    <div class="rule"><h4>Setup (New game)</h4>
+      <ul><li>Layout: Spiral (default), Elliptical, Ring or Grid.</li>
+      <li>Size: {{SIZES}}.</li>
+      <li>Enemies: 1–3 AI networks (NYX, KRAKEN, VIPER).</li>
+      <li>Seed: a number for a repeatable town, blank for a random one.</li></ul></div>
+    <div class="rule"><h4>Other modes</h4>
+      <p><b>Campaign:</b> 5 guided chapters on a small grid town: capture, build, research, theft and defence, then an open chapter against an active rival. In the guided chapters captures always succeed.</p>
+      <p><b>Multiplayer:</b> 2–3 players in a lobby; the galaxy shape comes from the match seed; no AI. See <a href="#multiplayer">Multiplayer</a>.</p></div>
+    <div class="rule"><h4>Start state (every network)</h4>
+      <ul><li>A main node: a Server (3 slots, security 3) with an Intel harvester and a Bot station already built, one slot free.</li>
+      <li>One empty PC next to it, already yours.</li>
+      <li>Bank: {{START}}.</li>
+      <li>Known recipes: Recon, Credential breach, Phishing, Patch, Incident response.</li>
+      <li>Every other host is neutral (“city security”): no buildings, no defence beyond its security class.</li></ul></div>
+    <div class="rule"><h4>Ending</h4>
+      <p>The match ends when one network holds the majority for 51 s or is the last with a main node. In single player, losing your main node loses the match; in multiplayer you are out and the others play on. Space pauses a single-player match; multiplayer never pauses.</p></div>
+  </div>
+  <div class="tablebox"><table>
+    <thead><tr><th>Phase</th><th>Typical time</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (10 Intel, 10 Credentials: the start bank covers it).</td></tr>
+      <tr><th>Expansion</th><td class="num">1–6 min</td><td>Breach security-1 hosts: at 25% odds, about 4 cards per host taken. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
+      <tr><th>Contact</th><td class="num">5–10 min</td><td>Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.</td></tr>
+      <tr><th>End game</th><td class="num">10 min +</td><td>0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Measured sample: four AIs on a Medium spiral (41 hosts) grow from 8 held hosts to about 20 in 6 minutes, resolving ~50 capture attempts.</p>
+</section>
+
+<section id="time">
+  <h2>Time model</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Clock</th><th>Value</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><th>Simulation step</th><td class="num">1/30 s</td><td>Fixed step; the screen draws at up to 60 fps (30 in menus or in the background) and never changes the rules.</td></tr>
+      <tr><th>Production cycle</th><td class="num">5 s</td><td>Per host, each on its own phase (a host's first cycle comes 1–5 s after the match starts), so the network does not pulse all at once.</td></tr>
+      <tr><th>Main node trickle</th><td class="num">0.2/s each</td><td>Continuous: 1 of every resource per 5 s.</td></tr>
+      <tr><th>AI decisions</th><td class="num">every 2.5 s</td><td>Each AI on its own offset.</td></tr>
+      <tr><th>Travel</th><td class="num">1 s per link + 0.25 s per host passed</td><td>Halved by Express route; queues when a link is full.</td></tr>
+      <tr><th>Construction</th><td class="num">10 s (+5 s to replace)</td><td></td></tr>
+      <tr><th>Research</th><td class="num">30–70 s</td><td>One at a time.</td></tr>
+      <tr><th>Manufacturing</th><td class="num">3–26 s per copy</td><td>Three lanes in parallel.</td></tr>
+      <tr><th>Execution (reaction window)</th><td class="num">7–15 s</td><td>Breach 15, Known exploit 10, 0day 7 (15 on a main node), Worm 10 per host, Vault raid 10.</td></tr>
+      <tr><th>Effects</th><td class="num">30–60 s</td><td>Siphon 30, DDoS 45, Phishing 60, Sabotage 60; Filter and Cover 30, Express 45; Recon view 45.</td></tr>
+      <tr><th>Win hold</th><td class="num">51 s</td><td>Continuous.</td></tr>
+      <tr><th>Multiplayer turn</th><td class="num">0.1 s</td><td>3 steps per turn; commands run 2 turns (0.2 s) after they are sent.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="map">
+  <h2>Map and network</h2>
+  <div class="rules">
+    <div class="rule"><h4>Hosts and shapes</h4>
+      <p>About cols × rows × 0.85 hosts (at least 12). Galaxies: a <b>spiral</b> with one arm per network and each main node at an arm's tip, a wide <b>elliptical</b> disc denser in the middle, or a <b>ring</b> with an empty middle; each host is the best of 10 random spots, never closer than 0.85 cells to another. The <b>grid</b> places one host per cell with 15% of cells left empty.</p>
+      <p>Networks start at even angles round the centre (you top-left). Each start is a main node plus one second host.</p></div>
+    <div class="rule"><h4>Value and type</h4>
+      <p>Each host gets a value 1–3 from how far it is from every start (galaxy: the nearest third is 1, the middle 2, the farthest 3; grid: distance from the centre), with a 20% chance of ±1. Value picks the host type by the weights below, so the rich, well-defended hosts sit away from every start. A central <b>hub</b> (an ERP system) stands in the middle of every layout but the ring.</p></div>
+    <div class="rule"><h4>The hidden network</h4>
+      <p>Every two hosts within 1.55 cells (≈295 px) are linked; islands are joined to the main town by their shortest gap. Links are never drawn; a link you have sent anything over becomes a faint <b>road</b> on your map for the rest of the match. Rivals' roads are never shown.</p></div>
+    <div class="rule"><h4>Junctions</h4>
+      <p>The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are junctions: their links carry 16 packets per second per direction instead of 8. Supply lines cross them, which makes them the natural place for a Packet siphon or a DDoS.</p></div>
+  </div>
+  <div class="tablebox"><table>
+    <thead><tr><th>Host value</th>{{WEIGHT_HEAD}}</tr></thead>
+    <tbody>{{WEIGHTS}}</tbody>
+  </table></div>
+</section>
+
+<section id="hosts">
+  <h2>Host types</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Type</th><th>Slots</th><th>Security</th><th>Multipliers (output and input)</th><th>Who can capture it</th></tr></thead>
+    <tbody>{{HOSTTYPES}}</tbody>
+  </table></div>
+  <ul class="plain">
+    <li>An active main node is always security 3, whatever its type. Nothing else changes security.</li>
+    <li>A multiplier scales a building's input too: a Credential harvester on a web server turns 2 Intel into 2 Credentials per cycle; a Bot station on an ERP system makes 3 Bots.</li>
+    <li>When a host changes owner its buildings, storage, Firewall cards and effects are wiped, and its ownership generation counts up: operations aimed at the old owner become void.</li>
+  </ul>
+</section>
+
+<section id="fog">
+  <h2>Sight and fog</h2>
+  <ul class="plain">
+    <li>You see your own hosts and every host linked to one of them. Rival packets, effects and their busy streets show only there.</li>
+    <li>Every main node is visible as a landmark, but nothing around it.</li>
+    <li>Hosts you saw before stay on the map as dim outlines, without owner or contents; fogged hosts cannot be clicked.</li>
+    <li>Security and host type are public. What is inside a rival host (buildings, storage, Firewall cards) is shown only by a fresh Recon (45 s).</li>
+    <li>Territories: each held, visible host claims a round patch; one network's patches merge, and the ground between rivals is split halfway.</li>
+  </ul>
+</section>
+
+<section id="economy">
+  <h2>Resources and banks</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Resource</th><th>Comes from</th><th>Is spent on</th></tr></thead>
+    <tbody>
+      <tr><th class="r-bots">Bots</th><td>Bot stations (2 per cycle), the main node trickle</td><td>Carrying resources home (a bank courier is used up), carrying Vault-raid loot. No card or building costs Bots.</td></tr>
+      <tr><th class="r-intel">Intel</th><td>Intel harvesters (2 per cycle), the trickle</td><td>Every building, every card, every converter's input, Firewall upkeep, research.</td></tr>
+      <tr><th class="r-cash">Crypto</th><td>Crypto miners, the trickle</td><td>Some buildings, most cards, research, the Lab's input.</td></tr>
+      <tr><th class="r-creds">Credentials</th><td>Credential harvesters, the trickle</td><td>Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.</td></tr>
+      <tr><th class="r-research">Research</th><td>Research labs, the trickle</td><td>Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.</td></tr>
+    </tbody>
+  </table></div>
+  <pre class="code">bank cap(resource) = BASE_CAP[resource] + 50 × (your buildings whose output is that resource)
+BASE_CAP = {{BASECAP}}
+spendable   = what is in the bank at your main node (nothing else counts)
+income      = main-node trickle (1 of each per 5 s, while the main node is held and not under DDoS)
+            + building output that reaches the bank</pre>
+  <p>Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and couriers are not sent to a full bank (shipments on the road reserve their room).</p>
+</section>
+
+<section id="production">
+  <h2>Production cycle</h2>
+  <pre class="code">every 5 s, for each held host h (on its own phase):
+  beneficiary = the Phishing thief while h is phished, else its owner
+  storage     = the beneficiary's bank if h is their main node, else h's storage (10 units, all resources together)
+
+  1. Intel harvesters:  + 2 × m_intel × (active harvesters) Intel into storage, up to its room
+  2. Firewalls:         each eats 1 Intel from storage (the owner's first); paid in full → on, else off
+  3. Converters, in order Miner → Credential harvester → Lab, each active one:
+        frac = min(1, inputs available in storage / inputs needed × m)
+        take inputs × m × frac, add 1 × m × frac output
+        (Miner 1 Intel → 1 Crypto · Cred. harvester 1 Intel → 1 Credential · Lab 1 Intel + 1 Crypto → 1 Research)
+  4. Bot stations:      bots = Σ round(2 × m_bots)
+        at the beneficiary's main node: bots go straight into the bank
+        elsewhere, if h has a route home and is not under DDoS:
+            each Bot takes 1 whole unit from storage (shipping priority first, then in turn) and flies home,
+            or flies home empty if the bank has room for it; on arrival the Bot and its unit join the bank
+
+active = built, not under construction, not paused by you, not under DDoS, not sabotaged
+m      = the host type's multiplier for that resource</pre>
+  <div class="tablebox"><table>
+    <thead><tr><th>Layout (on a PC, ×1)</th><th>Made each cycle</th><th>Delivered each cycle</th><th>Net to the bank per minute</th></tr></thead>
+    <tbody>{{LAYOUTS}}</tbody>
+  </table></div>
+</section>
+
+<section id="logistics">
+  <h2>Logistics</h2>
+  <div class="rules">
+    <div class="rule"><h4>Who carries</h4>
+      <p>A host's Bot stations carry first, in the same cycle. Units left in storage wait for a <b>bank courier</b>: every step, each host with a whole unit of a resource sends one if your bank holds Bots above your <b>reserve</b> (0, 5, 10, 20 or 40; default 10), the bank has room for it and there is a route home. That Bot leaves the bank and is used up. Hosts are served in turn; your <b>shipping priority</b> resource gets 2 turns for every 1 of the others.</p></div>
+    <div class="rule"><h4>Routes</h4>
+      <p>Couriers and attack cards travel only through your own hosts and never through one under DDoS (shortest path by links). Stolen goods leave a rival host the way your operation came in. A host with no route home keeps its output in storage until it fills.</p></div>
+    <div class="rule"><h4>Speed and capacity</h4>
+      <pre class="code">travel = links × 1 s + hosts passed × 0.25 s   (× 0.5 with Express route)
+each link direction admits 8 packets per second (16 on a junction's links); extra packets wait</pre></div>
+    <div class="rule"><h4>Losses</h4>
+      <p>A courier whose route has lost a host it passed (captured, or under DDoS) by the time it arrives is lost with its cargo. Packet siphon turns couriers round; Courier cover protects them.</p></div>
+  </div>
+</section>
+
+<section id="buildings">
+  <h2>Buildings</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Building</th><th>Each cycle</th><th>Build price</th><th>Bank cap</th><th>Rules</th></tr></thead>
+    <tbody>{{BUILDINGS}}</tbody>
+  </table></div>
+  <ul class="plain">
+    <li>Drag a building card from the host panel onto a slot. The full price is paid when the job starts; the job takes 10 s. Replacing a building first demolishes it (5 s).</li>
+    <li>Click a producer to pause or resume it; a job can be paused or cancelled.</li>
+    <li>Every building of a resource's kind adds 50 to that resource's bank cap (the Firewall adds nothing).</li>
+  </ul>
+</section>
+
+<section id="research">
+  <h2>Research and manufacturing</h2>
+  <div class="rules">
+    <div class="rule"><h4>Research (RESEARCH tab)</h4>
+      <p>The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.</p></div>
+    <div class="rule"><h4>Manufacturing (ATTACK and DEFENCE tabs)</h4>
+      <p>These tabs hold only the recipes you know. Click a card to make a copy in one of three lanes: its whole price is paid when it starts, then it takes its make time. A lane can Repeat. Ready copies plus copies being made: at most 12. Copies never expire.</p></div>
+  </div>
+  <div class="tablebox"><table>
+    <thead><tr><th>Blueprint</th><th>Needs</th><th>Price and time</th><th>Early · mid wait</th></tr></thead>
+    <tbody>{{RESEARCH}}</tbody>
+  </table></div>
+</section>
+
+<section id="operations">
+  <h2>How cards resolve</h2>
+  <div class="rules">
+    <div class="rule"><h4>Playing an attack card</h4>
+      <ul><li>Target: a foreign host (neutral or a rival's).</li>
+      <li>Reachable: you hold a host linked to the target and a path of your hosts from your main node to it (or the target is linked to your main node).</li>
+      <li>Your main node must not be under DDoS.</li>
+      <li>One capture or raid per attacker per host at a time.</li></ul></div>
+    <div class="rule"><h4>Flight and arrival</h4>
+      <p>The card flies from your main node along that path. It always arrives (the route is checked again when it resolves), unless the target changed owner on the way: then it is void. Effects (Recon, Phishing, Siphon, DDoS, Sabotage) apply on arrival. <b>Intrusions</b> (captures, Worm stages, Vault raid) start an execution countdown that the owner sees on the host.</p></div>
+    <div class="rule"><h4>When an execution ends</h4>
+      <p>An armed Patch blocks it; a target that changed owner voids it; a capture with no route left fails. Otherwise a capture rolls its <b>chance</b>: a deterministic draw from the town seed and the intrusion, the same on every multiplayer screen. Success: the host is yours, wiped. Miss: the card is spent and nothing changes.</p></div>
+    <div class="rule"><h4>Defence cards</h4>
+      <p>Played on one of your own hosts; they act at once, wherever the host is, even cut off or under DDoS. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket instead, unless their attack is already there.</p></div>
+  </div>
+  <figure><pre class="mermaid">%%{init: {'theme':'neutral'}}%%
+stateDiagram-v2
+  [*] --> InFlight: card played
+  InFlight --> Void: target changed owner
+  InFlight --> Executing: arrives (a Patch loaded in a Firewall stops it here)
+  Executing --> Blocked: Patch by hand or armed
+  Executing --> Void: target changed owner
+  Executing --> Failed: no route left
+  Executing --> Roll: countdown ends
+  Roll --> Captured: draw below the chance
+  Roll --> Missed: draw at or above the chance
+  Captured --> [*]
+  Missed --> [*]</pre><figcaption>The life of a capture card.</figcaption></figure>
+</section>
+
+<section id="attack">
+  <h2>Attack cards <small>red tab</small></h2>
+  <p>“≈ early · mid” is the price in seconds of income on the resource that runs out first, for the two reference networks in <a href="#derived">Derived numbers</a>.</p>
+  <div class="sheets">{{ATTACK}}</div>
+</section>
+
+<section id="defence">
+  <h2>Defence cards <small>blue tab</small></h2>
+  <div class="sheets">{{DEFENCE}}</div>
+</section>
+
+<section id="firewall">
+  <h2>Firewall</h2>
+  <div class="rules">
+    <div class="rule"><h4>What it is for</h4>
+      <p>It adds no security. It holds defence cards that fire on their own when an enemy card hits the host, so a host is defended while you look elsewhere and faster than anyone can react by hand.</p></div>
+    <div class="rule"><h4>Loading</h4>
+      <p>Each finished Firewall gives its host 3 sockets (a host may hold several Firewalls). Playing Patch, Incident response, Traffic filter or Courier cover on a host with a free socket loads the card, unless the attack it answers is already there: then it acts at once. Express route cannot be loaded.</p></div>
+    <div class="rule"><h4>Power</h4>
+      <p>Each Firewall eats 1 Intel from its own host every cycle, before any converter. Without it the Firewall is off and its cards wait. Demolishing a Firewall loses the cards it held; capturing the host wipes them. A rival's Recon shows what is loaded.</p></div>
+  </div>
+  <div class="tablebox"><table>
+    <thead><tr><th>Loaded card</th><th>Fires when</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><th>Patch</th><td>a capture, Worm stage or Vault raid starts executing on the host</td><td>it is stopped before its countdown begins</td></tr>
+      <tr><th>Incident response</th><td>Phishing, Packet siphon or sabotage lands on the host</td><td>it ends at once; nothing is stolen or switched off</td></tr>
+      <tr><th>Traffic filter</th><td>a DDoS lands on the host</td><td>the DDoS never takes effect; immune to DDoS for 30 s</td></tr>
+      <tr><th>Courier cover</th><td>a siphon grabs one of this host's couriers</td><td>that courier is saved; the host's couriers are covered for 30 s</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="counters">
+  <h2>Counters</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Attack</th><th>By hand</th><th>Loaded in a Firewall</th><th>Other answers</th></tr></thead>
+    <tbody>
+      <tr><th>Breach · Known exploit · 0day</th><td>Patch during execution</td><td>Patch: stopped as it starts</td><td>cut the attacker's route; the odds</td></tr>
+      <tr><th>Worm</th><td>Patch on the host it is executing on</td><td>Patch on any chain host</td><td>the odds</td></tr>
+      <tr><th>Vault raid</th><td>Patch on the target</td><td>Patch on the target</td><td>keep storage empty (Bot stations, spare couriers)</td></tr>
+      <tr><th>Phishing</th><td>Incident response</td><td>Response: ends it on landing</td><td></td></tr>
+      <tr><th>Packet siphon</th><td>Response on the siphoned host; Cover on the sending hosts</td><td>Response or Cover</td><td>Express route; route around it</td></tr>
+      <tr><th>DDoS</th><td>Traffic filter, host by host</td><td>Filter: never lands</td><td></td></tr>
+      <tr><th>Sabotage</th><td>Incident response, host by host</td><td>Response per host</td><td></td></tr>
+      <tr><th>Recon</th><td>—</td><td>—</td><td>none; it is silent</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="winning">
+  <h2>Winning and elimination</h2>
+  <pre class="code">majority = ceil(0.51 × all hosts)
+a network that holds ≥ majority hosts for 51 s in a row wins (the timer resets the moment it drops below)
+a network with no hosts left is out; the last network with hosts wins
+losing your main node = elimination: your bank, cards, research and flights are cleared,
+                        every other host you held becomes neutral with empty slots,
+                        the captor keeps the old main node as an ordinary host</pre>
+</section>
+
+<section id="ai">
+  <h2>AI</h2>
+  <p>One AI for every rival, no difficulty setting. It plays by the same rules, prices, delivery and lanes, and thinks every 2.5 s in this order:</p>
+  <div class="rules">
+    <div class="rule"><h4>1 · Develop</h4>
+      <ul><li>Main node: Intel harvester, Bot station, then a converter chosen by need (it may be a Lab, fed from the bank), Lab, Credential harvester.</li>
+      <li>Other hosts: 1 slot → Bot station; else Bot station, Intel harvester, converter, converter, Intel harvester.</li>
+      <li>A Research host (Intel harvester, Miner, Lab) once it holds 3 hosts or needs Known exploit; on 4-slot hosts a Miner and Lab replace the converters.</li>
+      <li>One Firewall on a 4+-slot host once it holds 6 hosts.</li>
+      <li>Converter choice: what its next capture card lacks for two copies, else the emptiest bank. It builds the first planned slot it can pay for and saves for the rest.</li>
+      <li>Retool: when one of Intel, Crypto, Credentials is ≥ 40% full and another < 15%, it rebuilds one producer of the full kind as the short kind.</li></ul></div>
+    <div class="rule"><h4>2 · Research</h4>
+      <p>Known exploit at once; then Traffic filter, DDoS, 0day, Worm, Packet siphon, Courier cover, Sabotage, Vault raid, Express route, each only when its whole price is in the bank 1.5 times over.</p></div>
+    <div class="rule"><h4>3 · Manufacture</h4>
+      <p>The cheapest known capture card that cracks the softest reachable host (up to 3 held); a Patch (2 when one of its hosts is under attack); Response or Filter while a Firewall socket is free; one DDoS or Phishing when a target exists.</p></div>
+    <div class="rule"><h4>4 · Operate and defend</h4>
+      <p>Launches up to 3 captures at the softest, then nearest, reachable hosts; Phishing and DDoS on the reachable rival host with the most producers; Patch on an intrusion against its hosts; spare Response, Filter and Patch go into free sockets.</p></div>
+  </div>
+  <p class="note">Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm, Sabotage, Courier cover or Express route (it may research some). When it picks a Phishing or DDoS target it counts the producers on rival hosts without a Recon, so it sees more than a player would.</p>
+</section>
+
+<section id="multiplayer">
+  <h2>Multiplayer</h2>
+  <ul class="plain">
+    <li>2–3 players; lobbies public or by 5-letter code; sizes Small, Medium, Big; players meet only on the same game version.</li>
+    <li>Deterministic lockstep: the server never simulates. Every screen runs the same simulation from the same seed; only commands travel, grouped in turns of 3 steps (0.1 s) and run 2 turns after they are sent.</li>
+    <li>Commands: {{COMMANDS}}.</li>
+    <li>After every turn each screen fingerprints the whole simulation (time, flights, intrusions, every host's owner, buildings, jobs, storage, sockets, Firewall power, cycle phase and timed effects, every bank, courier count, reserve, incoming, cards, known recipes, research and lanes) so drift is caught.</li>
+    <li>No pause; a player whose main node falls is out and the others play on.</li>
+  </ul>
+</section>
+
+<section id="interface">
+  <h2>Interface and controls</h2>
+  <div class="rules">
+    <div class="rule"><h4>Screen</h4>
+      <ul><li><b>HUD</b> (top): the five banks with cap and incoming arrows.</li>
+      <li><b>Map</b>: hosts (with slot counts), territories, roads, packets, effects.</li>
+      <li><b>Sidebar</b>: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.</li>
+      <li><b>Deck</b> (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.</li>
+      <li><b>Menu</b> (Esc): Resume, New game, Multiplayer, Campaign, Help (six illustrated pages), Feedback, Exit.</li></ul></div>
+    <div class="rule"><h4>Controls</h4>
+      <ul><li>Click a host: select (yours) or inspect (foreign). Shift-drag: box-select.</li>
+      <li>Drag empty map: pan · wheel: zoom · middle-drag: pan · <b>0</b>: recentre.</li>
+      <li><b>C</b>: pull the deck up or down · <b>Space</b>: pause (single player) · <b>Esc</b>: menu or clear selection.</li>
+      <li>Drag a card onto a host to play it; drag a building card onto a slot to build.</li></ul></div>
+  </div>
+</section>
+
+<section id="step">
+  <h2>Simulation step</h2>
+  <pre class="code">every 1/30 s:
+  1  deliveries that are due land (cargo credited or lost, operations arrive: effects apply, intrusions start)
+  2  construction jobs advance and finish
+  3  research advances (paying as it goes)
+  4  manufacturing lanes advance; pending copies start if affordable
+  5  intrusions whose countdown ended resolve, earliest first (Patch, owner and route checks, then the roll)
+  6  production: main-node trickle; each host's 5-s cycle when its phase comes round
+  7  dispatch: bank couriers for what waits in storage
+  8  Packet siphons turn couriers leaving or passing their host
+  9  timed effects expire (an ended Phishing returns unsent stolen units)
+  10 AI decisions (each AI every 2.5 s)
+  11 main-node losses → eliminations; the majority-hold timers; last-network check</pre>
+</section>
+
+<section id="derived">
+  <h2>Derived numbers</h2>
+  <p>Reference networks used for every “seconds of income” figure on this page:</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>Network</th><th>Layout</th><th class="r-bots">Bots</th><th class="r-intel">Intel</th><th class="r-cash">Crypto</th><th class="r-creds">Creds</th><th class="r-research">Res.</th></tr></thead>
+    <tbody>
+      <tr><th>Early (≈ 2 min)</th><td>main node [Intel harvester, Bot station, Miner] + 1 PC [Bot station, Intel harvester, Miner]</td>{{EARLY}}</tr>
+      <tr><th>Mid (≈ 6 min)</th><td>the same main node + 2 PCs with a Cred. harvester, 2 with a Miner, 1 Lab host</td>{{MID}}</tr>
+    </tbody>
+  </table></div>
+  <p class="meta">per minute; the trickle is included</p>
+  <h3>Expected price of one captured host</h3>
+  <div class="tablebox"><table>
+    <thead><tr><th>Card</th><th>Price per copy</th><th>Chance</th><th>Copies per host</th><th>Expected price per host</th><th>Early · mid seconds per host</th></tr></thead>
+    <tbody>{{CAPTURE_EV}}</tbody>
+  </table></div>
+  <h3>Building payback</h3>
+  <div class="tablebox"><table>
+    <thead><tr><th>Building</th><th>Price</th><th>Adds per cycle</th><th>Pays back its price in</th></tr></thead>
+    <tbody>{{PAYBACK}}</tbody>
+  </table></div>
+  <h3>Theft and denial yields</h3>
+  <div class="tablebox"><table>
+    <thead><tr><th>Card</th><th>Typical result</th><th>Upper bound</th></tr></thead>
+    <tbody>
+      <tr><th>Phishing (60 s)</th><td>On a Bot station + Intel harvester + converter PC: 12 cycles × (1 Intel + 1 converted + 2 Bots) = 48 units to you, 48 lost to them</td><td>A 4-slot ×2 host: ~2× that</td></tr>
+      <tr><th>Packet siphon (30 s)</th><td>Every courier of the chosen resource crossing the host; on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 couriers</td></tr>
+      <tr><th>Vault raid</th><td>Whatever waits in 3 linked storages; near 0 where stations ship every cycle</td><td>30 units</td></tr>
+      <tr><th>DDoS (45 s)</th><td>3 hosts × 9 cycles × ~4 units ≈ 100 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>
+      <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 12 cycles × 2–4 units ≈ 70–140 units never made</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="prices">
+  <h2>Price table <small>make cost per copy</small></h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Card</th><th class="r-intel">Intel</th><th class="r-cash">Crypto</th><th class="r-creds">Creds</th><th class="r-research">Res.</th><th>Total</th><th>Make</th><th>Early</th><th>Mid</th></tr></thead>
+    <tbody>{{PRICES}}</tbody>
+  </table></div>
+</section>
+
+<section id="constants">
+  <h2>All constants</h2>
+  <p>Every constant in the game's config files (<code>scripts/botnet_cfg/*.gd</code>) plus the engine values, as JSON. The same file is in the project at <code>docs/rim_constants.json</code> (not committed: the repository keeps only game files).</p>
+  <div><button class="copy" type="button" id="copy-json">Copy JSON</button> <span class="meta" id="copy-state" aria-live="polite"></span></div>
+  <details><summary>Show the JSON ({{JSON_KB}} KB)</summary><pre id="json">{{JSON}}</pre></details>
+</section>
+
+<section id="unused">
+  <h2>Unused config</h2>
+  <p>Constants still defined in the config files that the current game never reads, left from earlier designs. Changing them has no effect.</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>File</th><th>Constants</th></tr></thead>
+    <tbody>{{UNUSED}}</tbody>
+  </table></div>
+  <p>Also: <code>NODE_TYPES[…].sec</code> in types.gd is not read (security comes from <code>SEC_BY_TYPE</code>, which rates a file server 2, not 3); <code>BUILD_TIME</code> and <code>DEMOLISH_TIME</code> exist in both tuning.gd and buildings.gd and only the buildings.gd values are used; there is one research slot whatever <code>RESEARCH_SLOTS</code> says.</p>
+</section>
+
+<section id="review">
+  <h2>For review</h2>
+  <p>Choices made in the last rounds that are worth a second look.</p>
+  <ol class="review">
+    <li><b>Firewall (confirmed):</b> it adds no security; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.</li>
+    <li><b>Cards cost no Bots:</b> Bots only carry resources. Their old Bot price moved to Intel; DDoS, which was priced in Bots, now costs 34 Intel and 14 Crypto.</li>
+    <li><b>Capture odds:</b> Breach and Known exploit 25%, 0day 50%; a miss spends the card. The draw is the same on every multiplayer screen. The guided campaign chapters always succeed so they teach the card, not the odds.</li>
+    <li><b>Expected price of a capture</b> is the card's price divided by its odds (see <a href="#derived">Derived numbers</a>). Expansion is several times slower than before the odds.</li>
+    <li><b>Vault raid on storage</b> only pays where output piles up. A network with Bot stations everywhere keeps little in storage.</li>
+    <li><b>Loading beats acting.</b> On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.</li>
+    <li><b>DDoS on a junction destroys cargo</b> already routed through it that arrives while it is down, not just new traffic.</li>
+    <li><b>An eliminated network's hosts go neutral</b> with empty slots; the captor keeps only the old main node.</li>
+    <li><b>Packet siphon dragged onto the map takes Crypto.</b> Picking another resource needs the host panel's Launch row.</li>
+    <li><b>Focus by card:</b> Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.</li>
+    <li><b>The AI</b> never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see <a href="#ai">AI</a>).</li>
+    <li><b>Leftover config:</b> 20 constants are no longer read (see <a href="#unused">Unused config</a>).</li>
+  </ol>
+</section>
+</div>
+<script>
+(function () {
+  var btn = document.getElementById("copy-json"), state = document.getElementById("copy-state"), pre = document.getElementById("json");
+  if (!btn || !pre) return;
+  btn.addEventListener("click", function () {
+    var text = pre.textContent;
+    var done = function () { state.textContent = "Copied"; };
+    var fallback = function () {
+      var d = pre.closest("details"); if (d) d.open = true;
+      var r = document.createRange(); r.selectNodeContents(pre);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      state.textContent = "Selected: press Ctrl+C or ⌘C";
+    };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  });
+})();
+</script>

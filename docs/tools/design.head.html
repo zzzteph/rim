@@ -1,0 +1,101 @@
+<title>RIM Rules Reference</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column of rule blocks and tables, like a tournament rules sheet; card entries are the game's
+   own card faces flattened into spec sheets, coloured by deck tab, with resources in their HUD colours. */
+:root {
+  --bg: #0c1017; --panel: #121925; --raise: #18212f; --line: #253244; --fg: #dbe4f1; --dim: #8b99ae;
+  --attack: #ff6a5f; --defence: #6aa2ff; --research: #c099ff;
+  --r-bots: #74f09b; --r-intel: #6ad6ff; --r-cash: #ffd75a; --r-creds: #ff9c78; --r-research: #c099ff;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #f3f5f9; --panel: #ffffff; --raise: #eef2f8; --line: #d3dbe7; --fg: #131a26; --dim: #586579;
+  --attack: #c43a31; --defence: #2f62c4; --research: #7448c8;
+  --r-bots: #1d8746; --r-intel: #0a789e; --r-cash: #8f6c00; --r-creds: #b34b25; --r-research: #7448c8;
+  color-scheme: light; } }
+:root[data-theme="light"] {
+  --bg: #f3f5f9; --panel: #ffffff; --raise: #eef2f8; --line: #d3dbe7; --fg: #131a26; --dim: #586579;
+  --attack: #c43a31; --defence: #2f62c4; --research: #7448c8;
+  --r-bots: #1d8746; --r-intel: #0a789e; --r-cash: #8f6c00; --r-creds: #b34b25; --r-research: #7448c8;
+  color-scheme: light; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: clamp(28px, 4vw, 40px); }
+h2 { font-size: 24px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h2 small { font: 500 13px var(--mono); color: var(--dim); letter-spacing: 0.04em; }
+h3 { font-size: 19px; }
+p { margin: 0; max-width: 72ch; }
+a { color: var(--research); }
+:focus-visible { outline: 2px solid var(--research); outline-offset: 2px; }
+.intro { display: grid; gap: 14px; }
+.meta { font: 13px var(--mono); color: var(--dim); }
+nav { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 600 12px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+nav a { text-decoration: none; color: var(--dim); border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+nav a:hover { color: var(--fg); }
+section { display: grid; gap: 16px; min-width: 0; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.rule { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.rule h4 { margin: 0; font: 600 12px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.rule ol, .rule ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+thead th { font: 600 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); background: var(--raise); white-space: nowrap; }
+tbody tr:last-child > * { border-bottom: 0; }
+tbody th { font-weight: 600; white-space: nowrap; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.num small { color: var(--dim); font-size: 11px; }
+.nowrap { white-space: nowrap; }
+.chip { display: inline-flex; align-items: baseline; gap: 4px; font: 13px var(--mono); font-variant-numeric: tabular-nums; margin-right: 10px; white-space: nowrap; }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; align-self: center; }
+.chip b { font-weight: 600; color: var(--fg); }
+.r-bots { color: var(--r-bots); } .r-intel { color: var(--r-intel); } .r-cash { color: var(--r-cash); }
+.r-creds { color: var(--r-creds); } .r-research { color: var(--r-research); }
+.chip.time { color: var(--dim); } .chip.time::before { border-radius: 50%; background: none; border: 1.5px solid currentColor; }
+.sheets { display: grid; gap: 12px; }
+.sheet { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--defence); border-radius: 6px; padding: 16px 18px; display: grid; gap: 10px; min-width: 0; }
+.sheet.attack { border-left-color: var(--attack); }
+.sheet header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; }
+.tag { font: 600 11px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; }
+.tag.attack { color: var(--attack); border-color: var(--attack); }
+.tag.defense { color: var(--defence); border-color: var(--defence); }
+.tag.sock { color: var(--research); border-color: var(--research); }
+.lead { font-weight: 500; }
+.price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 0; padding: 8px 10px; background: var(--raise); border-radius: 4px; }
+.price .label { font: 600 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin-right: 12px; }
+.price .wait { font: 12px var(--mono); color: var(--dim); margin-left: auto; padding-left: 8px; }
+dl { margin: 0; display: grid; grid-template-columns: minmax(96px, max-content) 1fr; gap: 6px 16px; }
+dt { font: 600 12px var(--mono); letter-spacing: 0.04em; color: var(--dim); text-transform: uppercase; padding-top: 2px; }
+dd { margin: 0; min-width: 0; }
+.cycle { display: flex; flex-wrap: wrap; gap: 8px; counter-reset: step; padding: 0; margin: 0; list-style: none; }
+.cycle li { counter-increment: step; background: var(--raise); border-radius: 4px; padding: 6px 10px; font-size: 14px; }
+.cycle li::before { content: counter(step) "  "; font: 600 12px var(--mono); color: var(--research); }
+.review { display: grid; gap: 10px; padding-left: 20px; margin: 0; }
+.review li { max-width: 80ch; }
+.review b { font-weight: 600; }
+@media (max-width: 560px) { dl { grid-template-columns: 1fr; gap: 2px 0; } dd { margin-bottom: 8px; } .price .wait { margin-left: 0; padding-left: 0; width: 100%; } }
+.toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 20px; }
+.toc div { display: grid; gap: 3px; align-content: start; }
+.toc b { font: 600 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--research); }
+.toc a { text-decoration: none; color: var(--fg); font-size: 14px; }
+.toc a:hover { color: var(--research); }
+pre.code { margin: 0; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; font: 13px/1.6 var(--mono); color: var(--fg); }
+figure { margin: 0; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+figcaption { font: 12px var(--mono); color: var(--dim); margin-top: 8px; }
+.note { border-left: 3px solid var(--research); padding: 6px 12px; color: var(--dim); max-width: 80ch; }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+details summary { cursor: pointer; font: 600 13px var(--mono); }
+details pre { max-height: 480px; overflow: auto; font: 12px/1.5 var(--mono); margin: 10px 0 0; }
+button.copy { font: 600 12px var(--mono); color: var(--fg); background: var(--raise); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer; }
+button.copy:hover { border-color: var(--research); }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 4px; max-width: 80ch; }
+</style>
+

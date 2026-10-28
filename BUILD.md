@@ -99,6 +99,20 @@ These checks cover scripted behavior and layout; human usability testing is stil
 > the old bot-army mechanics and were removed in the 0.4.0 research–manufacture–deliver
 > redesign; the economy, AI, campaign and lockstep suites above are their replacements.
 
+Design reference: **`docs/DESIGN.md`** describes the whole game as it runs (match flow, map, economy
+formulas, logistics, every card, defence, winning, the AI, multiplayer, the interface, derived numbers and
+leftover config); `docs/design.html` is the same document as a styled page, and `docs/rim_constants.json`
+holds every constant. All three are generated, so they never drift from the numbers in the game:
+
+```
+godot --headless --path . --script res://docs/tools/dump_constants.gd   # refresh rim_constants.json
+python3 docs/tools/build_design.py                                     # rebuild design.html and DESIGN.md (needs pandoc)
+```
+
+Prices and constants come from `scripts/botnet_cfg/`; the text describing behaviour lives in
+`docs/tools/design.body.html` and the card tables in `docs/tools/build_design.py`, and is kept true to the
+code by hand: change a rule, update its description there and rebuild.
+
 Economy (research–manufacture–deliver, 0.4.0). There are five resources (`RES` in
 tuning.gd): **Bots**, **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
 spendable once they reach your **main node** (your rig). The main node itself only trickles one of
