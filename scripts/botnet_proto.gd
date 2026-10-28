@@ -416,6 +416,8 @@ func _ready() -> void:
 	deck_pager.visible = false
 	add_child(deck_pager)
 	_refresh_hand()
+	event_strip = VBoxContainer.new(); event_strip.add_theme_constant_override("separation", 3)
+	event_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE; add_child(event_strip)
 	top_tabs = HBoxContainer.new()
 	top_tabs.add_theme_constant_override("separation", 6)
 	top_tabs.position = Vector2(sz.x - 296.0, 7.0)   # top-right of the dashboard
@@ -476,6 +478,7 @@ func _gen() -> void:
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; _roads = {}; flights = []; _execs = []; _res = {}; _flight_id = 0
 	bank = {}; incoming = {}; _delivered = {}; committed = {}; bot_reserve = {}; ship_pri = {}; ship_cursor = {}; known = {}; research_job = {}; lanes = {}; cards = {}; recon = {}
 	_ai = {}; _fx = []; _worms = []; _hold = {}; card_plays = {}
+	_ledger = {}; op_outcomes = []; intrusions_resolved = 0; events = []; _ev_next_poll = 0.0; _ev_dirty = true   # per-match records
 	for fac in botnets:
 		bank[fac] = {}
 		for res in RES: bank[fac][res] = float(START[res])
@@ -1491,7 +1494,10 @@ func _fire_socket(i: int, recipe: String, what: String) -> bool:   # a loaded ca
 	hosts[i].hit_t = _t
 	_fx.append({"host": i, "until": _t + 2.0, "col": fcol(owner)})
 	hosts[i].card_result = "Firewall fired %s" % str(CARDS[recipe].name)
-	if owner == PLAYER: _flash("Firewall on %s fired %s against %s" % [str(hosts[i].name), str(CARDS[recipe].name), what], 0)
+	if owner == PLAYER:
+		_flash("Firewall on %s fired %s against %s" % [str(hosts[i].name), str(CARDS[recipe].name), what], 0)
+		var left := (hosts[i].sockets as Array).size()
+		_event("fw:%d:%s" % [i, recipe], EV_INFO, "Firewall on %s fired %s against %s; %s left in it." % [str(hosts[i].name), str(CARDS[recipe].name), what, "no cards" if left == 0 else ("1 card" if left == 1 else "%d cards" % left)], i)
 	return true
 
 
@@ -1802,6 +1808,7 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (L
 	if not won and not lost and not _ai_paused: _ai_tick(dt)
 	_check_rigs()
 	if not won and not lost: _tick_domination(dt)
+	_tick_events()
 	for fac in ais:
 		if not bool(_ai[fac].dead) and _faction_nodes(fac) == 0: _ai[fac].dead = true
 	if _camp and (won or lost): _camp_tick()
@@ -1884,7 +1891,9 @@ func _deliver(f: Dictionary) -> void:
 			_delivered[fac] = int(_delivered.get(fac, 0)) + 1
 		else:
 			_ledger_add(fac, "lost", "cargo", res, 1.0)
-			if fac == PLAYER: _flash("A %s shipment was lost — its route broke" % RES_NAME[res], 1)
+			if fac == PLAYER:
+				_flash("A %s shipment was lost — its route broke" % RES_NAME[res], 1)
+				_event("lostcargo", EV_ACT, "Shipments lost on the way home: a route broke under them.", src)
 	else:   # newbot: no courier; it either becomes an available Bot or is lost
 		if arrived:
 			_add_bank(fac, "bots", 1.0, "delivered")
@@ -2274,6 +2283,7 @@ func _op_outcome(e: Dictionary, outcome: String, via := "") -> void:   # one int
 	intrusions_resolved += 1
 	op_outcomes.append({"t": _t, "fac": fac, "card": str(e.card), "target": t, "victim": victim, "outcome": outcome, "via": via, "stage": int(e.get("stage", 1))})
 	if op_outcomes.size() > OP_OUTCOME_KEEP: op_outcomes.pop_front()
+	_event_outcome(e, outcome, via, victim)
 	if outcome == "captured": return   # _capture says it
 	var card := str(CARDS[str(e.card)].name)
 	var how: String = OUTCOME_TEXT[outcome]
@@ -2281,6 +2291,257 @@ func _op_outcome(e: Dictionary, outcome: String, via := "") -> void:   # one int
 	hosts[t].card_result = "%s %s" % [card, how]
 	if fac == PLAYER: _flash("Your %s on %s %s" % [card, str(hosts[t].name), how], 1)
 	elif victim == PLAYER: _flash("%s's %s on %s %s" % [fname(fac), card, str(hosts[t].name), how], 0)
+
+
+# ---- event history (Milestone A, brief §17.4): one persistent, deduplicated queue of what happened to you ----
+# Presentation only: each screen keeps its own player's history and nothing in it feeds back into the rules (not
+# hashed). A lasting condition (an intrusion, an effect, a cut route, a rival holding the majority) is ONE entry that
+# updates while live and then ends; one-off news repeated within EV_MERGE_SECS counts up on one entry.
+const EV_CRIT := 0
+const EV_ACT := 1
+const EV_INFO := 2
+const EV_KEEP := 80
+const EV_MERGE_SECS := 10.0
+const EV_POLL := 0.5
+const EV_STRIP_ROWS := 4
+const EV_FRESH_SECS := 8.0   # news and ended conditions stay on the map strip this long; the history keeps them
+const EV_MARK := ["!", "›", "·"]
+var events := []          # newest first: {key, pri, text, done, host, t0, t, n, live}
+var _ev_next_poll := 0.0
+var _ev_dirty := false
+
+
+func _event(key: String, pri: int, text: String, host := -1, live := false, done := "") -> void:
+	for k in events.size():
+		var e: Dictionary = events[k]
+		if str(e.key) != key: continue
+		if bool(e.live) or _t - float(e.t) < EV_MERGE_SECS:
+			if not bool(e.live) and not live: e.n = int(e.n) + 1   # the same news again: count it, bring it to the top
+			if not bool(e.live) or not live: events.remove_at(k); events.push_front(e)
+			e.text = text; e.t = _t; e.pri = mini(int(e.pri), pri); e.live = live
+			if host >= 0: e.host = host
+			if done != "": e.done = done
+			_ev_dirty = true
+			return
+		break
+	events.push_front({"key": key, "pri": pri, "text": text, "done": done, "host": host, "t0": _t, "t": _t, "n": 1, "live": live})
+	if events.size() > EV_KEEP: events.pop_back()
+	_ev_dirty = true
+
+
+func _event_end(key: String, text := "", pri := -1) -> void:   # a live condition is over: it stays in the history, no longer active
+	for e in events:
+		if str(e.key) != key or not bool(e.live): continue
+		e.live = false; e.t = _t
+		e.text = text if text != "" else (str(e.done) if str(e.done) != "" else str(e.text))
+		if pri >= 0: e.pri = pri
+		_ev_dirty = true
+		return
+
+
+func _tick_events() -> void:   # every EV_POLL s of play: post, update and end the lasting conditions
+	if _t < _ev_next_poll or not rig.has(PLAYER): return
+	_ev_next_poll = _t + EV_POLL
+	var live := {}
+	var home := int(rig.get(PLAYER, -1))
+	for e in _execs:   # a rival intrusion running on one of your hosts
+		var t := int(e.target)
+		if int(e.fac) == PLAYER or int(hosts[t].owner) != PLAYER: continue
+		var key := "intr:%d:%d" % [int(e.id), int(e.get("stage", 1))]
+		live[key] = true
+		_event(key, EV_CRIT if t == home else EV_ACT, "%s's %s on %s: %d s left. A Patch on it stops it." % [fname(int(e.fac)), str(CARDS[str(e.card)].name), str(hosts[t].name), int(ceil(float(e.ends) - _t))], t, true)
+	var cut := []
+	for i in hosts.size():
+		if int(hosts[i].owner) != PLAYER: continue
+		var nm := str(hosts[i].name)
+		var timed := [["ddos", "DDoS", float(hosts[i].get("ddos_until", 0.0))], ["sabot", "Sabotage", float(hosts[i].get("sabot_until", 0.0)) if _sabotaged(i) else 0.0],
+			["phish", "Phishing", float(hosts[i].get("steal_until", 0.0)) if _phished(i) else 0.0], ["siphon", "Packet siphon", float((hosts[i].get("siphon", {}) as Dictionary).get("until", 0.0))]]
+		for fx in timed:
+			if float(fx[2]) <= _t: continue
+			var key := "fx:%s:%d" % [str(fx[0]), i]
+			live[key] = true
+			_event(key, EV_CRIT if i == home else EV_ACT, "%s on %s: %d s left." % [str(fx[1]), nm, int(ceil(float(fx[2]) - _t))], i, true, "%s on %s ended." % [str(fx[1]), nm])
+		if _sockets(i) > 0 and not bool(hosts[i].get("fw_on", true)):
+			live["fwoff:%d" % i] = true
+			_event("fwoff:%d" % i, EV_ACT, "Firewall OFF on %s: no Intel there to run it." % nm, i, true, "Firewall on %s runs again." % nm)
+		if i != home and (_store_total(i) >= 1.0 or _standing(i) > 0) and _attack_route_none(PLAYER, i): cut.append(i)
+	if not cut.is_empty():
+		live["cutoff"] = true
+		var names := _names(cut.slice(0, 3)) + (", …" if cut.size() > 3 else "")
+		_event("cutoff", EV_CRIT, "%d host%s cut off from your main node: %s." % [cut.size(), "" if cut.size() == 1 else "s", names], int(cut[0]), true, "Your hosts reach your main node again.")
+	var o := _objective()
+	if int(o.holder) >= 0 and int(o.holder) != PLAYER:
+		live["majority"] = true
+		_event("majority", EV_CRIT, "%s holds the majority: wins in %d s." % [fname(int(o.holder)), int(o.hold_left)], int(rig.get(int(o.holder), -1)), true, "%s lost the majority." % fname(int(o.holder)))
+	var waiting := 0
+	for i in hosts.size():
+		if int(hosts[i].owner) == PLAYER and i != home: waiting += int(floor(_store_total(i)))
+	if waiting > 0 and _avail(PLAYER, "bots") - float(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)) < 1.0:
+		live["couriers"] = true
+		_event("couriers", EV_ACT, "Couriers held: your Bots are at the reserve (%d); %d units wait in storage." % [int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)), waiting], home, true, "Couriers are moving again.")
+	var stall := _research_stall(PLAYER)
+	if stall != "":
+		live["research"] = true
+		_event("research", EV_ACT, stall, -1, true, "Research is moving again.")
+	for e in events:   # what was live and is not any more has ended: history, read as news
+		if bool(e.live) and not live.has(str(e.key)): _event_end(str(e.key), "", EV_INFO)
+	if _ev_dirty: _refresh_event_strip()
+
+
+func _research_stall(fac: int) -> String:   # "" while research advances; else what stops it (mirrors _tick_research)
+	var job: Dictionary = research_job.get(fac, {})
+	if job.is_empty() or bool(job.get("paused", false)): return ""
+	var recipe := str(job.key)
+	var frac := SIM_DT / maxf(0.001, _research_time(recipe))
+	var cost := _research_cost(recipe)
+	var short := []
+	for r in cost:
+		if _avail(fac, r) < float(cost[r]) * frac - 0.000001: short.append(str(RES_NAME[r]))
+	return "" if short.is_empty() else "Research of %s stopped: no %s in your bank." % [str(CARDS[recipe].name), " or ".join(short)]
+
+
+func _event_outcome(e: Dictionary, outcome: String, via: String, victim: int) -> void:   # from _op_outcome: your operations and attacks on you
+	var t := int(e.target); var fac := int(e.fac)
+	var card := str(CARDS[str(e.card)].name); var nm := str(hosts[t].name)
+	var key := "op:%d:%d" % [int(e.get("id", 0)), int(e.get("stage", 1))]
+	if fac == PLAYER:
+		match outcome:
+			"captured": _event(key, EV_INFO, "Captured %s with %s." % [nm, card], t)
+			"countered": _event(key, EV_ACT, "Your %s on %s was stopped by %s." % [card, nm, via if via != "" else "a Patch"], t)
+			"route_failed": _event(key, EV_ACT, "Your %s on %s failed: you lost the route to it." % [card, nm], t)
+			_: _event(key, EV_INFO, "Your %s on %s ended: the host changed owner first." % [card, nm], t)
+	elif victim == PLAYER:
+		var ikey := "intr:%d:%d" % [int(e.get("id", 0)), int(e.get("stage", 1))]
+		var text := ""; var pri := EV_INFO
+		match outcome:
+			"captured": text = "%s took %s with %s." % [fname(fac), nm, card]; pri = EV_CRIT if t == int(rig.get(PLAYER, -1)) else EV_ACT
+			"countered": text = "Your defence stopped %s's %s on %s (%s)." % [fname(fac), card, nm, via if via != "" else "a Patch"]
+			"route_failed": text = "%s's %s on %s failed: its route broke." % [fname(fac), card, nm]
+			_: text = "%s's %s on %s ended: the host changed owner." % [fname(fac), card, nm]
+		var was_live := false
+		for ev in events:
+			if str(ev.key) == ikey and bool(ev.live): was_live = true; break
+		if was_live: _event_end(ikey, text, pri)
+		else: _event(ikey, pri, text, t)   # stopped on the spot (a socketed Patch) or between polls
+
+
+# ---- the event strip (top-left of the map) and the Events view (H) ----
+var event_strip: VBoxContainer
+
+
+func _ev_strip_rows() -> Array:   # live critical/actionable conditions first, then fresh news; at most EV_STRIP_ROWS
+	var out := []
+	for e in events:
+		if bool(e.live) and int(e.pri) <= EV_ACT: out.append(e)
+	out.sort_custom(func(a, b): return int(a.pri) < int(b.pri) if int(a.pri) != int(b.pri) else float(a.t0) > float(b.t0))
+	for e in events:
+		if out.size() >= EV_STRIP_ROWS: break
+		if not out.has(e) and _t - float(e.t) <= EV_FRESH_SECS: out.append(e)
+	return out.slice(0, EV_STRIP_ROWS)
+
+
+func _ev_text(e: Dictionary) -> String:
+	return "%s %s%s" % [EV_MARK[int(e.pri)], str(e.text), (" ×%d" % int(e.n)) if int(e.n) > 1 else ""]
+
+
+func _ev_col(e: Dictionary) -> Color: return [C_BAD, C_WARN, C_TEXT][int(e.pri)]
+
+
+func _ev_style(b: Button, text: String, col: Color, width: float) -> void:   # one event row: its text, colour and width
+	b.text = text; b.custom_minimum_size = Vector2(width, 26)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var st := StyleBoxFlat.new(); st.bg_color = Color(0.03, 0.05, 0.08, 0.86 if state == "normal" else 0.96)
+		st.border_color = col if state != "normal" else Color(col, 0.35); st.set_border_width_all(1); st.set_corner_radius_all(3)
+		st.content_margin_left = 8; st.content_margin_right = 8
+		b.add_theme_stylebox_override(state, st)
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]: b.add_theme_color_override(key, col)
+
+
+func _ev_button(parent: Control, text: String, col: Color, cb: Callable, width: float, wrap := false) -> Button:   # wrap: the history; the strip trims
+	var b := Button.new(); b.focus_mode = Control.FOCUS_ALL
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	if wrap: b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	else:
+		b.clip_text = true; b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	b.add_theme_font_size_override("font_size", 14)
+	_ev_style(b, text, col, width)
+	b.pressed.connect(cb); parent.add_child(b)
+	return b
+
+
+func _refresh_event_strip() -> void:   # rows are updated in place, so a click is never lost to a rebuild
+	_ev_dirty = false
+	if event_strip == null: return
+	var area := _map_rect()
+	var w := minf(540.0, area.size.x - 16.0)
+	event_strip.visible = not menu_open and not won and not lost and not events.is_empty()
+	var rows := _ev_strip_rows()
+	var want := rows.size() + (1 if not events.is_empty() else 0)
+	while event_strip.get_child_count() > want:
+		var last := event_strip.get_child(event_strip.get_child_count() - 1)
+		event_strip.remove_child(last); last.queue_free()
+	while event_strip.get_child_count() < want:
+		var idx := event_strip.get_child_count()
+		_ev_button(event_strip, "", C_DIM, _on_strip_row.bind(idx), w)
+	var f := get_theme_default_font()
+	for k in rows.size():   # each row as wide as its text (up to w), so the strip hides as little of the map as it can
+		var b := event_strip.get_child(k) as Button
+		var txt := _ev_text(rows[k])
+		b.set_meta("key", str(rows[k].key)); _ev_style(b, txt, _ev_col(rows[k]), minf(w, _text_w(f, txt, 14) + 20.0)); b.tooltip_text = str(rows[k].text)
+	if want > rows.size():
+		var hb := event_strip.get_child(rows.size()) as Button
+		var htxt := "Event history (H) · %d" % events.size()
+		hb.set_meta("key", ""); _ev_style(hb, htxt, C_DIM, minf(w, _text_w(f, htxt, 14) + 20.0))
+	_place_event_strip()
+
+
+func _place_event_strip() -> void:   # bottom-left of the map, just above the message line, growing upward
+	if event_strip == null: return
+	var area := _map_rect()
+	event_strip.size = event_strip.get_combined_minimum_size()
+	var bottom := area.end.y - 6.0
+	if feedback_label != null and feedback_label.visible: bottom = minf(bottom, feedback_label.position.y - 6.0)
+	event_strip.position = Vector2(area.position.x + 8.0, bottom - event_strip.size.y)
+
+
+func _on_strip_row(idx: int) -> void:
+	if event_strip == null or idx >= event_strip.get_child_count(): return
+	var key := str(event_strip.get_child(idx).get_meta("key", ""))
+	if key == "": _toggle_events(); return
+	for e in events:
+		if str(e.key) == key: _focus_event(e); return
+
+
+func _focus_event(e: Dictionary) -> void:   # find the host it is about: pan to it and open its panel
+	var h := int(e.get("host", -1))
+	if not _host_ok(h) or not _visible_to(PLAYER, h):
+		_toggle_events(); return
+	var view := _map_rect()
+	_pan = view.get_center() - (hosts[h].pos as Vector2) * _zoom
+	if _mine(h): sel = {h: true}; _inspect = -1
+	else: sel = {}; _inspect = h
+	_tab = ""
+	_refresh_panel(); queue_redraw()
+
+
+func _toggle_events() -> void:   # the Events view in the sidebar (H or the strip's history button)
+	if menu_open or won or lost: return
+	if _tab == "events" and sel.is_empty() and _inspect < 0: _tab = ""
+	else: _tab = "events"; sel = {}; _inspect = -1
+	_refresh_panel(); queue_redraw()
+
+
+func _panel_events() -> void:
+	_plabel("Events", 20, C_TEXT)
+	_plabel("Newest first. ! needs you now · › worth acting on · · news. Click one to find its host.", 12, C_DIM)
+	if events.is_empty(): _plabel("Nothing has happened yet.", 14, C_DIM)
+	var w := _panel_width() - 64.0
+	for e in events:
+		var when := "%s  " % _fmt_time(float(e.t0))
+		var state := " (ongoing)" if bool(e.live) else ""
+		_ev_button(panel_box, when + _ev_text(e) + state, _ev_col(e), _focus_event.bind(e), w, true)
+	_plabel("H or Esc closes this view.", 11, C_DIM)
 
 
 func _start_exec(e: Dictionary, into = null) -> void:   # an intrusion begins: a Patch in the target's Firewall stops it on the spot
@@ -2479,7 +2740,9 @@ func _tick_research(dt: float) -> void:
 			if not known.has(fac): known[fac] = {}
 			known[fac][recipe] = true
 			research_job[fac] = {}
-			if fac == PLAYER: _flash("Blueprint learned: %s" % str(CARDS[recipe].name), 0)
+			if fac == PLAYER:
+				_flash("Blueprint learned: %s" % str(CARDS[recipe].name), 0)
+				_event("bp:" + recipe, EV_INFO, "Blueprint learned: %s. Make copies from its tab." % str(CARDS[recipe].name))
 
 
 # ---- manufacture (three independent lanes; manual, then Repeat) ----
@@ -2548,6 +2811,7 @@ func _tick_manufacture(dt: float) -> void:
 					cards[fac][str(job.recipe)] = _held(fac, str(job.recipe)) + 1
 					if fac == PLAYER:
 						_flash("Ready: %s" % str(CARDS[str(job.recipe)].name), 0)
+						_event("mf:" + str(job.recipe), EV_INFO, "Copy ready: %s (%d held)." % [str(CARDS[str(job.recipe)].name), _held(fac, str(job.recipe))])
 						_bank_alert[_bank_of(str(job.recipe))] = Time.get_ticks_msec() + 3000
 				job.paid = {}; job.progress = 0.0
 				if bool(job.repeat): job.pending = true
@@ -2830,6 +3094,7 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_0: _reset_view()
 	elif event.keycode == KEY_C: _set_deck_open(not _deck_open); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_E: _toggle_economy(); get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_H: _toggle_events(); get_viewport().set_input_as_handled()
 
 
 func _can_drop_data(pos: Vector2, data: Variant) -> bool:   # a hand card held over the map
@@ -3503,6 +3768,7 @@ func _open_menu(open: bool) -> void:   # the menu pauses the game while it's up
 	if hud != null: hud.visible = not open                 # only the menu + its drifting backdrop while it's up
 	_layout_deck()                                        # the deck hides under the menu and returns as it was
 	if top_tabs != null: top_tabs.visible = not open
+	if event_strip != null: event_strip.visible = not open and not events.is_empty()
 	if open and panel != null: panel.visible = false
 	if tut_panel != null: tut_panel.visible = _tut and not open   # the tutorial prompt hides under the menu
 	if open: _menu_view = "main"; _refresh_menu()
@@ -4859,7 +5125,7 @@ func _start_new_game() -> void:
 # Panel is organised around the two verbs: CONNECT (selection panel) and LAUNCH (a building's own panel
 # carries its ⚔ ATTACK button). States: RESULT · INSIDE (micro) · SELECTING · NODE (launch pad) · IDLE.
 func _panel_has_context() -> bool:
-	return won or lost or not sel.is_empty() or _inspect >= 0 or _tab == "economy"
+	return won or lost or not sel.is_empty() or _inspect >= 0 or _tab in ["economy", "events"]
 
 
 func _panel_shown() -> bool:
@@ -4874,6 +5140,7 @@ func _refresh_panel() -> void:
 	var shown := _panel_shown()
 	panel.visible = shown and not menu_open
 	var context := "%s|%s|%d|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost)]
+	if _tab == "events": context += "|" + ",".join(PackedStringArray(events.map(func(e): return str(e.key))))   # a new order rebuilds the rows, so each still opens its own event
 	var changed := context != _panel_context
 	var keep := 0 if changed else _scroll_pos()
 	var previous := panel_box
@@ -4886,6 +5153,7 @@ func _refresh_panel() -> void:
 		elif not sel.is_empty(): _panel_selecting()
 		elif _inspect >= 0: _panel_inspect()
 		elif _tab == "economy": _panel_economy()
+		elif _tab == "events": _panel_events()
 		else: _panel_board()
 
 	# Reconcile text and state into existing controls. Pointer hover never
@@ -4994,14 +5262,17 @@ func _layout_feedback_label() -> void:
 	var height := feedback_label.get_combined_minimum_size().y
 	feedback_label.size.y = height
 	feedback_label.position = Vector2(24, _deck_top() - height - 10)
+	_place_event_strip()
 
 
 func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips (the map's slow-layer cadence)
 	if objective_label == null: return
 	_update_card_banks(tick)
 	objective_label.visible = false
+	var was_shown := feedback_label.visible
 	feedback_label.visible = not menu_open and _msg_t > 0
 	feedback_label.text = _msg
+	if was_shown != feedback_label.visible: _place_event_strip()   # the strip sits just above the message line
 	if _dragging and _drag_from >= 0:
 		feedback_label.visible = true
 		var old := int(hosts[_drag_from].assign)
@@ -5743,7 +6014,7 @@ func _panel_idle() -> void:
 	_plabel("③  Build producers; couriers bring their output home.", 13)
 	_gap(4.0)
 	_plabel("Drag empty map to pan · wheel to zoom · 0 recenters", 11, C_DIM)
-	_plabel("Esc menu · Space pause · C cards · E economy", 11, C_DIM)
+	_plabel("Esc menu · Space pause · C cards · E economy · H events", 11, C_DIM)
 
 
 func _panel_board() -> void:

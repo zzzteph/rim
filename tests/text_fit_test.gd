@@ -258,6 +258,15 @@ func panel_controls(res: Vector2i) -> void:
 	for k in 300: game._sim_step(game.SIM_DT)   # ten seconds of play, so the overview has flows to show
 	game._tab = "economy"; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "economy overview @%s" % res)
+	game._event("fit:long", game.EV_CRIT, "NYX's Credential breach on Neighborhood Relay: 14 s left. A Patch on it stops it.", int(game.rig[P]), true)
+	game._event("fit:news", game.EV_INFO, "Firewall on Neighborhood Relay fired Patch against Credential breach; 2 cards left in it.", int(game.rig[P]))
+	game._tab = "events"; game._refresh_panel(); await settle()
+	controls_inside(game.panel_box, visible_area(game.panel_scroll), "event history @%s" % res)
+	game._refresh_event_strip(); await settle()
+	var strip_clip: Rect2 = game._map_rect()
+	for b in game.event_strip.get_children():
+		var r: Rect2 = (b as Control).get_global_rect()
+		check(strip_clip.encloses(r), "event strip row '%s' stays inside the map @%s" % [(b as Button).text.substr(0, 30), res])
 	game._tab = ""; game._refresh_panel(); await settle()
 
 

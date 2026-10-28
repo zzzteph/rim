@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 6623adc
+RIM 0.5.0-a · commit 4ad2b11
 
 ## Contents
 
@@ -680,6 +680,7 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
 - **Sidebar**: standings when idle; your host's panel when selected, in this order: role and status (e.g. RESEARCH HOST · starved), each problem with its cause and a fix, the next cycle as it will really run (and, when that falls short, the output at full capacity), delivery (route home with hops, travel and queueing, who carries, storage, what reached the bank from this host recently), then installations, Firewall sockets and the build palette; on the main node also logistics: reserve and shipping priority. A foreign host's panel shows its security, Recon view and the Launch row.
 - **Target preview**: on a foreign host's panel (the verdict beside Launch) and beside the cursor while a card is dragged over a host: can it launch and why not; security and eligibility; route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
+- **Events**: a strip at the bottom-left of the map shows up to four entries, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, couriers held at the reserve, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
 - **Menu** (Esc): Resume, Learn (the guided campaign; recommended until finished or skipped), Skirmish, Multiplayer, Help (six illustrated pages), Feedback, Exit. Nothing is locked behind the campaign.
@@ -688,7 +689,7 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 
 - Click a host: select (yours) or inspect (foreign). Shift-drag: box-select.
 - Drag empty map: pan · wheel: zoom · middle-drag: pan · **0**: recentre.
-- **C**: pull the deck up or down · **E**: Economy overview · **Space**: pause (single player) · **Esc**: menu or clear selection.
+- **C**: pull the deck up or down · **E**: Economy overview · **H**: event history · **Space**: pause (single player) · **Esc**: menu or clear selection.
 - Drag a card onto a host to play it; drag a building card onto a slot to build.
 
 ## Simulation step

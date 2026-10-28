@@ -89,6 +89,7 @@ godot --headless --path . --script tests/objective_test.gd   # the majority obje
 godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
 godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
 godot --headless --path . --script tests/preview_test.gd     # target preview: legality, route/arrival, execution, fog-safe areas, dated Recon
+godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -167,6 +168,18 @@ can see (`_preview_nearest`, `_preview_chain` — never hosts out of sight), the
 public defences (an armed Patch, a Filter) and the last Recon snapshot with its age (`_known_defences`; loaded
 sockets are never read live). The foreign host's panel shows it with the verdict beside Launch; while a card is
 dragged over a host the same preview follows the cursor (`_paint_drag_preview`). The card is used only on launch.
+
+Event history (Milestone A). `events` is one persistent queue for this screen's player, newest first, in three
+priorities (`EV_CRIT` needs you now, `EV_ACT` worth acting on, `EV_INFO` news). `_tick_events` polls every 0.5 s
+for lasting conditions — a rival intrusion on your host (critical on the main node), DDoS / Sabotage / Phishing /
+Siphon on your hosts, a Firewall without Intel, hosts cut off from the main node, a rival holding the majority,
+couriers held at the Bots reserve, research that cannot pay — and keeps ONE entry per condition that updates while
+live and then ends (it stays in the history as news). One-off news comes from hooks: `_op_outcome` via
+`_event_outcome` (your operations' results and attacks on you, ending their intrusion entry), `_fire_socket`,
+blueprints learned, copies made, lost cargo; the same news within 10 s counts up on one entry. The map strip
+(bottom-left, above the message line) shows up to four rows, critical first; a click finds the host and opens its
+panel; `H` or the strip's last row opens the Events view. The history keeps 80 entries, is cleared with the match
+(`_gen`, with the economic ledger and `op_outcomes`), and is not part of the lockstep fingerprint.
 
 Cards are **researched once, then manufactured**. A blueprint is learned in the single
 research slot (`_do_research`/`_tick_research`, cost + time in `cards.gd` `RESEARCH`); five
