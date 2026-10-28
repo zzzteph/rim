@@ -786,7 +786,7 @@ func _recon_fresh(fac: int, t: int) -> bool:   # a Recon snapshot within its 30 
 
 func _mark_scanned(fac: int, t: int) -> void:   # record a Recon snapshot (also used by scripts/campaign)
 	if not recon.has(fac): recon[fac] = {}
-	recon[fac][t] = {"at": _t, "builds": (hosts[t].builds as Array).duplicate(), "store": _store_total(t)}
+	recon[fac][t] = {"at": _t, "builds": (hosts[t].builds as Array).duplicate(), "store": _store_total(t), "sockets": (hosts[t].sockets as Array).duplicate()}
 
 
 # ---- producers ----
@@ -5089,7 +5089,12 @@ func _panel_inspect() -> void:
 	if fx != "": _plabel(fx, 13, C_WARN)
 	if _recon_fresh(PLAYER, i):
 		var rec: Dictionary = (recon.get(PLAYER, {}) as Dictionary).get(i, {})
-		_plabel("Recon %ds ago" % int(_t - float(rec.get("at", _t))), 12, C_DIM)
+		_plabel("Recon %ds ago · storage %s/%d" % [int(_t - float(rec.get("at", _t))), _amt(float(rec.get("store", 0.0))), int(STORE_CAP)], 12, C_DIM)
+		var socks: Array = rec.get("sockets", [])
+		if (rec.get("builds", []) as Array).has("wall"):
+			var names := []
+			for r in socks: names.append(str(CARDS[str(r)].short))
+			_plabel("Firewall holds: %s" % (", ".join(names) if not names.is_empty() else "nothing"), 12, C_WARN if not names.is_empty() else C_DIM)
 	_panel_enemy_slots(i)
 	_panel_node_in(i)
 

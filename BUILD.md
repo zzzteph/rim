@@ -245,8 +245,8 @@ Support (DEFENCE) cards apply locally and instantly to one of your hosts.
 The ten ATTACK/information recipes: **Recon**, **Credential breach**, **Known exploit**,
 **Phishing**, **Packet siphon**, **Vault raid**, **DDoS**, **0day**, **Worm** and **Supply-chain
 sabotage**; the five DEFENCE/support recipes: **Patch**, **Incident response**, **Traffic filter**,
-**Courier cover** and **Express route**. Their numbers live in `cards.gd`; what each one is for,
-when to play it, what counters it and what it costs in income is in `docs/CARDS.md`. A main node whose routing is cut can
+**Courier cover** and **Express route**. Their numbers live in `cards.gd`; each card's face and
+hover tooltip say what it does (`lead`, `rules`). A main node whose routing is cut can
 still play support on itself but cannot send attacks. Card art lives in
 `assets/cards/schematic/`: every recipe has its own picture (`FAMILY_ART`, by `fam`); five of them
 (vault, worm, siphon, cover, express) are drawn by `assets/cards/schematic/make_art.py` in the style of

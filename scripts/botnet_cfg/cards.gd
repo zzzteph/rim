@@ -27,7 +27,7 @@ const CARDS := {
 		"lead": "Capture one host up to security 2.", "rules": "Travels, then executes for 10 s. Breach is cheaper against a security-1 host."},
 	"phish":     {"name": "Phishing", "short": "Phish", "fam": "phish", "bank": "attack", "effect": "phish", "known": true, "dur": 60.0,
 		"make": {"bots": 8, "intel": 12, "cash": 6, "creds": 8, "research": 4}, "make_time": 12.0,
-		"lead": "Divert new output for 60 s.", "rules": "Everything a rival host makes goes to you, its Bot stations' couriers too. They keep the host and still feed it. Incident response ends it."},
+		"lead": "Divert new output for 60 s.", "rules": "Everything a rival host makes goes to you, its Bot stations' couriers too. They keep the host but get nothing from it. Incident response ends it."},
 	"siphon":    {"name": "Packet siphon", "short": "Siphon", "fam": "siphon", "bank": "attack", "effect": "siphon", "known": false, "dur": 30.0, "cargo": 30,
 		"make": {"bots": 10, "intel": 12, "cash": 6, "creds": 6, "research": 5}, "make_time": 12.0,
 		"lead": "Divert up to 30 couriers in 30 s.", "rules": "Pick a resource. Its couriers leaving or passing this host come to you instead. Best on a junction their supply line must cross. Courier cover protects cargo."},
