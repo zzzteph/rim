@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 4ad2b11
+RIM 0.5.0-a · commit c8fc61a
 
 ## Contents
 
@@ -98,7 +98,7 @@ The match ends when one network holds the majority for 51 s or is the last with 
 | Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.           |
 | End game  | 10 min +     | 0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                    |
 
-Measured sample: four AIs on a Medium spiral (41 hosts) grow from 8 held hosts to about 20 in 6 minutes, resolving ~50 capture attempts.
+Measured sample (0.5.0-a, deterministic capture): four AIs on a Medium spiral (41 hosts), seeds 1–5, 6 minutes each. Held hosts grow from 8 to 16–28 (mean 24); 30–57 intrusions resolve per match, 195 in all: 47% captured, 50% stopped by a Patch, 3% ended by a change of owner or a lost route. No match ends inside 6 minutes; the largest network then holds 5–11 of the 21 hosts needed. The share of intrusions a Patch stops is the number to watch for the Patch-stalemate question (brief §13).
 
 ## Time model
 
@@ -797,12 +797,14 @@ Choices made in the last rounds that are worth a second look.
 1.  **Firewall (confirmed):** it adds no security; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.
 2.  **Cards cost no Bots:** Bots only carry resources. Their old Bot price moved to Intel; DDoS, which was priced in Bots, now costs 34 Intel and 14 Crypto.
 3.  **Deterministic capture (Milestone A):** no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.
-4.  **Vault raid on storage** only pays where output piles up. A network with Bot stations everywhere keeps little in storage.
-5.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
-6.  **DDoS on a junction destroys cargo** already routed through it that arrives while it is down, not just new traffic.
-7.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
-8.  **Packet siphon dragged onto the map takes Crypto.** Picking another resource needs the host panel's Launch row.
-9.  **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
-10. **The AI** never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see [AI](#ai)).
-11. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).
+4.  **Patch stops half of all intrusions** in the measured AI sample (98 of 195). With capture now certain when nothing stops it, watch whether Patch loops stall borders before trying the Patch cooldown candidate (brief §13, still off).
+5.  **Milestone A visibility features** (HUD rates and the Economy view, host status and route home, target preview, event history) are checked by tests for correctness and layout only. Whether first-time players understand them is what `docs/PLAYTEST.md` is for; it has not been run yet.
+6.  **Vault raid on storage** only pays where output piles up. A network with Bot stations everywhere keeps little in storage.
+7.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
+8.  **DDoS on a junction destroys cargo** already routed through it that arrives while it is down, not just new traffic.
+9.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
+10. **Packet siphon dragged onto the map takes Crypto.** Picking another resource needs the host panel's Launch row.
+11. **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
+12. **The AI** never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see [AI](#ai)).
+13. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).
 

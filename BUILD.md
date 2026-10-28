@@ -100,7 +100,8 @@ godot --headless --path . --script tests/botnet_help_test.gd # Help navigation +
 Use the console executable above on Windows. Each check exits nonzero on failure.
 To capture the Help suite's rendered previews, omit `--headless` and append
 `-- --capture`; images are written to `review/visual_help/`.
-These checks cover scripted behavior and layout; human usability testing is still pending.
+These checks cover scripted behavior and layout; human usability testing is still pending. The Milestone A
+tasks for 5–8 first-time players, with how to run and record them, are in **`docs/PLAYTEST.md`**.
 
 > The pre-redesign suites (assault, takeover, production-cost, usability, …) tested
 > the old bot-army mechanics and were removed in the 0.4.0 research–manufacture–deliver
