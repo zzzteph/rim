@@ -89,7 +89,7 @@ const CAPTIONS := {
 	"produce": "Converters use only their own host's Intel (the bank at the main node). A host's storage holds 10; full storage stops it.",
 	"build": "A paused lane leaves the others running. Each producing copy reserves one of 12 ready slots.",
 	"attack": "Stolen resources help only when they reach your main node. A Firewall holds 3 defence cards that fire on their own.",
-	"goal": "Lose your main node and you are eliminated. Watch the objective bar for the exact host count.",
+	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",
 }
 const LEAD_FS := 14
 const LEAD_PITCH := 24.0   # 14 px lines 24 px apart: 7 px clear between them, 14 px above the illustration

@@ -85,6 +85,7 @@ godot --headless --path . --script tests/economy_test.gd     # cycles, storage, 
 godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet siphon, Vault raid: the loot reaches home
 godot --headless --path . --script tests/capture_test.gd     # deterministic capture: outcomes, timing, same-step order, Worm stages
 godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn, Skirmish and Multiplayer open at once; skip is guidance
+godot --headless --path . --script tests/objective_test.gd   # the majority objective: one source, HUD lines, hold countdown and reset
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/campaign_test.gd    # plays the 5-chapter guided campaign end to end
@@ -164,7 +165,9 @@ illustrated pages with examples; the tutorial colours its keywords like the thin
 (ATTACK red, DEFENCE blue, your pieces green).
 
 Winning: hold at least 51% of ALL hosts (rounded up) for 51 continuous seconds
-(`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig.
+(`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig. `_objective()` is the one
+source for these numbers: the HUD (always visible, after the five banks), the standings and the win
+check read it.
 
 Fog of war (one rule for every botnet): a faction's real sight is
 its own hosts and every host one street away from them (`_in_sight`/`_sight_set`); on top of

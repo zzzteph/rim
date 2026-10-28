@@ -1586,10 +1586,6 @@ func _clear_effects(i: int) -> void:
 func _bank_crypto(fac: int) -> float: return _avail(fac, "cash")   # the result screen's "Crypto you" line
 
 
-func _control_need() -> int:
-	return maxi(0, _hold_need(hosts.size()) - 1)
-
-
 func _hold_need(total: int) -> int:
 	return int(ceil(HOLD_FRACTION * float(total) - 0.000001))
 
@@ -1609,12 +1605,37 @@ func _control_leader() -> int:
 	return best
 
 
+func _objective() -> Dictionary:   # the win, in one place: the HUD, standings, Help, AI and the result all read this
+	var need := _hold_need(hosts.size())
+	var counts := {}; var leader := -1; var lead_n := -1; var holder := -1
+	for fac in botnets:
+		var n := _faction_nodes(fac)
+		counts[fac] = n
+		if n > lead_n: lead_n = n; leader = fac   # botnets are in faction order, so a tie goes to the lower number
+		if not _eliminated.has(fac) and n >= need and float(_hold.get(fac, 0.0)) > 0.0: holder = fac
+	return {"need": need, "total": hosts.size(), "secs": HOLD_SECS, "counts": counts, "leader": leader, "leader_n": lead_n,
+		"holder": holder, "hold_left": maxf(0.0, HOLD_SECS - float(_hold.get(holder, 0.0))) if holder >= 0 else HOLD_SECS}
+
+
+func _objective_lines() -> Array:   # [first line, second line, colour of the second] for the HUD
+	var o := _objective()
+	var mine := int((o.counts as Dictionary).get(PLAYER, 0))
+	var first := "MAJORITY %d / %d · you %d" % [int(o.need), int(o.total), mine]
+	var holder := int(o.holder)
+	var left := int(ceil(float(o.hold_left) - 0.001))
+	if holder == PLAYER: return [first, "You hold it: win in %d s" % left, C_GOOD]
+	if holder >= 0: return [first, "%s holds it: wins in %d s" % [fname(holder), left], C_BAD]
+	var leader := int(o.leader)
+	if leader == PLAYER: return [first, "You lead; %d more to hold" % maxi(0, int(o.need) - mine), C_DIM]
+	return [first, "Leader: %s with %d" % [fname(leader), int(o.leader_n)], C_DIM]
+
+
 func _tick_domination(dt: float) -> void:
-	var need := _control_need()
+	var need := _hold_need(hosts.size())   # the same threshold _objective() reports
 	var alive := []
 	for fac in botnets:
 		if _faction_nodes(fac) > 0: alive.append(fac)
-		if _faction_nodes(fac) > need: _hold[fac] = float(_hold[fac]) + dt
+		if _faction_nodes(fac) >= need: _hold[fac] = float(_hold[fac]) + dt
 		else: _hold[fac] = 0.0
 	for fac in botnets:
 		if float(_hold[fac]) >= HOLD_SECS:
@@ -5188,7 +5209,8 @@ func _panel_idle() -> void:
 
 func _panel_board() -> void:
 	_plabel("Standings", 18, C_TEXT)
-	_plabel("Hold %d / %d to win" % [_control_need() + 1, hosts.size()], 12, C_DIM)
+	var obj := _objective()
+	_plabel("Hold %d of %d hosts for %d s to win" % [int(obj.need), int(obj.total), int(obj.secs)], 12, C_DIM)
 	var standings := []
 	for fac in botnets: standings.append([fac, _faction_nodes(fac)])
 	standings.sort_custom(func(a, b): return int(a[1]) > int(b[1]) if int(a[1]) != int(b[1]) else int(a[0]) < int(b[0]))
@@ -5199,7 +5221,7 @@ func _panel_board() -> void:
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var status := "Out" if _eliminated.has(fac) else "%d · %d%%" % [count, _control_pct(fac)]
 		var hold := float(_hold.get(fac, 0.0))
-		if hold > 0: status = "Holding %.0f / %.0fs" % [hold, HOLD_SECS]
+		if hold > 0: status = "Holding: %d s left" % int(ceil(maxf(0.0, HOLD_SECS - hold) - 0.001))
 		var count_label := Label.new(); count_label.text = status
 		count_label.add_theme_font_size_override("font_size", 11)
 		count_label.add_theme_color_override("font_color", C_WARN if hold > 0 else C_DIM)
@@ -6218,6 +6240,12 @@ class HudBar extends Control:   # the one-line HUD with resource icons
 			var fs: int = game._hud_fs(f, str(it[1]), float(it[3]) - (tx - x))
 			game._text(self, f, Vector2(tx, 36.0), str(it[1]), fs, it[2])
 			x += float(it[3])   # a fixed column: the next item never moves when this number grows
+		var obj: Array = game._objective_lines()   # the win, always on screen: needed / total, your count, who holds it
+		var room := size.x - x - 8.0
+		if room > 120.0:
+			draw_line(Vector2(x, 8.0), Vector2(x, size.y - 8.0), Color(game.C_DIM, 0.35), 1.0)
+			game._text(self, f, Vector2(x + 12.0, 22.0), str(obj[0]), 12, game.C_WARN, room - 12.0, HORIZONTAL_ALIGNMENT_LEFT)
+			game._text(self, f, Vector2(x + 12.0, 40.0), str(obj[1]), 12, obj[2], room - 12.0, HORIZONTAL_ALIGNMENT_LEFT)
 
 
 

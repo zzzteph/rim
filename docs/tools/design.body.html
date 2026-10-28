@@ -302,6 +302,7 @@ stateDiagram-v2
   <pre class="code">majority = ceil(0.51 × all hosts)
 a network that holds ≥ majority hosts for 51 s in a row wins (the timer resets the moment it drops below)
 a network with no hosts left is out; the last network with hosts wins
+the HUD, standings, Help and the result all read one function (_objective) for these numbers
 losing your main node = elimination: your bank, cards, research and flights are cleared,
                         every other host you held becomes neutral with empty slots,
                         the captor keeps the old main node as an ordinary host</pre>
@@ -343,7 +344,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <h2>Interface and controls</h2>
   <div class="rules">
     <div class="rule"><h4>Screen</h4>
-      <ul><li><b>HUD</b> (top): the five banks with cap and incoming arrows.</li>
+      <ul><li><b>HUD</b> (top): the five banks with cap and incoming arrows; to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.</li>
       <li><b>Map</b>: hosts (with slot counts), territories, roads, packets, effects.</li>
       <li><b>Sidebar</b>: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.</li>
       <li><b>Deck</b> (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.</li>

@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 71e5a81
+RIM 0.5.0-a · commit 3f12656
 
 ## Contents
 
@@ -596,6 +596,7 @@ Each Firewall eats 1 Intel from its own host every cycle, before any converter. 
 majority = ceil(0.51 × all hosts)
 a network that holds ≥ majority hosts for 51 s in a row wins (the timer resets the moment it drops below)
 a network with no hosts left is out; the last network with hosts wins
+the HUD, standings, Help and the result all read one function (_objective) for these numbers
 losing your main node = elimination: your bank, cards, research and flights are cleared,
                         every other host you held becomes neutral with empty slots,
                         the captor keeps the old main node as an ordinary host
@@ -640,7 +641,7 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 
 #### Screen
 
-- **HUD** (top): the five banks with cap and incoming arrows.
+- **HUD** (top): the five banks with cap and incoming arrows; to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
 - **Sidebar**: standings when idle; your host's panel when selected (slots, the 5-s cycle in words, storage, Firewall sockets, build palette; on the main node also logistics: reserve and shipping priority); a foreign host's panel with its security, Recon view and the Launch row.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
