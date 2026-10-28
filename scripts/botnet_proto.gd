@@ -2122,11 +2122,9 @@ func _do_research(fac: int, recipe: String) -> void:
 	if fac == PLAYER: _refresh_panel()
 
 
-func _cancel_research(fac: int) -> void:
+func _cancel_research(fac: int) -> void:   # research is paid as it progresses: cancelling stops the payments, nothing comes back
 	var job: Dictionary = research_job.get(fac, {})
 	if job.is_empty(): return
-	var frac := clampf(float(job.progress) / maxf(0.001, _research_time(str(job.key))), 0.0, 1.0)
-	for r in _research_cost(str(job.key)): _add_bank(fac, r, float(_research_cost(str(job.key))[r]) * (1.0 - frac))
 	research_job[fac] = {}
 	if fac == PLAYER: _refresh_panel()
 
