@@ -1,0 +1,943 @@
+{
+  "buildings": {
+    "BUILD_TIME": 10.0,
+    "DEMOLISH_TIME": 5.0,
+    "BUILD_KINDS": {
+      "intel": {
+        "name": "Intel harvester",
+        "card": "Intel harv.",
+        "short": "I",
+        "col": "#66d9ff",
+        "out": "intel",
+        "rate": 2.0,
+        "use": {},
+        "cost": {
+          "intel": 12.0
+        },
+        "cap": 50.0,
+        "desc": "Makes 2 Intel every 5 s. The Miner, Credential harvester and Lab on this host use it first."
+      },
+      "bot": {
+        "name": "Bot station",
+        "card": "Bot station",
+        "short": "B",
+        "col": "#73f299",
+        "out": "bots",
+        "rate": 2.0,
+        "use": {},
+        "cost": {
+          "intel": 12.0,
+          "cash": 4.0
+        },
+        "cap": 50.0,
+        "desc": "Every 5 s sends 2 new Bots home, each carrying 1 unit from this host. They join your Bots."
+      },
+      "cash": {
+        "name": "Crypto miner",
+        "card": "Miner",
+        "short": "C",
+        "col": "#ffd94d",
+        "out": "cash",
+        "rate": 1.0,
+        "use": {
+          "intel": 1.0
+        },
+        "cost": {
+          "intel": 15.0
+        },
+        "cap": 50.0,
+        "desc": "Every 5 s turns 1 Intel on this host into 1 Crypto."
+      },
+      "cred": {
+        "name": "Credential harvester",
+        "card": "Cred. harv.",
+        "short": "K",
+        "col": "#ff9973",
+        "out": "creds",
+        "rate": 1.0,
+        "use": {
+          "intel": 1.0
+        },
+        "cost": {
+          "intel": 15.0,
+          "cash": 4.0
+        },
+        "cap": 50.0,
+        "desc": "Every 5 s turns 1 Intel on this host into 1 Credential."
+      },
+      "lab": {
+        "name": "Research lab",
+        "card": "Research lab",
+        "short": "R",
+        "col": "#bf8cff",
+        "out": "research",
+        "rate": 1.0,
+        "use": {
+          "intel": 1.0,
+          "cash": 1.0
+        },
+        "cost": {
+          "intel": 20.0,
+          "cash": 8.0
+        },
+        "cap": 50.0,
+        "desc": "Every 5 s turns 1 Intel and 1 Crypto on this host into 1 Research."
+      },
+      "wall": {
+        "name": "Firewall",
+        "card": "Firewall",
+        "short": "F",
+        "col": "#e68080",
+        "out": "",
+        "rate": 0.0,
+        "use": {
+          "intel": 1.0
+        },
+        "cost": {
+          "intel": 25.0,
+          "cash": 15.0
+        },
+        "cap": 0.0,
+        "desc": "3 sockets for defence cards, which fire on their own when this host is hit. Uses 1 Intel every 5 s."
+      }
+    },
+    "PRODUCER_KINDS": [
+      "intel",
+      "bot",
+      "cash",
+      "cred",
+      "lab"
+    ],
+    "CONVERT_ORDER": [
+      "cash",
+      "cred",
+      "lab"
+    ],
+    "BUILD_COSTS": {
+      "intel": {
+        "intel": 12.0
+      },
+      "bot": {
+        "intel": 12.0,
+        "cash": 4.0
+      },
+      "cash": {
+        "intel": 15.0
+      },
+      "cred": {
+        "intel": 15.0,
+        "cash": 4.0
+      },
+      "lab": {
+        "intel": 20.0,
+        "cash": 8.0
+      },
+      "wall": {
+        "intel": 25.0,
+        "cash": 15.0
+      }
+    },
+    "BUILD_COST_INTEL": 20.0
+  },
+  "cards": {
+    "CARDS": {
+      "recon": {
+        "name": "Recon",
+        "short": "Recon",
+        "fam": "recon",
+        "bank": "attack",
+        "effect": "recon",
+        "known": true,
+        "dur": 45.0,
+        "make": {
+          "bots": 0,
+          "intel": 8,
+          "cash": 0,
+          "creds": 0,
+          "research": 0
+        },
+        "make_time": 3.0,
+        "lead": "Reveal a host's contents for 45 s.",
+        "rules": "Shows its installations, storage and Firewall cards. The snapshot goes stale after 45 s. Not an alarm, and not needed to capture."
+      },
+      "breach": {
+        "name": "Credential breach",
+        "short": "Breach",
+        "fam": "breach",
+        "bank": "attack",
+        "effect": "capture",
+        "known": true,
+        "sec_max": 1,
+        "exec": 15.0,
+        "chance": 0.25,
+        "make": {
+          "bots": 0,
+          "intel": 10,
+          "cash": 0,
+          "creds": 10,
+          "research": 0
+        },
+        "make_time": 10.0,
+        "lead": "Capture security 1, 25% chance.",
+        "rules": "Travels from your main node, then executes for 15 s. Then it takes the host one time in four; a miss spends the card. A Patch, a lost route or a new owner stops it."
+      },
+      "exploit": {
+        "name": "Known exploit",
+        "short": "Exploit",
+        "fam": "exploit",
+        "bank": "attack",
+        "effect": "capture",
+        "known": false,
+        "sec_max": 2,
+        "exec": 10.0,
+        "chance": 0.25,
+        "make": {
+          "bots": 0,
+          "intel": 12,
+          "cash": 0,
+          "creds": 0,
+          "research": 12
+        },
+        "make_time": 14.0,
+        "lead": "Capture up to security 2, 25% chance.",
+        "rules": "Travels, then executes for 10 s. Then it takes the host one time in four; a miss spends the card. Breach is cheaper against a security-1 host."
+      },
+      "phish": {
+        "name": "Phishing",
+        "short": "Phish",
+        "fam": "phish",
+        "bank": "attack",
+        "effect": "phish",
+        "known": true,
+        "dur": 60.0,
+        "make": {
+          "bots": 0,
+          "intel": 18,
+          "cash": 6,
+          "creds": 8,
+          "research": 4
+        },
+        "make_time": 12.0,
+        "lead": "Divert new output for 60 s.",
+        "rules": "Everything a rival host makes goes to you, its Bot stations' couriers too. They keep the host but get nothing from it. Incident response ends it."
+      },
+      "siphon": {
+        "name": "Packet siphon",
+        "short": "Siphon",
+        "fam": "siphon",
+        "bank": "attack",
+        "effect": "siphon",
+        "known": false,
+        "dur": 30.0,
+        "cargo": 30,
+        "make": {
+          "bots": 0,
+          "intel": 20,
+          "cash": 6,
+          "creds": 6,
+          "research": 5
+        },
+        "make_time": 12.0,
+        "lead": "Hijack couriers crossing a host.",
+        "rules": "Pick a resource. For 30 s, their couriers carrying it that leave or pass this host bring it to you instead, up to 30. Best on a host their deliveries cross. Courier cover protects cargo."
+      },
+      "vault": {
+        "name": "Vault raid",
+        "short": "Vault",
+        "fam": "vault",
+        "bank": "attack",
+        "effect": "vault",
+        "known": false,
+        "exec": 10.0,
+        "cargo": 30,
+        "reach": 3,
+        "make": {
+          "bots": 0,
+          "intel": 24,
+          "cash": 0,
+          "creds": 10,
+          "research": 8
+        },
+        "make_time": 16.0,
+        "lead": "Empty the storage of 3 linked hosts.",
+        "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Each unit rides home on one of your Bots. A Patch stops it."
+      },
+      "ddos": {
+        "name": "DDoS",
+        "short": "DDoS",
+        "fam": "dos",
+        "bank": "attack",
+        "effect": "ddos",
+        "known": false,
+        "dur": 45.0,
+        "reach": 3,
+        "make": {
+          "bots": 0,
+          "intel": 34,
+          "cash": 14,
+          "creds": 0,
+          "research": 5
+        },
+        "make_time": 14.0,
+        "lead": "Halt 3 hosts' output for 45 s.",
+        "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing couriers; incoming cargo still arrives. Traffic filter clears it."
+      },
+      "zeroday": {
+        "name": "0day",
+        "short": "0day",
+        "fam": "zeroday",
+        "bank": "attack",
+        "effect": "capture",
+        "known": false,
+        "sec_max": 3,
+        "exec": 7.0,
+        "exec_rig": 15.0,
+        "chance": 0.5,
+        "make": {
+          "bots": 0,
+          "intel": 16,
+          "cash": 12,
+          "creds": 12,
+          "research": 16
+        },
+        "make_time": 26.0,
+        "lead": "Capture up to security 3, 50% chance.",
+        "rules": "Travels, then executes for 7 s, or 15 s on a rival main node with a countdown they see. Then it takes the host one time in two. A Patch or a lost route stops it."
+      },
+      "worm": {
+        "name": "Worm",
+        "short": "Worm",
+        "fam": "worm",
+        "bank": "attack",
+        "effect": "worm",
+        "known": false,
+        "sec_max": 2,
+        "exec": 10.0,
+        "chance": 0.25,
+        "reach": 3,
+        "make": {
+          "bots": 0,
+          "intel": 24,
+          "cash": 0,
+          "creds": 0,
+          "research": 24
+        },
+        "make_time": 22.0,
+        "lead": "Known exploit on 3 linked hosts.",
+        "rules": "Tries up to 3 linked hosts of one owner, security 2 or less. Each gets 10 s and a 25% roll; a miss does not stop it. Only the first needs a route. A Patch stops the chain."
+      },
+      "sabotage": {
+        "name": "Supply-chain sabotage",
+        "short": "Sabotage",
+        "fam": "supply",
+        "bank": "attack",
+        "effect": "sabotage",
+        "known": false,
+        "dur": 60.0,
+        "reach": 3,
+        "make": {
+          "bots": 0,
+          "intel": 36,
+          "cash": 12,
+          "creds": 8,
+          "research": 14
+        },
+        "make_time": 22.0,
+        "lead": "Shut producers on 3 hosts for 60 s.",
+        "rules": "Hits the target and up to 2 adjacent hosts of its owner. Routing and dispatch keep working. Incident response clears it."
+      },
+      "patch": {
+        "name": "Patch",
+        "short": "Patch",
+        "fam": "patch",
+        "bank": "defense",
+        "effect": "patch",
+        "known": true,
+        "dur": 30.0,
+        "make": {
+          "bots": 0,
+          "intel": 12,
+          "cash": 4,
+          "creds": 0,
+          "research": 3
+        },
+        "make_time": 8.0,
+        "lead": "Stop a capture or a raid.",
+        "rules": "Cancels a capture, Worm or Vault raid running here, or guards 30 s against the next. In a Firewall socket it waits, however long, and stops the next one as it starts."
+      },
+      "response": {
+        "name": "Incident response",
+        "short": "Response",
+        "fam": "response",
+        "bank": "defense",
+        "effect": "response",
+        "known": true,
+        "make": {
+          "bots": 0,
+          "intel": 12,
+          "cash": 3,
+          "creds": 3,
+          "research": 2
+        },
+        "make_time": 6.0,
+        "lead": "Clear theft and sabotage here.",
+        "rules": "Removes Phishing, Packet siphon and sabotage here; unsent stolen output comes back. In a Firewall socket it fires the moment one lands. It does not clear DDoS."
+      },
+      "filter": {
+        "name": "Traffic filter",
+        "short": "Filter",
+        "fam": "filter",
+        "bank": "defense",
+        "effect": "filter",
+        "known": false,
+        "dur": 30.0,
+        "make": {
+          "bots": 0,
+          "intel": 14,
+          "cash": 4,
+          "creds": 0,
+          "research": 2
+        },
+        "make_time": 8.0,
+        "lead": "Clear DDoS and block it for 30 s.",
+        "rules": "In a Firewall socket it waits and blocks the next DDoS as it lands. It does not boost production or stop capture."
+      },
+      "cover": {
+        "name": "Courier cover",
+        "short": "Cover",
+        "fam": "cover",
+        "bank": "defense",
+        "effect": "cover",
+        "known": false,
+        "dur": 30.0,
+        "make": {
+          "bots": 0,
+          "intel": 12,
+          "cash": 4,
+          "creds": 0,
+          "research": 2
+        },
+        "make_time": 8.0,
+        "lead": "Shield this host's cargo for 30 s.",
+        "rules": "Its couriers are safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs one, and saves that courier."
+      },
+      "express": {
+        "name": "Express route",
+        "short": "Express",
+        "fam": "express",
+        "bank": "defense",
+        "effect": "express",
+        "known": false,
+        "dur": 45.0,
+        "make": {
+          "bots": 0,
+          "intel": 14,
+          "cash": 4,
+          "creds": 0,
+          "research": 2
+        },
+        "make_time": 10.0,
+        "lead": "Halve delivery time for 45 s.",
+        "rules": "Shipments and new Bots from this host cross each link twice as fast. It cannot go in a Firewall socket: play it when you need the speed."
+      }
+    },
+    "RESEARCH": {
+      "exploit": {
+        "prereq": "breach",
+        "intel": 24,
+        "cash": 4,
+        "research": 20,
+        "time": 40.0
+      },
+      "zeroday": {
+        "prereq": "exploit",
+        "intel": 48,
+        "cash": 12,
+        "research": 50,
+        "time": 70.0
+      },
+      "worm": {
+        "prereq": "exploit",
+        "intel": 36,
+        "cash": 8,
+        "research": 36,
+        "time": 55.0
+      },
+      "ddos": {
+        "prereq": "recon",
+        "intel": 24,
+        "cash": 4,
+        "research": 18,
+        "time": 35.0
+      },
+      "sabotage": {
+        "prereq": "ddos",
+        "intel": 40,
+        "cash": 12,
+        "research": 44,
+        "time": 60.0
+      },
+      "siphon": {
+        "prereq": "phish",
+        "intel": 24,
+        "cash": 4,
+        "research": 20,
+        "time": 40.0
+      },
+      "vault": {
+        "prereq": "siphon",
+        "intel": 36,
+        "cash": 8,
+        "research": 40,
+        "time": 55.0
+      },
+      "filter": {
+        "prereq": "patch",
+        "intel": 18,
+        "cash": 4,
+        "research": 14,
+        "time": 30.0
+      },
+      "cover": {
+        "prereq": "patch",
+        "intel": 18,
+        "cash": 4,
+        "research": 14,
+        "time": 30.0
+      },
+      "express": {
+        "prereq": "recon",
+        "intel": 24,
+        "cash": 4,
+        "research": 20,
+        "time": 35.0
+      }
+    },
+    "ATTACK_ORDER": [
+      "recon",
+      "breach",
+      "exploit",
+      "phish",
+      "siphon",
+      "vault",
+      "ddos",
+      "zeroday",
+      "worm",
+      "sabotage"
+    ],
+    "DEFENSE_ORDER": [
+      "patch",
+      "response",
+      "filter",
+      "cover",
+      "express"
+    ],
+    "CARD_ORDER": [
+      "recon",
+      "breach",
+      "exploit",
+      "phish",
+      "siphon",
+      "vault",
+      "ddos",
+      "zeroday",
+      "worm",
+      "sabotage",
+      "patch",
+      "response",
+      "filter",
+      "cover",
+      "express"
+    ],
+    "KNOWN_START": [
+      "recon",
+      "breach",
+      "phish",
+      "patch",
+      "response"
+    ],
+    "MANUFACTURE_LANES": 3,
+    "READY_SLOTS": 12,
+    "BANK_NAME": {
+      "attack": "ATTACK",
+      "defense": "DEFENCE",
+      "research": "RESEARCH"
+    },
+    "BANK_COL": {
+      "attack": "#ff5c54",
+      "defense": "#5c99ff",
+      "research": "#bf8cff"
+    },
+    "FAMILY_NAME": {
+      "recon": "recon",
+      "breach": "credential breach",
+      "exploit": "known exploits",
+      "phish": "phishing",
+      "siphon": "packet siphon",
+      "vault": "vault raids",
+      "dos": "denial of service",
+      "zeroday": "0day exploits",
+      "worm": "worms",
+      "supply": "supply-chain sabotage",
+      "patch": "patches",
+      "response": "incident response",
+      "filter": "traffic filters",
+      "cover": "courier cover",
+      "express": "express routes"
+    },
+    "FAMILY_ART": {
+      "recon": null,
+      "breach": null,
+      "exploit": null,
+      "phish": null,
+      "siphon": null,
+      "vault": null,
+      "dos": null,
+      "zeroday": null,
+      "worm": null,
+      "supply": null,
+      "patch": null,
+      "response": null,
+      "filter": null,
+      "cover": null,
+      "express": null
+    },
+    "FAMILY_COL": {
+      "recon": "#80d9ff",
+      "breach": "#f7b029",
+      "exploit": "#b8f738",
+      "phish": "#4de6ff",
+      "siphon": "#40d6a8",
+      "vault": "#ffd14f",
+      "dos": "#ad8cff",
+      "zeroday": "#ff7333",
+      "worm": "#7dde61",
+      "supply": "#ff61bf",
+      "patch": "#59f2d9",
+      "response": "#8c9eff",
+      "filter": "#4dbfff",
+      "cover": "#ffb85c",
+      "express": "#e87de8"
+    },
+    "CARD_ALARM": 8.0
+  },
+  "factions": {
+    "NEUTRAL": 0,
+    "PLAYER": 1,
+    "RIVAL": 2,
+    "RIVAL2": 3,
+    "RIVAL3": 4,
+    "FACTIONS": {
+      "0": {
+        "name": "city security",
+        "col": "#597399"
+      },
+      "1": {
+        "name": "yours",
+        "col": "#40d973"
+      },
+      "2": {
+        "name": "NYX",
+        "col": "#d94d54"
+      },
+      "3": {
+        "name": "KRAKEN",
+        "col": "#b366f2"
+      },
+      "4": {
+        "name": "VIPER",
+        "col": "#f2a633"
+      }
+    },
+    "BOTNETS": [
+      1,
+      2,
+      3
+    ],
+    "AIS": [
+      2,
+      3
+    ],
+    "AI_PROFILE": {
+      "2": {
+        "aggr": 0.8,
+        "cadence": 3.0
+      },
+      "3": {
+        "aggr": 0.45,
+        "cadence": 3.5
+      },
+      "4": {
+        "aggr": 0.6,
+        "cadence": 3.2
+      }
+    },
+    "AI_MAX_STREAMS": 4,
+    "AI_RESERVE": 6.0,
+    "AI_PATIENCE": 30.0,
+    "AI_SPEED": 1.0,
+    "AI_CASH_MULT": 1.0,
+    "AI_ASSAULT_PCT": 75,
+    "AI_CRYPTO_WAIT": 90.0,
+    "AI_REACT": 1.5,
+    "AI_PRIOR_BOTNET": 0.6,
+    "AI_SCOUT_INTEL": 20.0,
+    "AI_CHOKE_LEAD": 2.0,
+    "AI_EDGE_MEMORY": 60.0,
+    "AI_SIEGE_MAX": 120.0
+  },
+  "town": {
+    "GRID_COLS": 6,
+    "GRID_ROWS": 6,
+    "EMPTY_CELL": 0.15,
+    "LINK_REACH": 1.55,
+    "LINK_INTEL": 0.02,
+    "SHAPES": [
+      "spiral",
+      "elliptical",
+      "ring",
+      "grid"
+    ],
+    "GALAXIES": [
+      "spiral",
+      "elliptical",
+      "ring"
+    ],
+    "STAR_SPACING": 0.85,
+    "STAR_AREA": 1.15,
+    "STAR_CANDIDATES": 10,
+    "SPIRAL_TWIST": 0.9,
+    "SPIRAL_ARM": 1.0,
+    "ELLIPSE_X": 1.3,
+    "ELLIPSE_Y": 0.8,
+    "RING_HOLE": 0.55,
+    "TOWN_WORDS": [
+      "Block",
+      "Yard",
+      "Row",
+      "Plaza",
+      "Depot",
+      "Tower",
+      "Mill",
+      "Court",
+      "Lane",
+      "Pier",
+      "Works",
+      "Arcade"
+    ],
+    "JUNCTIONS": 2,
+    "JUNCTION_CAP_MULT": 2
+  },
+  "tuning": {
+    "RES": [
+      "bots",
+      "intel",
+      "cash",
+      "creds",
+      "research"
+    ],
+    "RES_NAME": {
+      "bots": "Bots",
+      "intel": "Intel",
+      "cash": "Crypto",
+      "creds": "Credentials",
+      "research": "Research"
+    },
+    "START": {
+      "bots": 20.0,
+      "intel": 40.0,
+      "cash": 20.0,
+      "creds": 15.0,
+      "research": 10.0
+    },
+    "BASE_CAP": {
+      "bots": 200.0,
+      "intel": 150.0,
+      "cash": 300.0,
+      "creds": 150.0,
+      "research": 150.0
+    },
+    "CAP_PER_PRODUCER": 50.0,
+    "PROD_CYCLE": 5.0,
+    "STORE_CAP": 10.0,
+    "MAIN_INCOME": 0.2,
+    "BOT_RESERVE_CHOICES": [
+      0,
+      5,
+      10,
+      20,
+      40
+    ],
+    "BOT_RESERVE_DEFAULT": 10,
+    "SHIP_PRIORITY_TURNS": 2,
+    "LINK_TIME": 1.0,
+    "NODE_ROUTE_DELAY": 0.25,
+    "LINK_CAP": 8,
+    "MAX_QUEUE": 1.0,
+    "EXPRESS_MULT": 0.5,
+    "SEC_BY_TYPE": {
+      "iot": 1,
+      "pc": 1,
+      "server": 2,
+      "web": 2,
+      "file": 2,
+      "db": 3,
+      "erp": 3
+    },
+    "SEC_MAIN": 3,
+    "SEC_MAX": 3,
+    "FIREWALL_SOCKETS": 3,
+    "BUILD_TIME": 10.0,
+    "DEMOLISH_TIME": 5.0,
+    "RESEARCH_SLOTS": 1,
+    "HOLD_FRACTION": 0.51,
+    "HOLD_SECS": 51.0,
+    "AI_CADENCE": 2.5
+  },
+  "types": {
+    "NODE_TYPES": {
+      "pc": {
+        "name": "PC",
+        "short": "PC",
+        "slots": 3,
+        "bot": 1.0,
+        "intel": 1.0,
+        "cash": 1.0,
+        "cred": 1.0,
+        "research": 1.0,
+        "sec": 0,
+        "desc": "an office workstation — 3 slots"
+      },
+      "iot": {
+        "name": "IoT device",
+        "short": "IoT",
+        "slots": 1,
+        "bot": 1.0,
+        "intel": 1.0,
+        "cash": 1.0,
+        "cred": 0.5,
+        "research": 0.5,
+        "sec": -3,
+        "desc": "a camera or a router — 1 slot, soft, poor harvests"
+      },
+      "server": {
+        "name": "Server",
+        "short": "Srv",
+        "slots": 3,
+        "bot": 1.0,
+        "intel": 1.5,
+        "cash": 1.0,
+        "cred": 1.0,
+        "research": 1.5,
+        "sec": 2,
+        "desc": "a rack server — 3 slots, Intel ×1.5, Research ×1.5"
+      },
+      "web": {
+        "name": "Web server",
+        "short": "Web",
+        "slots": 3,
+        "bot": 1.0,
+        "intel": 1.5,
+        "cash": 1.0,
+        "cred": 2.0,
+        "research": 1.0,
+        "sec": 2,
+        "desc": "a public web host — 3 slots, Intel ×1.5, Credentials ×2"
+      },
+      "db": {
+        "name": "Database",
+        "short": "DB",
+        "slots": 4,
+        "bot": 1.0,
+        "intel": 2.0,
+        "cash": 1.0,
+        "cred": 1.5,
+        "research": 1.5,
+        "sec": 3,
+        "desc": "a database cluster — 4 slots, Intel ×2, Credentials & Research ×1.5"
+      },
+      "file": {
+        "name": "File server",
+        "short": "Files",
+        "slots": 4,
+        "bot": 1.0,
+        "intel": 2.0,
+        "cash": 1.0,
+        "cred": 1.0,
+        "research": 2.0,
+        "sec": 3,
+        "desc": "a file server — 4 slots, Intel ×2, Research ×2"
+      },
+      "erp": {
+        "name": "ERP system",
+        "short": "ERP",
+        "slots": 5,
+        "bot": 1.5,
+        "intel": 1.5,
+        "cash": 1.5,
+        "cred": 1.5,
+        "research": 1.5,
+        "sec": 6,
+        "desc": "an enterprise core — 5 slots, everything ×1.5"
+      }
+    },
+    "TYPE_WEIGHTS": {
+      "1": {
+        "iot": 0.35,
+        "pc": 0.4,
+        "web": 0.1,
+        "server": 0.1,
+        "file": 0.05
+      },
+      "2": {
+        "pc": 0.3,
+        "server": 0.2,
+        "web": 0.2,
+        "db": 0.15,
+        "file": 0.15
+      },
+      "3": {
+        "db": 0.25,
+        "file": 0.2,
+        "server": 0.2,
+        "web": 0.15,
+        "erp": 0.2
+      }
+    }
+  },
+  "engine": {
+    "SIM_DT": 0.0333333333333333,
+    "SIZE_PRESETS": [
+      [
+        6,
+        4
+      ],
+      [
+        8,
+        6
+      ],
+      [
+        10,
+        8
+      ]
+    ],
+    "GAME_VERSION": "0.4.0",
+    "MAP_CELL": 190.0,
+    "SOCKET_TRIGGER": {
+      "patch": "a capture, Worm or Vault raid starts here",
+      "response": "Phishing, Packet siphon or sabotage lands here",
+      "filter": "a DDoS lands here",
+      "cover": "a Packet siphon grabs a courier from here"
+    },
+    "CONVERT_ORDER": [
+      "cash",
+      "cred",
+      "lab"
+    ],
+    "MP_SIZES": [
+      "small",
+      "medium",
+      "big"
+    ]
+  }
+}

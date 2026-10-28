@@ -1,18 +1,20 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Keep ONLY what the game needs to build and run: source (scripts/, scenes/),
+# Keep what the game needs to build and run: source (scripts/, scenes/),
 # content (data/, assets/), project config (project.godot, export_presets.cfg,
-# .gitattributes), the icon, the CI workflow (.github/) and BUILD.md.
-# Everything else — our design decisions, logs, reviews, evidence, build output,
+# .gitattributes), the icon, the CI workflow (.github/), BUILD.md, and the
+# generated design reference in docs/ (DESIGN.md, design.html, rim_constants.json
+# and the tools that build them; exports exclude docs/*).
+# Everything else — working notes, logs, reviews, evidence, build output,
 # engine caches — is ignored.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Our working material: design decisions, reviews, logs, evidence, galleries
 design/
 review/
-docs/
 notes/
 logs/
 tools/
+!docs/tools/
 *.log
 *.jsonl
 

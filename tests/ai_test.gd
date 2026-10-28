@@ -33,7 +33,7 @@ func run() -> void:
 		if not g._ai.has(fac): g._ai[fac] = {"timer": 0.5 * float(fac), "dead": false}
 
 	var start_owned := owned()
-	for k in int(140.0 / g.SIM_DT):
+	for k in int(240.0 / g.SIM_DT):   # four minutes: income is one production cycle every 5 s, so the first cards take a while
 		g._sim_step(g.SIM_DT)
 		if g.won or g.lost: break
 

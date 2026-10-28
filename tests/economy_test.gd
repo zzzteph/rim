@@ -1,6 +1,7 @@
 extends SceneTree
-## RIM research–manufacture–deliver model: main-node income, bank caps, research unlock,
-## manufacture into ready copies, security threshold + Firewall, and a card capture end to end.
+## RIM research–manufacture–deliver model: main-node income, 5-s production cycles with host storage,
+## Bot stations, bank caps, research unlock, manufacture into ready copies, security thresholds,
+## Firewall sockets that fire on their own, and a card capture end to end.
 ## godot --headless --path . --script tests/economy_test.gd
 var g
 var P := 1
@@ -51,12 +52,23 @@ func neutral_neighbour(sec_type := "iot") -> int:   # a neutral host wired to yo
 	return first
 
 
+func own_pc() -> int:   # a plain 3-slot PC next to your main node, yours and empty
+	var n := neutral_neighbour("pc")
+	g.hosts[n].slots = 3
+	g._capture(n, P)
+	g.hosts[n].type = "pc"; g.hosts[n].builds = g._slot_array([], 3)
+	return n
+
+
 func run() -> void:
 	income_and_known()
+	cycles_and_storage()
+	stations()
 	caps()
 	research_unlock()
 	manufacture_into_inventory()
 	security_and_firewall()
+	recon_and_worm()
 	capture_end_to_end()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
@@ -70,12 +82,48 @@ func income_and_known() -> void:
 	for r in want:
 		if not bool(start.get(r, false)): all = false
 	check(all and start.size() == want.size(), "Start blueprints are exactly recon/breach/phish/patch/response")
+	g._set_builds(int(g.rig[P]), [])   # only the main node's own trickle
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	step(10.0)
 	var grew := true
 	for res in g.RES:
-		if float(g.bank[P][res]) < float(before[res]) + 5.0: grew = false
-	check(grew, "The main node delivers one of each resource per second locally (every bank grew ~10 in 10 s)")
+		if absf(float(g.bank[P][res]) - float(before[res]) - 10.0 * g.MAIN_INCOME) > 0.3: grew = false
+	check(grew, "The main node delivers one of each resource every 5 s locally (every bank grew ~2 in 10 s)")
+
+
+func cycles_and_storage() -> void:
+	fresh()
+	var n := own_pc()
+	g._set_builds(n, ["intel", "cash"])
+	g.bank[P].bots = 0.0; g.bot_reserve[P] = 999   # no courier Bots to spare: what the host makes stays in its storage
+	step(g.PROD_CYCLE + 0.1)
+	check(is_equal_approx(g._st_get(n, P, "intel"), 1.0) and is_equal_approx(g._st_get(n, P, "cash"), 1.0),
+		"One cycle: the harvester makes 2 Intel, the Miner turns 1 of it into 1 Crypto (%s)" % g._store_text(n))
+	step(g.PROD_CYCLE * 10.0)
+	check(g._store_total(n) <= g.STORE_CAP + 0.001 and g._store_total(n) >= g.STORE_CAP - 1.0, "Host storage fills to its cap of 10 and stops there (%s)" % g._store_text(n))
+	var m := own_pc()
+	g._set_builds(m, ["cash"])
+	g.bank[P].intel = 200.0
+	step(g.PROD_CYCLE * 2.0)
+	check(g._store_total(m) < 0.01 and float(g.bank[P].intel) >= 200.0, "A Miner far from the main node uses only its own host's Intel, never the bank's")
+	g.bank[P].bots = 100.0; g.bot_reserve[P] = 10   # couriers again: the stored units leave
+	step(20.0)
+	check(g._store_total(n) < 1.0, "Bank couriers fetch a host's storage once Bots are spare (%s)" % g._store_text(n))
+
+
+func stations() -> void:
+	fresh()
+	var n := own_pc()
+	g._set_builds(n, ["intel", "cash", "bot"])
+	g._set_builds(int(g.rig[P]), [])
+	g.bank[P].bots = 0.0
+	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
+	step(g.PROD_CYCLE * 4.0 + 6.0)   # four cycles plus the trip home
+	var trickle: float = (g.PROD_CYCLE * 4.0 + 6.0) * g.MAIN_INCOME
+	check(float(g.bank[P].bots) - float(before.bots) - trickle >= 7.0, "A Bot station's 2 Bots per cycle reach your bank (+%.0f Bots)" % (float(g.bank[P].bots) - float(before.bots) - trickle))
+	check(float(g.bank[P].intel) - float(before.intel) - trickle >= 3.0 and float(g.bank[P].cash) - float(before.cash) - trickle >= 3.0,
+		"... carrying the host's 1 Intel and 1 Crypto per cycle home with them")
+	check(g._store_total(n) < 1.0, "With a station nothing waits in storage, even with no bank couriers")
 
 
 func caps() -> void:
@@ -101,10 +149,10 @@ func manufacture_into_inventory() -> void:
 	fresh(); fat_bank()
 	g._lane_set(P, 0, "breach")
 	check(g._held(P, "breach") == 0, "No ready Breach copy before manufacture finishes")
-	var cash_before: float = float(g.bank[P]["cash"])
+	var creds_before: float = float(g.bank[P]["creds"])
 	g._lane_manufacture(P, 0)
 	step(g.SIM_DT)   # the lane charges its cost on the step it starts (before income can refill a capped bank)
-	check(float(g.bank[P]["cash"]) < cash_before - 2.0, "Manufacturing charges the recipe cost up front (cash fell ~3)")
+	check(float(g.bank[P]["creds"]) < creds_before - float(g.CARDS.breach.make.creds) + 1.0, "Manufacturing charges the recipe cost up front (Credentials fell by Breach's price)")
 	step(g._make_time("breach") + 1.0)
 	check(g._held(P, "breach") == 1, "A lane manufactures one ready Breach copy after its make time")
 
@@ -113,17 +161,65 @@ func security_and_firewall() -> void:
 	fresh()
 	var t := neutral_neighbour("iot")
 	check(g._security(t) == 1, "An IoT host is security 1")
-	g.hosts[t].builds = g._slot_array(["wall"], int(g.hosts[t].slots))
-	check(g._has_firewall(t) and g._security(t) == 2, "A Firewall raises security by one (to 2)")
-	# Breach (reach 1) cannot capture a security-2 host
+	g.hosts[t].type = "server"
 	g.cards[P] = {"breach": 1}
 	var why: String = g._can_play(P, "breach", t)
 	check("security" in why, "Breach is refused on a security-2 host (%s)" % why)
+	# a Firewall: no security, 3 sockets for defence cards that fire on their own
+	var n := own_pc()
+	g._set_builds(n, ["intel", "wall"])
+	check(g._security(n) == 1 and g._sockets(n) == 3, "A Firewall adds 3 card sockets and no security")
+	g.cards[P] = {"patch": 1, "response": 1}
+	g._play_card(P, "patch", n)
+	check(g._held(P, "patch") == 0 and (g.hosts[n].sockets as Array).has("patch"), "Patch played on a Firewall host is loaded into a socket")
+	step(g.PROD_CYCLE + 0.1)
+	check(bool(g.hosts[n].fw_on), "The Firewall is powered by its host's Intel (1 per cycle)")
+	var R: int = g.RIVAL
+	g._op_land(R, "breach", n, int(g.hosts[n].gen), {"id": 9001})
+	var busy := false
+	for e in g._execs: if int(e.target) == n: busy = true
+	check(not busy and (g.hosts[n].sockets as Array).is_empty(), "The loaded Patch fires itself and stops a rival Breach the moment it starts")
+	g._op_land(R, "phish", n, int(g.hosts[n].gen), {"id": 9002})
+	check(g._phished(n), "With the socket used up, the next attack (Phishing) lands")
+	g._play_card(P, "response", n)
+	check(not g._phished(n) and (g.hosts[n].sockets as Array).is_empty(), "A defence card whose attack is already here fires at once instead of loading")
+	g._set_builds(n, ["", "wall"])   # no Intel on the host: the Firewall goes dark
+	g.hosts[n].store = {}
+	g.cards[P] = {"filter": 1}
+	g.known[P]["filter"] = true
+	g._play_card(P, "filter", n)
+	step(g.PROD_CYCLE + 0.1)
+	check(not bool(g.hosts[n].fw_on), "Without Intel on its host the Firewall switches off")
+	g._op_land(R, "ddos", n, int(g.hosts[n].gen), {"id": 9003})
+	check(g._ddos_down(n) and (g.hosts[n].sockets as Array).has("filter"), "A switched-off Firewall does not fire: the DDoS lands, the Filter waits")
+
+
+func recon_and_worm() -> void:
+	fresh()
+	var R: int = g.RIVAL
+	var home: int = int(g.rig[P])
+	var soft := []   # two neutral neighbours of your main node, made security-1
+	for nb in g.hosts[home].links:
+		if int(g.hosts[int(nb)].owner) == g.NEUTRAL and soft.size() < 2:
+			g.hosts[int(nb)].type = "iot"; soft.append(int(nb))
+	g.hosts[soft[1]].owner = R; g.hosts[soft[1]].gen += 1
+	g._set_builds(soft[1], ["intel"])
+	g._refresh_sight()
+	check(g._worm_next(P, home, R) == soft[1], "Worm: the chain only moves to hosts of the first target's owner")
+	check(g._worm_next(P, home, R) != soft[0], "Worm: a neutral soft host next to the chain is skipped")
+	check(not g._scanned(P, soft[1]), "Recon: a rival host's slots are hidden before a scan")
+	g._op_land(P, "recon", soft[1], int(g.hosts[soft[1]].gen), {"id": 9100})
+	check(g._scanned(P, soft[1]) and g._seen_build(P, soft[1], 0) == "intel", "Recon: the scan shows what the host holds")
+	g._set_builds(soft[1], ["cash"])
+	check(g._seen_build(P, soft[1], 0) == "intel", "Recon: you see the snapshot, not later changes")
+	step(float(g.CARDS.recon.dur) + 1.0)
+	check(not g._scanned(P, soft[1]), "Recon: the view expires after %d s" % int(g.CARDS.recon.dur))
 
 
 func capture_end_to_end() -> void:
 	fresh()
 	var t := neutral_neighbour("iot")
+	g.capture_luck = 0.0   # a roll that always lands, so the rest of the path is what is tested
 	g.cards[P] = {"breach": 1}
 	var why: String = g._can_play(P, "breach", t)
 	check(why == "", "Breach is playable on a reachable security-1 neighbour (%s)" % ("ok" if why == "" else why))
@@ -131,3 +227,16 @@ func capture_end_to_end() -> void:
 	check(ok and g._held(P, "breach") == 0, "Playing Breach consumes the copy and launches an operation")
 	step(float(g.CARDS["breach"].exec) + 12.0)   # travel + 8 s execution + margin
 	check(int(g.hosts[t].owner) == P, "The operation captures the host after travel and execution")
+	# a miss: the roll is above the card's chance, the card is spent and the host stays as it was
+	var u := neutral_neighbour("pc")
+	g.capture_luck = 0.9
+	g.cards[P] = {"breach": 1}
+	var before: int = g.intrusions_resolved
+	g._play_card(P, "breach", u)
+	step(float(g.CARDS["breach"].exec) + 12.0)
+	check(int(g.hosts[u].owner) == g.NEUTRAL and g._held(P, "breach") == 0 and g.intrusions_resolved == before + 1,
+		"A roll above Breach's %d%% chance misses: the card is spent, the host stays neutral" % int(float(g.CARDS.breach.chance) * 100.0))
+	g.capture_luck = -1.0
+	var hits := 0
+	for k in 400: hits += 1 if g._capture_roll({"id": k, "target": u, "stage": 1}) < float(g.CARDS.breach.chance) else 0
+	check(hits > 60 and hits < 140, "Breach's real rolls land about one time in four (%d of 400)" % hits)
