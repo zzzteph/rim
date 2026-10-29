@@ -76,19 +76,19 @@ func _draw() -> void:
 # Each page's words, kept as data so tests/text_fit_test.gd measures exactly what is drawn:
 # every lead line fits on one line with room to spare, every caption fits in two lines.
 const LEADS := {
-	"research": ["Learn a blueprint in the RESEARCH tab to unlock its recipe.", "Manufacture copies, then launch a ready card."],
-	"deliver": ["A resource made outside your main node waits in its host's storage.", "Bot stations carry it home; a Bot from the bank is used up."],
+	"research": ["Research a blueprint (top right) to unlock its recipe.", "Make copies from its recipe, then use a ready card."],
+	"deliver": ["A resource made outside your main node waits in its host's storage.", "Couriers carry it home, then come back. None are used up."],
 	"produce": ["Every 5 s a harvester makes 2 Intel; a converter uses 1.", "A Lab needs 1 Intel and 1 Crypto on the same host."],
-	"build": ["One research slot and three manufacturing lanes.", "Repeat makes more copies when resources and slots allow."],
-	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid empties storage. Captures need a security tier and time."],
+	"build": ["One research slot and three manufacturing lanes.", "Pause, resume or cancel a lane in the strip at the bottom."],
+	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid empties storage. Unscouted attacks work half the time."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {
 	"research": "Research unlocks a recipe — it gives no free card. Manufacturing pays once; launching spends the copy.",
-	"deliver": "A Bot station sends 2 Bots every 5 s; each carries 1 unit home and joins your Bots. The main node adds 1 of each every 5 s.",
-	"produce": "Converters use only their own host's Intel (the bank at the main node). A host's storage holds 10; full storage stops it.",
+	"deliver": "A host's Bot stations keep up to 4 couriers there; other hosts are served by your main node's couriers. Keep here sends a host the inputs it uses.",
+	"produce": "Converters use only what is on their host (the bank at the main node): made there, or sent by Keep here. Full storage (10) stops it.",
 	"build": "A paused lane leaves the others running. Each producing copy reserves one of 12 ready slots.",
-	"attack": "Stolen resources help only when they reach your main node. A Firewall holds 3 defence cards that fire on their own.",
+	"attack": "Stolen resources help only when your couriers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
 	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",
 }
 const LEAD_FS := 14

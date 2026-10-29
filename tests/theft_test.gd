@@ -50,10 +50,11 @@ func path_avoiding(a: int, b: int, avoid: int) -> Array:   # a shortest link pat
 	return p
 
 
-func reach(target: int) -> void:   # the player takes the hosts leading up to target, so a card can get there
+func reach(target: int) -> void:   # the player takes the hosts leading up to target, so a card can get there, and scouts it
 	var path := path_avoiding(int(g.rig[P]), target, R)
 	for k in range(1, path.size() - 1):
 		if int(g.hosts[path[k]].owner) != P: g._capture(path[k], P)
+	g._mark_scanned(P, target)   # fresh Recon: these checks are about what the theft does, at full odds (recon_test covers the odds)
 
 
 func rival_outpost() -> int:   # a rival host next to its main node, given an Intel harvester (2 Intel every 5 s, no input)
@@ -103,7 +104,7 @@ func siphon() -> void:
 	var stolen: float = float(g.bank[P].intel) - secs * float(g.MAIN_INCOME)
 	var promised: float = minf(float(g.CARDS.siphon.cargo), 2.0 * float(g.CARDS.siphon.dur) / g.PROD_CYCLE)
 	check(stolen >= promised * 0.6, "siphon: diverted cargo reaches you (%.0f of ~%.0f Intel)" % [stolen, promised])
-	check(float(g.bank[P].bots) >= bots_before + secs * float(g.MAIN_INCOME) - 1.0, "siphon: the diverted couriers are theirs, not yours")
+	check(float(g.bank[P].bots) + float(g._couriers_out(P, g._hub(P))) >= bots_before + secs * float(g.MAIN_INCOME) - 1.0, "siphon: it takes their cargo, not their couriers; your couriers fetch it and come back")
 
 
 func vault() -> void:   # Vault raid empties the storage of the target and its 2 nearest linked hosts of that owner

@@ -93,30 +93,39 @@ func cards(res: Vector2i) -> void:
 
 
 # ---- mini cards in the pushed-down strip: the count is never cut ----
-func chips(res: Vector2i) -> void:   # the worst case: every recipe learned, so all fifteen mini cards share the strip
-	var was: Dictionary = (game.known[game.PLAYER] as Dictionary).duplicate()
-	for r in game.CARD_ORDER: game.known[game.PLAYER][r] = true
+func chips(res: Vector2i) -> void:   # the strip: three lanes, ready cards at a fixed size (never shrunk), "+n", the cards button
+	var was_known: Dictionary = (game.known[game.PLAYER] as Dictionary).duplicate()
+	var was_cards: Dictionary = (game.cards[game.PLAYER] as Dictionary).duplicate()
+	for r in game.CARD_ORDER:
+		game.known[game.PLAYER][r] = true; game.cards[game.PLAYER][r] = 12   # the worst case: every card held, 2-digit counts
 	game._layout_deck(); await settle()
-	for chip in game._deck_chip_nodes():
+	var handle: Rect2 = game.deck_handle.get_global_rect()
+	var shown := 0
+	for chip in game.ready_strip.get_children():
 		if not (chip as Control).visible: continue
-		var sx: float = (chip as Control).size.x
-		if sx >= 84.0:
-			var title := str(game.CARDS[game._card_of(chip.key)].get("short", ""))
-			check(fitted(title, 11, sx - 39.0, 10) >= 10 and w(title, fitted(title, 11, sx - 39.0, 10)) <= sx - 39.0, "chip name fits @%s" % res)
-		else:
-			var glyph := minf(24.0, sx - 24.0)
-			var room: float = sx - glyph - 12.0
-			var fs := fitted("12", 12, room, 9)
-			check(glyph >= 18.0, "chip picture stays legible @%s (%.0f px)" % [res, glyph])
-			check(fs >= 10 and w("12", fs) <= room, "chip count '12' fits at %d px in %.0f px @%s" % [fs, room, res])
-	game.known[game.PLAYER] = was
+		var r: Rect2 = (chip as Control).get_global_rect()
+		check(r.end.x <= handle.position.x - 4.0, "strip item ends before the cards button @%s" % res)
+		if chip == game.ready_more: continue
+		shown += 1
+		check(absf(r.size.x - game.READY_CHIP_W) < 0.5, "ready chip keeps its size (%.0f px) @%s" % [r.size.x, res])
+		var title := str(game.CARDS[game._card_of(chip.key)].get("short", ""))
+		check(w(title, 12) <= r.size.x - 40.0, "ready chip name '%s' fits @%s" % [title, res])
+		check(w("×12 · Crypto", 11) <= r.size.x - 40.0 or game._card_of(chip.key) != "siphon", "siphon chip line fits @%s" % res)
+	check(shown >= 3 and game.ready_more.visible and game.ready_more.text == "+%d" % (game.CARD_ORDER.size() - shown), "%d ready chips fit, the rest behind '%s' @%s" % [shown, game.ready_more.text, res])
+	for lane in game.lane_strip.get_children():
+		check((lane as Control).get_global_rect().end.x <= game.ready_strip.get_global_rect().position.x, "lanes stay left of the ready cards @%s" % res)
+	for label in ["Making 100%", "Paused 100%", "Hand full (12)", "Needs 120 Research", "Done: 1 ready"]:
+		check(w(label, 11) <= game.LANE_CHIP_W - 34.0 - 24.0, "lane line '%s' fits @%s" % [label, res])
+	game.known[game.PLAYER] = was_known; game.cards[game.PLAYER] = was_cards
 	game._layout_deck()
 
 
 # ---- the deck tabs and the RESEARCH tab's tree: every label inside its box ----
 func research_tab(res: Vector2i) -> void:
-	for label in ["ATTACK x12", "DEFENCE x12", "RESEARCH 100%", "RESEARCH hold", "RESEARCH +10"]:
-		check(w(label, 14) <= game.DECK_TAB_W - 20.0 - MARGIN, "deck tab '%s' fits @%s" % [label, res])
+	for label in ["Ready ×99", "Attack recipes", "Defence recipes", "Research 100%", "Stalled 100%", "Paused 100%", "Research +10"]:
+		check(w(label, 14) <= game.DECK_TAB_W - 20.0 - MARGIN, "drawer tab '%s' fits @%s" % [label, res])
+	for label in ["Research 100%", "Stalled 100%", "Research +10"]:
+		check(w(label, 16) <= game.research_button.size.x - 16.0, "Research button '%s' fits @%s" % [label, res])
 	game._card_bank = "research"; game._set_deck_open(true); game._refresh_hand()
 	await settle()
 	var nodes: Array = game.research_tree.get_children()
@@ -128,7 +137,7 @@ func research_tab(res: Vector2i) -> void:
 		var card: Dictionary = game.CARDS[recipe]
 		var title := str(card.name) if w(str(card.name), 13) <= sx - 40.0 else str(card.get("short", card.name))
 		check(w(title, 13) <= sx - 40.0, "%s @%s: tree title '%s' fits" % [recipe, res, title])
-		var lines := ["Researching 100%", "Paused 100%", "In the %s tab" % game.BANK_NAME[str(card.bank)], "x12 ready"]
+		var lines := ["Researching 100%", "Paused 100%", "Stalled 100%", "Known", "Open · 55 s", "x12 ready"]
 		if game.RESEARCH.has(recipe):
 			lines.append("Research · %d s" % int(game._research_time(recipe)))
 			lines.append("Needs %s" % str(game.CARDS[str(game.RESEARCH[recipe].prereq)].get("short", "")))
@@ -143,17 +152,19 @@ func research_tab(res: Vector2i) -> void:
 	game._card_bank = "attack"; game._set_deck_open(false)
 
 
-# ---- HUD: five fixed columns inside the bar; even a 4-digit bank stays in its column ----
+# ---- HUD: the couriers' column and four banks inside the bar; even a 4-digit bank stays in its column ----
 func hud(res: Vector2i) -> void:
 	var items: Array = game._hud_items()
 	var total := 0.0
 	for it in items: total += float(it[3])
 	check(total <= game.hud.size.x + 0.5, "HUD columns (%.0f px) fit the bar (%.0f px) @%s" % [total, game.hud.size.x, res])
-	for it in items:
+	for it in items:   # a bank: "1250/1250" over "+1250/min"; the couriers: "250 home · 250 out" over "250 spare · need 120"
 		var room: float = float(it[3]) - 22.0 - float(game.HUD_GAP)
-		var worst := "1250/1250 (+250)"
+		var worst := "250 home · 250 out" if str(it[4]) == "bots" else "1250/1250"
+		var second := "250 spare · need 120" if str(it[4]) == "bots" else "+1250/min"
 		var fs: int = game._hud_fs(font, worst, float(it[3]) - 22.0)
 		check(fs >= 12 and w(worst, fs) <= room, "HUD worst case '%s' fits at %d px @%s" % [worst, fs, res])
+		check(w(second, 12) <= room, "HUD second line '%s' fits @%s" % [second, res])
 	var obj_room: float = game.hud.size.x - total - 8.0 - 12.0 - MARGIN   # the objective lines after the five banks
 	for line in ["MAJORITY 35 / 68 · you 35", "KRAKEN holds it: wins in 51 s", "Leader: KRAKEN with 34", "You lead; 35 more to hold"]:
 		check(w(line, 12) <= obj_room, "HUD objective '%s' fits (%.0f of %.0f px) @%s" % [line, w(line, 12), obj_room, res])
@@ -308,7 +319,8 @@ func campaign(res: Vector2i) -> void:
 	for ch in game.CAMP_CHAPTERS:
 		for st in game._camp_steps(ch):
 			check(w(str(st.a), 19) <= body_w, "campaign ch%d '%s': instruction fits one line" % [ch + 1, st.t])
-			check(w("Why: " + str(st.w), 16) <= body_w, "campaign ch%d '%s': reason fits one line" % [ch + 1, st.t])
+			check(not st.has("w"), "campaign ch%d '%s': no WHY block" % [ch + 1, st.t])
+			check(w("Done: " + str(st.r), 16) <= body_w, "campaign ch%d '%s': result line fits one line" % [ch + 1, st.t])
 			check(w(str(st.r), 19) <= body_w, "campaign ch%d '%s': result fits one line" % [ch + 1, st.t])
 	if FileAccess.file_exists(game._camp_save_path()):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(game._camp_save_path()))

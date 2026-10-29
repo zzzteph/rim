@@ -7,7 +7,7 @@ const DEMOLISH_TIME := 5.0         # seconds to clear an occupied slot first (re
 
 # Every host runs one production cycle each PROD_CYCLE (5 s): Intel harvesters first, then the Firewall's upkeep,
 # then the converters (Miner, Credential harvester, Research lab) from what is in THAT host's storage (at the main
-# node: the bank), then the Bot stations, whose new Bots leave at once carrying what the host made.
+# node: the bank), then the Bot stations, whose couriers stay on their host (at the main node: the bank's Bots).
 # "rate" is output per cycle at x1, "use" the input per cycle; host type multipliers scale both.
 const BUILD_KINDS := {
 	"intel": {"name": "Intel harvester",      "card": "Intel harv.",  "short": "I", "col": Color(0.4, 0.85, 1.0),
@@ -15,7 +15,7 @@ const BUILD_KINDS := {
 		"desc": "Makes 2 Intel every 5 s. The Miner, Credential harvester and Lab on this host use it first."},
 	"bot":   {"name": "Bot station",          "card": "Bot station",  "short": "B", "col": Color(0.45, 0.95, 0.6),
 		"out": "bots", "rate": 2.0, "use": {}, "cost": {"intel": 12.0, "cash": 4.0}, "cap": 50.0,
-		"desc": "Every 5 s sends 2 new Bots home, each carrying 1 unit from this host. They join your Bots."},
+		"desc": "Makes 2 couriers every 5 s. A host keeps 4 per station; at your main node they join your Bots."},
 	"cash":  {"name": "Crypto miner",         "card": "Miner",        "short": "C", "col": Color(1.0, 0.85, 0.3),
 		"out": "cash", "rate": 1.0, "use": {"intel": 1.0}, "cost": {"intel": 15.0}, "cap": 50.0,
 		"desc": "Every 5 s turns 1 Intel on this host into 1 Crypto."},

@@ -1,5 +1,5 @@
 extends SceneTree
-## Target preview (Milestone A, brief §12.2): legality and its reason, security eligibility, route and travel, the
+## Target preview (Milestone A, brief §12.2): legality and its reason, the Recon odds, route and travel, the
 ## execution and what stops it, affected hosts only as far as you can see, public and dated Recon defences, and no
 ## change to the game until the card is launched.
 ## godot --headless --path . --script tests/preview_test.gd
@@ -66,7 +66,12 @@ func capture_preview() -> void:
 	var h0: String = g._mp_hash(); var nf: int = g.flights.size()
 	var pv: Dictionary = g._target_preview(P, "breach", t)
 	var s := text(pv)
-	check(bool(pv.ok) and s.contains("Ready: Credential breach") and s.contains("Security 1 · Breach reaches 1: eligible"), "A security-1 neighbour: ready and eligible")
+	check(bool(pv.ok) and s.contains("Ready: Credential breach") and not s.contains("ecurity"), "A neighbour: ready, with no security level anywhere")
+	check(s.contains("Chance: 50% without fresh Recon"), "Unscouted, the preview says the chance is 50%")
+	g._mark_scanned(P, t)
+	check(text(g._target_preview(P, "breach", t)).contains("Chance: full"), "Scouted, the preview says the chance is full")
+	g.recon[P] = {}
+	s = text(g._target_preview(P, "breach", t))
 	check(s.contains("Route: 1 hop") or s.contains("Route: 2 hops"), "It gives the route: %s" % s.get_slice("\n", 2))
 	check(s.contains("executes for 15 s") and s.contains("unless a Patch, a lost route or a change of owner"), "It gives the execution time and what stops it")
 	check(s.contains("Defences unknown: no Recon") and s.contains("used only when you launch"), "Unknown defences stay unknown; the card is used only on launch")
@@ -86,8 +91,7 @@ func illegal_targets() -> void:
 	var t := neighbour("web")
 	g.cards[P] = {"breach": 1}
 	var pv: Dictionary = g._target_preview(P, "breach", t)
-	check(not bool(pv.ok) and text(pv).contains("security 2 is above this card's reach") and text(pv).contains("not eligible"), "A security-2 host: Breach cannot launch, with the reason")
-	g.hosts[t].type = "pc"
+	check(bool(pv.ok), "A web server is a legal Breach target: no security levels")
 	g.cards[P] = {}
 	pv = g._target_preview(P, "breach", t)
 	check(not bool(pv.ok) and text(pv).contains("none ready"), "No ready copy: the preview says so")

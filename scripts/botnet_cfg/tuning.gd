@@ -1,4 +1,4 @@
-## Numbers for the RIM redesign — five banks, main-node income, couriers, routes, security, the win.
+## Numbers for the RIM redesign — five banks, main-node income, couriers, routes, Recon odds, the win.
 ## Edit the numbers here; scripts/botnet_proto.gd reads them through aliases and never defines them itself.
 ## A changed value needs the scene restarted (constants are read when the script loads).
 
@@ -20,6 +20,8 @@ const MAIN_INCOME := 0.2           # per resource per second (one of each every 
 const BOT_RESERVE_CHOICES := [0, 5, 10, 20, 40]
 const BOT_RESERVE_DEFAULT := 10    # Bots kept available for operations; shipping and raid collection keep this
 const SHIP_PRIORITY_TURNS := 2     # weighted round robin: the chosen resource gets this many turns, others one
+const COURIERS_PER_STATION := 4    # a remote host's own couriers (made by its Bot stations, reusable): this many per station
+const CARD_GIVE_UP := 20.0         # a card held this long on its way heads back to its main node; the copy returns to your hand
 
 # ── routes (unchanged baseline) ──
 const LINK_TIME := 1.0             # seconds to cross one link (hop)
@@ -28,10 +30,10 @@ const LINK_CAP := 8                # packets a link DIRECTION admits per LINK_TI
 const MAX_QUEUE := 1.0             # a source holds its packet if the first link can't admit it within this
 const EXPRESS_MULT := 0.5          # Express route: half per-link travel and forwarding time
 
-# ── security (a discrete eligibility threshold, not damageable health) ──
-const SEC_BY_TYPE := {"iot": 1, "pc": 1, "server": 2, "web": 2, "file": 2, "db": 3, "erp": 3}
-const SEC_MAIN := 3                # an active main node is always security 3, overriding its host type
-const SEC_MAX := 3                 # the security ceiling
+# ── Recon and the odds of an attack (there are no security levels: every attack can target any foreign host) ──
+const UNSCOUTED_CHANCE := 0.5      # an offensive card (not Recon) against a host you have no FRESH Recon of succeeds
+                                   # this share of the time (0.5 x its baseline, which is always 1.0); one draw per
+                                   # resolved operation from the match's deterministic RNG, after counters and routes
 
 # ── the Firewall ──
 const FIREWALL_SOCKETS := 3        # defence cards one Firewall holds; each fires itself on its trigger

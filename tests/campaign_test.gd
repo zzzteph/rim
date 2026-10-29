@@ -1,6 +1,7 @@
 extends SceneTree
-## Plays the guided campaign (training) end to end with the redesigned mechanics: capture, build + deliver,
-## research + manufacture + capture, steal + protect, then the open chapter. Asserts every chapter advances.
+## Plays Learn end to end as ONE session: capture, build + deliver, research + manufacture + capture, steal + protect,
+## then the open lesson. Every lesson continues on the same board (no rebuild, no clock reset, no forced wait, what
+## you built stays), and leaving then continuing restores the lesson's start with what earlier lessons had you do.
 ## godot --headless --path . --script tests/campaign_test.gd
 var g
 var P := 1
@@ -49,15 +50,20 @@ func do_action(ch: int, st: int) -> void:
 	match key:
 		"0:0": if once(key): g.sel = {g._camp_home: true}; g._inspect = -1
 		"0:1": if once(key): lane_make("breach")
-		"0:2": play_when_held("breach", g._camp_relay)
+		"0:2": play_when_held("recon", g._camp_relay)
+		"0:3": play_when_held("breach", g._camp_relay)
 		"1:0": if once(key): build(g._camp_relay, "intel")
 		"1:1": if once(key): build(g._camp_relay, "bot")
 		"1:2": pass   # wait for the courier to arrive
 		"2:0": if once(key): g._cmd(["research", "exploit"])
 		"2:1": if g._known(P, "exploit") and g._held(P, "exploit") == 0 and g._lane_of(P, "exploit") < 0: lane_make("exploit")
-		"2:2": play_when_held("exploit", g._camp_gateway)
-		"3:0": play_when_held("phish", g._camp_practice)
-		"3:1": play_when_held("response", g._camp_relay)
+		"2:2": play_when_held("recon", g._camp_gateway)
+		"2:3": play_when_held("exploit", g._camp_gateway)
+		"2:4": if once(key): build(g._camp_gateway, "cash")
+		"2:5": if once(key): g._cmd(["want", g._camp_gateway, "intel", 2])
+		"3:0": play_when_held("recon", g._camp_practice)
+		"3:1": play_when_held("phish", g._camp_practice)
+		"3:2": play_when_held("response", g._camp_relay)
 
 
 func run() -> void:
@@ -68,23 +74,67 @@ func run() -> void:
 	if FileAccess.file_exists(g._camp_save_path()):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(g._camp_save_path()))
 	g._start_campaign(0)
-	check(g._camp and g._camp_chapter == 0, "The campaign starts at chapter 1 (index 0)")
-
+	check(g._camp and g._camp_chapter == 0, "Learn starts at lesson 1")
+	var board: Array = g.hosts          # the same Array object for the whole session: a rebuild would replace it
 	var relay_captured := false
 	var gateway_captured := false
+	var resets := 0; var waits := 0; var last_t := 0.0
+	var relay_builds_at_l2 := []
 	var guard := 0
+	var shown := {}
 	while g._camp_chapter < g.CAMP_OPEN and guard < 900:
 		guard += 1
-		if g._camp_hold_left <= 0.0:
-			do_action(g._camp_chapter, g._tut_stage)
-			g._camp_set_pause(false)
+		var before := "%d:%d" % [g._camp_chapter, g._tut_stage]
+		do_action(g._camp_chapter, g._tut_stage)
+		g._camp_set_pause(false)
 		pump(1.0)
+		if not is_same(g.hosts, board) or g._t + 0.001 < last_t: resets += 1
+		last_t = g._t
+		if g._camp_step_done(g._camp_chapter, g._tut_stage) and g._camp_chapter < g.CAMP_OPEN:   # a done step still on screen
+			waits += 1
+		var now := "%d:%d" % [g._camp_chapter, g._tut_stage]
+		shown[now] = true
+		if now != before and g._camp_chapter == 2 and relay_builds_at_l2.is_empty(): relay_builds_at_l2 = (g.hosts[g._camp_relay].builds as Array).duplicate()
 		if g._mine(g._camp_relay): relay_captured = true
 		if g._camp_gateway >= 0 and g._mine(g._camp_gateway): gateway_captured = true
-
-	check(relay_captured, "Chapter 1: Credential breach captured the relay")
-	check(gateway_captured, "Chapter 3: Known exploit captured the security-2 gateway")
-	check(g._camp_chapter >= g.CAMP_OPEN, "The guided chapters complete and reach the open chapter (reached %d/%d)" % [g._camp_chapter + 1, g.CAMP_CHAPTERS])
-
-	print(JSON.stringify({"checks": checks, "failures": failures, "reached_chapter": g._camp_chapter + 1, "guard": guard}))
+	check(relay_captured, "Lesson 1: Credential breach captured the relay")
+	check(gateway_captured, "Lesson 3: Known exploit captured the gateway")
+	check(g._camp_chapter >= g.CAMP_OPEN, "Every guided lesson completes and the open lesson begins (reached %d/%d)" % [g._camp_chapter + 1, g.CAMP_CHAPTERS])
+	check(resets == 0, "One session: the board and the clock are never rebuilt between lessons (%d resets)" % resets)
+	check(waits == 0, "No forced waits: a done step hands over at once (%d waits)" % waits)
+	check(relay_builds_at_l2.has("intel") and relay_builds_at_l2.has("bot"), "What you built in lesson 2 is still there in lesson 3 (%s)" % str(relay_builds_at_l2))
+	check(not g._ai_paused, "The open lesson wakes the rival")
+	var no_why := true
+	for ch in g.CAMP_CHAPTERS:
+		for st in g._camp_steps(ch): no_why = no_why and not (st as Dictionary).has("w")
+	check(no_why, "No lesson step carries a WHY block")
+	g._show_tut()
+	var banner := ""
+	for c in g.tut_box.get_children():
+		if c is RichTextLabel: banner += (c as RichTextLabel).get_parsed_text()
+		elif c is Container:
+			for d in c.get_children(): if d is Label: banner += (d as Label).text + " "
+	check(not banner.contains("Why") and not banner.contains("complete") and not banner.contains("starts in"), "The banner shows no WHY, no completion screen and no countdown (%s)" % banner.substr(0, 80))
+	# leave part-way and continue later
+	var save: Dictionary = g._camp_load()
+	g.free()
+	g = load("res://scripts/botnet_proto.gd").new()
+	g.theme = load("res://assets/ui_theme.tres")
+	root.add_child(g); g.set_process(false)
+	g._camp_write(2, 1)
+	g._camp_resume_or_start()
+	check(g._camp and g._camp_chapter == 2 and g._tut_stage == 0, "Continue resumes at the saved lesson's start (lesson 3)")
+	check(g._mine(g._camp_relay) and g._count_all(g._camp_relay, "intel") > 0 and g._count_all(g._camp_relay, "bot") > 0, "...with what lessons 1-2 had you do: the relay is yours with its harvester and station")
+	check(int(g.hosts[g._camp_gateway].owner) == g.RIVAL, "...and lesson 3's own situation: a rival holds the gateway")
+	check(not g._camp_paused or bool(g._camp_step().get("pause", false)), "The pause shows only on a step that waits for you")
+	g._camp_paused = true; g._show_tut()
+	var paused_txt := ""
+	for c in g.tut_box.get_children():
+		if c is Container:
+			for d in c.get_children():
+				if d is Label: paused_txt += (d as Label).text + " "
+				if d is TextureRect: paused_txt += "[icon]"
+	check(paused_txt.contains("[icon]") and paused_txt.contains("Paused until you act"), "A paused step shows a pause icon and plain words (%s)" % paused_txt)
+	if FileAccess.file_exists(g._camp_save_path()): DirAccess.remove_absolute(ProjectSettings.globalize_path(g._camp_save_path()))
+	print(JSON.stringify({"checks": checks, "failures": failures, "reached_chapter": 5, "guard": guard, "saved": save}))
 	g.free(); quit(0 if failures.is_empty() else 1)

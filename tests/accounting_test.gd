@@ -83,13 +83,13 @@ func reconcile() -> void:   # within one ledger window, the change in every bank
 	check(by("cash", "in", "delivered") > 0.0 and by("cash", "in", "trickle") > 0.0, "Income is split by cause: deliveries and the main-node trickle")
 
 
-func layout_rate() -> void:   # station + harvester + Miner delivers 1 Intel, 1 Crypto and 2 Bots per 5-s cycle
+func layout_rate() -> void:   # station + harvester + Miner: its own couriers deliver 1 Intel and 1 Crypto per 5-s cycle
 	fresh()
 	g._set_builds(int(g.rig[P]), [])
 	own_pc(["bot", "intel", "cash"])
 	step(45.0)   # warm-up past the 30-s window
-	var cash := by("cash", "in", "delivered"); var bots := by("bots", "in", "delivered"); var trickle := by("cash", "in", "trickle")
-	check(absf(cash - 12.0) <= 2.5 and absf(bots - 24.0) <= 4.5, "Measured delivery matches the layout: %.1f Crypto/min (12) and %.1f Bots/min (24)" % [cash, bots])
+	var cash := by("cash", "in", "delivered"); var intel := by("intel", "in", "delivered"); var trickle := by("cash", "in", "trickle")
+	check(absf(cash - 12.0) <= 2.5 and absf(intel - 12.0) <= 2.5, "Measured delivery matches the layout: %.1f Crypto/min (12) and %.1f Intel/min (12)" % [cash, intel])
 	check(absf(trickle - 12.0) <= 0.5, "The main-node trickle reads 12/min (%.1f)" % trickle)
 	check(not bool(g._econ_rates(P, "cash").early), "After 30 s the rates are no longer an early estimate")
 
@@ -107,23 +107,47 @@ func starved_and_capped() -> void:
 	check(float(r["in"]) < 0.5 and float((r.lost_by as Dictionary).get("cap", 0.0)) > 10.0, "A full bank records overflow as lost to the cap, not as income (in %.1f, lost %.1f)" % [float(r["in"]), float((r.lost_by as Dictionary).get("cap", 0.0))])
 
 
-func cargo_loss() -> void:
-	fresh()
-	var home: int = int(g.rig[P])
-	var far := -1; var via := -1
-	for i in g.hosts.size():   # a host two links from the main node, reached through one we can lose
-		if int(g.hosts[i].owner) != g.NEUTRAL or g.hosts[home].links.has(i): continue
+func far_pair() -> Array:   # [via, far]: a host two links out whose only link to your network is `via`
+	for i in g.hosts.size():
+		if int(g.hosts[i].owner) != g.NEUTRAL: continue
+		var touches := false
+		for nb in g.hosts[i].links: touches = touches or int(g.hosts[int(nb)].owner) == P
+		if touches: continue
 		for nb in g.hosts[i].links:
-			var j := int(nb)
-			if int(g.hosts[j].owner) == g.NEUTRAL and g.hosts[home].links.has(j): far = i; via = j; break
-		if far >= 0: break
-	g._capture(via, P); g._capture(far, P)
+			var v := int(nb)
+			if int(g.hosts[v].owner) != g.NEUTRAL: continue
+			for nb2 in g.hosts[v].links:
+				if int(g.hosts[int(nb2)].owner) == P:
+					g._capture(v, P); g._capture(i, P)
+					return [v, i]
+	return []
+
+
+func held_cargo() -> Array:   # main-node couriers on their way home that are held, with what they carry
+	return g.flights.filter(func(f): return str(f.kind) == "courier" and int(f.owner) == P and bool(f.get("blocked", false)) and not (f.cargo as Dictionary).is_empty())
+
+
+func cargo_loss() -> void:   # a broken route holds cargo where it is; it goes on when the route returns, and is lost only with its host
+	fresh()
+	var pair := far_pair()
+	var via: int = pair[0]; var far: int = pair[1]
 	g.hosts[far].store = {P: {"intel": 6.0}}
-	step(0.5)   # bank couriers leave
-	var on_road: float = g._incoming(P, "intel")
-	g.hosts[via].owner = g.NEUTRAL; g.hosts[via].gen = int(g.hosts[via].gen) + 1   # their route breaks
-	step(6.0)
-	check(on_road >= 1.0 and by("intel", "lost", "cargo") > 0.0, "Cargo whose route broke is recorded as lost (%.0f on the road)" % on_road)
+	step(2.0)   # main-node couriers are on the last link to the far host
+	g.hosts[via].owner = g.NEUTRAL; g.hosts[via].gen = int(g.hosts[via].gen) + 1   # the way home breaks behind them
+	step(3.0)
+	var held := held_cargo().size()
+	check(held >= 1 and by("intel", "lost", "cargo") == 0.0 and g._incoming(P, "intel") >= float(held), "Cargo whose route broke waits at the far host, held, nothing lost (%d held)" % held)
+	g._capture(via, P)   # the route returns
+	step(8.0)
+	check(held_cargo().is_empty() and by("intel", "in", "delivered") > 0.0 and g._incoming(P, "intel") < 0.001, "When the route returns the held cargo goes on and arrives; its bank room is used")
+	g.hosts[far].store = {P: {"intel": 4.0}}
+	step(2.0)
+	g.hosts[via].owner = g.NEUTRAL; g.hosts[via].gen = int(g.hosts[via].gen) + 1
+	step(3.0)
+	var waiting := held_cargo().size()
+	g._capture(far, g.RIVAL)   # the host it waits in is taken
+	step(1.0)
+	check(waiting >= 1 and by("intel", "lost", "cargo") > 0.0 and held_cargo().is_empty(), "Cargo waiting in a host that is taken is lost, and recorded as lost")
 	check(g._incoming(P, "intel") < 0.001, "Its reserved bank room is released when it is lost")
 
 
