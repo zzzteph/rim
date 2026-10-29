@@ -1,6 +1,6 @@
 extends SceneTree
-## First run (Milestone A, brief §17.1): a fresh profile can enter a skirmish or Multiplayer without finishing the
-## campaign; Learn is recommended with "Skip for now"; finishing or skipping Learn is guidance, never a key.
+## First run: a fresh profile can enter a skirmish without finishing Learn; the main menu is navigation only (Learn,
+## Skirmish, Help, Feedback, Exit); Multiplayer is hidden for now while its backend stays; Learn is never a key.
 ## godot --headless --path . --script tests/onboarding_test.gd
 var g
 var checks := 0
@@ -43,21 +43,19 @@ func run() -> void:
 	fresh()
 	var m := menu_texts()
 	check(m.has("label:RIM"), "The menu is titled RIM (%s)" % str(m.slice(0, 3)))
-	check(m.has("button:▶ Learn (recommended)") and m.has("button:Skirmish") and m.has("button:Multiplayer"), "A fresh profile sees Learn (recommended), Skirmish and Multiplayer at once")
-	check(m.has("button:Skip for now"), "Learn can be skipped for now")
-	check(not m.any(func(t): return "unlock" in str(t).to_lower()), "Nothing in the menu is locked behind the campaign")
+	check(m.has("button:Learn") and m.has("button:Skirmish") and m.has("button:Help") and m.has("button:Exit"), "A fresh profile sees Learn and Skirmish at once (%s)" % str(m))
+	check(not m.has("button:Multiplayer"), "Multiplayer is not offered in the menu")
+	check(m.filter(func(t): return str(t).begins_with("label:")).size() == 1, "The main menu holds its title and navigation buttons only")
+	check(not m.any(func(t): return "unlock" in str(t).to_lower()), "Nothing in the menu is locked behind Learn")
 	check(press("Skirmish") and g._menu_view == "newgame" and menu_texts().has("label:Skirmish"), "Skirmish opens the match setup")
 	g._start_new_game()
-	check(not g.menu_open and not g._camp and g.hosts.size() > 0 and int(g.hosts[int(g.rig[g.PLAYER])].owner) == g.PLAYER, "A skirmish starts without the campaign")
+	check(not g.menu_open and not g._camp and g.hosts.size() > 0 and int(g.hosts[int(g.rig[g.PLAYER])].owner) == g.PLAYER, "A skirmish starts without Learn")
 	fresh()
-	check(press("Multiplayer") and g._menu_view in ["mp", "lobby"], "Multiplayer opens the lobby browser without the campaign (%s)" % g._menu_view)
-	if g.net != null and g.net.has_method("close"): g.net.close()
+	check(press("Learn") and g._menu_view == "campaign" and menu_texts().has("button:Start"), "Learn opens its screen with Start on a fresh profile")
+	check(g.has_method("_mp_open") and g.has_method("_mp_hash"), "The multiplayer backend stays in the game, only hidden")
+	g._camp_write(1, 2)
 	fresh()
-	check(press("Skip for now") and menu_texts().has("button:Learn") and not menu_texts().has("button:Skip for now"), "Skip for now drops the recommendation and keeps Learn in the menu")
-	check(bool(g._camp_load().get("learn_skipped", false)) and not bool(g._camp_load().get("completed", false)), "Skipping is stored as guidance; the campaign is not marked complete")
-	fresh()
-	check(menu_texts().has("button:Learn") and not menu_texts().has("button:Skip for now"), "The choice survives a restart")
-	check(press("Learn") and g._menu_view == "campaign", "Learn still opens the guided chapters after skipping")
+	check(press("Learn") and menu_texts().any(func(t): return str(t).begins_with("button:Continue — 2.")), "With progress, Learn offers to continue where you were")
 	if FileAccess.file_exists(path): DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)

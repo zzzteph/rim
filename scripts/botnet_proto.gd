@@ -14,6 +14,7 @@ const CfgBuildings := preload("res://scripts/botnet_cfg/buildings.gd")
 const CfgCards := preload("res://scripts/botnet_cfg/cards.gd")
 const CfgTuning := preload("res://scripts/botnet_cfg/tuning.gd")
 const HelpIllustration := preload("res://scripts/botnet_help.gd")
+const UiIcons := preload("res://scripts/ui_icons.gd")
 
 const NEUTRAL := CfgFactions.NEUTRAL
 var PLAYER: int = CfgFactions.PLAYER   # the faction this screen plays (multiplayer: yours, 1–3)
@@ -106,6 +107,8 @@ const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENC
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const DECK_TAB_W := 136.0       # each of the three deck tabs: ATTACK, DEFENCE, RESEARCH (room for 15 mini cards at 1280 px)
 const MENU_W := 384.0           # menu panel width
+const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
+const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
 const GAME_VERSION := "0.5.0-a"   # Milestone A of the 0.5.0 core-loop revision: deterministic capture changes the rules (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
@@ -124,7 +127,7 @@ var _rows := GRID_ROWS
 # new-game options (chosen in the menu): size preset (cols, rows) and enemy count
 const SIZE_PRESETS := [Vector2i(6, 4), Vector2i(8, 6), Vector2i(10, 8)]   # Small · Medium · Big
 var _opt_size := Vector2i(8, 6)    # default: Medium
-var _opt_shape: String = SHAPES[0]   # the New-game layout: a galaxy (spiral, elliptical, ring) or the grid
+var _opt_shape := ""   # internal fixture only (tests, Learn): force a layout. "" = the seed picks one (_layout_for_seed)
 var _layout := "grid"              # the live layout of this match
 var _opt_enemies := 2
 var _seen := {}                    # fog memory: faction -> {host: Vector2(last-known owner, time seen)}
@@ -281,7 +284,8 @@ var menu_panel: Panel            # the Esc menu: Start / Resume / Restart (pause
 var menu_box: VBoxContainer
 var menu_sc: ScrollContainer
 var menu_open := false
-var _menu_view := "main"          # "main" · "newgame" · "help" · "feedback"
+var _menu_view := "main"          # "main" · "newgame" · "campaign" · "help" · "feedback"
+var _menu_shown_view := ""
 var _help_page := 0
 # tutorial
 var _tut := false
@@ -428,13 +432,15 @@ func _ready() -> void:
 	menu_panel.position = ((sz - menu_panel.size) * 0.5).floor()
 	add_child(menu_panel)
 	menu_sc = ScrollContainer.new()
-	menu_sc.position = Vector2(24.0, 22.0)
+	menu_sc.position = Vector2(MENU_PAD, MENU_PAD)
 	menu_sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO   # never DISABLED: that would let the box grow past the panel
 	menu_panel.add_child(menu_sc)
 	menu_box = VBoxContainer.new()
 	menu_box.add_theme_constant_override("separation", 10)
-	menu_box.custom_minimum_size = Vector2(MENU_W - 60.0, 0)
+	menu_box.custom_minimum_size = Vector2(MENU_W - 2.0 * MENU_PAD, 0)
 	menu_sc.add_child(menu_box)
+	menu_box.minimum_size_changed.connect(_layout_menu)   # content that grows or shrinks re-fits its panel
 	fb_http = HTTPRequest.new(); add_child(fb_http)            # posts feedback if an endpoint is configured
 	tut_panel = Panel.new()                                   # the tutorial prompt banner (top-centre)
 	tut_panel.size = Vector2(780.0, 172.0)
@@ -470,9 +476,15 @@ func fcol(fac: int) -> Color: return FACTIONS[fac].col
 # ============================================================ TOWN GENERATION
 # A different town every run: cells may be gaps, positions jitter, streets are missing or diagonal,
 # downtown is rich and well defended, the rim is poor and soft. Everything stays connected.
+func _layout_for_seed(seed: int) -> String:   # every supported layout, picked by the seed alone: a seed always rebuilds its map
+	var h := (seed * 1103515245 + 12345) & 0x7fffffff
+	return str(SHAPES[(h >> 8) % SHAPES.size()])
+
+
 func _gen() -> void:
 	if town_seed == 0:
 		rng.randomize(); town_seed = int(rng.randi() % 900000) + 1
+	if _layout == "": _layout = _layout_for_seed(town_seed)
 	rng.seed = town_seed
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; _roads = {}; flights = []; _execs = []; _res = {}; _flight_id = 0
@@ -3522,7 +3534,7 @@ func _marquee(r: Rect2, shift: bool) -> void:
 	_inspect = -1
 
 
-# screen ⇄ world (map zoom/pan). Node positions are WORLD; mouse events are SCREEN.
+# screen <-> world (map zoom/pan). Node positions are WORLD; mouse events are SCREEN.
 func _s2w(s: Vector2) -> Vector2: return (s - _pan) / _zoom
 func _w2s(w: Vector2) -> Vector2: return w * _zoom + _pan
 func _mouse_world() -> Vector2: return _s2w(get_local_mouse_position())
@@ -3632,7 +3644,7 @@ func _apply_options() -> void:   # turn the menu choices into the live grid + fa
 	_cols = _opt_size.x; _rows = _opt_size.y
 	if _camp: _layout = "grid"   # the campaign's chapters are authored on its grid
 	elif _mp_on: _layout = GALAXIES[maxi(0, _opt_seed) % GALAXIES.size()]   # every lockstep screen must build the same town: the seed picks the galaxy
-	else: _layout = _opt_shape if SHAPES.has(_opt_shape) else str(SHAPES[0])
+	else: _layout = _opt_shape if SHAPES.has(_opt_shape) else ""   # "" = chosen from the seed in _gen, once the seed is known
 	if _mp_on:   # people only: every faction in the match is a player, no AI
 		ais = []; botnets = humans.duplicate(); town_seed = _opt_seed
 		return
@@ -3799,21 +3811,31 @@ func _menu_gap(h: float) -> void:
 	var c := Control.new(); c.custom_minimum_size = Vector2(0, h); menu_box.add_child(c)
 
 
-func _size_menu(w: float, h: float) -> void:   # fit the panel to the view so no view has dead space
+var _menu_w := MENU_W
+var _menu_fill := false   # the view takes the whole window height (the multiplayer views)
+
+
+func _size_menu(w: float, fill := false) -> void:   # a view's width; the height follows what it holds (_layout_menu)
 	if menu_panel == null: return
-	menu_panel.size = Vector2(w, h)
-	menu_panel.position = ((get_viewport_rect().size - menu_panel.size) * 0.5).floor()
-	if menu_sc != null: menu_sc.size = menu_panel.size - Vector2(48.0, 44.0)
-	if menu_box != null: menu_box.custom_minimum_size.x = w - 60.0
+	_menu_w = minf(w, get_viewport_rect().size.x - 2.0 * MENU_MARGIN)
+	_menu_fill = fill
+	if menu_box != null: menu_box.custom_minimum_size.x = _menu_w - 2.0 * MENU_PAD
+	_layout_menu()
 
 
-func _fit_menu_to_contents() -> void:
-	if menu_box == null or _menu_view in ["help", "mp", "lobby"]: return
-	var content := menu_box.get_combined_minimum_size().y + 44
-	var maxh := get_viewport_rect().size.y - 48
-	# when the content is taller than the window, clamp and let it scroll instead of overflowing the box
-	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if content > maxh else ScrollContainer.SCROLL_MODE_DISABLED
-	_size_menu(menu_panel.size.x, minf(content, maxh))
+func _layout_menu() -> void:   # one rule for every view: MENU_PAD all round, the height of the content, scrolling past the window
+	if menu_panel == null or menu_sc == null or menu_box == null: return
+	var vp := get_viewport_rect().size
+	var content := menu_box.get_combined_minimum_size().y
+	var maxh := vp.y - 2.0 * MENU_MARGIN
+	var h := maxh if _menu_fill else minf(content + 2.0 * MENU_PAD, maxh)
+	var scrolls := content > h - 2.0 * MENU_PAD + 0.5
+	menu_panel.size = Vector2(_menu_w, h)
+	menu_panel.position = ((vp - menu_panel.size) * 0.5).floor()
+	# the scrollbar, when there is one, sits in the right-hand inset: the content keeps the same width either way
+	var bar := menu_sc.get_v_scroll_bar().get_combined_minimum_size().x if scrolls else 0.0
+	menu_sc.position = Vector2(MENU_PAD, MENU_PAD)
+	menu_sc.size = Vector2(_menu_w - 2.0 * MENU_PAD + bar, h - 2.0 * MENU_PAD)
 
 
 func _refresh_menu() -> void:
@@ -3825,22 +3847,20 @@ func _refresh_menu() -> void:
 	for c in menu_box.get_children(): menu_box.remove_child(c); c.queue_free()
 	if is_instance_valid(menu_seed_edit): _seed_draft = menu_seed_edit.text
 	menu_seed_edit = null
-	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO if _menu_view in ["help", "mp", "lobby"] else ScrollContainer.SCROLL_MODE_DISABLED
+	if _menu_view != _menu_shown_view: menu_sc.scroll_vertical = 0   # a new view starts at its top
+	_menu_shown_view = _menu_view
 	menu_box.add_theme_constant_override("separation", 6 if _menu_view == "newgame" else 10)   # newgame packs the most rows; keep it inside the window
 	match _menu_view:
-		"help": _size_menu(680.0, 640.0); _menu_help()
-		"newgame": _size_menu(MENU_W, 452.0); _menu_newgame()
-		"campaign": _size_menu(MENU_W + 56.0, 452.0); _menu_campaign()   # its chapter buttons are the widest menu rows
-		"feedback": _size_menu(480.0, 590.0); _menu_feedback()
-		"mp", "lobby":   # the whole window (minus a margin), in two columns
-			var vp := get_viewport_rect().size
-			_size_menu(maxf(560.0, vp.x - 48.0), maxf(480.0, vp.y - 48.0))
+		"help": _size_menu(680.0); _menu_help()
+		"newgame": _size_menu(MENU_W); _menu_newgame()
+		"campaign": _size_menu(MENU_W + 96.0); _menu_campaign()   # its lesson buttons are the widest menu rows
+		"feedback": _size_menu(480.0); _menu_feedback()
+		"mp", "lobby":   # the whole window (minus a margin), in two columns; reachable only by a direct call while Multiplayer is hidden
+			_size_menu(maxf(560.0, get_viewport_rect().size.x - 2.0 * MENU_MARGIN), true)
 			if _menu_view == "mp": _menu_mp()
 			else: _menu_lobby()
-		_:
-			var nb := (6 if ((_t >= 0.01 or _camp or _tut) and not won and not lost) else 5) + (0 if _mp_on else 1)
-			_size_menu(MENU_W, 96.0 + float(nb) * 52.0); _menu_main()
-	_fit_menu_to_contents.call_deferred()
+		_: _size_menu(MENU_W); _menu_main()
+	_layout_menu()
 
 
 # ============================================================ MULTIPLAYER (lockstep; server/PROTOCOL.md)
@@ -4256,25 +4276,15 @@ func _mp_tick_countdown() -> void:   # the big "starting in 3…" line (also cal
 	if _mp_ui.has("refusal") and is_instance_valid(_mp_ui.refusal): (_mp_ui.refusal as Label).text = net.recent_error()
 
 
-func _menu_main() -> void:   # Learn, Skirmish and Multiplayer are open from the first run; finishing Learn is guidance, not a key
+func _menu_main() -> void:   # navigation only. Learn and Skirmish are both open from the first run.
+	# Multiplayer is hidden for now: its lockstep backend and tests stay (_mp_open, botnet_net.gd).
 	_menu_title("RIM")
-	_menu_label("Botnet strategy on a generated city network.")
-	_menu_gap(6)
-	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mbtn("Resume", func(): _open_menu(false))   # an in-progress campaign at _t==0 (reading pause) still resumes
+	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mbtn("Resume", func(): _open_menu(false))   # a Learn session paused at _t==0 still resumes
 	if _mp_on:
 		_mbtn("Leave match", _mp_leave)
 	else:
-		var save := _camp_load()
-		var recommend := not bool(save.get("completed", false)) and not bool(save.get("learn_skipped", false))
-		var started := int(save.get("chapter", 0)) > 0 or (save.get("chapters_completed", []) as Array).has(true)
-		if not _camp or won or lost:   # a live chapter is continued with Resume above (Learn would rebuild it from its start)
-			var learn := ("▶ Continue learning — chapter %d" % (int(save.get("chapter", 0)) + 1)) if started and recommend else ("▶ Learn (recommended)" if recommend else "Learn")
-			_mbtn(learn, func(): _camp_resume_or_start() if recommend else _menu_go("campaign"))
+		if not _camp or won or lost: _mbtn("Learn", func(): _menu_go("campaign"))   # a live Learn session is continued with Resume above
 		_mbtn("Skirmish", func(): _menu_go("newgame"))
-		_mbtn("Multiplayer", _mp_open)
-		if recommend and (not _camp or won or lost):
-			_menu_label("New to RIM? Learn teaches one decision at a time, about ten minutes. You can play a skirmish or join friends now and come back to it any time.")
-			_mbtn("Skip for now", func(): _learn_skip())
 	_mbtn("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
 	_mbtn("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
 	_mbtn("Exit", func(): get_tree().quit())
@@ -4283,39 +4293,35 @@ func _menu_main() -> void:   # Learn, Skirmish and Multiplayer are open from the
 func _menu_go(view: String) -> void: _menu_view = view; _refresh_menu()
 
 
-func _learn_skip() -> void:   # hide the Learn recommendation; it stays one click away in the menu
-	var save := _camp_load()
-	_camp_write(int(save.get("chapter", 0)), int(save.get("step", 0)), true)
-	_refresh_menu()
-
-
 func _menu_campaign() -> void:
-	_menu_title("Campaign")
+	_menu_title("Learn")
 	var save := _camp_load()
 	var cc = save.get("chapters_completed", [])
 	if cc is Array and (cc as Array).size() == CAMP_CHAPTERS:
 		for k in CAMP_CHAPTERS: _camp_done[k] = bool((cc as Array)[k])
-	if not bool(save.get("completed", false)):
-		_mbtn("Resume from checkpoint — Chapter %d" % (int(save.get("chapter", 0)) + 1), func(): _camp_resume_or_start())
-		_menu_label("Resuming rebuilds that chapter's starting situation; progress within the chapter restarts.")
 	var titles := _camp_chapters()
+	var started := int(save.get("chapter", 0)) > 0 or int(save.get("step", 0)) > 0
+	if bool(save.get("completed", false)) or not started: _mbtn("Start", func(): _camp_resume_or_start(0))
+	else: _mbtn("Continue — %d. %s" % [int(save.get("chapter", 0)) + 1, titles[int(save.get("chapter", 0))]], func(): _camp_resume_or_start())
 	for ch in CAMP_CHAPTERS:
 		var unlocked: bool = ch == 0 or _camp_done[ch - 1] or bool(save.get("completed", false))
-		var label := "%s%d. %s" % ["✓ " if _camp_done[ch] else "", ch + 1, titles[ch]]
-		if unlocked: _mbtn("Replay — " + label, func(c = ch): _camp_resume_or_start(c))
-		else: _menu_label("🔒 " + label)
+		var b := _mbtn_icon("%d. %s" % [ch + 1, titles[ch]], "check" if _camp_done[ch] else ("play" if unlocked else "lock"), func(c = ch): _camp_resume_or_start(c))
+		b.disabled = not unlocked
+		b.tooltip_text = "Finish the lesson before it to open this one." if not unlocked else ""
 	_mbtn("← Back", func(): _menu_view = "main"; _refresh_menu())
+
+
+func _mbtn_icon(txt: String, icon: String, cb: Callable) -> Button:   # a full-width menu button led by a bundled vector icon
+	_mbtn(txt, cb)
+	var b := menu_box.get_child(menu_box.get_child_count() - 1) as Button
+	b.icon = UiIcons.texture(icon, 16); b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.add_theme_constant_override("h_separation", 10)
+	return b
 
 
 func _menu_newgame() -> void:
 	_menu_title("Skirmish")
-	var mrow0 := HBoxContainer.new(); mrow0.add_theme_constant_override("separation", 6)   # "Map · 8 × 6" ... [Layout: Grid]
-	var ml := Label.new(); ml.text = "Map  ·  %d × %d" % [_opt_size.x, _opt_size.y]; ml.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ml.add_theme_font_size_override("font_size", 13); ml.add_theme_color_override("font_color", C_DIM); mrow0.add_child(ml)
-	var shape := Button.new(); shape.name = "Shape"; shape.text = "Layout: " + _opt_shape.capitalize()   # click to switch
-	shape.focus_mode = Control.FOCUS_ALL; shape.add_theme_font_size_override("font_size", 13); shape.add_theme_color_override("font_color", C_WARN)
-	shape.pressed.connect(func(): _opt_shape = str(SHAPES[(SHAPES.find(_opt_shape) + 1) % SHAPES.size()]); _refresh_menu())
-	mrow0.add_child(shape); menu_box.add_child(mrow0)
+	_menu_label("Map  ·  %d × %d" % [_opt_size.x, _opt_size.y])   # the layout is the seed's: there is no layout option
 	var names := ["Small", "Medium", "Big"]
 	var srow := HBoxContainer.new(); srow.add_theme_constant_override("separation", 6)
 	for i in 3:
@@ -4389,7 +4395,7 @@ func _menu_feedback() -> void:
 		return
 	var rr := HBoxContainer.new(); rr.add_theme_constant_override("separation", 6)
 	for n in [1, 2, 3, 4, 5]:
-		var b := Button.new(); b.text = "★ %d" % n; b.custom_minimum_size = Vector2(0, 36); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
+		var b := Button.new(); b.text = str(n); b.icon = UiIcons.texture("star", 14); b.custom_minimum_size = Vector2(0, 36); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.focus_mode = Control.FOCUS_ALL
 		if _fb_rating == n: b.add_theme_color_override("font_color", C_GOOD)
 		b.pressed.connect(func(k = n): _fb_rating = k; _refresh_menu())
 		rr.add_child(b)
@@ -4411,7 +4417,7 @@ func _menu_feedback() -> void:
 	fb_name.text = str(_fb_draft.name)
 	menu_box.add_child(fb_name)
 	_menu_gap(4)
-	_mbtn("✓ Submit", _submit_feedback)
+	_mbtn("Submit", _submit_feedback)
 	_mbtn("← Back", func(): _menu_view = "main"; _refresh_menu())
 
 
@@ -4895,13 +4901,13 @@ func _camp_save_path() -> String:
 func _camp_save() -> void: _camp_save_at(_camp_chapter, _tut_stage)
 
 
-func _camp_save_at(chapter: int, step: int) -> void: _camp_write(chapter, step, bool(_camp_load().get("learn_skipped", false)))
+func _camp_save_at(chapter: int, step: int) -> void: _camp_write(chapter, step)
 
 
-func _camp_write(chapter: int, step: int, skipped: bool) -> void:   # campaign progress and guidance state; never an access key
+func _camp_write(chapter: int, step: int) -> void:   # Learn progress; never an access key
 	var data := {"schema": 2, "game_version": GAME_VERSION, "campaign_seed": CAMP_SEED,
 		"chapter": chapter, "step": step, "completed": _camp_done.count(true) >= CAMP_CHAPTERS,
-		"chapters_completed": _camp_done.duplicate(), "learn_skipped": skipped}
+		"chapters_completed": _camp_done.duplicate()}
 	var f := FileAccess.open(_camp_save_path(), FileAccess.WRITE)
 	if f != null: f.store_line(JSON.stringify(data)); f.close()
 
@@ -4915,8 +4921,7 @@ func _camp_load() -> Dictionary:
 	var none := []; none.resize(CAMP_CHAPTERS); none.fill(false)
 	var cc = (d as Dictionary).get("chapters_completed", none)
 	if not (cc is Array) or (cc as Array).size() != CAMP_CHAPTERS: cc = none
-	return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": clampi(int((d as Dictionary).get("chapter", 0)), 0, CAMP_OPEN), "step": int((d as Dictionary).get("step", 0)), "chapters_completed": cc,
-		"learn_skipped": bool((d as Dictionary).get("learn_skipped", false))}
+	return {"completed": bool((d as Dictionary).get("completed", false)), "chapter": clampi(int((d as Dictionary).get("chapter", 0)), 0, CAMP_OPEN), "step": int((d as Dictionary).get("step", 0)), "chapters_completed": cc}
 
 
 func _camp_has_onboarded() -> bool:
@@ -4960,7 +4965,7 @@ func _camp_finish() -> void:
 	if tut_panel != null: tut_panel.visible = false
 	_camp_restore_opts()
 	_camp_save()
-	_flash("Training complete. Try a skirmish, or bring a friend to Multiplayer.", 0)
+	_flash("Learn complete. Start a skirmish from the menu.", 0)
 	_layout_ui(); _fit_view()
 
 
@@ -5085,8 +5090,11 @@ func _camp_show() -> void:
 	var row := HBoxContainer.new(); tut_box.add_child(row)
 	var head := "Ch %d/%d · %s — %d/%d · %s" % [_camp_chapter + 1, CAMP_CHAPTERS, chapters[_camp_chapter], _tut_stage + 1, _camp_steps(_camp_chapter).size(), str(step.t)]
 	if _camp_hold_left > 0.0: head += "   ✓ done"
-	elif _camp_paused: head += "   ⏸ the clock starts when you act"
 	_lbl(row, head, 15, C_WARN, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if _camp_paused and _camp_hold_left <= 0.0:   # a bundled vector pause mark, never a font fallback
+		var mark := TextureRect.new(); mark.texture = UiIcons.texture("pause", 16); mark.modulate = C_WARN
+		mark.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED; mark.custom_minimum_size = Vector2(18, 18)
+		row.add_child(mark); _lbl(row, "Paused until you act", 15, C_WARN, 0)
 	var body := RichTextLabel.new(); body.bbcode_enabled = true; body.fit_content = true; body.scroll_active = false
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # the card art is shrunk to a 16 px inline icon
@@ -5209,8 +5217,7 @@ func _panel_width() -> float:
 func _on_ui_resized() -> void:
 	if is_inside_tree() and get_viewport().gui_is_dragging(): _layout_ui()
 	else: _refresh_panel()
-	if menu_open and _menu_view in ["mp", "lobby"]: _refresh_menu.call_deferred()   # full-window views follow the window
-	elif menu_open: _fit_menu_to_contents.call_deferred()
+	if menu_open: _refresh_menu.call_deferred()   # every view is rebuilt to the new window (drafts are kept)
 
 
 func _layout_ui() -> void:

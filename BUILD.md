@@ -84,7 +84,8 @@ Run the automated mechanics and layout checks before exporting:
 godot --headless --path . --script tests/economy_test.gd     # cycles, storage, stations, caps, research, Firewall sockets, capture
 godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet siphon, Vault raid: the loot reaches home
 godot --headless --path . --script tests/capture_test.gd     # deterministic capture: outcomes, timing, same-step order, Worm stages
-godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn, Skirmish and Multiplayer open at once; skip is guidance
+godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn and Skirmish open at once; menu is navigation only
+godot --headless --path . --script tests/menu_test.gd        # menus: containment, equal insets, Help round trips, glyphs, seed-picked layout
 godot --headless --path . --script tests/objective_test.gd   # the majority objective: one source, HUD lines, hold countdown and reset
 godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
 godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
@@ -251,8 +252,9 @@ converters; a Lab host with a Miner beside it; one Firewall once the network is 
 retools a producer whose bank overflows (`_ai_rebalance`), learns blueprints, manufactures known cards and uses them to capture, steal and
 defend, under the same income, delivery, prices, lane/reserve limits and fog as a person.
 
-Map layouts (Skirmish → Layout; numbers in `town.gd`): **Spiral** (the default), **Elliptical**, **Ring**
-and **Grid**. The three galaxies (`_place_galaxy`) fill a shape with about as many computers as the
+Map layouts (numbers in `town.gd`): **Spiral**, **Elliptical**, **Ring** and **Grid**. There is no layout option:
+`_layout_for_seed` picks one from the seed in `_gen`, so a seed always rebuilds the same layout and map
+(`_opt_shape` remains an internal fixture for tests and Learn). The three galaxies (`_place_galaxy`) fill a shape with about as many computers as the
 same-size grid, each the best of `STAR_CANDIDATES` random spots and never closer than `STAR_SPACING`,
 so spacing is even: a spiral has one arm per botnet winding out of a core with every rig at an arm's
 tip; an elliptical galaxy is a wide disc, denser in the middle; a ring has an empty middle. The rigs

@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit c8fc61a
+RIM 0.5.0-a · commit 9c4052a
 
 ## Contents
 
@@ -68,16 +68,16 @@ flowchart LR
 
 #### Setup (Skirmish)
 
-- Layout: Spiral (default), Elliptical, Ring or Grid.
+- Layout: not an option. The seed picks Spiral, Elliptical, Ring or Grid, so a seed always rebuilds the same layout and map.
 - Size: Small 6×4 (≈20 hosts), Medium 8×6 (≈41 hosts), Big 10×8 (≈68 hosts).
 - Enemies: 1–3 AI networks (NYX, KRAKEN, VIPER).
 - Seed: a number for a repeatable town, blank for a random one.
 
 #### Other modes
 
-**Learn (campaign):** recommended on the first run, never required; Skip for now keeps it one click away. 5 guided chapters on a small grid town: capture, build, research, theft and defence, then an open chapter against an active rival. In the guided chapters captures always succeed.
+**Learn (campaign):** never required. 5 guided chapters on a small grid town: capture, build, research, theft and defence, then an open chapter against an active rival. In the guided chapters captures always succeed.
 
-**Multiplayer:** 2–3 players in a lobby; the galaxy shape comes from the match seed; no AI. See [Multiplayer](#multiplayer).
+**Multiplayer:** hidden from the menus for now. The lockstep backend and its tests remain; see [Multiplayer](#multiplayer).
 
 #### Start state (every network)
 
@@ -665,6 +665,8 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 
 ## Multiplayer
 
+Not offered in the menus at present. The backend below is kept and still tested.
+
 - 2–3 players; lobbies public or by 5-letter code; sizes Small, Medium, Big; players meet only on the same game version.
 - Deterministic lockstep: the server never simulates. Every screen runs the same simulation from the same seed; only commands travel, grouped in turns of 3 steps (0.1 s) and run 2 turns after they are sent.
 - Commands: build, demolish, job (pause or resume a job), cancel (a job), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), card_action (click a card: research or make it), lane_set, lane_make, lane_repeat, lane_cancel, reserve, priority.
@@ -683,7 +685,7 @@ Limits worth knowing: the AI never plays Recon, Packet siphon, Vault raid, Worm,
 - **Events**: a strip at the bottom-left of the map shows up to four entries, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, couriers held at the reserve, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
-- **Menu** (Esc): Resume, Learn (the guided campaign; recommended until finished or skipped), Skirmish, Multiplayer, Help (six illustrated pages), Feedback, Exit. Nothing is locked behind the campaign.
+- **Menu** (Esc): navigation only — Resume, Learn, Skirmish, Help (six illustrated pages), Feedback, Exit. Every menu view uses one padding rule and sizes to its content, scrolling inside the window when taller. Nothing is locked behind Learn.
 
 #### Controls
 
