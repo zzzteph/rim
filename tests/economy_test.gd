@@ -120,7 +120,8 @@ func stations() -> void:
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	step(g.PROD_CYCLE * 4.0 + 6.0)   # four cycles plus the trip home
 	var trickle: float = (g.PROD_CYCLE * 4.0 + 6.0) * g.MAIN_INCOME
-	check(float(g.bank[P].bots) - float(before.bots) - trickle >= 7.0, "A Bot station's 2 Bots per cycle reach your bank (+%.0f Bots)" % (float(g.bank[P].bots) - float(before.bots) - trickle))
+	check(int(g.hosts[n].couriers) + g._couriers_out(P, n) == g._courier_cap(n), "A Bot station's couriers belong to its host: %d of its %d, home or on a trip" % [int(g.hosts[n].couriers) + g._couriers_out(P, n), g._courier_cap(n)])
+	check(float(g.bank[P].bots) - float(before.bots) <= trickle + 0.01, "... they do not join your bank (it gains only the main node's trickle)")
 	check(float(g.bank[P].intel) - float(before.intel) - trickle >= 3.0 and float(g.bank[P].cash) - float(before.cash) - trickle >= 3.0,
 		"... carrying the host's 1 Intel and 1 Crypto per cycle home with them")
 	check(g._store_total(n) < 1.0, "With a station nothing waits in storage, even with no bank couriers")
@@ -169,7 +170,9 @@ func security_and_firewall() -> void:   # there are no security levels; a Firewa
 	check(g._sockets(n) == 3, "A Firewall adds 3 card sockets")
 	g.cards[P] = {"patch": 1, "response": 1}
 	g._play_card(P, "patch", n)
-	check(g._held(P, "patch") == 0 and (g.hosts[n].sockets as Array).has("patch"), "Patch played on a Firewall host is loaded into a socket")
+	check(g._held(P, "patch") == 0 and (g.hosts[n].sockets as Array).is_empty() and int(g.hosts[n].socket_res) == 1, "A Patch sent to a Firewall host travels there: a socket is held for it, nothing is loaded yet")
+	step(3.0)
+	check((g.hosts[n].sockets as Array).has("patch") and int(g.hosts[n].socket_res) == 0, "... and loads into that socket when it arrives")
 	step(g.PROD_CYCLE + 0.1)
 	check(bool(g.hosts[n].fw_on), "The Firewall is powered by its host's Intel (1 per cycle)")
 	var R: int = g.RIVAL
@@ -181,7 +184,8 @@ func security_and_firewall() -> void:   # there are no security levels; a Firewa
 	g._op_land(R, "phish", n, int(g.hosts[n].gen), {"id": 9002})
 	check(g._phished(n), "With the socket used up, the next attack (Phishing) lands")
 	g._play_card(P, "response", n)
-	check(not g._phished(n) and (g.hosts[n].sockets as Array).is_empty(), "A defence card whose attack is already here fires at once instead of loading")
+	step(3.0)
+	check(not g._phished(n) and (g.hosts[n].sockets as Array).is_empty(), "A defence card whose attack is already there acts on arrival instead of loading")
 	g._set_builds(n, ["", "wall"])   # no Intel on the host: the Firewall goes dark
 	g.hosts[n].store = {}
 	g.cards[P] = {"filter": 1}

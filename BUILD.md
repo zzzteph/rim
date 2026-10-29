@@ -133,14 +133,44 @@ the converters in `CONVERT_ORDER` (Miner, Credential harvester, Research lab), t
 Converters use only what is in **their own host's storage** — at the main node that is the bank —
 so a remote Miner needs an Intel harvester beside it. A remote host keeps what it made in a
 **storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary);
-full storage stops its producers. A **Bot station** makes 2 Bots a cycle that leave at once, each
-carrying one unit of the host's storage (`_station_send`, priority first, then round robin), and
-join your Bots on arrival (cargo flights with `keep`). What stations do not carry waits for a
-**courier from the bank**, one Bot per unit, used up on the way (`_tick_dispatch`/`_dispatch_for`/
-`_do_dispatch`/`_deliver`). A main-node **Bots reserve** (`BOT_RESERVE_CHOICES`) keeps couriers back
-for operations, and a **shipping priority** biases which resource ships first. Each bank has a cap
-of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
-incoming shipments reserve destination room (`incoming`).
+full storage stops its producers. Production uses only what has **arrived** on the host. Each bank has a
+cap of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
+anything on its way reserves its room at the destination (`incoming` for a bank, `hosts[i].inbound` for a
+host's storage), so nothing is credited early and nothing overfills.
+
+Couriers and logistics (round B, the `LOGISTICS` block in botnet_proto.gd). **Bots are couriers**, never
+spent: each carries 1 unit a trip and comes back. A courier belongs to the host it was made on: the main
+node's couriers are the Bots in your bank (minus the **Bots reserve**, `BOT_RESERVE_CHOICES`, kept home);
+a remote host's **Bot stations** keep up to `COURIERS_PER_STATION` (4) per station there
+(`hosts[i].couriers`; `_station_send`). Every step `_tick_logistics` sends couriers: a host with its own
+couriers carries its surplus home (`_dispatch_local`) or sends one to fetch its supplies; any other host is
+served by main-node couriers that come to collect (`_dispatch_hub`, a `claim` on the unit) and bring its
+supplies on the way out. **Supply**: a host's **desired stock** (`hosts[i].want`, the `want` command,
+0–`WANT_MAX` per resource) makes the bank send what is missing (`_deficit`, `_pick_supply`); the wanted
+units are never carried back out (`_surplus`). A courier's trip is origin → destination → origin
+(`_courier`, `_courier_arrive`): it unloads, loads what is waiting for its origin, and is free again only
+when it is home. Shipping priority still picks which resource goes first.
+
+> **Interpretation (round B, not an agreed rule):** the feedback did not say how long a courier lives or
+> where it returns. RIM reads "home / from where it was sent" as the courier's **origin host**: couriers are
+> reusable; a courier made by a remote host's Bot station belongs to that host; a trip goes origin →
+> destination → origin and may collect eligible surplus on the way back; the courier is freed only when it is
+> home. When a route breaks the courier and its cargo **wait at the last host they reached** (marked held on
+> the map and in the events), never teleported; they go on as soon as a route opens. If the destination is
+> lost the courier turns back with its cargo; if its origin is lost it heads to the main node instead. A
+> courier and its cargo are lost only with the host they wait in (captured), and the loss is recorded
+> (`lost:cargo`, `lost:couriers`).
+
+Movement (`_advance_flights`, every step). Every packet — couriers and every card — moves hop by hop
+(`hop_i`) and is checked whenever it leaves a host: that host must still be its owner's (else it is lost
+there) and not under DDoS (else it waits), and the next host must be the owner's and up, or be the
+packet's end (`_end_ok`: an attack may end on a rival host; a defence card, a returning card and a courier
+for one of your hosts need it still yours). Neutral and rival hosts are never relays (`_travel_route`,
+`_attack_route`). Held packets (`blocked`, `at`) re-route every 0.5 s (`_tick_blocked`); a card held
+`CARD_GIVE_UP` (20) s, or whose target is gone, turns home and is a ready copy again on arrival
+(`_card_back`). **Defence cards travel too**: they leave the main node and act, or load a Firewall socket,
+only on arrival (`_support_arrive`); one aimed at the main node lands at once. A card that will load holds
+its socket while it travels (`socket_res`), so competing deliveries never overbook a Firewall.
 
 Economic accounting (Milestone A). Every bank movement goes through `_add_bank` (income, or loss to the
 cap) or `_spend` (spending), each with a **cause** — trickle, production, delivered, stolen, returned,
@@ -236,19 +266,21 @@ recomputed only when sight or ownership changes).
 Installations (`BUILD_KINDS` in buildings.gd) go in a host's slots. Producers
 (`PRODUCER_KINDS`): the **Intel harvester** makes 2 Intel a cycle from nothing; the **Crypto
 miner** and **Credential harvester** each turn 1 Intel into 1 of their resource; the **Research
-lab** turns 1 Intel and 1 Crypto into 1 Research; the **Bot station** makes 2 courier Bots. Host
+lab** turns 1 Intel and 1 Crypto into 1 Research; the **Bot station** makes 2 couriers. Host
 type multipliers scale output and input (`_tmult`). A **Firewall** (`wall`) is not a producer: each
 one gives the host `FIREWALL_SOCKETS` (3) **sockets** for defence cards and eats 1 Intel a cycle
 from its host's storage (`fw_on`; without Intel it switches off and its cards wait). A Patch,
-Incident response, Traffic filter or Courier cover played on a host with a free socket is loaded
-instead of spent, unless its attack is already there (`_apply_support`, `_trigger_now`); it then
+Incident response, Traffic filter or Courier cover sent to a host with a free socket is loaded on
+arrival instead of spent, unless its attack is already there (`_apply_support`, `_trigger_now`); it then
 fires on its own when its trigger hits (`_fire_socket`, `SOCKET_TRIGGER`: an intrusion starting
 for Patch via `_start_exec`, Phishing/siphon/sabotage landing for Response, a DDoS landing for
 Filter, a siphon grabbing this host's courier for Cover). Express route cannot be loaded. Build
 jobs pay their full price (`BUILD_COSTS`) when they start and take `BUILD_TIME` s; demolition takes
 `DEMOLISH_TIME` s. Click an installed producer to pause/resume; DDoS, Supply-chain sabotage, a
-running construction or the owner's pause stops one (`_producer_active`). During Phishing, all of
-a victim host's new output is the caster's, its Bot stations' couriers included.
+running construction or the owner's pause stops one (`_producer_active`). During Phishing, a
+victim host's new output is stored there for the caster, whose couriers collect it; the host's own
+couriers stay the owner's. Vault-raid loot and siphoned cargo also wait on the host (`hosts[i].loot`) for
+the thief's couriers.
 
 The AI botnets all play `_ai_think` (one economic AI, no difficulty setting): it gives every
 host a self-feeding layout (`_ai_plan`: a Bot station first, then an Intel harvester and its

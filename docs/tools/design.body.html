@@ -138,7 +138,7 @@ flowchart LR
   <div class="tablebox"><table>
     <thead><tr><th>Resource</th><th>Comes from</th><th>Is spent on</th></tr></thead>
     <tbody>
-      <tr><th class="r-bots">Bots</th><td>Bot stations (2 per cycle), the main node trickle</td><td>Carrying resources home (a bank courier is used up), carrying Vault-raid loot. No card or building costs Bots.</td></tr>
+      <tr><th class="r-bots">Bots</th><td>Bot stations (2 per cycle; a remote host keeps its own, up to 4 per station), the main node trickle</td><td>Nothing: Bots are couriers. Each carries 1 unit a trip and comes back. No card or building costs Bots.</td></tr>
       <tr><th class="r-intel">Intel</th><td>Intel harvesters (2 per cycle), the trickle</td><td>Every building, every card, every converter's input, Firewall upkeep, research.</td></tr>
       <tr><th class="r-cash">Crypto</th><td>Crypto miners, the trickle</td><td>Some buildings, most cards, research, the Lab's input.</td></tr>
       <tr><th class="r-creds">Credentials</th><td>Credential harvesters, the trickle</td><td>Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.</td></tr>
@@ -150,15 +150,15 @@ BASE_CAP = {{BASECAP}}
 spendable   = what is in the bank at your main node (nothing else counts)
 income      = main-node trickle (1 of each per 5 s, while the main node is held and not under DDoS)
             + building output that reaches the bank</pre>
-  <p>Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and couriers are not sent to a full bank (shipments on the road reserve their room).</p>
+  <p>Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and couriers are not sent to a full bank (shipments on the road reserve their room, and so do supplies on their way to a host's storage).</p>
   <h3>Accounting: what the rates mean</h3>
   <p>Every change to a bank is recorded once, with its cause, in one-second buckets over the last 30 s of play. The rates shown are measured, not predicted: what actually reached or left the bank, scaled to a minute. During the first 30 s of a match they are marked as an early estimate (~).</p>
   <div class="tablebox"><table>
     <thead><tr><th>Kind</th><th>Causes</th></tr></thead>
     <tbody>
       <tr><th>Received</th><td>trickle (the main node), production (buildings on the main node, Bot stations' Bots), delivered (cargo from your hosts), stolen (Phishing, Siphon and Vault-raid loot), returned (a Phishing that ended), refunds (a cancelled build, copy or project)</td></tr>
-      <tr><th>Spent</th><td>buildings, manufacturing, research, couriers (a bank Bot sent to fetch a unit), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)</td></tr>
-      <tr><th>Lost</th><td>cap (income that arrived at a full bank), cargo (a shipment whose route broke), siphoned (storage drained by a rival's Packet siphon)</td></tr>
+      <tr><th>Spent</th><td>buildings, manufacturing, research, supply (a unit sent to one of your hosts), dispatched (a main-node courier out on a trip; it comes back as "returned"), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)</td></tr>
+      <tr><th>Lost</th><td>cap (income that arrived at a full bank), cargo and couriers (lost with a host they waited in), siphoned (cargo grabbed by a rival's Packet siphon)</td></tr>
     </tbody>
   </table></div>
   <pre class="code">net rate(resource) = (received − spent) over the window × 60 / window seconds
@@ -179,10 +179,10 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
         take inputs × m × frac, add 1 × m × frac output
         (Miner 1 Intel → 1 Crypto · Cred. harvester 1 Intel → 1 Credential · Lab 1 Intel + 1 Crypto → 1 Research)
   4. Bot stations:      bots = Σ round(2 × m_bots)
-        at the beneficiary's main node: bots go straight into the bank
-        elsewhere, if h has a route home and is not under DDoS:
-            each Bot takes 1 whole unit from storage (shipping priority first, then in turn) and flies home,
-            or flies home empty if the bank has room for it; on arrival the Bot and its unit join the bank
+        at the owner's main node: bots go straight into the bank (the main node's couriers)
+        elsewhere: they join h's own couriers, up to 4 per finished station (idle + out on trips)
+
+converters use only what has ARRIVED in h's storage; supplies on their way do not count
 
 active = built, not under construction, not paused by you, not under DDoS, not sabotaged
 m      = the host type's multiplier for that resource</pre>
@@ -201,7 +201,7 @@ m      = the host type's multiplier for that resource</pre>
       <tr><th>no route</th><td>no chain of your hosts links it to your main node</td><td>retake a host between them</td></tr>
       <tr><th>starved</th><td>a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty</td><td>build the missing harvester or Miner here, or replace the converter</td></tr>
       <tr><th>blocked</th><td>storage full, or the bank for what is stored (or a main-node converter's output) is at its cap</td><td>spend that resource, pause the converter, or add a Bot station / lower the reserve</td></tr>
-      <tr><th>waiting for couriers</th><td>units are stored but no Bot is spare above the reserve</td><td>lower the reserve or build a Bot station here</td></tr>
+      <tr><th>waiting for couriers</th><td>units are stored, the host has no couriers of its own, and no main-node Bot is spare above the reserve</td><td>lower the reserve or build a Bot station here</td></tr>
       <tr><th>Firewall off</th><td>the next cycle cannot pay the Firewall's Intel</td><td>build an Intel harvester here</td></tr>
       <tr><th>paused · building · idle</th><td>every producer paused by you · nothing finished yet · nothing installed</td><td>—</td></tr>
       <tr><th>operating</th><td>none of the above</td><td>—</td></tr>
@@ -212,16 +212,21 @@ m      = the host type's multiplier for that resource</pre>
 <section id="logistics">
   <h2>Logistics</h2>
   <div class="rules">
+    <div class="rule"><h4>Couriers</h4>
+      <p>Bots are couriers. Each carries 1 unit a trip and comes back; none are used up. The main node's couriers are the Bots in your bank above your <b>reserve</b> (0, 5, 10, 20 or 40; default 10). A host's Bot stations keep up to 4 couriers per station on that host. The map shows each courier as a dot in its cargo's colour (a ring when empty) with an arrow, and each busy link as a tag: what, how many, which way. Hover a packet for its details.</p></div>
     <div class="rule"><h4>Who carries</h4>
-      <p>A host's Bot stations carry first, in the same cycle. Units left in storage wait for a <b>bank courier</b>: every step, each host with a whole unit of a resource sends one if your bank holds Bots above your <b>reserve</b> (0, 5, 10, 20 or 40; default 10), the bank has room for it and there is a route home. That Bot leaves the bank and is used up. Hosts are served in turn; your <b>shipping priority</b> resource gets 2 turns for every 1 of the others.</p></div>
+      <p>A host with couriers of its own sends them home with its surplus and has them fetch its supplies. Any other host is served by main-node couriers: they come to collect a unit (it is claimed for them) and bring the host's supplies on the way out. Hosts are served in turn; your <b>shipping priority</b> resource goes first. Nothing is sent to a full bank or a full storage.</p></div>
+    <div class="rule"><h4>Supply</h4>
+      <p>A host's <b>desired stock</b> (0 to 6 of each resource) asks your main node to keep that much there. The bank sends what is missing, 1 unit per courier; the room it needs is held while it travels, it counts only once it has arrived, and the wanted units are never carried back out. A lone Miner kept at 2 Intel turns supplied Intel into Crypto that rides back on the same trips.</p></div>
     <div class="rule"><h4>Routes</h4>
-      <p>Couriers and attack cards travel only through your own hosts and never through one under DDoS (shortest path by links). Stolen goods leave a rival host the way your operation came in. A host with no route home keeps its output in storage until it fills.</p></div>
+      <p>Couriers and every card travel only through your own hosts and never through one under DDoS (shortest path by links). Neutral and rival hosts are never relays; a rival host can only be the end of an attack. The way is checked again every time a packet leaves a host.</p></div>
     <div class="rule"><h4>Speed and capacity</h4>
       <pre class="code">travel = links × 1 s + hosts passed × 0.25 s   (× 0.5 with Express route)
 each link direction admits 8 packets per second (16 on a junction's links); extra packets wait</pre></div>
-    <div class="rule"><h4>Losses</h4>
-      <p>A courier whose route has lost a host it passed (captured, or under DDoS) by the time it arrives is lost with its cargo. Packet siphon turns couriers round; Courier cover protects them.</p></div>
+    <div class="rule"><h4>Held and lost</h4>
+      <p>When the way on is cut (a relay taken or under DDoS) a packet waits at the last host it reached, marked <b>held</b>, and goes on as soon as a route opens. A courier whose destination is lost turns back with its cargo; one whose home host is lost goes to the main node. A card held for 20 s, or whose target is gone, comes back to your hand. Packets are lost only with a host they wait in. Packet siphon drops grabbed cargo on its host for the thief's couriers; Courier cover protects it.</p></div>
   </div>
+  <p class="note"><b>Interpretation (round B):</b> the feedback did not say how long a courier lives or where "home" is. RIM reads it as the courier's origin host: couriers are reusable, a station's couriers belong to its host, a trip goes origin → destination → origin and may collect surplus on the way back, and a courier is free again only when it is home. Cargo and couriers are never teleported.</p>
 </section>
 
 <section id="buildings">
@@ -267,7 +272,7 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
     <div class="rule"><h4>The Recon rule</h4>
       <p>Every attack card except Recon succeeds at half its chance (0.5 × a baseline of 1.0) against a host you have no fresh Recon of. Effects that land on arrival (Phishing, Siphon, DDoS, Sabotage) draw on arrival, after a loaded Response has had its say; a DDoS or Sabotage reaching several hosts is one operation with one draw; each Worm stage is its own operation. Counters, a void target or a lost route are always decided first: a draw never lets a card past them. The draw comes from a generator seeded by the map, the same on every screen, and part of the multiplayer fingerprint. Defence cards on your own hosts never need Recon.</p></div>
     <div class="rule"><h4>Defence cards</h4>
-      <p>Played on one of your own hosts; they act at once, wherever the host is, even cut off or under DDoS. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket instead, unless their attack is already there.</p></div>
+      <p>Played on one of your own hosts. They leave your main node and travel through your hosts like any packet, and act only on arrival (one played on the main node acts at once); a host with no route from your main node cannot receive one. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket on arrival instead, unless their attack is already there. A card that will load holds its socket while it travels, so two deliveries never claim the same socket.</p></div>
   </div>
   <figure><pre class="mermaid">%%{init: {'theme':'neutral'}}%%
 stateDiagram-v2
@@ -299,7 +304,7 @@ stateDiagram-v2
     <div class="rule"><h4>What it is for</h4>
       <p>It does not make a host harder to capture. It holds defence cards that fire on their own when an enemy card hits the host, so a host is defended while you look elsewhere and faster than anyone can react by hand.</p></div>
     <div class="rule"><h4>Loading</h4>
-      <p>Each finished Firewall gives its host 3 sockets (a host may hold several Firewalls). Playing Patch, Incident response, Traffic filter or Courier cover on a host with a free socket loads the card, unless the attack it answers is already there: then it acts at once. Express route cannot be loaded.</p></div>
+      <p>Each finished Firewall gives its host 3 sockets (a host may hold several Firewalls). A Patch, Incident response, Traffic filter or Courier cover that arrives at a host with a free socket is loaded, unless the attack it answers is already there: then it acts at once. Its socket is held from launch, so the sockets are never overbooked; if the Firewall is gone when it arrives it acts instead. Express route cannot be loaded.</p></div>
     <div class="rule"><h4>Power</h4>
       <p>Each Firewall eats 1 Intel from its own host every cycle, before any converter. Without it the Firewall is off and its cards wait. Demolishing a Firewall loses the cards it held; capturing the host wipes them. A rival's Recon shows what is loaded.</p></div>
   </div>
@@ -399,14 +404,15 @@ losing your main node = elimination: your bank, cards, research and flights are 
 <section id="step">
   <h2>Simulation step</h2>
   <pre class="code">every 1/30 s:
-  1  deliveries that are due land (cargo credited or lost, operations arrive: effects apply, intrusions start)
+  0  packets move on hop by hop; each is checked as it leaves a host (a taken host loses it, a cut way holds it)
+  1  deliveries that are due land (cargo credited or stored, operations arrive: effects apply, sockets load, intrusions start)
   2  construction jobs advance and finish
   3  research advances (paying as it goes)
   4  manufacturing lanes advance; pending copies start if affordable
   5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
   6  production: main-node trickle; each host's 5-s cycle when its phase comes round
-  7  dispatch: bank couriers for what waits in storage
-  8  Packet siphons turn couriers leaving or passing their host
+  7  logistics: couriers leave with surplus to carry home, supplies to deliver, loot to collect
+     (Packet siphons take cargo off couriers as they leave a host); every 0.5 s held packets look for a way on
   9  timed effects expire (an ended Phishing returns unsent stolen units)
   10 AI decisions (each AI every 2.5 s)
   11 main-node losses → eliminations; the majority-hold timers; last-network check</pre>
@@ -438,7 +444,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
     <thead><tr><th>Card</th><th>Typical result</th><th>Upper bound</th></tr></thead>
     <tbody>
       <tr><th>Phishing (60 s)</th><td>On a Bot station + Intel harvester + converter PC: 12 cycles × (1 Intel + 1 converted + 2 Bots) = 48 units to you, 48 lost to them</td><td>A 4-slot ×2 host: ~2× that</td></tr>
-      <tr><th>Packet siphon (30 s)</th><td>Every courier of the chosen resource crossing the host; on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 couriers</td></tr>
+      <tr><th>Packet siphon (30 s)</th><td>Every courier of the chosen resource crossing the host (the unit waits there for your couriers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 units</td></tr>
       <tr><th>Vault raid</th><td>Whatever waits in 3 linked storages; near 0 where stations ship every cycle</td><td>30 units</td></tr>
       <tr><th>DDoS (45 s)</th><td>3 hosts × 9 cycles × ~4 units ≈ 100 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>
       <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 12 cycles × 2–4 units ≈ 70–140 units never made</td><td></td></tr>

@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 04b4630
+RIM 0.5.0-a · commit 6fd1de9
 
 ## Contents
 
@@ -170,13 +170,13 @@ The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are juncti
 
 ## Resources and banks
 
-| Resource    | Comes from                                        | Is spent on                                                                                                    |
-|-------------|---------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
-| Bots        | Bot stations (2 per cycle), the main node trickle | Carrying resources home (a bank courier is used up), carrying Vault-raid loot. No card or building costs Bots. |
-| Intel       | Intel harvesters (2 per cycle), the trickle       | Every building, every card, every converter's input, Firewall upkeep, research.                                |
-| Crypto      | Crypto miners, the trickle                        | Some buildings, most cards, research, the Lab's input.                                                         |
-| Credentials | Credential harvesters, the trickle                | Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.                    |
-| Research    | Research labs, the trickle                        | Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.                         |
+| Resource    | Comes from                                                                                          | Is spent on                                                                                            |
+|-------------|-----------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| Bots        | Bot stations (2 per cycle; a remote host keeps its own, up to 4 per station), the main node trickle | Nothing: Bots are couriers. Each carries 1 unit a trip and comes back. No card or building costs Bots. |
+| Intel       | Intel harvesters (2 per cycle), the trickle                                                         | Every building, every card, every converter's input, Firewall upkeep, research.                        |
+| Crypto      | Crypto miners, the trickle                                                                          | Some buildings, most cards, research, the Lab's input.                                                 |
+| Credentials | Credential harvesters, the trickle                                                                  | Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.            |
+| Research    | Research labs, the trickle                                                                          | Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.                 |
 
 ``` code
 bank cap(resource) = BASE_CAP[resource] + 50 × (your buildings whose output is that resource)
@@ -186,7 +186,7 @@ income      = main-node trickle (1 of each per 5 s, while the main node is held 
             + building output that reaches the bank
 ```
 
-Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and couriers are not sent to a full bank (shipments on the road reserve their room).
+Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and couriers are not sent to a full bank (shipments on the road reserve their room, and so do supplies on their way to a host's storage).
 
 ### Accounting: what the rates mean
 
@@ -195,8 +195,8 @@ Every change to a bank is recorded once, with its cause, in one-second buckets o
 | Kind     | Causes                                                                                                                                                                                                                                                 |
 |----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Received | trickle (the main node), production (buildings on the main node, Bot stations' Bots), delivered (cargo from your hosts), stolen (Phishing, Siphon and Vault-raid loot), returned (a Phishing that ended), refunds (a cancelled build, copy or project) |
-| Spent    | buildings, manufacturing, research, couriers (a bank Bot sent to fetch a unit), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)                                                                                    |
-| Lost     | cap (income that arrived at a full bank), cargo (a shipment whose route broke), siphoned (storage drained by a rival's Packet siphon)                                                                                                                  |
+| Spent    | buildings, manufacturing, research, supply (a unit sent to one of your hosts), dispatched (a main-node courier out on a trip; it comes back as "returned"), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)        |
+| Lost     | cap (income that arrived at a full bank), cargo and couriers (lost with a host they waited in), siphoned (cargo grabbed by a rival's Packet siphon)                                                                                                    |
 
 ``` code
 net rate(resource) = (received − spent) over the window × 60 / window seconds
@@ -219,26 +219,27 @@ every 5 s, for each held host h (on its own phase):
         take inputs × m × frac, add 1 × m × frac output
         (Miner 1 Intel → 1 Crypto · Cred. harvester 1 Intel → 1 Credential · Lab 1 Intel + 1 Crypto → 1 Research)
   4. Bot stations:      bots = Σ round(2 × m_bots)
-        at the beneficiary's main node: bots go straight into the bank
-        elsewhere, if h has a route home and is not under DDoS:
-            each Bot takes 1 whole unit from storage (shipping priority first, then in turn) and flies home,
-            or flies home empty if the bank has room for it; on arrival the Bot and its unit join the bank
+        at the owner's main node: bots go straight into the bank (the main node's couriers)
+        elsewhere: they join h's own couriers, up to 4 per finished station (idle + out on trips)
+
+converters use only what has ARRIVED in h's storage; supplies on their way do not count
 
 active = built, not under construction, not paused by you, not under DDoS, not sabotaged
 m      = the host type's multiplier for that resource
 ```
 
-| Layout (on a PC, ×1)                                      | Made each cycle                               | Delivered each cycle                     | Net to the bank per minute                               |
-|-----------------------------------------------------------|-----------------------------------------------|------------------------------------------|----------------------------------------------------------|
-| Bot station + Intel harvester + Miner                     | 2 Intel → 1 Intel + 1 Crypto; 2 Bots          | both units, by the station's Bots        | +24 Bots, +12 Intel, +12 Crypto                          |
-| Bot station + Intel harvester + Cred. harvester           | 1 Intel + 1 Credential; 2 Bots                | both units, by the station's Bots        | +24 Bots, +12 Intel, +12 Creds                           |
-| Intel harvester + Miner + Lab (Research host)             | 2 Intel → 1 Crypto → with 1 Intel, 1 Research | 1 unit by a bank courier (used up)       | −12 Bots, +12 Research                                   |
-| Bot station + 2 Intel harvesters                          | 4 Intel; 2 Bots                               | 2 by the station, 2 by bank couriers     | +48 Intel                                                |
-| Intel harvester + Miner + Cred. harvester (no station)    | 1 Crypto + 1 Credential                       | 2 units by bank couriers                 | −24 Bots, +12 Crypto, +12 Creds                          |
-| Bot station alone (IoT device)                            | 2 Bots                                        | they walk home                           | +24 Bots                                                 |
-| Database: station + harvester + 2 Cred. harvesters        | 4 Intel → 1 Intel + 3 Credentials; 2 Bots     | 2 by the station, 2 by bank couriers     | +12 Intel, +36 Creds                                     |
-| Main node (Server): Intel harvester + Bot station + Miner | 3 Intel → 2 Intel + 1 Crypto; 2 Bots          | straight into the bank, plus the trickle | +36 Bots, +36 Intel, +24 Crypto, +12 Creds, +12 Research |
-| \+ a Firewall on the host                                 | uses 1 Intel                                  | —                                        | −12 Intel                                                |
+| Layout (on a PC, ×1)                                      | Made each cycle                                                | Delivered each cycle                                          | Net to the bank per minute                               |
+|-----------------------------------------------------------|----------------------------------------------------------------|---------------------------------------------------------------|----------------------------------------------------------|
+| Bot station + Intel harvester + Miner                     | 2 Intel → 1 Intel + 1 Crypto; couriers for this host (up to 4) | both units, by the host's own couriers                        | +12 Intel, +12 Crypto                                    |
+| Bot station + Intel harvester + Cred. harvester           | 1 Intel + 1 Credential; couriers for this host                 | both units, by the host's own couriers                        | +12 Intel, +12 Creds                                     |
+| Intel harvester + Miner + Lab (Research host)             | 2 Intel → 1 Crypto → with 1 Intel, 1 Research                  | 1 unit by a main-node courier (it comes back)                 | +12 Research                                             |
+| Bot station + 2 Intel harvesters                          | 4 Intel; couriers for this host                                | 4 units by its 4 couriers, while a round trip takes under 5 s | +48 Intel                                                |
+| Intel harvester + Miner + Cred. harvester (no station)    | 1 Crypto + 1 Credential                                        | 2 units by main-node couriers                                 | +12 Crypto, +12 Creds                                    |
+| Bot station alone (IoT device)                            | couriers for this host (up to 4)                               | nothing to carry                                              | 0                                                        |
+| Miner alone, supplied: desired stock 2 Intel              | 1 Intel (delivered) → 1 Crypto                                 | Intel out and Crypto back on the same main-node courier trips | −12 Intel, +12 Crypto                                    |
+| Database: station + harvester + 2 Cred. harvesters        | 4 Intel → 1 Intel + 3 Credentials; couriers for this host      | 4 units by its 4 couriers                                     | +12 Intel, +36 Creds                                     |
+| Main node (Server): Intel harvester + Bot station + Miner | 3 Intel → 2 Intel + 1 Crypto; 2 Bots                           | straight into the bank, plus the trickle                      | +36 Bots, +36 Intel, +24 Crypto, +12 Creds, +12 Research |
+| \+ a Firewall on the host                                 | uses 1 Intel                                                   | —                                                             | −12 Intel                                                |
 
 ### Host status
 
@@ -252,20 +253,28 @@ A selected host's panel names its status from the first problem that applies, in
 | no route                 | no chain of your hosts links it to your main node                                                                    | retake a host between them                                                         |
 | starved                  | a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty | build the missing harvester or Miner here, or replace the converter                |
 | blocked                  | storage full, or the bank for what is stored (or a main-node converter's output) is at its cap                       | spend that resource, pause the converter, or add a Bot station / lower the reserve |
-| waiting for couriers     | units are stored but no Bot is spare above the reserve                                                               | lower the reserve or build a Bot station here                                      |
+| waiting for couriers     | units are stored, the host has no couriers of its own, and no main-node Bot is spare above the reserve               | lower the reserve or build a Bot station here                                      |
 | Firewall off             | the next cycle cannot pay the Firewall's Intel                                                                       | build an Intel harvester here                                                      |
 | paused · building · idle | every producer paused by you · nothing finished yet · nothing installed                                              | —                                                                                  |
 | operating                | none of the above                                                                                                    | —                                                                                  |
 
 ## Logistics
 
+#### Couriers
+
+Bots are couriers. Each carries 1 unit a trip and comes back; none are used up. The main node's couriers are the Bots in your bank above your **reserve** (0, 5, 10, 20 or 40; default 10). A host's Bot stations keep up to 4 couriers per station on that host. The map shows each courier as a dot in its cargo's colour (a ring when empty) with an arrow, and each busy link as a tag: what, how many, which way. Hover a packet for its details.
+
 #### Who carries
 
-A host's Bot stations carry first, in the same cycle. Units left in storage wait for a **bank courier**: every step, each host with a whole unit of a resource sends one if your bank holds Bots above your **reserve** (0, 5, 10, 20 or 40; default 10), the bank has room for it and there is a route home. That Bot leaves the bank and is used up. Hosts are served in turn; your **shipping priority** resource gets 2 turns for every 1 of the others.
+A host with couriers of its own sends them home with its surplus and has them fetch its supplies. Any other host is served by main-node couriers: they come to collect a unit (it is claimed for them) and bring the host's supplies on the way out. Hosts are served in turn; your **shipping priority** resource goes first. Nothing is sent to a full bank or a full storage.
+
+#### Supply
+
+A host's **desired stock** (0 to 6 of each resource) asks your main node to keep that much there. The bank sends what is missing, 1 unit per courier; the room it needs is held while it travels, it counts only once it has arrived, and the wanted units are never carried back out. A lone Miner kept at 2 Intel turns supplied Intel into Crypto that rides back on the same trips.
 
 #### Routes
 
-Couriers and attack cards travel only through your own hosts and never through one under DDoS (shortest path by links). Stolen goods leave a rival host the way your operation came in. A host with no route home keeps its output in storage until it fills.
+Couriers and every card travel only through your own hosts and never through one under DDoS (shortest path by links). Neutral and rival hosts are never relays; a rival host can only be the end of an attack. The way is checked again every time a packet leaves a host.
 
 #### Speed and capacity
 
@@ -274,9 +283,11 @@ travel = links × 1 s + hosts passed × 0.25 s   (× 0.5 with Express route)
 each link direction admits 8 packets per second (16 on a junction's links); extra packets wait
 ```
 
-#### Losses
+#### Held and lost
 
-A courier whose route has lost a host it passed (captured, or under DDoS) by the time it arrives is lost with its cargo. Packet siphon turns couriers round; Courier cover protects them.
+When the way on is cut (a relay taken or under DDoS) a packet waits at the last host it reached, marked **held**, and goes on as soon as a route opens. A courier whose destination is lost turns back with its cargo; one whose home host is lost goes to the main node. A card held for 20 s, or whose target is gone, comes back to your hand. Packets are lost only with a host they wait in. Packet siphon drops grabbed cargo on its host for the thief's couriers; Courier cover protects it.
+
+**Interpretation (round B):** the feedback did not say how long a courier lives or where "home" is. RIM reads it as the courier's origin host: couriers are reusable, a station's couriers belong to its host, a trip goes origin → destination → origin and may collect surplus on the way back, and a courier is free again only when it is home. Cargo and couriers are never teleported.
 
 ## Buildings
 
@@ -340,7 +351,7 @@ Every attack card except Recon succeeds at half its chance (0.5 × a baseline of
 
 #### Defence cards
 
-Played on one of your own hosts; they act at once, wherever the host is, even cut off or under DDoS. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket instead, unless their attack is already there.
+Played on one of your own hosts. They leave your main node and travel through your hosts like any packet, and act only on arrival (one played on the main node acts at once); a host with no route from your main node cannot receive one. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket on arrival instead, unless their attack is already there. A card that will load holds its socket while it travels, so two deliveries never claim the same socket.
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
@@ -604,7 +615,7 @@ It does not make a host harder to capture. It holds defence cards that fire on t
 
 #### Loading
 
-Each finished Firewall gives its host 3 sockets (a host may hold several Firewalls). Playing Patch, Incident response, Traffic filter or Courier cover on a host with a free socket loads the card, unless the attack it answers is already there: then it acts at once. Express route cannot be loaded.
+Each finished Firewall gives its host 3 sockets (a host may hold several Firewalls). A Patch, Incident response, Traffic filter or Courier cover that arrives at a host with a free socket is loaded, unless the attack it answers is already there: then it acts at once. Its socket is held from launch, so the sockets are never overbooked; if the Firewall is gone when it arrives it acts instead. Express route cannot be loaded.
 
 #### Power
 
@@ -704,14 +715,15 @@ Not offered in the menus at present. The backend below is kept and still tested.
 
 ``` code
 every 1/30 s:
-  1  deliveries that are due land (cargo credited or lost, operations arrive: effects apply, intrusions start)
+  0  packets move on hop by hop; each is checked as it leaves a host (a taken host loses it, a cut way holds it)
+  1  deliveries that are due land (cargo credited or stored, operations arrive: effects apply, sockets load, intrusions start)
   2  construction jobs advance and finish
   3  research advances (paying as it goes)
   4  manufacturing lanes advance; pending copies start if affordable
   5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
   6  production: main-node trickle; each host's 5-s cycle when its phase comes round
-  7  dispatch: bank couriers for what waits in storage
-  8  Packet siphons turn couriers leaving or passing their host
+  7  logistics: couriers leave with surplus to carry home, supplies to deliver, loot to collect
+     (Packet siphons take cargo off couriers as they leave a host); every 0.5 s held packets look for a way on
   9  timed effects expire (an ended Phishing returns unsent stolen units)
   10 AI decisions (each AI every 2.5 s)
   11 main-node losses → eliminations; the majority-hold timers; last-network check
@@ -750,13 +762,13 @@ per minute; the trickle is included
 
 ### Theft and denial yields
 
-| Card                 | Typical result                                                                                                                     | Upper bound                |
-|----------------------|------------------------------------------------------------------------------------------------------------------------------------|----------------------------|
-| Phishing (60 s)      | On a Bot station + Intel harvester + converter PC: 12 cycles × (1 Intel + 1 converted + 2 Bots) = 48 units to you, 48 lost to them | A 4-slot ×2 host: ~2× that |
-| Packet siphon (30 s) | Every courier of the chosen resource crossing the host; on a junction behind 3–5 producing hosts, ~1 unit per host per cycle       | 30 couriers                |
-| Vault raid           | Whatever waits in 3 linked storages; near 0 where stations ship every cycle                                                        | 30 units                   |
-| DDoS (45 s)          | 3 hosts × 9 cycles × ~4 units ≈ 100 units never made; on a main node also its trickle and its attacks                              | plus cargo lost through it |
-| Sabotage (60 s)      | 3 linked hosts × 12 cycles × 2–4 units ≈ 70–140 units never made                                                                   |                            |
+| Card                 | Typical result                                                                                                                                                        | Upper bound                |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------|
+| Phishing (60 s)      | On a Bot station + Intel harvester + converter PC: 12 cycles × (1 Intel + 1 converted + 2 Bots) = 48 units to you, 48 lost to them                                    | A 4-slot ×2 host: ~2× that |
+| Packet siphon (30 s) | Every courier of the chosen resource crossing the host (the unit waits there for your couriers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle | 30 units                   |
+| Vault raid           | Whatever waits in 3 linked storages; near 0 where stations ship every cycle                                                                                           | 30 units                   |
+| DDoS (45 s)          | 3 hosts × 9 cycles × ~4 units ≈ 100 units never made; on a main node also its trickle and its attacks                                                                 | plus cargo lost through it |
+| Sabotage (60 s)      | 3 linked hosts × 12 cycles × 2–4 units ≈ 70–140 units never made                                                                                                      |                            |
 
 ## Price table
 
@@ -794,7 +806,7 @@ Constants still defined in the config files that the current game never reads, l
 | cards.gd     | `FAMILY_NAME`                                                                                                                                                                                                                   |
 | factions.gd  | `AI_PROFILE`, `AI_MAX_STREAMS`, `AI_RESERVE`, `AI_PATIENCE`, `AI_SPEED`, `AI_CASH_MULT`, `AI_ASSAULT_PCT`, `AI_CRYPTO_WAIT`, `AI_REACT`, `AI_PRIOR_BOTNET`, `AI_SCOUT_INTEL`, `AI_CHOKE_LEAD`, `AI_EDGE_MEMORY`, `AI_SIEGE_MAX` |
 | town.gd      | `LINK_INTEL`, `TOWN_WORDS`                                                                                                                                                                                                      |
-| tuning.gd    | `MAX_QUEUE`, `RESEARCH_SLOTS`                                                                                                                                                                                                   |
+| tuning.gd    | `SHIP_PRIORITY_TURNS`, `MAX_QUEUE`, `RESEARCH_SLOTS`                                                                                                                                                                            |
 
 Also: `BUILD_TIME` and `DEMOLISH_TIME` exist in both tuning.gd and buildings.gd and only the buildings.gd values are used; there is one research slot whatever `RESEARCH_SLOTS` says.
 

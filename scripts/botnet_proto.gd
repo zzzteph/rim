@@ -90,6 +90,8 @@ const LINK_CAP := CfgTuning.LINK_CAP
 const MAX_QUEUE := CfgTuning.MAX_QUEUE
 const EXPRESS_MULT := CfgTuning.EXPRESS_MULT
 const UNSCOUTED_CHANCE := CfgTuning.UNSCOUTED_CHANCE
+const COURIERS_PER_STATION := CfgTuning.COURIERS_PER_STATION
+const CARD_GIVE_UP := CfgTuning.CARD_GIVE_UP
 const RESEARCH_SLOTS := CfgTuning.RESEARCH_SLOTS
 const HOLD_FRACTION := CfgTuning.HOLD_FRACTION
 const HOLD_SECS := CfgTuning.HOLD_SECS
@@ -130,6 +132,8 @@ var _layout := "grid"              # the live layout of this match
 var _opt_enemies := 2
 var _seen := {}                    # fog memory: faction -> {host: Vector2(last-known owner, time seen)}
 var _hover_host := -1              # the visible host under the mouse, found once per drawn frame
+var _hover_flight := -1            # the id of the packet under the mouse (its details show beside it)
+var _held_rects := {}              # host -> Rect2 (screen): the "held" tag drawn on it this frame
 var _opt_seed := 0                 # 0 = random town
 var menu_seed_edit: LineEdit
 # in-game feedback form state
@@ -182,7 +186,6 @@ var _roads := {}       # faction -> {"a_b": Vector2i(a, b)}: links it has used �
 # ── per-faction economy (all spendable only at the main node) ──
 var bank := {}         # faction -> {res: available amount}, res in RES
 var incoming := {}     # faction -> {res: reserved destination room for in-flight shipments}
-var committed := {}    # faction -> courier Bots committed to shipments in flight (consumed on arrival/loss)
 var bot_reserve := {}  # faction -> Bots kept available for operations (BOT_RESERVE_CHOICES)
 var ship_pri := {}     # faction -> "" (balanced) or a resource the round robin favours
 var ship_cursor := {}  # faction -> persisted weighted-round-robin cursor
@@ -196,7 +199,7 @@ var card_plays := {}   # faction -> operations launched (probes and the result s
 
 # ── traffic and operations ──
 var _delivered := {}   # faction -> cargo units that reached its main node (the campaign's delivery step)
-var flights := []      # packets: {id, kind:"cargo"|"newbot"|"op", route, hops, node, depart_t, arrive_t, owner, ...}
+var flights := []      # packets: {id, kind:"courier"|"op", route, hops, hop_i, depart_t, arrive_t, owner, dest, ...} (blocked: held at f.at)
 var _execs := []       # executing capture/raid/worm: {id, fac, card, target, gen, ends, chain, stage}
 var _res := {}         # "a>b" -> sorted entry times reserved on that link direction (capacity)
 var _flight_id := 0    # monotonic packet id (deterministic ordering, interception-once)
@@ -226,7 +229,8 @@ const FPS_IDLE := 30             # frame cap with the menu open or the window in
 var _sim_acc := 0.0              # real time not simulated yet (< SIM_DT); packets are drawn this far ahead so they glide
 var _focused := true             # the window has focus (else the frame cap drops to FPS_IDLE)
 var _shaped := {}                # Font -> {size -> {text -> TextLine}}: see _shape()
-var _route_memo = null           # {src * 65536 + target: route} while _sim_step allows it (see _route), else null
+var _route_memo = null           # routes cached within one step's phases (see _travel_route), else null
+var _blocked_next := 0.0          # when held packets next look for a way on
 var _terr := {}                  # cached territory shapes for one sight/ownership "key" (see _territory_shapes)
 # ---- multiplayer (deterministic lockstep, server/PROTOCOL.md): every screen runs the same simulation; only
 # commands travel, grouped in turns of _mp_turn_steps steps and scheduled _mp_delay turns ahead ----
@@ -485,13 +489,13 @@ func _gen() -> void:
 	sim_rng.seed = hash("rim-sim:%d" % town_seed)   # every screen of a match rolls the same dice in the same order
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; _roads = {}; flights = []; _execs = []; _res = {}; _flight_id = 0
-	bank = {}; incoming = {}; _delivered = {}; committed = {}; bot_reserve = {}; ship_pri = {}; ship_cursor = {}; known = {}; research_job = {}; lanes = {}; cards = {}; recon = {}
+	bank = {}; incoming = {}; _delivered = {}; bot_reserve = {}; ship_pri = {}; ship_cursor = {}; known = {}; research_job = {}; lanes = {}; cards = {}; recon = {}
 	_ai = {}; _fx = []; _worms = []; _hold = {}; card_plays = {}
 	_ledger = {}; op_outcomes = []; intrusions_resolved = 0; events = []; _ev_next_poll = 0.0; _ev_dirty = true   # per-match records
 	for fac in botnets:
 		bank[fac] = {}
 		for res in RES: bank[fac][res] = float(START[res])
-		incoming[fac] = {}; committed[fac] = 0.0; bot_reserve[fac] = BOT_RESERVE_DEFAULT; ship_pri[fac] = ""; ship_cursor[fac] = 0
+		incoming[fac] = {}; bot_reserve[fac] = BOT_RESERVE_DEFAULT; ship_pri[fac] = ""; ship_cursor[fac] = 0
 		known[fac] = {}
 		for recipe in KNOWN_START: known[fac][recipe] = true
 		research_job[fac] = {}; cards[fac] = {}; recon[fac] = {}; card_plays[fac] = 0; _hold[fac] = 0.0
@@ -582,6 +586,7 @@ func _add_host(p: Vector2, c: Vector2i, is_hub: bool, value: int, ntype: String)
 		"cyc": PROD_CYCLE * (0.2 + 0.8 * fposmod(float(hosts.size()) * 0.618034, 1.0)), "fw_on": true, "sockets": [], "ship_rr": 0,
 		"ddos_until": 0.0, "filter_until": 0.0, "sabot_until": 0.0, "steal_by": -1, "steal_until": 0.0,
 		"siphon": {}, "patch_armed_until": 0.0, "patch_recover_until": 0.0, "cover_until": 0.0, "express_until": 0.0,
+		"couriers": 0, "want": {}, "claim": {}, "inbound": {}, "loot": {}, "socket_res": 0,
 		"hit_t": -100.0, "card_result": ""})
 	return hosts.size() - 1
 
@@ -964,8 +969,7 @@ func _prune_res() -> void:
 
 # schedule a packet along rt departing at dep: every hop waits for room on its link, then crosses it;
 # intermediate forwarding adds NODE_ROUTE_DELAY. Express halves per-link travel and forwarding (not capacity).
-func _schedule(rt: Array, dep: float, fac: int, kind: String, express := false, extra := {}) -> Dictionary:
-	_establish(fac, rt)
+func _plan_hops(rt: Array, dep: float, express := false) -> Dictionary:   # link slots along rt from dep: each hop waits for room, then crosses
 	var hops := []
 	var lt := LINK_TIME * (EXPRESS_MULT if express else 1.0)
 	var fd := NODE_ROUTE_DELAY * (EXPRESS_MULT if express else 1.0)
@@ -977,8 +981,16 @@ func _schedule(rt: Array, dep: float, fac: int, kind: String, express := false, 
 		hops.append(e)
 		t = e + lt
 		if k < rt.size() - 2: t += fd
+	return {"hops": hops, "lt": lt, "arrive": t}
+
+
+# a packet along rt departing at dep (see _plan_hops); it moves hop by hop and is checked at every host (_advance_flights)
+func _schedule(rt: Array, dep: float, fac: int, kind: String, express := false, extra := {}) -> Dictionary:
+	_establish(fac, rt)
+	var plan := _plan_hops(rt, dep, express)
 	_flight_id += 1
-	var f := {"id": _flight_id, "route": rt, "hops": hops, "lt": lt, "depart_t": dep, "arrive_t": t, "owner": fac, "kind": kind, "node": 0}
+	var f := {"id": _flight_id, "route": rt, "hops": plan.hops, "lt": plan.lt, "depart_t": dep, "arrive_t": plan.arrive, "owner": fac, "kind": kind,
+		"node": 0, "hop_i": 0, "express": express, "dest": int(rt[rt.size() - 1])}
 	for key in extra: f[key] = extra[key]
 	return f
 
@@ -1038,21 +1050,11 @@ func _faction_nodes(fac: int) -> int:
 
 
 # ---- attack routing: main node → owned hosts → an owned neighbour of the foreign target, then the final hop ----
-func _attack_route(fac: int, t: int) -> Array:
-	var home := int(rig.get(fac, -1))
-	if home < 0 or int(hosts[home].owner) != fac or t < 0: return []
-	if int(hosts[t].owner) == fac: return []
-	var best := []
-	for nb in hosts[t].links:
-		var n := int(nb)
-		if int(hosts[n].owner) != fac: continue   # a route runs through your own network to a neighbour of t
-		var r := [n] if n == home else _route(home, n)
-		if r.is_empty(): continue
-		var route := r + [t]
-		if best.is_empty() or route.size() < best.size(): best = route
-	# the target may itself be a neighbour of the main node
-	if hosts[home].links.has(t) and (best.is_empty() or best.size() > 2): best = [home, t]
-	return best
+func _attack_route(fac: int, t: int) -> Array:   # main node -> your hosts -> the foreign target (only the target may be foreign)
+	var home := _hub(fac)
+	if home < 0 or t < 0 or int(hosts[t].owner) == fac: return []
+	var rt := _travel_route(fac, home, t)
+	return rt if rt.size() >= 2 else []
 
 
 func _op_reachable(fac: int, t: int) -> bool:   # a card can reach t from the main node right now
@@ -1139,7 +1141,8 @@ func _room(fac: int, res: String) -> float:   # destination room for a new shipm
 
 func _add_bank(fac: int, res: String, amt: float, cause := "other") -> float:   # credit, clamped to cap; returns what actually fit
 	if not bank.has(fac): return 0.0
-	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res)))
+	var held := _incoming(fac, "bots") if res == "bots" else 0.0   # new Bots leave room for the couriers out on trips
+	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res) - held))
 	bank[fac][res] = _avail(fac, res) + fit
 	if fit > 0.0: _ledger_add(fac, "in", cause, res, fit)
 	if amt - fit > 0.000001: _ledger_add(fac, "lost", "cap", res, amt - fit)
@@ -1205,14 +1208,14 @@ func _econ_rates(fac: int, res: String) -> Dictionary:   # per-minute recent rat
 
 func _incoming_eta(fac: int, res: String) -> Dictionary:   # cargo on the road for this bank: count, next arrival, how many are at risk
 	var n := 0; var next := INF; var risk := 0
+	var hub := _hub(fac)
 	for f in flights:
-		if int(f.owner) != fac or not (str(f.kind) in ["cargo", "newbot"]): continue
-		var r := str(f.get("res", "bots"))
-		if r != res and not (res == "bots" and bool(f.get("keep", false))): continue
+		if int(f.owner) != fac or str(f.kind) != "courier" or int(f.get("dest", -1)) != hub: continue
+		if not ((f.cargo as Dictionary).has(res) or (res == "bots" and int(f.origin) == hub)): continue
 		n += 1
-		next = minf(next, float(f.arrive_t) - _t)
-		if not _route_intact(f): risk += 1
-	return {"n": n, "next": next if n > 0 else -1.0, "risk": risk}
+		if bool(f.get("blocked", false)): risk += 1   # held on the way: a route broke under it
+		else: next = minf(next, float(f.arrive_t) - _t)
+	return {"n": n, "next": next if n > risk else -1.0, "risk": risk}
 
 
 func _reserve_incoming(fac: int, res: String, amt: float) -> void:
@@ -1330,10 +1333,10 @@ func _run_cycle(i: int) -> void:
 			if frac <= 0.0001: break
 			for r in (spec.use as Dictionary): _st_take(i, benef, str(r), float(spec.use[r]) * m * frac)
 			_st_add(i, benef, out, float(spec.rate) * m * frac)
-	# d) Bot stations: their new Bots leave at once, each carrying one unit home, and join the bank on arrival
+	# d) Bot stations: new couriers for the owner (the main node's join its bank; a host's wait there for _tick_logistics)
 	var bots := 0
 	for k in _cycle_kinds(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
-	if bots > 0: _station_send(i, benef, bots)
+	if bots > 0: _station_send(i, owner, bots)   # couriers always belong to the host's owner (a thief gets the output, not the Bots)
 
 
 func _walls_building(i: int) -> int:   # Firewalls still under construction (no upkeep, no sockets yet)
@@ -1347,116 +1350,420 @@ func _walls_building(i: int) -> int:   # Firewalls still under construction (no 
 func _room_now(fac: int, res: String) -> float: return maxf(0.0, _cap(fac, res) - _avail(fac, res))
 
 
-func _station_send(i: int, fac: int, bots: int) -> void:
-	if _st_local(i, fac):                       # at your own main node they are simply new Bots
+func _station_send(i: int, fac: int, bots: int) -> void:   # Bot stations make couriers: the main node's join its bank, a host's wait there
+	if _st_local(i, fac):
 		_add_bank(fac, "bots", float(bots), "production")
 		return
-	if _routing_down(i): return                 # DDoS: nothing leaves, the new Bots never form
-	var rt := _home_route(fac, i)
-	if rt.is_empty(): return
-	var express := float(hosts[i].get("express_until", 0.0)) > _t
-	var covered := float(hosts[i].get("cover_until", 0.0)) > _t
-	for b in bots:
-		var res := _next_cargo(i, fac)
-		if res == "" and _room(fac, "bots") < 1.0: continue   # nothing to carry and no room for the Bot: it is not made
-		_reserve_incoming(fac, "bots", 1.0)
-		if res == "":
-			flights.append(_schedule(rt, _t, fac, "newbot", express, {"res": "bots", "src": i}))
-			continue
-		_st_take(i, fac, res, 1.0)
-		_reserve_incoming(fac, res, 1.0)
-		flights.append(_schedule(rt, _t, fac, "cargo", express, {"res": res, "payer": fac, "covered": covered, "intercepted": false, "src": i, "keep": true}))
+	var room := _courier_cap(i) - int(hosts[i].get("couriers", 0)) - _couriers_out(fac, i)
+	if room > 0: hosts[i].couriers = int(hosts[i].get("couriers", 0)) + mini(bots, room)
 
 
-func _next_cargo(i: int, fac: int) -> String:   # the next whole unit a courier should take from this host: priority first, then round robin
+func _attack_route_none(fac: int, src: int) -> bool:   # true if src has no route to fac's main node
+	var home := _hub(fac)
+	if src == home: return false
+	return _home_route(fac, src).is_empty()
+
+
+func _home_route(fac: int, src: int) -> Array:   # how fac's couriers travel from src to its main node (src may be a foreign end)
+	var home := _hub(fac)
+	if home < 0 or src < 0 or src == home: return []
+	return _travel_route(fac, src, home)
+
+
+# ============================================================ LOGISTICS
+# Couriers are reusable Bots that belong to a host. A main node's couriers are the Bots in its bank; a remote host's
+# are made by its own Bot stations and wait there (hosts[i].couriers). A trip goes origin -> destination -> origin,
+# one unit each way, and the courier is free again only when it is back home. Supplies go out to a host that keeps a
+# desired stock (hosts[i].want); its output comes back. Every packet - courier or card - moves hop by hop through
+# its owner's hosts only (_advance_flights): a relay that is taken or knocked out stops it at the last good host,
+# where it waits, visibly, and goes on when a route opens again (_tick_blocked). Nothing is teleported.
+# (An interpretation of the feedback: courier lifetime and ownership were not fully specified.)
+func _travel_route(fac: int, a: int, b: int) -> Array:   # a ... b with every host in between fac's and up; the ends may be anyone's
+	if a < 0 or b < 0: return []
+	if a == b: return [a]
+	if _route_memo != null:
+		var key := (fac * 4096 + a) * 4096 + b
+		if not _route_memo.has(key): _route_memo[key] = _travel_route_bfs(fac, a, b)
+		return (_route_memo[key] as Array).duplicate()
+	return _travel_route_bfs(fac, a, b)
+
+
+func _travel_route_bfs(fac: int, a: int, b: int) -> Array:
+	if (hosts[a].links as Array).has(b): return [a, b]
+	var prev := {a: a}; var q := [a]; var head := 0; var hit := -1
+	while head < q.size():
+		var c: int = q[head]; head += 1
+		if c != a and (hosts[c].links as Array).has(b): hit = c; break
+		for o in hosts[c].links:
+			var n := int(o)
+			if prev.has(n) or n == b or int(hosts[n].owner) != fac or _routing_down(n): continue
+			prev[n] = c; q.append(n)
+	if hit < 0: return []
+	var p := [hit]
+	while int(p[p.size() - 1]) != a: p.append(prev[p[p.size() - 1]])
+	p.reverse(); p.append(b)
+	return p
+
+
+func _hub(fac: int) -> int:   # fac's main node while fac holds it, else -1
+	var h := int(rig.get(fac, -1))
+	return h if h >= 0 and int(hosts[h].owner) == fac else -1
+
+
+func _courier_cap(i: int) -> int: return COURIERS_PER_STATION * (_count_all(i, "bot") - _jobs_of(i, "bot"))
+
+
+func _jobs_of(i: int, kind: String) -> int:   # installations of this kind still being built (not working yet)
+	var n := 0
+	for slot_key in (hosts[i].jobs as Dictionary):
+		if str(hosts[i].builds[int(hosts[i].jobs[slot_key].slot)]) == kind and str(hosts[i].jobs[slot_key].phase) == "build": n += 1
+	return n
+
+
+func _couriers_out(fac: int, origin: int) -> int:   # fac's couriers from this origin that are on a trip
+	var n := 0
+	for f in flights:
+		if str(f.kind) == "courier" and int(f.owner) == fac and int(f.origin) == origin: n += 1
+	return n
+
+
+func _hfield(i: int, field: String) -> Dictionary:   # a host's per-faction ledger field ("claim", "loot"), created on first use
+	if not hosts[i].has(field): hosts[i][field] = {}
+	return hosts[i][field]
+
+
+func _claimed(i: int, fac: int, res: String) -> float: return float(((hosts[i].get("claim", {}) as Dictionary).get(fac, {}) as Dictionary).get(res, 0.0))
+func _loot(i: int, fac: int, res: String) -> float: return float(((hosts[i].get("loot", {}) as Dictionary).get(fac, {}) as Dictionary).get(res, 0.0))
+func _inbound(i: int, res: String) -> float: return float((hosts[i].get("inbound", {}) as Dictionary).get(res, 0.0))
+func _want(i: int, res: String) -> float: return float((hosts[i].get("want", {}) as Dictionary).get(res, 0.0))
+
+
+func _add_to(i: int, field: String, fac: int, res: String, d: float) -> void:   # claim / loot bookkeeping, never below zero
+	var all := _hfield(i, field)
+	if not all.has(fac): all[fac] = {}
+	var v := maxf(0.0, float((all[fac] as Dictionary).get(res, 0.0)) + d)
+	if v < 0.0001: (all[fac] as Dictionary).erase(res)
+	else: all[fac][res] = v
+	if (all[fac] as Dictionary).is_empty(): all.erase(fac)
+
+
+func _inbound_add(i: int, res: String, d: float) -> void:
+	if not hosts[i].has("inbound"): hosts[i].inbound = {}
+	var v := maxf(0.0, _inbound(i, res) + d)
+	if v < 0.0001: (hosts[i].inbound as Dictionary).erase(res)
+	else: hosts[i].inbound[res] = v
+
+
+func _inbound_total(i: int) -> float:
+	var s := 0.0
+	for r in (hosts[i].get("inbound", {}) as Dictionary): s += float(hosts[i].inbound[r])
+	return s
+
+
+func _store_room(i: int) -> float: return STORE_CAP - _store_total(i) - _inbound_total(i)   # supplies on their way already hold their room
+
+
+func _surplus(i: int, fac: int, res: String) -> float:   # whole units fac's couriers may carry away from host i now
+	if res == "bots" or i == _hub(fac): return 0.0
+	var have := _loot(i, fac, res) + float(_store_of(i, fac).get(res, 0.0))
+	var keep := _want(i, res) if int(hosts[i].owner) == fac else 0.0   # the owner's wanted inputs stay for its installations
+	return floorf(maxf(0.0, have - keep - _claimed(i, fac, res)) + 0.0001)
+
+
+func _deficit(i: int, res: String) -> float:   # supply the owner has yet to send to reach the host's desired stock
+	var owner := int(hosts[i].owner)
+	if owner == NEUTRAL or res == "bots": return 0.0
+	return floorf(maxf(0.0, _want(i, res) - float(_store_of(i, owner).get(res, 0.0)) - _inbound(i, res)) + 0.0001)
+
+
+func _pick_pickup(i: int, fac: int) -> String:   # what to carry from i to fac's main node next: shipping priority first, then in turn
 	var pri := str(ship_pri.get(fac, ""))
-	if pri != "" and _st_get(i, fac, pri) >= 1.0 and _room(fac, pri) >= 1.0: return pri
+	if pri != "" and _surplus(i, fac, pri) >= 1.0 and _room(fac, pri) >= 1.0: return pri
 	var start := int(hosts[i].get("ship_rr", 0))
 	for k in RES.size():
 		var res: String = RES[(start + k) % RES.size()]
-		if res == "bots": continue
-		if _st_get(i, fac, res) >= 1.0 and _room(fac, res) >= 1.0:
+		if _surplus(i, fac, res) >= 1.0 and _room(fac, res) >= 1.0:
 			hosts[i].ship_rr = (start + k + 1) % RES.size()
 			return res
 	return ""
 
 
-# ---- dispatch: what a host's Bot stations did not take waits in storage until a courier from the bank fetches it ----
-func _tick_dispatch(_dt: float) -> void:
-	var ready := {}   # beneficiary -> [{host, res}]
-	for i in hosts.size():
-		if _routing_down(i): continue            # DDoS stops outgoing dispatch; sabotage leaves it open
-		var store: Dictionary = hosts[i].store
-		for fac_key in store.keys():
-			var fac := int(fac_key)
-			if _eliminated.has(fac) or _st_local(i, fac): continue
-			for res in (store[fac_key] as Dictionary).keys():
-				if float(store[fac_key][res]) < 1.0: continue
-				if not ready.has(fac): ready[fac] = []
-				ready[fac].append({"host": i, "res": str(res)})
-	for fac in ready:
-		_dispatch_for(int(fac), ready[fac])
+func _pick_supply(i: int, fac: int) -> String:   # what fac's bank should send to its host i next
+	if int(hosts[i].owner) != fac or _store_room(i) < 1.0: return ""
+	for res in RES:
+		if _deficit(i, res) >= 1.0 and _avail(fac, res) >= 1.0: return res
+	return ""
 
 
-func _dispatch_for(fac: int, items: Array) -> void:
-	var home := int(rig.get(fac, -1))
-	if home < 0 or int(hosts[home].owner) != fac: return
-	# weighted round robin: the chosen priority resource gets more turns; stable by (host, resource)
-	items.sort_custom(func(a, b): return (int(a.host) * 8 + RES.find(str(a.res))) < (int(b.host) * 8 + RES.find(str(b.res))))
-	var pri := str(ship_pri.get(fac, ""))
+func _take_unit(i: int, fac: int, res: String) -> bool:   # one unit of fac's out of host i: its loot pile first, then its storage
+	if _loot(i, fac, res) >= 1.0 - 0.0001:
+		_add_to(i, "loot", fac, res, -1.0); return true
+	if float(_store_of(i, fac).get(res, 0.0)) >= 1.0 - 0.0001:
+		_store_take(i, fac, res, 1.0); return true
+	return false
+
+
+func _fetching(i: int, fac: int) -> int:   # i's own couriers on their way to the main node to fetch supplies
+	var n := 0
+	for f in flights:
+		if str(f.kind) == "courier" and int(f.owner) == fac and int(f.origin) == i and bool(f.get("fetch", false)) and str(f.trip) == "out": n += 1
+	return n
+
+
+func _supply_short(i: int, fac: int) -> bool:   # i wants something the bank has, and nobody is already fetching it
+	if _pick_supply(i, fac) == "": return false
+	var short := 0.0
+	for res in RES: short += _deficit(i, res)
+	return short - float(_fetching(i, fac)) >= 1.0
+
+
+func _tick_logistics() -> void:   # every step: send the couriers that have something to carry
+	for fac in botnets:
+		if _eliminated.has(fac): continue
+		var hub := _hub(fac)
+		if hub < 0: continue
+		var n := hosts.size()
+		var start := posmod(int(ship_cursor.get(fac, 0)), maxi(1, n))
+		for k in n:
+			var i := (start + k) % n
+			if i == hub: continue
+			if int(hosts[i].owner) == fac and _courier_cap(i) > 0: _dispatch_local(fac, hub, i)
+			else: _dispatch_hub(fac, hub, i)
+		ship_cursor[fac] = (start + 1) % maxi(1, n)
+
+
+func _dispatch_local(fac: int, hub: int, i: int) -> void:   # i's own couriers: its surplus to the main node, or a run to fetch its supplies
+	if int(hosts[i].get("couriers", 0)) <= 0 or _routing_down(i): return
+	var rt := _travel_route(fac, i, hub)
+	if rt.size() < 2: return
+	while int(hosts[i].couriers) > 0:
+		var res := _pick_pickup(i, fac)
+		var fetch := res == "" and _supply_short(i, fac)
+		if res == "" and not fetch: return
+		hosts[i].couriers = int(hosts[i].couriers) - 1
+		var cargo := {}
+		if res != "":
+			_take_unit(i, fac, res); _reserve_incoming(fac, res, 1.0); cargo = {res: 1.0}
+		flights.append(_courier(fac, i, hub, cargo, "", rt, fetch))
+
+
+func _dispatch_hub(fac: int, hub: int, i: int) -> void:   # main-node couriers: fetch what i holds for fac, bring i its supplies
+	if _routing_down(hub): return
+	var reserve := float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT))
+	if _avail(fac, "bots") - reserve < 1.0: return
+	var pick := _pick_pickup(i, fac)
+	var sup := _pick_supply(i, fac)
+	if pick == "" and sup == "": return
+	var rt := _travel_route(fac, hub, i)
+	if rt.size() < 2: return
 	var guard := 0
-	while guard < 4000 and not items.is_empty():
+	while guard < 64 and (pick != "" or sup != "") and _avail(fac, "bots") - reserve >= 1.0:
 		guard += 1
-		var picked := -1
-		for n in items.size():
-			var k := (int(ship_cursor.get(fac, 0)) + n) % items.size()
-			if _can_dispatch(fac, items[k]): picked = k; break
-		if picked < 0: break
-		_do_dispatch(fac, items[picked])
-		ship_cursor[fac] = picked + 1
-		if pri != "" and str(items[picked].res) == pri:   # the priority resource gets extra turns
-			for extra in range(SHIP_PRIORITY_TURNS - 1):
-				var again := -1
-				for n in items.size():
-					if str(items[n].res) == pri and _can_dispatch(fac, items[n]): again = n; break
-				if again < 0: break
-				_do_dispatch(fac, items[again])
-		items = items.filter(func(x): return _st_get(int(x.host), fac, str(x.res)) >= 1.0)
+		if pick != "": _add_to(i, "claim", fac, pick, 1.0); _reserve_incoming(fac, pick, 1.0)
+		var cargo := {}
+		if sup != "": _spend(fac, sup, 1.0, "supply"); _inbound_add(i, sup, 1.0); cargo = {sup: 1.0}
+		_spend(fac, "bots", 1.0, "dispatched"); _reserve_incoming(fac, "bots", 1.0)   # its place at home stays held while it is away
+		flights.append(_courier(fac, hub, i, cargo, pick, rt))
+		pick = _pick_pickup(i, fac); sup = _pick_supply(i, fac)
 
 
-func _can_dispatch(fac: int, it: Dictionary) -> bool:
-	if _st_get(int(it.host), fac, str(it.res)) < 1.0: return false
-	if _room(fac, str(it.res)) < 1.0: return false              # no destination room
-	if _attack_route_none(fac, int(it.host)): return false      # no path home
-	if _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)) < 1.0: return false  # no spare courier
+func _courier(fac: int, origin: int, dest: int, cargo: Dictionary, claim: String, rt: Array, fetch := false) -> Dictionary:
+	var express := float(hosts[origin].get("express_until", 0.0)) > _t
+	var covered := float(hosts[origin].get("cover_until", 0.0)) > _t
+	return _schedule(rt, _t, fac, "courier", express, {"origin": origin, "dest": dest, "trip": "out", "cargo": cargo, "claim": claim,
+		"covered": covered, "fetch": fetch, "src": origin, "dest_own": _owns(fac, dest)})
+
+
+func _end_ok(f: Dictionary, d: int) -> bool:   # may this packet enter its destination d right now?
+	var fac := int(f.owner)
+	match str(f.kind):
+		"courier":
+			if d == int(f.origin): return _owns(fac, d)        # home: must still be home
+			return not bool(f.get("dest_own", false)) or _owns(fac, d)   # a host of yours must still be yours
+		"op":
+			if bool(f.get("returning", false)) or _is_defense(_card_of(str(f.get("card", "")))): return _owns(fac, d)
+			return true   # an attack may end at a foreign host; a target taken meanwhile is void on landing
 	return true
 
 
-func _attack_route_none(fac: int, src: int) -> bool:   # true if src cannot reach the main node
-	var home := int(rig.get(fac, -1))
-	if src == home: return false
-	return _home_route(fac, src).is_empty()
+func _advance_flights() -> void:   # every packet leaves a host only if that host and the next are good for it
+	for f in flights:
+		if bool(f.get("blocked", false)) or bool(f.get("dead", false)): continue
+		var rt: Array = f.route; var hops: Array = f.hops
+		var fac := int(f.owner)
+		while int(f.get("hop_i", 0)) < hops.size() and _t >= float(hops[int(f.hop_i)]) - 0.00001:
+			var k := int(f.hop_i)
+			var here := int(rt[k]); var nxt := int(rt[k + 1])
+			if k > 0 and int(hosts[here].owner) != fac: _lose(f, here, "taken"); break   # the relay it was in was taken
+			if _routing_down(here) and k > 0: _block(f, here); break                      # a relay under DDoS cannot forward
+			_siphon_grab(f, here)
+			var last := k + 1 == rt.size() - 1
+			if (not last and (int(hosts[nxt].owner) != fac or _routing_down(nxt))) or (last and not _end_ok(f, nxt)):
+				_block(f, here); break
+			f.hop_i = k + 1
+	flights = flights.filter(func(x): return not bool(x.get("dead", false)))
 
 
-func _home_route(fac: int, src: int) -> Array:   # how fac's cargo travels home from src, always through fac's own network
-	var home := int(rig.get(fac, -1))
-	if home < 0 or src < 0 or src == home: return []
-	if int(hosts[src].owner) == fac: return _route(src, home)
-	var back := _attack_route(fac, src)   # stolen goods leave a foreign host the way the operation came in
-	back.reverse()
-	return back
+func _block(f: Dictionary, at: int) -> void:   # stop at host `at` and wait there; _tick_blocked tries again
+	f.blocked = true; f.at = at; f.blocked_t = _t
+	f.route = [at]; f.hops = []; f.hop_i = 0; f.arrive_t = INF   # the "held" event per host comes from _tick_events
 
 
-func _do_dispatch(fac: int, it: Dictionary) -> void:   # a courier from the bank fetches one unit; it is used up on the way
-	var i := int(it.host); var res := str(it.res)
-	_st_take(i, fac, res, 1.0)
-	var rt := _home_route(fac, i)
-	_reserve_incoming(fac, res, 1.0)
-	_spend(fac, "bots", 1.0, "couriers")        # a courier leaves available stock
-	committed[fac] = float(committed.get(fac, 0.0)) + 1.0
-	var express := float(hosts[i].get("express_until", 0.0)) > _t
-	var covered := float(hosts[i].get("cover_until", 0.0)) > _t
-	flights.append(_schedule(rt, _t, fac, "cargo", express, {"res": res, "payer": fac, "covered": covered, "intercepted": false, "src": i}))
+func _reroute(f: Dictionary, rt: Array) -> void:   # go on from where it is, along rt, with fresh link slots
+	var fac := int(f.owner)
+	var plan := _plan_hops(rt, _t, bool(f.get("express", false)))
+	_establish(fac, rt)
+	f.route = rt; f.hops = plan.hops; f.lt = plan.lt; f.depart_t = _t; f.arrive_t = plan.arrive; f.hop_i = 0
+	if bool(f.get("blocked", false)): f.blocked = false; f.erase("at")
+
+
+func _tick_blocked() -> void:   # held packets: on when a route opens; turned back when their end is gone
+	for f in flights:
+		if not bool(f.get("blocked", false)) or bool(f.get("dead", false)): continue
+		var fac := int(f.owner); var at := int(f.at)
+		var foreign_end := str(f.kind) == "courier" and not bool(f.get("dest_own", true)) and at == int(f.get("src", -1))   # a pickup at a rival's host
+		if int(hosts[at].owner) != fac and not foreign_end: _lose(f, at, "taken"); continue   # the host it waits in was taken
+		if _routing_down(at): continue
+		var dest := int(f.get("dest", -1))
+		if str(f.kind) == "op":
+			var giving_up := _t - float(f.get("blocked_t", _t)) >= CARD_GIVE_UP
+			if not bool(f.get("returning", false)) and (giving_up or not _end_ok(f, dest)): _card_turn_home(f)
+			dest = int(f.dest)
+		elif str(f.kind) == "courier":
+			if str(f.trip) == "out" and not _end_ok(f, dest): _courier_turn_home(f)
+			if not _owns(fac, int(f.origin)): _courier_rehome(f)
+			dest = int(f.dest)
+		if dest < 0: _lose(f, at, "stranded"); continue
+		if dest == at:   # already where it has to be (it was held at its own end)
+			if str(f.kind) == "courier": _courier_arrive(f)
+			elif bool(f.get("returning", false)): _card_back(f)
+			f.dead = true
+			continue
+		var rt := _travel_route(fac, at, dest)
+		if rt.size() >= 2 and _end_ok(f, dest): _reroute(f, rt)
+	flights = flights.filter(func(x): return not bool(x.get("dead", false)))
+
+
+func _courier_rehome(f: Dictionary) -> void:   # its home host was taken: the main node takes the courier (and what it carries) in
+	var fac := int(f.owner); var hub := _hub(fac)
+	for res in (f.cargo as Dictionary):
+		if int(f.dest) != hub: _inbound_add(int(f.dest), str(res), -1.0); _reserve_incoming(fac, str(res), 1.0)
+	if str(f.get("claim", "")) != "" and str(f.trip) == "out":
+		_add_to(int(f.dest), "claim", fac, str(f.claim), -1.0); _release_incoming(fac, str(f.claim), 1.0); f.claim = ""
+	f.origin = hub; f.dest = hub; f.trip = "back"
+	_reserve_incoming(fac, "bots", 1.0)   # it will take a place among the main node's couriers
+
+
+func _card_back(f: Dictionary) -> void:   # a card that turned home is a ready copy again
+	var fac := int(f.owner); var recipe := _card_of(str(f.card))
+	cards[fac][recipe] = _held(fac, recipe) + 1
+	if fac == PLAYER:
+		_event("cardback:%d" % int(f.id), EV_INFO, "Your %s came back to your hand: it could not reach %s." % [str(CARDS[recipe].name), str(hosts[int(f.target)].name)], int(f.target))
+		_refresh_hand()
+
+
+func _card_turn_home(f: Dictionary) -> void:   # a card that cannot go on heads back; the copy returns to your hand there
+	f.returning = true; f.dest = _hub(int(f.owner))
+	if bool(f.get("load", false)) and _host_ok(int(f.get("target", -1))): hosts[int(f.target)].socket_res = maxi(0, int(hosts[int(f.target)].get("socket_res", 0)) - 1); f.load = false
+
+
+func _courier_turn_home(f: Dictionary) -> void:   # its destination is gone: back to where it came from, cargo and all
+	var fac := int(f.owner)
+	if str(f.get("claim", "")) != "":
+		_add_to(int(f.dest), "claim", fac, str(f.claim), -1.0); _release_incoming(fac, str(f.claim), 1.0); f.claim = ""
+	var home := int(f.origin)
+	for res in (f.cargo as Dictionary):   # supply that cannot be delivered: it heads home again with the courier
+		_inbound_add(int(f.dest), str(res), -1.0)
+		if home == _hub(fac): _reserve_incoming(fac, str(res), 1.0)
+		else: _inbound_add(home, str(res), 1.0)
+	f.trip = "back"; f.dest = home
+
+
+func _lose(f: Dictionary, at: int, why: String) -> void:   # the packet is gone: settle every reservation it held
+	var fac := int(f.owner)
+	f.dead = true
+	if str(f.kind) == "courier":
+		var hub := _hub(fac)
+		var to_hub := int(f.get("dest", -1)) == hub
+		for res in (f.cargo as Dictionary):   # cargo for the main node held bank room; cargo for a host held storage room
+			if to_hub: _release_incoming(fac, str(res), 1.0)
+			else: _inbound_add(int(f.dest), str(res), -1.0)
+			_ledger_add(fac, "lost", "cargo", str(res), 1.0)
+		if str(f.get("claim", "")) != "" and str(f.trip) == "out":
+			_add_to(int(f.dest), "claim", fac, str(f.claim), -1.0); _release_incoming(fac, str(f.claim), 1.0)
+		if int(f.origin) == hub and hub >= 0:
+			_release_incoming(fac, "bots", 1.0); _ledger_add(fac, "lost", "couriers", "bots", 1.0)
+		if fac == PLAYER: _event("lostcourier", EV_ACT, "Couriers lost at %s: the host was %s." % [str(hosts[at].name), why], at)
+	elif str(f.kind) == "op":
+		if bool(f.get("load", false)) and _host_ok(int(f.get("target", -1))): hosts[int(f.target)].socket_res = maxi(0, int(hosts[int(f.target)].get("socket_res", 0)) - 1)
+		if fac == PLAYER: _event("lostcard:%d" % int(f.id), EV_ACT, "Your %s was lost at %s: the host was %s." % [str(CARDS[_card_of(str(f.card))].name), str(hosts[at].name), why], at)
+
+
+func _siphon_grab(f: Dictionary, here: int) -> void:   # a Packet siphon on this host takes the matching unit off a courier leaving it
+	var sp: Dictionary = hosts[here].get("siphon", {})
+	if sp.is_empty() or float(sp.get("until", 0.0)) <= _t or int(sp.get("left", 0)) <= 0: return
+	var thief := int(sp.by); var res := str(sp.res)
+	if str(f.kind) != "courier" or int(f.owner) == thief or bool(f.get("covered", false)) or not (f.cargo as Dictionary).has(res): return
+	var victim := int(f.owner); var o := int(f.origin)
+	if _owns(victim, o) and _fire_socket(o, "cover", "Packet siphon"):   # a loaded Cover saves this courier and its host's next ones
+		_apply_cover(o); return
+	(f.cargo as Dictionary).erase(res)
+	if int(f.dest) == _hub(victim): _release_incoming(victim, res, 1.0)
+	else: _inbound_add(int(f.dest), res, -1.0)
+	_ledger_add(victim, "lost", "siphoned", res, 1.0)
+	_add_to(here, "loot", thief, res, 1.0)   # it waits here for the thief's couriers
+	sp.left = int(sp.left) - 1
+	if int(sp.left) == 0 and thief == PLAYER: _flash("Packet siphon on %s: full haul taken" % str(hosts[here].name), 0)
+
+
+func _courier_arrive(f: Dictionary) -> bool:   # true: the courier goes on (its way back)
+	var fac := int(f.owner); var at := int(f.route[f.route.size() - 1])
+	var hub := _hub(fac)
+	for res in (f.cargo as Dictionary): _drop_unit(fac, at, str(res), f)
+	f.cargo = {}
+	if str(f.trip) == "out":
+		var o := int(f.origin)
+		if at == hub and o != hub:   # a host's own courier at the main node: its host's supply goes back with it
+			var sup := _pick_supply(o, fac)
+			if sup != "": _spend(fac, sup, 1.0, "supply"); _inbound_add(o, sup, 1.0); f.cargo = {sup: 1.0}
+		elif o == hub:   # a main-node courier at a host: what it came for, else anything that may leave
+			var pick := str(f.get("claim", ""))
+			if pick != "":
+				_add_to(at, "claim", fac, pick, -1.0)
+				if not _take_unit(at, fac, pick): _release_incoming(fac, pick, 1.0); pick = ""
+			if pick == "":
+				pick = _pick_pickup(at, fac)
+				if pick != "": _take_unit(at, fac, pick); _reserve_incoming(fac, pick, 1.0)
+			if pick != "": f.cargo = {pick: 1.0}; f.src = at
+		f.claim = ""; f.trip = "back"; f.dest = o; f.fetch = false
+		var rt := _travel_route(fac, at, o)
+		if rt.size() >= 2 and _end_ok(f, o): _reroute(f, rt)
+		else: _block(f, at)
+		return true
+	# home again: the courier is free
+	if at == hub: _release_incoming(fac, "bots", 1.0); _bank_put(fac, "bots", 1.0, "returned")
+	else: hosts[at].couriers = int(hosts[at].get("couriers", 0)) + 1
+	return false
+
+
+func _drop_unit(fac: int, at: int, res: String, f: Dictionary) -> void:   # a carried unit lands: the bank at the main node, storage elsewhere
+	if at == _hub(fac):
+		_release_incoming(fac, res, 1.0)
+		var src := int(f.get("src", -1))
+		var stolen := src >= 0 and src != at and int(hosts[src].owner) != fac
+		_add_bank(fac, res, 1.0, "stolen" if stolen else ("returned" if str(f.trip) == "back" and src == at else "delivered"))
+		if src >= 0 and src != at: _ledger_add(fac, "from", str(src), res, 1.0)
+		_delivered[fac] = int(_delivered.get(fac, 0)) + 1
+	else:
+		_inbound_add(at, res, -1.0)
+		if not (hosts[at].store as Dictionary).has(fac): hosts[at].store[fac] = {}
+		hosts[at].store[fac][res] = float((hosts[at].store[fac] as Dictionary).get(res, 0.0)) + 1.0   # its room was held on the way
+
+
+func _bank_put(fac: int, res: String, amt: float, cause: String) -> void:   # credit without the production cap (a returning courier's place was held)
+	if not bank.has(fac): return
+	bank[fac][res] = _avail(fac, res) + amt
+	_ledger_add(fac, "in", cause, res, amt)
 
 
 # ---- construction (producers / Firewall) ----
@@ -1485,7 +1792,7 @@ const SOCKET_TRIGGER := {"patch": "a capture, Worm or Vault raid starts here", "
 
 func _sockets(i: int) -> int: return FIREWALL_SOCKETS * maxi(0, _count_all(i, "wall") - _walls_building(i))
 func _socketable(recipe: String) -> bool: return SOCKET_TRIGGER.has(recipe)
-func _socket_free(i: int) -> bool: return (hosts[i].sockets as Array).size() < _sockets(i)
+func _socket_free(i: int) -> bool: return (hosts[i].sockets as Array).size() + int(hosts[i].get("socket_res", 0)) < _sockets(i)   # cards on their way hold theirs
 func _fw_live(i: int) -> bool: return _sockets(i) > 0 and bool(hosts[i].get("fw_on", true))
 
 
@@ -1652,14 +1959,17 @@ func _eliminate(fac: int) -> void:
 	if _ai.has(fac): _ai[fac].dead = true
 	research_job[fac] = {}
 	for L in (lanes.get(fac, []) as Array): L.recipe = ""; L.paid = {}; L.progress = 0.0
-	# accounting: committed couriers, incoming reservations, banks and inventory are all cleared
-	committed[fac] = 0.0; incoming[fac] = {}; cards[fac] = {}
+	# accounting: incoming reservations, banks and inventory are all cleared; its claims and piles elsewhere go too
+	incoming[fac] = {}; cards[fac] = {}
+	for h in hosts:
+		for field in ["claim", "loot"]: (h.get(field, {}) as Dictionary).erase(fac)
 	for res in RES: bank[fac][res] = 0.0
 	for i in hosts.size():
 		if int(hosts[i].owner) != fac: continue
 		hosts[i].owner = NEUTRAL; hosts[i].gen = int(hosts[i].get("gen", 0)) + 1
 		hosts[i].builds = _slot_array([], int(hosts[i].slots)); hosts[i].jobs = {}; hosts[i].store = {}; hosts[i].sockets = []
 		hosts[i].producer_paused = {}; hosts[i].rig = false
+		hosts[i].couriers = 0; hosts[i].claim = {}; hosts[i].inbound = {}; hosts[i].want = {}; hosts[i].socket_res = 0
 		_clear_effects(i)
 	flights = flights.filter(func(f): return int(f.owner) != fac)
 	_execs = _execs.filter(func(e): return int(e.fac) != fac)
@@ -1756,6 +2066,7 @@ func _process(dt: float) -> void:
 	if (won or lost) and not _end_shown:
 		_end_shown = true; _refresh_panel()
 	_hover_host = _host_at(get_local_mouse_position())
+	_hover_flight = _flight_at(get_local_mouse_position())
 	var view := _view_key()
 	_redraw_t += dt
 	var tick: bool = view != _last_view or (_redraw_t >= MAP_REFRESH and not paused and not won and not lost)
@@ -1791,8 +2102,9 @@ func _over_fast() -> bool:   # the over layer animates: a wire, card or box bein
 	if _camp and not menu_open and (_camp_target() >= 0 or _camp_from() >= 0): return true   # the campaign's pulsing cues (they beat through the reading pause)
 	if paused: return false
 	if not _fx.is_empty(): return true
+	if _hover_flight >= 0 or not _held_rects.is_empty(): return true
 	for fl in flights:
-		if str(fl.kind) == "card": return true
+		if str(fl.kind) == "op": return true
 	return false
 
 
@@ -1808,14 +2120,15 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (L
 	_worms = _worms.filter(func(x): return float(x.until) > _t)
 	_prune_res()
 	_route_memo = {}
+	_advance_flights()                            # 0) packets move on hop by hop; a taken or downed host stops them
 	if not won and not lost: _deliver_due()      # 1) settle due arrivals (may capture / eliminate)
 	_tick_jobs(dt)                                #    construction completions
 	_tick_research(dt)                            #    blueprint research
 	_tick_manufacture(dt)                         # 3) manufacturing lanes (manual, then repeat inside)
 	if not won and not lost: _tick_execs()        # 4) capture / raid / worm resolutions, after accepted defenses
 	_tick_production(dt)                          # 5) income, local credit, buffers
-	_tick_dispatch(dt)                            # 6) self-delivering Bots and courier cargo
-	_tick_siphons()                               #    Packet siphon turns couriers leaving its host
+	_tick_logistics()                             # 6) couriers leave with what there is to carry (siphons act as they leave hosts)
+	if _t >= _blocked_next: _blocked_next = _t + 0.5; _tick_blocked()   #    held packets look for a way on
 	_tick_effects(dt)                             #    phishing diversion expiry reverts undispatched output
 	_route_memo = null
 	if not won and not lost and not _ai_paused: _ai_tick(dt)
@@ -1847,6 +2160,9 @@ func _tick_effects(dt: float) -> void:
 
 func _revert_phish(i: int) -> void:   # the thief's unsent storage on this host goes back to the host owner
 	var owner := int(hosts[i].owner)
+	var claims: Dictionary = hosts[i].get("claim", {})   # couriers on their way for it find nothing and release their room themselves
+	for fac in claims.keys():
+		if int(fac) != owner: claims.erase(fac)
 	var store: Dictionary = hosts[i].store
 	for fac in store.keys():
 		if int(fac) == owner: continue
@@ -1868,50 +2184,27 @@ func _deliver_due() -> void:
 	due.sort_custom(func(a, b): return float(a.arrive_t) < float(b.arrive_t) if absf(float(a.arrive_t) - float(b.arrive_t)) > 0.0001 else int(a.id) < int(b.id))
 	for f in due:
 		if won or lost: break
-		_deliver(f)
+		if _deliver(f): flights.append(f)   # a courier going back keeps travelling
 
 
-func _route_intact(f: Dictionary) -> bool:   # every forwarding host still owned by the flight faction and able to forward
-	var rt: Array = f.route; var fac := int(f.owner)
-	for k in range(1, rt.size() - 1):
-		if int(hosts[int(rt[k])].owner) != fac or _routing_down(int(rt[k])): return false
-	return true
-
-
-func _deliver(f: Dictionary) -> void:
+func _deliver(f: Dictionary) -> bool:   # a packet reached the end of its route (every host on the way was checked as it left)
 	var fac := int(f.owner)
-	var kind := str(f.kind)
-	if kind == "op":
-		_op_land(fac, str(f.get("card", "")), int(f.get("target", -1)), int(f.get("gen", -1)), f)
-		return
-	var res := str(f.get("res", "bots"))
-	var home := int(rig.get(fac, -1))
-	var arrived := not _eliminated.has(fac) and home >= 0 and int(hosts[home].owner) == fac and _route_intact(f)
-	_release_incoming(fac, res, 1.0)
-	var src := int(f.get("src", -1))
-	if kind == "cargo":
-		var cause := "stolen" if bool(f.get("intercepted", false)) or bool(f.get("loot", false)) or (src >= 0 and int(hosts[src].owner) != fac) else "delivered"
-		if bool(f.get("keep", false)):            # a Bot-station courier: it joins your Bots with its cargo
-			_release_incoming(fac, "bots", 1.0)
-			if arrived:
-				_add_bank(fac, "bots", 1.0, cause)
-				if src >= 0: _ledger_add(fac, "from", str(src), "bots", 1.0)
-			else: _ledger_add(fac, "lost", "cargo", "bots", 1.0)
-		else: committed[fac] = maxf(0.0, float(committed.get(fac, 0.0)) - 1.0)   # a bank courier is used up either way
-		if arrived:
-			_add_bank(fac, res, 1.0, cause)
-			if src >= 0: _ledger_add(fac, "from", str(src), res, 1.0)   # per-host delivered output (host panel)
-			_delivered[fac] = int(_delivered.get(fac, 0)) + 1
-		else:
-			_ledger_add(fac, "lost", "cargo", res, 1.0)
-			if fac == PLAYER:
-				_flash("A %s shipment was lost — its route broke" % RES_NAME[res], 1)
-				_event("lostcargo", EV_ACT, "Shipments lost on the way home: a route broke under them.", src)
-	else:   # newbot: no courier; it either becomes an available Bot or is lost
-		if arrived:
-			_add_bank(fac, "bots", 1.0, "delivered")
-			if src >= 0: _ledger_add(fac, "from", str(src), "bots", 1.0)
-		else: _ledger_add(fac, "lost", "cargo", "bots", 1.0)
+	if _eliminated.has(fac): return false
+	match str(f.kind):
+		"op":
+			if bool(f.get("returning", false)): _card_back(f); return false
+			var recipe := _card_of(str(f.get("card", "")))
+			if CARDS.has(recipe) and _is_defense(recipe): _support_arrive(f); return false
+			_op_land(fac, recipe, int(f.get("target", -1)), int(f.get("gen", -1)), f)
+			return false
+		"courier": return _courier_arrive(f)
+	return false
+
+
+func _support_arrive(f: Dictionary) -> void:   # a defence card reached your host: it loads into its reserved socket or acts now
+	var fac := int(f.owner); var t := int(f.target)
+	if bool(f.get("load", false)): hosts[t].socket_res = maxi(0, int(hosts[t].get("socket_res", 0)) - 1)
+	_apply_support(fac, _card_of(str(f.card)), t)
 
 
 # ---- ownership change ----
@@ -1921,6 +2214,8 @@ func _capture(t: int, fac: int) -> void:
 	hosts[t].owner = fac; hosts[t].gen = int(hosts[t].get("gen", 0)) + 1
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # cleared: no salvage, the new owner develops empty slots
 	hosts[t].jobs = {}; hosts[t].store = {}; hosts[t].producer_paused = {}; hosts[t].sockets = []
+	hosts[t].couriers = 0; hosts[t].claim = {}; hosts[t].inbound = {}; hosts[t].want = {}; hosts[t].socket_res = 0   # its couriers and orders go with it
+	if _route_memo != null: _route_memo = {}   # routes through it change at once
 	_clear_effects(t)
 	if bool(hosts[t].get("rig", false)) and prev != NEUTRAL: hosts[t].rig = false   # a captured main node is an ordinary host
 	# any operation addressed to the old ownership generation is now invalid
@@ -1967,9 +2262,12 @@ func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, els
 	if t < 0 or t >= hosts.size(): return "no host selected"
 	if not rig.has(fac) or _eliminated.has(fac) or int(hosts[int(rig[fac])].owner) != fac: return "your main node is not under your control"
 	var defense := _is_defense(recipe)
-	if defense:
+	if defense:   # it travels from your main node, through your hosts, like every card
 		if int(hosts[t].owner) != fac: return "a support card needs one of your hosts"
-		return ""   # support is applied locally, even to an isolated or DDoSed host
+		if t == _hub(fac): return ""
+		if _routing_down(_hub(fac)): return "your main node's routing is cut"
+		if _travel_route(fac, _hub(fac), t).size() < 2: return "no route from your main node to that host"
+		return ""
 	if int(hosts[t].owner) == fac: return "an attack needs a foreign host"
 	var eff := str(CARDS[recipe].effect)
 	if eff == "vault" and int(hosts[t].owner) == NEUTRAL: return "Vault raid needs a rival's host"
@@ -2028,7 +2326,7 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 			lines.append(["Would hit, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
 		"siphon":
 			var res := siphon_res if RES.has(siphon_res) and siphon_res != "bots" else "cash"
-			lines.append(["On arrival, for %d s, up to %d %s couriers leaving or passing this host turn toward your main node." % [int(card.dur), int(card.cargo), RES_NAME[res]], C_TEXT])
+			lines.append(["On arrival, for %d s, %s couriers leaving or passing this host drop it there for yours (up to %d)." % [int(card.dur), RES_NAME[res], int(card.cargo)], C_TEXT])
 			if by_drag: lines.append(["A drag takes Crypto; choose another resource in the host's panel.", C_DIM])
 		"recon": lines.append(["On arrival, shows its installations, storage and Firewall cards; the snapshot is fresh for %d s." % int(card.dur), C_TEXT])
 	lines.append_array(_known_defences(fac, t, eff, arrive + ex))
@@ -2047,11 +2345,15 @@ func _chance_line(fac: int, t: int, recipe: String, resolve_in: float) -> Array:
 	return ["Chance: %d%% without fresh Recon. Recon this host first for full odds." % pct, C_WARN]
 
 
-func _support_preview(recipe: String, t: int) -> Array:   # a defence card on your own host: loaded into a socket, or used now
+func _support_preview(recipe: String, t: int) -> Array:   # a defence card on your own host: its trip, then loaded into a socket or used
 	var out := []
+	var hub := _hub(PLAYER)
+	var rt := _travel_route(PLAYER, hub, t) if hub >= 0 else []
+	var when := "on arrival" if t != hub else "at once"
+	if t != hub: out.append(["Travels from your main node: %d s." % int(ceil(_travel_time(rt))) if rt.size() >= 2 else "No route from your main node: it cannot get there.", C_DIM if rt.size() >= 2 else C_BAD])
 	if _socketable(recipe) and _socket_free(t) and not _trigger_now(recipe, t):
-		out.append(["Loads into the Firewall here; it fires when %s." % str(SOCKET_TRIGGER[recipe]), C_TEXT])
-	else: out.append(["Takes effect at once: %s" % str(CARDS[recipe].get("lead", CARDS[recipe].rules)), C_TEXT])
+		out.append(["Loads into the Firewall here %s; it fires when %s." % [when, str(SOCKET_TRIGGER[recipe])], C_TEXT])
+	else: out.append(["Takes effect %s: %s" % [when, str(CARDS[recipe].get("lead", CARDS[recipe].rules))], C_TEXT])
 	out.append(["The card is used only when you play it.", C_DIM])
 	return out
 
@@ -2177,7 +2479,14 @@ func _play_card(fac: int, key: String, t: int, res := "") -> bool:
 	cards[fac][recipe] = _held(fac, recipe) - 1
 	card_plays[fac] = int(card_plays.get(fac, 0)) + 1
 	if _is_defense(recipe):
-		_apply_support(fac, recipe, t)   # local, instant
+		var hub := _hub(fac)
+		if t == hub: _apply_support(fac, recipe, t)   # at the main node it acts at once
+		else:   # it travels there; a socket it will load is held for it on the way
+			var load := _socketable(recipe) and _socket_free(t) and not _trigger_now(recipe, t)
+			if load: hosts[t].socket_res = int(hosts[t].get("socket_res", 0)) + 1
+			var df := _schedule(_travel_route(fac, hub, t), _t, fac, "op", false, {"card": recipe, "target": t, "gen": int(hosts[t].gen), "load": load})
+			flights.append(df)
+			if fac == PLAYER: _flash("%s is on its way to %s — %s in %d s" % [str(CARDS[recipe].name), str(hosts[t].name), "loads its Firewall" if load else "acts", int(ceil(float(df.arrive_t) - _t))])
 	else:
 		var rt := [int(rig[fac])] if t == int(rig[fac]) else _attack_route(fac, t)
 		var extra := {"card": recipe, "target": t, "gen": int(hosts[t].gen)}
@@ -2216,6 +2525,7 @@ func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void
 					if float(hosts[h].get("filter_until", 0.0)) > _t: continue   # a Filter here: the flood is absorbed
 					if _fire_socket(h, "filter", what): _apply_filter(h)
 					else: hosts[h].ddos_until = _t + float(CARDS[recipe].dur)
+				if _route_memo != null: _route_memo = {}   # downed hosts forward nothing from now on
 		"sabotage":   # likewise one draw; each host's Response socket answers for itself
 			if not _op_roll(fac, t, recipe): _op_outcome(op, "missed")
 			else:
@@ -2400,9 +2710,16 @@ func _tick_events() -> void:   # every EV_POLL s of play: post, update and end t
 	if int(o.holder) >= 0 and int(o.holder) != PLAYER:
 		live["majority"] = true
 		_event("majority", EV_CRIT, "%s holds the majority: wins in %d s." % [fname(int(o.holder)), int(o.hold_left)], int(rig.get(int(o.holder), -1)), true, "%s lost the majority." % fname(int(o.holder)))
+	var held := {}   # your packets waiting at a host for a way on
+	for f in flights:
+		if bool(f.get("blocked", false)) and int(f.owner) == PLAYER: held[int(f.at)] = int(held.get(int(f.at), 0)) + 1
+	for i in held:
+		var key := "held:%d" % int(i)
+		live[key] = true
+		_event(key, EV_ACT, "%d of your packets wait at %s: the way on is cut." % [int(held[i]), str(hosts[int(i)].name)], int(i), true, "Your packets move on from %s." % str(hosts[int(i)].name))
 	var waiting := 0
-	for i in hosts.size():
-		if int(hosts[i].owner) == PLAYER and i != home: waiting += int(floor(_store_total(i)))
+	for i in hosts.size():   # output that only your main node's couriers can fetch
+		if int(hosts[i].owner) == PLAYER and i != home and _courier_cap(i) == 0: waiting += int(floor(_store_total(i)))
 	if waiting > 0 and _avail(PLAYER, "bots") - float(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)) < 1.0:
 		live["couriers"] = true
 		_event("couriers", EV_ACT, "Couriers held: your Bots are at the reserve (%d); %d units wait in storage." % [int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)), waiting], home, true, "Couriers are moving again.")
@@ -2594,75 +2911,28 @@ func _worm_next(fac: int, from: int, victim: int, seen: Array = []) -> int:   # 
 	return best
 
 
-func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the target and its nearest linked hosts; your couriers carry it home
+func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the target and its nearest linked hosts into a pile at t for fac
 	var victim := int(hosts[t].owner)
 	if victim == NEUTRAL or _eliminated.has(victim): return
-	var rt := _home_route(fac, t)
-	if rt.is_empty():
-		if fac == PLAYER: _flash("Vault raid on %s: no way home for the loot" % str(hosts[t].name), 1)
-		return
 	var card: Dictionary = CARDS.vault
 	var left := int(card.cargo)
-	var haulers := int(floor(maxf(0.0, _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))))
 	var took := 0
 	for h in _chain_hosts(t, int(card.reach), victim):
 		var store: Dictionary = hosts[int(h)].store
 		for owner_key in store.keys():
 			if int(owner_key) == fac: continue   # your own stolen goods waiting there stay yours
 			for res in RES:
-				var have := int(floor(float((store.get(owner_key, {}) as Dictionary).get(res, 0.0))))   # emptied entries disappear
-				var n := mini(mini(have, left), mini(haulers, int(floor(_room(fac, res)))))
-				for k in n:
-					_store_take(int(h), int(owner_key), res, 1.0)
-					_spend(fac, "bots", 1.0, "couriers"); committed[fac] = float(committed.get(fac, 0.0)) + 1.0
-					_reserve_incoming(fac, res, 1.0)
-					flights.append(_schedule(rt, _t, fac, "cargo", false, {"res": res, "payer": fac, "covered": false, "intercepted": false, "src": t, "loot": true}))
-				left -= n; haulers -= n; took += n
+				var have := int(floor(float((store.get(owner_key, {}) as Dictionary).get(res, 0.0)) + 0.0001))   # emptied entries disappear
+				var n := mini(have, left)
+				if n <= 0: continue
+				_store_take(int(h), int(owner_key), res, float(n))
+				_add_to(t, "loot", fac, res, float(n))   # it waits at the target for the raider's couriers (outside its storage)
+				left -= n; took += n
 	if took <= 0:
 		if fac == PLAYER: _flash("Vault raid on %s found nothing to carry" % str(hosts[t].name), 1)
 		return
-	if fac == PLAYER: _flash("Vault raid on %s: %d units returning" % [str(hosts[t].name), took], 0)
+	if fac == PLAYER: _flash("Vault raid on %s: %d units wait there for your couriers" % [str(hosts[t].name), took], 0)
 	elif victim == PLAYER: _flash("%s emptied your storage near %s: %d units taken" % [fname(fac), str(hosts[t].name), took], 2)
-
-
-# ---- Packet siphon: couriers of one resource leaving or passing a siphoned host turn for the thief's main node ----
-func _tick_siphons() -> void:
-	var taps := []
-	for i in hosts.size():
-		var sp: Dictionary = hosts[i].get("siphon", {})
-		if not sp.is_empty() and float(sp.get("until", 0.0)) > _t and int(sp.get("left", 0)) > 0: taps.append(i)
-	if taps.is_empty(): return
-	for idx in flights.size():
-		var f: Dictionary = flights[idx]
-		if str(f.kind) != "cargo" or bool(f.get("covered", false)): continue   # Courier cover: safe all the way
-		var rt: Array = f.route
-		for t in taps:
-			var sp: Dictionary = hosts[t].siphon
-			var thief := int(sp.by)
-			if int(f.owner) == thief or str(f.get("res", "")) != str(sp.res) or int(sp.left) <= 0: continue
-			var k := rt.find(t)
-			if k < 0 or k >= rt.size() - 1: continue                  # not on its way, or this is where it is going
-			var leaves := float(f.hops[k])                            # when it leaves the siphoned host
-			if leaves <= float(sp.get("since", 0.0)) or leaves > _t: continue
-			var src := int(f.get("src", -1))
-			if src >= 0 and int(hosts[src].owner) == int(f.owner) and _fire_socket(src, "cover", "Packet siphon"):
-				_apply_cover(src)
-				break
-			var back := _home_route(thief, t)
-			if back.is_empty(): continue
-			var victim := int(f.owner); var res := str(f.res)        # their courier and its cargo now head for you
-			var keep := bool(f.get("keep", false))
-			_release_incoming(victim, res, 1.0); _reserve_incoming(thief, res, 1.0)
-			_ledger_add(victim, "lost", "siphoned", res, 1.0)
-			if keep:                                                  # a Bot-station courier joins your Bots instead
-				_release_incoming(victim, "bots", 1.0); _reserve_incoming(thief, "bots", 1.0)
-			else:
-				committed[victim] = maxf(0.0, float(committed.get(victim, 0.0)) - 1.0)
-				committed[thief] = float(committed.get(thief, 0.0)) + 1.0
-			flights[idx] = _schedule(back, _t, thief, "cargo", false, {"res": res, "payer": victim, "covered": false, "intercepted": true, "src": t, "keep": keep})
-			sp.left = int(sp.left) - 1
-			if int(sp.left) == 0 and thief == PLAYER: _flash("Packet siphon on %s: full haul diverted" % str(hosts[t].name), 0)
-			break
 
 
 # ---- support cards (applied locally, instantly) ----
@@ -2698,7 +2968,7 @@ func _apply_filter(t: int) -> void: hosts[t].ddos_until = 0.0; hosts[t].filter_u
 func _apply_cover(t: int) -> void:   # Courier cover: this host's couriers in flight and new ones are safe from siphons
 	hosts[t].cover_until = _t + float(CARDS.cover.dur)
 	for f in flights:
-		if str(f.kind) == "cargo" and int(f.get("src", -1)) == t and int(f.owner) == int(hosts[t].owner): f.covered = true
+		if str(f.kind) == "courier" and int(f.origin) == t and int(f.owner) == int(hosts[t].owner): f.covered = true
 
 
 func _patch_cancel(_fac: int, t: int) -> bool:   # cancel the earliest-ending capture/raid executing on t; true if one was cancelled
@@ -3652,7 +3922,23 @@ func _apply_cmd(fac: int, c: Array) -> void:
 		"lane_cancel": if n == 2: _lane_cancel(fac, _int(c[1]))
 		"reserve": if n == 2: _do_set_reserve(fac, _int(c[1]))
 		"priority": if n == 2: _do_set_priority(fac, str(c[1]))
+		"want": if n == 4: _do_set_want(fac, _int(c[1]), str(c[2]), _int(c[3]))
 		"card": if n >= 3 and _host_ok(_int(c[2])) and str(c[1]) != "": _play_card(fac, str(c[1]), _int(c[2]), str(c[3]) if n >= 4 else "")
+
+
+const WANT_MAX := 6   # the most of one input a host may ask its main node to keep there
+
+
+func _set_want(i: int, res: String, n: int) -> void: _cmd(["want", i, res, n])
+
+
+func _do_set_want(fac: int, i: int, res: String, n: int) -> void:   # how much of an input this host keeps; the main node supplies the rest
+	if not _owns(fac, i) or i == _hub(fac) or not RES.has(res) or res == "bots": return
+	var v := clampi(n, 0, WANT_MAX)
+	if not hosts[i].has("want"): hosts[i].want = {}
+	if v == 0: (hosts[i].want as Dictionary).erase(res)
+	else: hosts[i].want[res] = float(v)
+	if fac == PLAYER: _refresh_panel()
 
 
 func _int(v: Variant) -> int:   # a JSON number (or anything else) as a building / slot index; garbage becomes -1
@@ -4027,12 +4313,14 @@ func _mp_end_turn() -> void:
 
 func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
 	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size()), str(_execs.size())])
+	for f in flights: parts.append("%d:%d:%d:%s" % [int(f.id), int(f.get("hop_i", 0)), int(f.get("dest", -1)), JSON.stringify(f.get("cargo", {}))])
 	for h in hosts:
 		parts.append("%d,%d,%s,%s,%s,%s,%d,%d" % [int(h.owner), int(h.gen), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.store), ",".join(PackedStringArray(h.sockets)), int(h.fw_on), int(round(float(h.cyc) * 30.0))])
 		parts.append("%d,%d,%d,%d,%d" % [roundi(float(h.get("ddos_until", 0.0)) * 100.0), roundi(float(h.get("sabot_until", 0.0)) * 100.0), int(h.get("steal_by", -1)), roundi(float(h.get("steal_until", 0.0)) * 100.0), roundi(float(h.get("express_until", 0.0)) * 100.0)])
+		parts.append("%d|%s|%s|%s|%s|%d" % [int(h.get("couriers", 0)), JSON.stringify(h.get("want", {})), JSON.stringify(h.get("claim", {})), JSON.stringify(h.get("inbound", {})), JSON.stringify(h.get("loot", {})), int(h.get("socket_res", 0))])
 	for fac in botnets:
 		for res in RES: parts.append(str(roundi(_avail(fac, res) * 1000.0)))
-		parts.append("%d:%d" % [roundi(float(committed.get(fac, 0.0)) * 100.0), int(bot_reserve.get(fac, BOT_RESERVE_DEFAULT))])
+		parts.append("%d" % int(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))
 		parts.append(JSON.stringify(incoming.get(fac, {})) + JSON.stringify(cards[fac]) + JSON.stringify(known.get(fac, {})) + JSON.stringify(research_job.get(fac, {})) + JSON.stringify(lanes.get(fac, [])))
 		var rec: Dictionary = recon.get(fac, {})
 		for t in rec: parts.append("r%d:%d:%d" % [int(t), roundi(float(rec[t].get("at", 0.0)) * 30.0), int(rec[t].get("gen", 0))])
@@ -5650,29 +5938,13 @@ func _cycle_preview(i: int) -> Dictionary:
 	for k in _cycle_kinds(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
 	out.bots = bots
 	if bots > 0:
-		if _st_local(i, benef): out["bots_in"] = _pv_add(S, i, benef, "bots", float(bots))
-		elif _routing_down(i): out.bots_why = "ddos"
-		elif _home_route(benef, i).is_empty(): out.bots_why = "route"
+		if _st_local(i, owner):
+			var held := _incoming(owner, "bots")   # as _add_bank: room is kept for the couriers out on trips
+			out["bots_in"] = minf(float(bots), maxf(0.0, _cap(owner, "bots") - _avail(owner, "bots") - held))
 		else:
-			var room := {}
-			for res in RES: room[res] = _room(benef, res)
-			var rr := int(hosts[i].get("ship_rr", 0))
-			var pri := str(ship_pri.get(benef, ""))
-			for b in bots:
-				var pick := ""
-				if pri != "" and float(S.st[benef][pri]) >= 1.0 and float(room[pri]) >= 1.0: pick = pri
-				else:
-					for k in RES.size():
-						var res: String = RES[(rr + k) % RES.size()]
-						if res == "bots": continue
-						if float(S.st[benef][res]) >= 1.0 and float(room[res]) >= 1.0:
-							pick = res; rr = (rr + k + 1) % RES.size(); break
-				if pick == "" and float(room.bots) < 1.0: out.unmade = int(out.unmade) + 1; continue
-				room.bots = float(room.bots) - 1.0
-				out.sent.append(pick)
-				if pick != "":
-					_pv_take(S, i, benef, pick, 1.0)
-					room[pick] = float(room[pick]) - 1.0
+			var room := _courier_cap(i) - int(hosts[i].get("couriers", 0)) - _couriers_out(owner, i)
+			out["couriers_made"] = clampi(room, 0, bots)
+			out.unmade = bots - int(out.couriers_made)
 	out["after"] = S.st[benef]
 	out["after_owner"] = S.st[owner]
 	return out
@@ -5755,7 +6027,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 		elif not bank_full.is_empty(): probs.append(["blocked", C_WARN, "Your %s bank is full: what is stored here waits." % " and ".join(bank_full)])
 		elif _store_total(i) >= 1.0 and spare < 1.0 and not _attack_route_none(owner, i):
 			probs.append(["waiting for couriers", C_WARN, waits + " Lower the reserve on your main node, or build a Bot station here."])
-	if int(pv.unmade) > 0: probs.append(["", C_DIM, "%d Bots will not be made: nothing to carry and your Bots bank is full." % int(pv.unmade)])
+	if int(pv.unmade) > 0 and not main: probs.append(["", C_DIM, "Its Bot stations rest: %d couriers is all this host keeps." % _courier_cap(i)])
 	if paused > 0: probs.append(["paused" if paused == producers else "", C_DIM, "%d producer%s paused by you." % [paused, "" if paused == 1 else "s"]])
 	for slot_key in (hosts[i].jobs as Dictionary):
 		var job: Dictionary = hosts[i].jobs[slot_key]
@@ -5791,13 +6063,7 @@ func _next_cycle_text(i: int, pv: Dictionary) -> String:   # what the next cycle
 	var bots := int(pv.bots)
 	if bots > 0:
 		if pv.has("bots_in"): parts.append("+%s Bots" % _amt(float(pv.bots_in)))
-		elif str(pv.bots_why) == "route": parts.append("%d Bots not made: no route home" % bots)
-		elif str(pv.bots_why) == "":
-			var carry := 0
-			for x in pv.sent:
-				if str(x) != "": carry += 1
-			var sent := (pv.sent as Array).size()
-			if sent > 0: parts.append("%d Bots carry %d home" % [sent, carry] if carry > 0 else "%d Bots fly home empty" % sent)
+		elif int(pv.get("couriers_made", 0)) > 0: parts.append("+%d couriers here" % int(pv.couriers_made))
 	if parts.is_empty(): return ""
 	return "Next cycle in %.1f s: %s" % [maxf(0.0, float(hosts[i].get("cyc", PROD_CYCLE))), " · ".join(parts)]
 
@@ -5839,8 +6105,8 @@ func _delivery_lines(i: int) -> Array:   # [[text, colour]] for a remote host: r
 	var lines := []
 	var route := _route_home_line(i)
 	lines.append([route, C_BAD if route.ends_with("none") else C_DIM])
-	if _count_all(i, "bot") > 0: lines.append(["Delivery: Bots from the stations here carry 1 unit each and join your Bots; the rest waits for bank couriers.", C_DIM])
-	else: lines.append(["Delivery: bank couriers fetch each unit; each uses up 1 Bot from your bank.", C_DIM])
+	if _courier_cap(i) > 0: lines.append(["Delivery: this host's couriers (%d here, %d out) carry its output home and come back." % [int(hosts[i].get("couriers", 0)), _couriers_out(owner, i)], C_DIM])
+	else: lines.append(["Delivery: couriers from your main node collect its output, 1 unit each, and come back.", C_DIM])
 	lines.append([_store_text(i), C_WARN if _store_total(i) >= STORE_CAP - 0.5 else C_DIM])
 	var got := _host_delivered(owner, i)
 	var parts := []
@@ -5974,7 +6240,7 @@ func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, f
 func _panel_logistics() -> void:   # the main node's shipping controls: Bots reserve and shipping priority
 	_gap(4.0)
 	_plabel("Logistics", 16, C_TEXT)
-	_plabel("Committed couriers: %d · reserve keeps Bots for operations" % int(committed.get(PLAYER, 0.0)), 12, C_DIM)
+	_plabel("Couriers out on trips: %d · the reserve keeps Bots home for Vault raids" % _couriers_out(PLAYER, _hub(PLAYER)), 12, C_DIM)
 	var rrow := []
 	for choice in BOT_RESERVE_CHOICES:
 		rrow.append(["Reserve %d" % choice, _set_reserve.bind(choice), int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)) != choice])
@@ -6102,7 +6368,7 @@ func _hud_items() -> Array:   # [kind-icon, text, colour, column width]
 		var kind := str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])
 		var inc := _incoming(PLAYER, res)
 		var txt := "%d/%d" % [int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]
-		if res == "bots" and float(committed.get(PLAYER, 0.0)) > 0.5: txt += " (+%d)" % int(committed[PLAYER])
+		if res == "bots" and _couriers_out(PLAYER, _hub(PLAYER)) > 0: txt += " (+%d out)" % _couriers_out(PLAYER, _hub(PLAYER))
 		elif inc > 0.5: txt += " ↓%d" % int(inc)
 		var col := C_WARN if _res_full(res) else C_TEXT
 		out.append([kind, txt, col, 150.0, res])
@@ -6173,7 +6439,7 @@ func _panel_economy() -> void:
 			BUILD_KINDS[str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col)
 		for line in _econ_lines(res).slice(1): _plabel(str(line), 12, C_DIM)
 	_gap(4.0)
-	_plabel("Bots: Bot stations' couriers join your Bots on arrival; a courier sent from your bank is used up.", 12, C_DIM)
+	_plabel("Bots are your couriers. They carry 1 unit a trip and come back; none are used up.", 12, C_DIM)
 	_plabel("E or Esc closes this view.", 11, C_DIM)
 
 
@@ -6366,39 +6632,31 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, roads, wires
 func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jumps (they pass UNDER the buildings)
 	var sight: Dictionary = cx.sight; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
-	for fl in flights:   # packets: yours = circle, other botnets = square in their colour, Cash = diamond
+	for fl in flights:   # yours: a courier is a dot in its cargo's colour (a ring when it travels empty) with an arrow; a rival's is a square
 		if not _flight_seen(fl, sight): continue
+		if str(fl.kind) == "op":   # a card: its remaining path dashed in its family's colour (the card is drawn above the buildings)
+			if int(fl.owner) == PLAYER and not bool(fl.get("blocked", false)): _paint_card_path(fl, vt)
+			continue
+		if bool(fl.get("blocked", false)): continue   # held packets are counted on their host's "held" tag (_paint_held)
 		var pp := _packet_pos(fl, vt)
-		var endn := int((fl.route as Array)[(fl.route as Array).size() - 1])
+		var endn := int(fl.get("dest", (fl.route as Array)[(fl.route as Array).size() - 1]))
 		var threat: bool = int(fl.owner) != PLAYER and _mine(endn)
 		var ba: float = 1.0 if (not focus_on or fnodes.has(endn) or threat) else 0.3
-		if fl.has("lost"): ba *= clampf((float(fl.arrive_t) - vt) / (0.5 * LINK_TIME), 0.0, 1.0)   # lost on the way: it fades out mid-link
 		var fc := fcol(int(fl.owner))
 		if str(fl.kind) == "scan":
 			if int(fl.owner) == PLAYER: _cv.draw_arc(pp, 3.5, 0.0, TAU, 12, Color(0.6, 0.95, 1.0, ba), 1.5, true)   # a quiet scan: only you see it
 			continue
-		if str(fl.kind) == "card":   # a card in flight: its remaining path dashed in its colour (the packet itself is drawn above the buildings)
-			var cc: Color = FAMILY_COL[str(CARDS[_card_of(str(fl.get("card", "phishworm:linked")))].fam)]
-			var rt: Array = fl.route; var hops: Array = fl.hops
-			var nxt := rt.size() - 1
-			for k in hops.size():
-				if vt < float(hops[k]) + LINK_TIME: nxt = k + 1; break
-			var path := [pp]
-			for k in range(nxt, rt.size()): path.append(hosts[int(rt[k])].pos)
-			var theirs: bool = int(fl.owner) != PLAYER
-			for k in range(path.size() - 1):
-				if theirs and not (sight.has(int(rt[nxt + k])) and (k == 0 or sight.has(int(rt[nxt + k - 1])))): continue   # never through fog
-				var a2: Vector2 = path[k]; var b2: Vector2 = path[k + 1]
-				var ln := a2.distance_to(b2); var dir := (b2 - a2) / maxf(ln, 0.001); var d := 0.0
-				while d < ln:
-					_cv.draw_line(a2 + dir * d, a2 + dir * minf(d + 6.0, ln), Color(cc.r, cc.g, cc.b, 0.5), 1.2, true)
-					d += 11.0
+		if int(fl.owner) != PLAYER:   # a rival's courier: you see it pass, not what it carries
+			_cv.draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(fc.r, fc.g, fc.b, ba).lightened(0.25), true)
 			continue
-		if str(fl.kind) == "cash":
-			var c := Color(1, 0.9, 0.3, ba) if int(fl.owner) == PLAYER else Color(fc.r, fc.g, fc.b, ba).lightened(0.3)
-			_cv.draw_colored_polygon(PackedVector2Array([pp + Vector2(0, -4), pp + Vector2(4, 0), pp + Vector2(0, 4), pp + Vector2(-4, 0)]), c)
-		elif int(fl.owner) == PLAYER: _cv.draw_circle(pp, 3.5, Color(0.5, 1, 0.7, ba))
-		else: _cv.draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(fc.r, fc.g, fc.b, ba).lightened(0.25), true)
+		var res := _cargo_res(fl)
+		var col := _res_col(res) if res != "" else COURIER_COL
+		if res != "": _cv.draw_circle(pp, 3.8, Color(col, ba))
+		else: _cv.draw_arc(pp, 3.2, 0.0, TAU, 12, Color(col, 0.85 * ba), 1.4, true)
+		var dir := _flight_dir(fl, vt)
+		if dir != Vector2.ZERO:   # which way it is going
+			var perp := Vector2(-dir.y, dir.x)
+			_cv.draw_colored_polygon(PackedVector2Array([pp + dir * 9.0, pp + dir * 5.0 + perp * 3.0, pp + dir * 5.0 - perp * 3.0]), Color(col, 0.9 * ba))
 	for w in _worms:   # a worm's jumps: a bold trail, a pulse racing to the newly-infected building, a ring on it
 		if not (sight.has(int(w.a)) or sight.has(int(w.b))): continue
 		var wa := clampf((float(w.until) - _t) / 4.0, 0.0, 1.0)
@@ -6424,13 +6682,31 @@ func _paint_nodes(cx: Dictionary) -> void:   # the buildings: pictograms, frames
 func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focus rings, connect / drag / card-aim guides, box select
 	var f: Font = cx.f; var sight: Dictionary = cx.sight; var vt: float = cx.vt; var aim: int = cx.aim; var focus_on: bool = cx.focus_on
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
-	for fl in flights:   # card packets ride above everything: a glowing card shape in the family's colour
-		if str(fl.kind) != "card" or not _flight_seen(fl, sight): continue
+	var names := []   # [screen position, text, colour]: your cards' names, written after the world-space shapes
+	for fl in flights:   # cards ride above everything: a card shape in its family's colour (a rival's in its own colour, unnamed)
+		if str(fl.kind) != "op" or not _flight_seen(fl, sight) or bool(fl.get("blocked", false)): continue
 		var pp2 := _packet_pos(fl, vt)
-		var cc2: Color = FAMILY_COL[str(CARDS[_card_of(str(fl.get("card", "phishworm:linked")))].fam)]
-		_cv.draw_circle(pp2, 11.0, Color(cc2.r, cc2.g, cc2.b, 0.25))
+		var yours := int(fl.owner) == PLAYER
+		var cc2: Color = FAMILY_COL[str(CARDS[_card_of(str(fl.card))].fam)] if yours else fcol(int(fl.owner)).lightened(0.2)
+		var hot := int(fl.id) == _hover_flight
+		_cv.draw_circle(pp2, 13.0 if hot else 11.0, Color(cc2.r, cc2.g, cc2.b, 0.25))
 		_cv.draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), cc2, true)
 		_cv.draw_rect(Rect2(pp2 - Vector2(5.0, 7.0), Vector2(10, 14)), Color(1, 1, 1, 0.95), false, 1.2)
+		if yours: names.append([_w2s(pp2), ("Back: " if bool(fl.get("returning", false)) else "") + str(CARDS[_card_of(str(fl.card))].name), cc2])
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var placed := []
+	for nm in names:   # on a dark backing below-right of the card; cards waiting together stack their names
+		var tw := _text_w(f, str(nm[1]), 12)
+		var tb := Rect2((nm[0] as Vector2) + Vector2(9.0, 4.0), Vector2(tw + 8.0, 16.0))
+		var guard := 0
+		while guard < 12 and placed.any(func(r): return (r as Rect2).intersects(tb)):
+			tb.position.y += 17.0; guard += 1
+		placed.append(tb)
+		_cv.draw_rect(tb, Color(0.03, 0.05, 0.08, 0.88), true)
+		_text(_cv, f, tb.position + Vector2(4.0, 12.5), str(nm[1]), 12, (nm[2] as Color).lightened(0.35))
+	_paint_link_loads(f, sight, vt)
+	_paint_held(f, sight)
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 	for x in _fx:   # a card landed: an expanding frame in the caster's colour
 		if not sight.has(int(x.host)): continue
 		var rem := clampf((float(x.until) - _t) / 3.0, 0.0, 1.0)
@@ -6456,6 +6732,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 	_paint_route_tag(f)
 	_paint_drag_preview(f)
 	if _camp: _paint_camp_guide(f)
+	_paint_flight_tip(f)
 
 
 func _picked() -> int:   # the one host whose panel is open: your selected host, or the foreign host you inspect
@@ -6582,6 +6859,159 @@ func _flight_seen(fl: Dictionary, sight: Dictionary) -> bool:   # _flight_visibl
 	if str(fl.kind) == "scan": return false
 	var seg := _flight_segment(fl, _t)
 	return sight.has(seg.x) or sight.has(seg.y)
+
+
+const COURIER_COL := Color(0.5, 1.0, 0.7)   # an empty courier of yours
+func _cargo_res(fl: Dictionary) -> String:   # what a courier carries ("" when it travels empty)
+	var cg: Dictionary = fl.get("cargo", {})
+	return "" if cg.is_empty() else str(cg.keys()[0])
+
+
+func _res_col(res: String) -> Color: return BUILD_KINDS[_COST_ICON[res]].col
+
+
+func _flight_dir(fl: Dictionary, now: float) -> Vector2:   # the way a packet is heading on its current link (zero while it waits)
+	var seg := _flight_segment(fl, now)
+	if seg.x == seg.y: return Vector2.ZERO
+	return ((hosts[seg.y].pos as Vector2) - (hosts[seg.x].pos as Vector2)).normalized()
+
+
+func _paint_card_path(fl: Dictionary, vt: float) -> void:   # world space: the rest of your card's way, dashed in its family's colour
+	var cc: Color = FAMILY_COL[str(CARDS[_card_of(str(fl.card))].fam)]
+	var rt: Array = fl.route; var hops: Array = fl.hops
+	var nxt := rt.size() - 1
+	for k in hops.size():
+		if vt < float(hops[k]) + float(fl.get("lt", LINK_TIME)): nxt = k + 1; break
+	var path := [_packet_pos(fl, vt)]
+	for k in range(nxt, rt.size()): path.append(hosts[int(rt[k])].pos)
+	for k in range(path.size() - 1):
+		var a2: Vector2 = path[k]; var b2: Vector2 = path[k + 1]
+		var ln := a2.distance_to(b2); var dir := (b2 - a2) / maxf(ln, 0.001); var d := 0.0
+		while d < ln:
+			_cv.draw_line(a2 + dir * d, a2 + dir * minf(d + 6.0, ln), Color(cc.r, cc.g, cc.b, 0.5), 1.2, true)
+			d += 11.0
+
+
+func _paint_link_loads(f: Font, sight: Dictionary, vt: float) -> void:   # screen space: on each link your couriers cross, what and how many, which way
+	var loads := {}   # Vector2i(from, to) -> {res: units} ("" = empty couriers)
+	for fl in flights:
+		if str(fl.kind) != "courier" or int(fl.owner) != PLAYER or bool(fl.get("blocked", false)): continue
+		var seg := _flight_segment(fl, vt)
+		if seg.x == seg.y: continue
+		if not loads.has(seg): loads[seg] = {}
+		var res := _cargo_res(fl)
+		loads[seg][res] = int((loads[seg] as Dictionary).get(res, 0)) + 1
+	for seg in loads:
+		var a := _w2s(hosts[(seg as Vector2i).x].pos); var b := _w2s(hosts[(seg as Vector2i).y].pos)
+		if a.distance_to(b) < 90.0 or not (sight.has((seg as Vector2i).x) or sight.has((seg as Vector2i).y)): continue   # too short to label
+		var dir := (b - a).normalized(); var perp := Vector2(-dir.y, dir.x)
+		var at := a.lerp(b, 0.5) + perp * 12.0   # each direction on its own side of the link
+		var parts: Array = []
+		for res in RES:
+			if (loads[seg] as Dictionary).has(res): parts.append([res, int(loads[seg][res])])
+		if (loads[seg] as Dictionary).has(""): parts.append(["", int(loads[seg][""])])
+		var w := 14.0
+		for pr in parts: w += 26.0 + _text_w(f, str(pr[1]), 11)
+		var box := Rect2(at.x - w * 0.5, at.y - 8.0, w, 16.0)
+		_cv.draw_rect(box, Color(0.03, 0.05, 0.08, 0.82), true)
+		var c0 := box.position + Vector2(7.0, 8.0)   # the arrow: which way this load is going
+		_cv.draw_colored_polygon(PackedVector2Array([c0 + dir * 4.5, c0 - dir * 3.0 + perp * 3.5, c0 - dir * 3.0 - perp * 3.5]), C_DIM)
+		var x := box.position.x + 14.0
+		for pr in parts:
+			var res := str(pr[0])
+			if res == "": _cv.draw_arc(Vector2(x + 6.0, at.y), 3.2, 0.0, TAU, 12, COURIER_COL, 1.4, true)
+			else: _draw_kind_icon(_cv, _COST_ICON[res], Vector2(x + 6.0, at.y), 11.0, _res_col(res), f)
+			_text(_cv, f, Vector2(x + 13.0, at.y + 4.0), str(pr[1]), 11, C_TEXT)
+			x += 26.0 + _text_w(f, str(pr[1]), 11)
+
+
+func _paint_held(f: Font, sight: Dictionary) -> void:   # screen space: a red tag on each host where your packets wait for a way on
+	_held_rects = {}
+	var n := {}
+	for fl in flights:
+		if bool(fl.get("blocked", false)) and int(fl.owner) == PLAYER: n[int(fl.at)] = int(n.get(int(fl.at), 0)) + 1
+	for i in n:
+		var p := _w2s(hosts[int(i)].pos); var r := maxf(16.0, _r(int(i)) * _zoom)
+		var txt := "%d held" % int(n[i])
+		var w := _text_w(f, txt, 12) + 24.0
+		var box := Rect2(p.x + r * 0.6, p.y - r - 4.0, w, 18.0)
+		_cv.draw_rect(box, Color(0.12, 0.03, 0.03, 0.92), true); _cv.draw_rect(box, C_BAD, false, 1.5)
+		_cv.draw_texture_rect(UiIcons.texture("pause", 12), Rect2(box.position + Vector2(5.0, 3.0), Vector2(12, 12)), false, C_BAD)
+		_text(_cv, f, box.position + Vector2(20.0, 13.5), txt, 12, C_BAD)
+		_held_rects[int(i)] = box
+
+
+func _flight_at(mouse: Vector2) -> int:   # the id of your (or a visible) moving packet under the mouse, -1 if none
+	if menu_open or flights.is_empty(): return -1
+	var vt := _t + minf(_sim_acc, SIM_DT)
+	var best := -1; var bd := 11.0
+	for fl in flights:
+		if bool(fl.get("blocked", false)) or str(fl.kind) == "scan" or not _flight_visible(PLAYER, fl): continue
+		var d := _w2s(_packet_pos(fl, vt)).distance_to(mouse)
+		if d < bd: bd = d; best = int(fl.id)
+	return best
+
+
+func _flight_lines(fl: Dictionary) -> Array:   # what the details beside a packet say
+	var out := []
+	var eta := maxf(0.0, float(fl.arrive_t) - _t)
+	var dest := int(fl.get("dest", -1))
+	var dname := str(hosts[dest].name) if _host_ok(dest) and _visible_to(PLAYER, dest) else "a host you cannot see"
+	if int(fl.owner) != PLAYER:
+		out.append("%s %s" % [fname(int(fl.owner)), "operation" if str(fl.kind) == "op" else "courier"])
+		out.append("Heading to " + dname)
+		return out
+	if str(fl.kind) == "op":
+		var recipe := _card_of(str(fl.card))
+		out.append("%s → %s" % [str(CARDS[recipe].name), str(hosts[int(fl.target)].name)])
+		if bool(fl.get("returning", false)): out.append("Coming back to your hand (%ds)" % ceili(eta))
+		elif bool(fl.get("blocked", false)): out.append("Held at %s: the way on is cut" % str(hosts[int(fl.at)].name))
+		else:
+			out.append("Arrives in %ds" % ceili(eta))
+			if _is_defense(recipe): out.append("Loads a Firewall socket on arrival" if bool(fl.get("load", false)) else "Acts on arrival")
+			elif recipe != "recon":
+				var c := _op_chance(PLAYER, int(fl.target), recipe, float(fl.arrive_t))
+				out.append("Chance: full (scouted)" if c >= 1.0 else "Chance: %d%% (unscouted)" % int(round(c * 100.0)))
+		return out
+	var res := _cargo_res(fl)
+	var origin := int(fl.origin)
+	out.append("Courier of %s" % ("your main node" if origin == _hub(PLAYER) else str(hosts[origin].name)))
+	if bool(fl.get("blocked", false)): out.append("Held at %s: the way on is cut" % str(hosts[int(fl.at)].name))
+	if str(fl.trip) == "out":
+		if res != "": out.append("Carrying 1 %s to %s" % [str(RES_NAME[res]), dname])
+		elif bool(fl.get("fetch", false)): out.append("Going to the main node for supplies")
+		else: out.append("Going to collect from " + dname)
+	else: out.append(("Bringing 1 %s home" % str(RES_NAME[res])) if res != "" else "Coming home empty")
+	if not bool(fl.get("blocked", false)): out.append("Arrives in %ds" % ceili(eta))
+	return out
+
+
+func _paint_flight_tip(f: Font) -> void:   # screen space: the details of the packet (or held packets) under the mouse
+	var lines := []
+	var mouse := get_local_mouse_position()
+	if _hover_flight >= 0:
+		for fl in flights:
+			if int(fl.id) == _hover_flight: lines = _flight_lines(fl); break
+	else:
+		for i in _held_rects:
+			if not (_held_rects[i] as Rect2).has_point(mouse): continue
+			for fl in flights:
+				if bool(fl.get("blocked", false)) and int(fl.owner) == PLAYER and int(fl.at) == int(i):
+					var l := _flight_lines(fl)
+					lines.append(str(l[0]) + (" · " + str(l[1]) if l.size() > 1 and str(l[0]).begins_with("Courier") and not str(l[1]).begins_with("Held") else ""))
+			if not lines.is_empty(): lines.push_front("Held at %s: the way on is cut" % str(hosts[int(i)].name))
+			break
+	if lines.is_empty(): return
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var w := 0.0
+	for l in lines: w = maxf(w, _text_w(f, str(l), 13))
+	var box := Rect2(mouse + Vector2(16.0, 12.0), Vector2(w + 18.0, 8.0 + 18.0 * lines.size()))
+	var view := get_viewport_rect().size
+	if box.end.x > view.x - 8.0: box.position.x = mouse.x - 16.0 - box.size.x
+	if box.end.y > view.y - 8.0: box.position.y = mouse.y - 12.0 - box.size.y
+	_cv.draw_rect(box, Color(0.03, 0.05, 0.08, 0.95), true); _cv.draw_rect(box, Color(0.35, 0.55, 0.7, 0.9), false, 1.0)
+	for k in lines.size(): _text(_cv, f, box.position + Vector2(9.0, 18.0 + 18.0 * k), str(lines[k]), 13, C_TEXT if k == 0 else C_DIM)
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 
 
 func _draw_ghost(f: Font, i: int) -> void:   # a host you saw before but cannot see now: a dim outline — no owner, no bots

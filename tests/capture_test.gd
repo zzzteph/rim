@@ -209,17 +209,16 @@ func same_step_competition() -> void:
 		"same step: the earlier-launched capture wins, the other is stopped as owner-changed, never captured twice (%s)" % str(res))
 
 
-func same_step_manual_patch() -> void:
+func same_step_manual_patch() -> void:   # a Patch played on the main node acts at once (elsewhere it has to travel there first)
 	fresh()
-	var h := soft_neighbour(P)
-	g._capture(h, P)
+	var h: int = int(g.rig[P])
 	var rv := soft_neighbour(R)
 	g._capture(rv, R)   # the rival needs a foothold for the exec bookkeeping; reachability is not reached
 	g._execs.append({"id": 9100, "fac": R, "card": "breach", "effect": "capture", "target": h, "gen": int(g.hosts[h].gen), "ends": g._t + g.SIM_DT * 0.5, "stage": 1})
 	g.cards[P] = {"patch": 1}
 	g._apply_cmd(P, ["card", "patch", h])   # accepted before the step in which the intrusion would complete
 	step(g.SIM_DT * 2.0)
-	check(int(g.hosts[h].owner) == P and outcomes_for(h) == ["countered"], "A manual Patch applied for that step resolves before the intrusion completes (%s)" % str(outcomes_for(h)))
+	check(int(g.hosts[h].owner) == P and outcomes_for(h) == ["countered"], "A manual Patch on the main node, played for that step, resolves before the intrusion completes (%s)" % str(outcomes_for(h)))
 
 
 func worm_stages() -> void:
@@ -269,8 +268,7 @@ func worm_stages() -> void:
 	until(func(): return g._execs.any(func(e): return str(e.effect) == "worm" and int(e.stage) == 2), 40.0)
 	var st2: Array = g._execs.filter(func(e): return str(e.effect) == "worm" and int(e.stage) == 2)
 	var second := int(st2[0].target) if not st2.is_empty() else -1
-	g.cards[R] = {"patch": 1}
-	g._apply_cmd(R, ["card", "patch", second])
+	g.hosts[second].patch_armed_until = g._t + 30.0   # a Patch armed on the second host
 	step(float(g.CARDS.worm.exec) + 1.0)
 	check(int(g.hosts[a].owner) == P and second >= 0 and int(g.hosts[second].owner) == R and outcomes_for(second) == ["countered"],
 		"worm: a Patch on stage 2 stops only that stage; stage 1's capture stands")

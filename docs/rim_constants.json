@@ -30,7 +30,7 @@
           "cash": 4.0
         },
         "cap": 50.0,
-        "desc": "Every 5 s sends 2 new Bots home, each carrying 1 unit from this host. They join your Bots."
+        "desc": "Makes 2 couriers every 5 s. A host keeps 4 per station; at your main node they join your Bots."
       },
       "cash": {
         "name": "Crypto miner",
@@ -217,7 +217,7 @@
         },
         "make_time": 12.0,
         "lead": "Divert new output for 60 s.",
-        "rules": "Everything a rival host makes goes to you, its Bot stations' couriers too. They keep the host but get nothing from it. Incident response ends it."
+        "rules": "What a rival host makes is kept there for you, and your couriers collect it. They keep the host and its couriers but get nothing from it. Incident response ends it."
       },
       "siphon": {
         "name": "Packet siphon",
@@ -237,7 +237,7 @@
         },
         "make_time": 12.0,
         "lead": "Hijack couriers crossing a host.",
-        "rules": "Pick a resource. For 30 s, their couriers carrying it that leave or pass this host bring it to you instead, up to 30. Best on a host their deliveries cross. Courier cover protects cargo."
+        "rules": "Pick a resource. For 30 s, their couriers carrying it that leave or pass this host drop it there for your couriers, up to 30. Best on a host their deliveries cross. Courier cover protects cargo."
       },
       "vault": {
         "name": "Vault raid",
@@ -258,7 +258,7 @@
         },
         "make_time": 16.0,
         "lead": "Empty the storage of 3 linked hosts.",
-        "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Each unit rides home on one of your Bots. A Patch stops it."
+        "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your couriers collect it from there. A Patch stops it."
       },
       "ddos": {
         "name": "DDoS",
@@ -765,6 +765,8 @@
     ],
     "BOT_RESERVE_DEFAULT": 10,
     "SHIP_PRIORITY_TURNS": 2,
+    "COURIERS_PER_STATION": 4,
+    "CARD_GIVE_UP": 20.0,
     "LINK_TIME": 1.0,
     "NODE_ROUTE_DELAY": 0.25,
     "LINK_CAP": 8,

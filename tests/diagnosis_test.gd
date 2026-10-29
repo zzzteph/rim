@@ -78,15 +78,15 @@ func sent_of(from: int) -> Array:
 	return out
 
 
-func compare(i: int, label: String) -> void:   # the preview, then the real cycle: same storage after, same Bots sent
+func compare(i: int, label: String) -> void:   # the preview, then the real cycle: same storage after, same couriers made
 	var pv: Dictionary = g._cycle_preview(i)
-	var nf: int = g.flights.size()
+	var c0: int = int(g.hosts[i].get("couriers", 0))
 	g._run_cycle(i)
 	var benef: int = int(pv.benef)
 	var worst := 0.0
 	for res in g.RES: worst = maxf(worst, absf(float(g._st_get(i, benef, res)) - float(pv.after[res])))
-	var sent := sent_of(nf)
-	check(worst < 0.001 and sent == (pv.sent as Array), "Preview = cycle: %s (gap %.4f, sent %s vs %s)" % [label, worst, str(sent), str(pv.sent)])
+	var made: int = int(g.hosts[i].get("couriers", 0)) - c0
+	check(worst < 0.001 and made == int(pv.get("couriers_made", 0)), "Preview = cycle: %s (gap %.4f, couriers made %d vs %d)" % [label, worst, made, int(pv.get("couriers_made", 0))])
 
 
 func preview_matches_cycle() -> void:
@@ -101,7 +101,7 @@ func preview_matches_cycle() -> void:
 	n = own_pc(["bot", "intel", "cash"], 0)
 	g.hosts[n].store = {P: {"creds": 2.0, "research": 1.0}}
 	g.ship_pri[P] = "research"
-	compare(n, "station carrying stored units, Research first")
+	compare(n, "a station making couriers for its host")
 	g.ship_pri[P] = ""
 	n = own_pc(["intel", "intel"], 0)
 	g.hosts[n].store = {P: {"intel": 9.0}}
@@ -213,8 +213,9 @@ func delivered_per_host() -> void:
 	var n := own_pc(["bot", "intel", "cash"])
 	step(45.0)
 	var got: Dictionary = g._host_delivered(P, n)
-	var cash := float(got.get("cash", 0.0)); var bots := float(got.get("bots", 0.0))
-	check(absf(cash - 12.0) <= 2.5 and absf(bots - 24.0) <= 4.5, "Delivered from this host: %.1f Crypto/min (12) and %.1f Bots/min (24)" % [cash, bots])
+	var cash := float(got.get("cash", 0.0)); var intel := float(got.get("intel", 0.0))
+	check(absf(cash - 12.0) <= 2.5 and absf(intel - 12.0) <= 2.5, "Delivered from this host: %.1f Crypto/min (12) and %.1f Intel/min (12)" % [cash, intel])
+	check(int(g.hosts[n].couriers) + g._couriers_out(P, n) == g._courier_cap(n), "Its station's couriers stay its own: %d of %d, at home or on a trip" % [int(g.hosts[n].couriers) + g._couriers_out(P, n), g._courier_cap(n)])
 	var lines: Array = g._delivery_lines(n)
 	var txt := ""
 	for l in lines: txt += str(l[0]) + "\n"

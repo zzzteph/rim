@@ -294,13 +294,14 @@ def hosttypes():
 def ch(d):
     return chips({k: v for k, v in d.items() if v})
 LAYOUTS = [
-    ("Bot station + Intel harvester + Miner", "2 Intel → 1 Intel + 1 Crypto; 2 Bots", "both units, by the station's Bots", {"bots": 24, "intel": 12, "cash": 12}),
-    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 Bots", "both units, by the station's Bots", {"bots": 24, "intel": 12, "creds": 12}),
-    ("Intel harvester + Miner + Lab (Research host)", "2 Intel → 1 Crypto → with 1 Intel, 1 Research", "1 unit by a bank courier (used up)", {"bots": -12, "research": 12}),
-    ("Bot station + 2 Intel harvesters", "4 Intel; 2 Bots", "2 by the station, 2 by bank couriers", {"intel": 48}),
-    ("Intel harvester + Miner + Cred. harvester (no station)", "1 Crypto + 1 Credential", "2 units by bank couriers", {"bots": -24, "cash": 12, "creds": 12}),
-    ("Bot station alone (IoT device)", "2 Bots", "they walk home", {"bots": 24}),
-    ("Database: station + harvester + 2 Cred. harvesters", "4 Intel → 1 Intel + 3 Credentials; 2 Bots", "2 by the station, 2 by bank couriers", {"intel": 12, "creds": 36}),
+    ("Bot station + Intel harvester + Miner", "2 Intel → 1 Intel + 1 Crypto; couriers for this host (up to 4)", "both units, by the host's own couriers", {"intel": 12, "cash": 12}),
+    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; couriers for this host", "both units, by the host's own couriers", {"intel": 12, "creds": 12}),
+    ("Intel harvester + Miner + Lab (Research host)", "2 Intel → 1 Crypto → with 1 Intel, 1 Research", "1 unit by a main-node courier (it comes back)", {"research": 12}),
+    ("Bot station + 2 Intel harvesters", "4 Intel; couriers for this host", "4 units by its 4 couriers, while a round trip takes under 5 s", {"intel": 48}),
+    ("Intel harvester + Miner + Cred. harvester (no station)", "1 Crypto + 1 Credential", "2 units by main-node couriers", {"cash": 12, "creds": 12}),
+    ("Bot station alone (IoT device)", "couriers for this host (up to 4)", "nothing to carry", {}),
+    ("Miner alone, supplied: desired stock 2 Intel", "1 Intel (delivered) → 1 Crypto", "Intel out and Crypto back on the same main-node courier trips", {"intel": -12, "cash": 12}),
+    ("Database: station + harvester + 2 Cred. harvesters", "4 Intel → 1 Intel + 3 Credentials; couriers for this host", "4 units by its 4 couriers", {"intel": 12, "creds": 36}),
     ("Main node (Server): Intel harvester + Bot station + Miner", "3 Intel → 2 Intel + 1 Crypto; 2 Bots", "straight into the bank, plus the trickle", {"bots": 36, "intel": 36, "cash": 24, "creds": 12, "research": 12}),
 ]
 def layouts():

@@ -20,6 +20,8 @@ const MAIN_INCOME := 0.2           # per resource per second (one of each every 
 const BOT_RESERVE_CHOICES := [0, 5, 10, 20, 40]
 const BOT_RESERVE_DEFAULT := 10    # Bots kept available for operations; shipping and raid collection keep this
 const SHIP_PRIORITY_TURNS := 2     # weighted round robin: the chosen resource gets this many turns, others one
+const COURIERS_PER_STATION := 4    # a remote host's own couriers (made by its Bot stations, reusable): this many per station
+const CARD_GIVE_UP := 20.0         # a card held this long on its way heads back to its main node; the copy returns to your hand
 
 # ── routes (unchanged baseline) ──
 const LINK_TIME := 1.0             # seconds to cross one link (hop)
