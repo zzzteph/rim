@@ -29,7 +29,7 @@ func run() -> void:
 	game._opt_size = Vector2i(8, 6); game._opt_enemies = 1; game._opt_seed = 7
 	view.add_child(game); game.set_process(false)
 	game.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.CAMP_SAVE_HARNESS))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(game._camp_save_path()))
 	for res in [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1280, 960), Vector2i(1024, 768)]:
 		view.size = res; game.size = Vector2(res); game._layout_ui()
 		await settle()
@@ -39,7 +39,7 @@ func run() -> void:
 	await learn_progress()
 	await seed_layouts()
 	source_glyphs()
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.CAMP_SAVE_HARNESS))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(game._camp_save_path()))
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	game.free(); quit(0 if failures.is_empty() else 1)
 
@@ -136,7 +136,7 @@ func other_views(res: Vector2i) -> void:
 
 
 func learn_progress() -> void:   # the Learn screen with no progress and with progress part-way
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.CAMP_SAVE_HARNESS))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(game._camp_save_path()))
 	view.size = Vector2i(1280, 720); game.size = Vector2(1280, 720); game._layout_ui()
 	game._open_menu(true); game._menu_view = "campaign"; game._refresh_menu(); await settle()
 	contained("Learn, fresh"); glyphs_ok("Learn, fresh")

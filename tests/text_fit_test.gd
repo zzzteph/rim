@@ -308,7 +308,8 @@ func campaign(res: Vector2i) -> void:
 	for ch in game.CAMP_CHAPTERS:
 		for st in game._camp_steps(ch):
 			check(w(str(st.a), 19) <= body_w, "campaign ch%d '%s': instruction fits one line" % [ch + 1, st.t])
-			check(w("Why: " + str(st.w), 16) <= body_w, "campaign ch%d '%s': reason fits one line" % [ch + 1, st.t])
+			check(not st.has("w"), "campaign ch%d '%s': no WHY block" % [ch + 1, st.t])
+			check(w("Done: " + str(st.r), 16) <= body_w, "campaign ch%d '%s': result line fits one line" % [ch + 1, st.t])
 			check(w(str(st.r), 19) <= body_w, "campaign ch%d '%s': result fits one line" % [ch + 1, st.t])
 	if FileAccess.file_exists(game._camp_save_path()):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(game._camp_save_path()))

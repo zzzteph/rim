@@ -38,7 +38,7 @@ func fresh() -> void:
 
 
 func run() -> void:
-	var path: String = load("res://scripts/botnet_proto.gd").CAMP_SAVE_HARNESS
+	var path: String = "user://campaign_harness_%d.json" % OS.get_process_id()
 	if FileAccess.file_exists(path): DirAccess.remove_absolute(ProjectSettings.globalize_path(path))   # a fresh profile
 	fresh()
 	var m := menu_texts()

@@ -299,8 +299,7 @@ const CAMP_SAVE_HARNESS := "user://campaign_harness.json"   # tests/probes build
 const CAMP_CHAPTERS := 5
 const CAMP_OPEN := CAMP_CHAPTERS - 1   # the last chapter: open play against an active rival
 const CAMP_CUT_SECS := 10.0        # Ch2: how long the Gateway's retaliation cuts Support's routing
-const CAMP_HOLD_STEP := 4.0        # seconds a finished step shows what it did (the game keeps running) before the next one
-const CAMP_HOLD_CHAPTER := 8.0     # ... and the end of a chapter, before the board is rebuilt for the next
+const CAMP_RESULT_SECS := 8.0     # a finished step's result stays above the next instruction this long (nothing waits on it)
 var _camp := false                # master flag; cleared in _reset(). _camp => _tut.
 var _camp_chapter := 0            # 0..CAMP_OPEN
 var _camp_paused := false         # a TRUE full-simulation pause for reading (gates _sim_step), distinct from paused/_ai_paused
@@ -321,10 +320,8 @@ var _camp_practice := -1          # a rival practice computer for the card lesso
 var _camp_practice2 := -1
 var _camp_guard := -1             # Ch2: the FROM computer of the guard lesson (never the Assault source, so the next lesson can't undo it)
 var _camp_spot: Control           # the pulsing ring on the UI element a step names (CampSpot)
-var _camp_hold_left := 0.0        # >0: the step is done; its result is on screen for this many more seconds
-var _camp_hold_text := ""         # what the finished step did
-var _camp_hold_target := -1       # the computer that result is about (ringed while it shows)
-var _camp_acted_in_hold := false  # the player already acted while the result showed: the next step must not freeze them
+var _camp_result := ""            # what the last finished step did, shown above the next instruction
+var _camp_result_at := -100.0     # _camp_clock when it was set
 var tut_panel: Panel
 var tut_box: VBoxContainer
 var top_tabs: HBoxContainer       # Menu; standings occupy the idle sidebar
@@ -1736,12 +1733,8 @@ func _process(dt: float) -> void:
 	if net != null: net.auto_retry = menu_open and _menu_view in ["mp", "lobby"]   # keep trying the server while you look at it
 	if _msg_t > 0.0: _msg_t -= dt
 	if _camp: _camp_clock += dt   # a wall clock for the cues, outside the frozen simulation
-	if _camp and _camp_paused and _camp_hold_left <= 0.0 and _camp_step_done(_camp_chapter, _tut_stage): _camp_set_pause(false)   # safety: a done step never sits frozen
-	if _camp and _camp_hold_left > 0.0 and not menu_open:   # a finished step's result is showing: count down, then move on
-		var shown := int(ceil(_camp_hold_left))
-		_camp_hold_left -= dt
-		if _camp_hold_left <= 0.0: _camp_hold_left = 0.0; _camp_hold_text = ""; _camp_hold_target = -1; _camp_next()   # _camp_next reads (then clears) _camp_acted_in_hold
-		elif int(ceil(_camp_hold_left)) != shown: _show_tut()
+	if _camp and not menu_open: _camp_tick()   # every frame, paused or not: a done step hands over at once
+	if _camp and _camp_result != "" and _camp_clock - _camp_result_at > CAMP_RESULT_SECS: _camp_result = ""; _show_tut()   # the result line fades; nothing waited on it
 	if _mp_on:
 		if not won and not lost: _mp_advance(dt)
 	elif not paused and not menu_open and not _camp_paused and not won and not lost:
@@ -1752,6 +1745,7 @@ func _process(dt: float) -> void:
 			_sim_step(SIM_DT)
 		if steps >= SIM_MAX_STEPS or won or lost: _sim_acc = 0.0   # a long hitch is dropped, not replayed
 		_sim_acc = maxf(0.0, _sim_acc)
+	if _camp and not menu_open: _camp_tick()   # ... and again after this frame's steps, so nothing waits a frame
 	if (won or lost) and not _end_shown:
 		_end_shown = true; _refresh_panel()
 	_hover_host = _host_at(get_local_mouse_position())
@@ -3604,7 +3598,6 @@ func _cancel_to(_dest: int) -> void: pass
 
 
 func _cmd(c: Array) -> void:
-	if _camp and _camp_hold_left > 0.0: _camp_acted_in_hold = true
 	if _camp_paused: _camp_set_pause(false)
 	if not _mp_on: _apply_cmd(PLAYER, c); return
 	if _out or won or lost: return
@@ -3665,7 +3658,7 @@ func _reset() -> void:   # a NEW town every restart, with the current options
 	_tut_stage = 0; _tut_connected = false; _tut_attacked = false; _tut_combined = false; _tut_captured = false; _tut_target = -1; _tut_second = -1
 	_camp = false; _camp_paused = false; _camp_chapter = 0; _camp_clock = 0.0; _camp_replay = false
 	_camp_supplied = {}; _camp_events = {}; _camp_cash_landed = 0; _camp_cancelled = false; _camp_src = -1
-	_camp_home = -1; _camp_support = -1; _camp_relay = -1; _camp_gateway = -1; _camp_rivalhq = -1; _camp_practice = -1; _camp_practice2 = -1; _camp_guard = -1; _camp_hold_left = 0.0; _camp_hold_text = ""; _camp_hold_target = -1; _camp_acted_in_hold = false
+	_camp_home = -1; _camp_support = -1; _camp_relay = -1; _camp_gateway = -1; _camp_rivalhq = -1; _camp_practice = -1; _camp_practice2 = -1; _camp_guard = -1; _camp_result = ""; _camp_result_at = -100.0
 	if tut_panel != null: tut_panel.visible = false
 	_apply_options()
 	_clear_all()
@@ -4302,7 +4295,9 @@ func _menu_campaign() -> void:
 	var titles := _camp_chapters()
 	var started := int(save.get("chapter", 0)) > 0 or int(save.get("step", 0)) > 0
 	if bool(save.get("completed", false)) or not started: _mbtn("Start", func(): _camp_resume_or_start(0))
-	else: _mbtn("Continue — %d. %s" % [int(save.get("chapter", 0)) + 1, titles[int(save.get("chapter", 0))]], func(): _camp_resume_or_start())
+	else:
+		_mbtn("Continue — %d. %s" % [int(save.get("chapter", 0)) + 1, titles[int(save.get("chapter", 0))]], func(): _camp_resume_or_start())
+		_menu_label("Continue restarts that lesson with what the earlier lessons had you do.")
 	for ch in CAMP_CHAPTERS:
 		var unlocked: bool = ch == 0 or _camp_done[ch - 1] or bool(save.get("completed", false))
 		var b := _mbtn_icon("%d. %s" % [ch + 1, titles[ch]], "check" if _camp_done[ch] else ("play" if unlocked else "lock"), func(c = ch): _camp_resume_or_start(c))
@@ -4638,29 +4633,29 @@ func _camp_chapters() -> Array:
 	return ["Prepare an operation", "Production is not delivery", "Research and manufacture", "Steal and protect", "Run the network"]
 
 
-func _camp_steps(chapter: int) -> Array:
+func _camp_steps(chapter: int) -> Array:   # t title · a the instruction · r what it did · pause: the game waits only where the action is available at once
 	match chapter:
 		0: return [
-			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 seconds — already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "w": "Resources are only spendable once they reach your main node.", "role": "home", "pause": true},
-			{"t": "Manufacture a card", "r": "A Credential breach copy is being manufactured.", "a": "Click Credential breach in the deck to manufacture one copy.", "w": "You already know the basic recipes. Manufacturing spends resources once.", "role": "", "ui": "card:breach", "pause": true},
-			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "Drag the ready Credential breach onto the Neighborhood Relay.", "w": "Breach takes a security-1 host after 15 s, unless a Patch or a lost route stops it.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": true},
+			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 s, already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "role": "home", "pause": true},
+			{"t": "Manufacture a card", "r": "A Credential breach copy is being made.", "a": "Click Credential breach in the deck to make one copy.", "role": "", "ui": "card:breach", "pause": true},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When it is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
 		1: return [
-			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s — but it is not home yet.", "a": "Select the relay and build an Intel harvester in a slot.", "w": "What a host makes waits in its storage until a Bot carries it home.", "role": "relay", "ui": "build:intel", "pause": true},
-			{"t": "Bot station", "r": "The Bot station sends 2 Bots home every 5 s, each carrying 1 unit.", "a": "Build a Bot station in another slot of the relay.", "w": "Its Bots carry the host's output home, then join your Bots.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a station Bot to carry Intel home.", "w": "Without a station, a bank Bot fetches it and is used up. A host's panel shows its status and route home.", "role": "home", "pause": false},
+			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s, kept on the relay.", "a": "Select the relay and build an Intel harvester in a slot.", "role": "relay", "ui": "build:intel", "pause": true},
+			{"t": "Bot station", "r": "The Bot station's Bots carry the relay's output home.", "a": "Build a Bot station in another slot of the relay.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a Bot to carry Intel home along the green route.", "role": "home", "pause": false},
 		]
 		2: return [
-			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Open the RESEARCH tab and click Known exploit.", "w": "Research unlocks the recipe. It does not give you a free card.", "role": "", "ui": "card:exploit", "pause": true},
-			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once learned, click Known exploit in the ATTACK tab to make a copy.", "w": "The blueprint is the prerequisite; a copy is made separately.", "role": "", "ui": "card:exploit", "pause": false},
-			{"t": "Use it", "r": "You captured a security-2 host.", "a": "Launch Known exploit at the Corporate Gateway.", "w": "Known exploit reaches security 2.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
+			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Open the RESEARCH tab and click Known exploit.", "role": "", "ui": "card:exploit", "pause": true},
+			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once it is learned, make a Known exploit copy in the ATTACK tab.", "role": "", "ui": "card:exploit", "pause": false},
+			{"t": "Use it", "r": "The Corporate Gateway is yours.", "a": "Launch Known exploit at the Corporate Gateway.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
 		]
 		3: return [
-			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Manufacture and launch Phishing on the Practice host.", "w": "Phishing sends you everything the host makes, its station Bots too.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
-			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "Launch Incident response on the Neighborhood Relay.", "w": "Incident response clears theft from your own host.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
+			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Launch Phishing on the Practice host.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
+			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "Launch Incident response on the Neighborhood Relay.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
 		]
 		_: return [
-			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "w": "Lose your main node and you lose.", "role": "", "pause": true},
+			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "role": "", "pause": true},
 		]
 
 
@@ -4677,7 +4672,6 @@ func _camp_role_host(role: String) -> int:
 
 func _camp_target() -> int:
 	if not _camp: return -1
-	if _camp_hold_left > 0.0: return _camp_hold_target
 	if _camp_chapter == CAMP_OPEN: return -1
 	var steps := _camp_steps(_camp_chapter)
 	if _tut_stage < 0 or _tut_stage >= steps.size(): return -1
@@ -4702,7 +4696,7 @@ func _camp_fill(s: String) -> String: return s
 
 func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck card or a build card), re-found each frame
 	var st := _camp_step()
-	if st.is_empty() or menu_open or won or lost or _camp_hold_left > 0.0: return []
+	if st.is_empty() or menu_open or won or lost: return []
 	var specs = st.get("ui", [])
 	if specs is String: specs = [specs]
 	var out := []
@@ -4815,35 +4809,54 @@ func _camp_slots(i: int, n: int) -> void:
 	if i >= 0 and int(hosts[i].slots) < n: hosts[i].slots = n
 
 
-func _camp_setup(chapter: int) -> void:
-	_camp_own(_camp_support)
-	if _camp_support >= 0: hosts[_camp_support].name = "Support"
-	if _camp_relay >= 0: hosts[_camp_relay].name = "Neighborhood Relay"
-	if _camp_gateway >= 0: hosts[_camp_gateway].name = "Corporate Gateway"
+func _camp_ensure_builds(i: int, kinds: Array) -> void:   # catch-up only: put these kinds in free slots unless already there
+	if i < 0: return
+	for kind in kinds:
+		if _count_all(i, str(kind)) > 0: continue
+		var slot := _free_slot(i)
+		if slot >= 0: hosts[i].builds[slot] = str(kind)
+
+
+# Learn is ONE session on one board. A lesson's entry brings in what it is about, on top of whatever you have built;
+# nothing is reset between lessons. _camp_catch_up(ch) re-creates what lesson ch had you do, and runs only when a
+# session starts part-way (resume, replay), so the board matches what you would have had.
+func _camp_enter(chapter: int, announce := true) -> void:
 	match chapter:
 		0:
+			_camp_own(_camp_support)
+			if _camp_support >= 0: hosts[_camp_support].name = "Support"
+			if _camp_relay >= 0: hosts[_camp_relay].name = "Neighborhood Relay"
+			if _camp_gateway >= 0: hosts[_camp_gateway].name = "Corporate Gateway"
 			_camp_grant(20, 40, 20, 20, 10)
 		1:
-			_camp_own(_camp_relay); _camp_slots(_camp_relay, 4)
+			_camp_slots(_camp_relay, 4)
 			_camp_grant(20, 60, 20, 15, 10)
 		2:
-			_camp_own(_camp_relay); _set_builds(_camp_relay, ["intel", "bot"])
-			# a security-2 gateway for Known exploit
-			if _camp_gateway >= 0:
+			if _camp_gateway >= 0 and int(hosts[_camp_gateway].owner) == NEUTRAL:   # a rival moves in next door
 				hosts[_camp_gateway].owner = RIVAL; hosts[_camp_gateway].gen += 1; hosts[_camp_gateway].type = "server"
+				if announce: _flash("NYX has taken the Corporate Gateway next to your network.", 3)
 			_camp_grant(30, 80, 40, 40, 50)
 		3:
-			_camp_own(_camp_relay); _set_builds(_camp_relay, ["intel", "bot", "cash"])
-			for p in [_camp_practice]:
-				if p >= 0:
-					hosts[p].owner = RIVAL; hosts[p].gen += 1; _camp_slots(p, 3); _set_builds(p, ["intel", "cash"]); hosts[p].name = "Practice host"
+			if _camp_practice >= 0 and int(hosts[_camp_practice].owner) == NEUTRAL:
+				var p := _camp_practice
+				hosts[p].owner = RIVAL; hosts[p].gen += 1; _camp_slots(p, 3); _set_builds(p, ["intel", "cash"]); hosts[p].name = "Practice host"
+				if announce: _flash("NYX runs a Practice host with an Intel harvester and a Miner.", 3)
 			_camp_grant(30, 80, 40, 40, 40)
 			for recipe in ["phish", "response"]: _camp_supply(recipe)
 		CAMP_OPEN:
-			_camp_own(_camp_relay); _set_builds(_camp_relay, ["intel", "bot", "cash", "cred", "lab"])
+			_ai_paused = false
 			_camp_grant(40, 80, 50, 40, 40)
-	_msg_t = 0.0; _msg_priority = 0
 	_refresh_sight()
+
+
+func _camp_catch_up(chapter: int) -> void:
+	match chapter:
+		0: _camp_own(_camp_relay)
+		1: _camp_own(_camp_relay); _camp_ensure_builds(_camp_relay, ["intel", "bot"])
+		2:
+			if not known.has(PLAYER): known[PLAYER] = {}
+			known[PLAYER]["exploit"] = true
+			_camp_own(_camp_gateway)
 
 
 func _camp_own_path(a: int, b: int, avoid := -1) -> void:
@@ -4885,17 +4898,20 @@ func _start_campaign(chapter: int, replay := false) -> void:
 	_camp_roles()
 	_camp_chapter = clampi(chapter, 0, CAMP_OPEN)
 	_camp_supplied = {}; _camp_events = {}
-	_camp_setup(_camp_chapter)
+	_ai_paused = true
+	for ch in range(_camp_chapter):   # starting part-way: the earlier lessons' conditions and what you did in them
+		_camp_enter(ch, false); _camp_catch_up(ch)
+	_camp_enter(_camp_chapter, false)
+	_msg_t = 0.0; _msg_priority = 0
 	_camp = true; _tut = true; _tut_stage = 0; _camp_replay = replay
-	_ai_paused = _camp_chapter < CAMP_OPEN
 	var steps := _camp_steps(_camp_chapter)
 	_camp_paused = bool(steps[0].get("pause", false))
 	_open_menu(false); _show_tut(); _fit_view()
 	if not replay: _camp_save()
 
 
-func _camp_save_path() -> String:
-	return CAMP_SAVE if is_inside_tree() and get_tree().current_scene == self else CAMP_SAVE_HARNESS
+func _camp_save_path() -> String:   # a test or probe (not the running game scene) writes its own per-process file, never a player's
+	return CAMP_SAVE if is_inside_tree() and get_tree().current_scene == self else CAMP_SAVE_HARNESS.replace(".json", "_%d.json" % OS.get_process_id())
 
 
 func _camp_save() -> void: _camp_save_at(_camp_chapter, _tut_stage)
@@ -5019,57 +5035,46 @@ func _camp_card_in_flight(recipe: String) -> bool:
 
 
 func _camp_tick() -> void:
-	if not _camp or _camp_hold_left > 0.0: return
+	if not _camp: return
 	var step := _camp_step()
 	var need := str(step.get("card", ""))
 	if need != "" and not _camp_step_done(_camp_chapter, _tut_stage) and _held(PLAYER, need) <= 0 \
 			and not _camp_card_in_flight(need) and _lane_of(PLAYER, need) < 0:
 		_camp_supply(need); _refresh_hand()
-	if _camp_chapter == 2 and _camp_gateway >= 0 and _mine(_camp_gateway) and _tut_stage < 2:
-		pass
-	if _camp_step_done(_camp_chapter, _tut_stage): _camp_complete_step()
+	var guard := 0   # a step already done when it begins (you got ahead) hands straight on to the next
+	while _camp and guard < 8 and _camp_step_done(_camp_chapter, _tut_stage):
+		guard += 1; _camp_complete_step()
 
 
-func _camp_complete_step() -> void:
-	if _camp_chapter == CAMP_OPEN: _camp_next(); return
+func _camp_complete_step() -> void:   # the step is done: say what it did and go straight on (nothing waits)
 	var st := _camp_step()
 	if str(st.get("fire_leave", "")) != "": _camp_fire(str(st.fire_leave))
-	var last := _tut_stage + 1 >= _camp_steps(_camp_chapter).size()
-	if last and not _camp_replay and _camp_chapter + 1 < CAMP_CHAPTERS:
-		_camp_done[_camp_chapter] = true; _camp_save_at(_camp_chapter + 1, 0)
-	_camp_hold_target = _camp_target()
-	_camp_hold_text = _camp_outcome()
-	_camp_hold_left = CAMP_HOLD_CHAPTER if last else CAMP_HOLD_STEP
-	_show_tut(); queue_redraw()
+	_camp_result = str(st.get("r", "")); _camp_result_at = _camp_clock
+	_camp_next()
 
 
 func _camp_outcome() -> String:
 	return str(_camp_step().get("r", "Done."))
 
 
-func _camp_next() -> void:
-	var acted := _camp_acted_in_hold; _camp_acted_in_hold = false
+func _camp_next() -> void:   # the next step, or the next lesson on the same board
 	var steps := _camp_steps(_camp_chapter)
 	if _tut_stage + 1 < steps.size():
 		_tut_stage += 1
-		var step: Dictionary = steps[_tut_stage]
-		if str(step.get("fire", "")) != "": _camp_fire(str(step.fire))
-		if bool(step.get("pause", false)) and not acted and not _camp_step_done(_camp_chapter, _tut_stage): _camp_paused = true
-		var tgt := _camp_target()
-		if tgt >= 0 and _mine(tgt): sel = {tgt: true}; _inspect = -1
-		elif tgt >= 0: sel = {}; _inspect = tgt
-		if not _camp_replay: _camp_save()
-		_show_tut(); _refresh_panel()
 	else:
 		_camp_done[_camp_chapter] = true
-		if _camp_chapter + 1 < CAMP_CHAPTERS and not _camp_replay:
-			var fin := _camp_chapter + 1
-			_start_campaign(fin)
-			_flash("Chapter %d complete. Next: %s." % [fin, _camp_chapters()[fin]], 3)
-		elif _camp_replay:
-			_flash("Chapter replay complete.", 0); _camp_leave()
-		else:
-			_camp_finish()
+		if _camp_chapter + 1 >= CAMP_CHAPTERS:
+			_camp_finish(); return
+		_camp_chapter += 1; _tut_stage = 0
+		_camp_enter(_camp_chapter)
+	var step := _camp_step()
+	if str(step.get("fire", "")) != "": _camp_fire(str(step.fire))
+	if bool(step.get("pause", false)) and not _camp_step_done(_camp_chapter, _tut_stage): _camp_paused = true
+	var tgt := _camp_target()
+	if tgt >= 0 and _mine(tgt): sel = {tgt: true}; _inspect = -1
+	elif tgt >= 0: sel = {}; _inspect = tgt
+	if not _camp_replay: _camp_save()
+	_show_tut(); _refresh_panel(); queue_redraw()
 
 
 func _camp_set_pause(on: bool) -> void:
@@ -5081,36 +5086,27 @@ func _camp_banner_h() -> float:   # fixed: measuring tut_box right after a rebui
 	return 124.0 if _camp else 90.0   # header + a 19 px instruction + a 16 px reason (room for one wrapped line)
 
 
-func _camp_show() -> void:
+func _camp_show() -> void:   # one short instruction, the last result while it is fresh, and a clear pause mark
 	if tut_box == null: return
 	for c in tut_box.get_children(): tut_box.remove_child(c); c.queue_free()
 	var step := _camp_step()
 	if step.is_empty(): return
-	var chapters := _camp_chapters()
-	var row := HBoxContainer.new(); tut_box.add_child(row)
-	var head := "Ch %d/%d · %s — %d/%d · %s" % [_camp_chapter + 1, CAMP_CHAPTERS, chapters[_camp_chapter], _tut_stage + 1, _camp_steps(_camp_chapter).size(), str(step.t)]
-	if _camp_hold_left > 0.0: head += "   ✓ done"
-	_lbl(row, head, 15, C_WARN, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if _camp_paused and _camp_hold_left <= 0.0:   # a bundled vector pause mark, never a font fallback
-		var mark := TextureRect.new(); mark.texture = UiIcons.texture("pause", 16); mark.modulate = C_WARN
-		mark.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED; mark.custom_minimum_size = Vector2(18, 18)
-		row.add_child(mark); _lbl(row, "Paused until you act", 15, C_WARN, 0)
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 8); tut_box.add_child(row)
+	var head := "LEARN  %d/%d  %s" % [_camp_chapter + 1, CAMP_CHAPTERS, _camp_chapters()[_camp_chapter]]
+	if _camp_chapter < CAMP_OPEN: head += "  ·  step %d of %d" % [_tut_stage + 1, _camp_steps(_camp_chapter).size()]
+	_lbl(row, head, 15, C_DIM, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if _camp_paused:   # the game waits for you: a bundled vector pause mark and plain words, never a font fallback
+		var mark := TextureRect.new(); mark.texture = UiIcons.texture("pause", 18); mark.modulate = C_WARN
+		mark.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED; mark.custom_minimum_size = Vector2(20, 20)
+		row.add_child(mark); _lbl(row, "Paused until you act (Space resumes)", 15, C_WARN, 0)
 	var body := RichTextLabel.new(); body.bbcode_enabled = true; body.fit_content = true; body.scroll_active = false
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # the card art is shrunk to a 16 px inline icon
 	body.add_theme_font_size_override("normal_font_size", 16); body.add_theme_color_override("default_color", C_TEXT)
 	body.add_theme_font_size_override("bold_font_size", 19)
 	var seen := {}   # each icon only on its first mention in this banner
-	# no buttons: the training can't be skipped, and doing the step is what moves it on (and starts the clock)
-	var txt := "[b]%s[/b]\n[color=#9fb0c0]Why:[/color] %s" % [_tut_rich(_camp_fill(str(step.a)), seen), _tut_rich(_camp_fill(str(step.w)), seen)]
-	if _camp_hold_left > 0.0:   # the result of what you just did, and what comes next
-		var secs := int(ceil(_camp_hold_left))
-		var steps_all := _camp_steps(_camp_chapter)
-		var next := ""
-		if _tut_stage + 1 < steps_all.size(): next = "Next: %s — in %d s" % [str(steps_all[_tut_stage + 1].t), secs]
-		elif _camp_chapter + 1 < CAMP_CHAPTERS and not _camp_replay: next = "Chapter %d complete. Next chapter: %s — starts in %d s" % [_camp_chapter + 1, chapters[_camp_chapter + 1], secs]
-		else: next = "Chapter complete — in %d s" % secs
-		txt = "[b][color=#%s]✓[/color] %s[/b]\n[color=#9fb0c0]%s[/color]" % [C_GOOD.to_html(false), _tut_rich(_camp_hold_text, seen), _tut_rich(next, seen)]
+	var txt := "[b]%s[/b]" % _tut_rich(_camp_fill(str(step.a)), seen)
+	if _camp_result != "": txt += "\n[color=#%s]Done: %s[/color]" % [C_GOOD.to_html(false), _tut_rich(_camp_result, seen)]
 	body.text = txt; tut_box.add_child(body)
 	body.custom_minimum_size.x = maxf(200, get_viewport_rect().size.x - 80)
 	tut_box.reset_size.call_deferred()   # a rebuilt box keeps the tall width-0 transient of its wrapped text unless shrunk back once laid out

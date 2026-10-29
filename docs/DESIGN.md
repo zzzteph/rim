@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 9c4052a
+RIM 0.5.0-a · commit e5ec77e
 
 ## Contents
 
@@ -75,7 +75,7 @@ flowchart LR
 
 #### Other modes
 
-**Learn (campaign):** never required. 5 guided chapters on a small grid town: capture, build, research, theft and defence, then an open chapter against an active rival. In the guided chapters captures always succeed.
+**Learn:** never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. Steps whose action is available at once pause the game until you act (or press Space). Continue restarts the saved lesson with what the earlier lessons had you do.
 
 **Multiplayer:** hidden from the menus for now. The lockstep backend and its tests remain; see [Multiplayer](#multiplayer).
 
