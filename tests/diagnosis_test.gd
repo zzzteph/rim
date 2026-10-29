@@ -147,8 +147,8 @@ func statuses() -> void:
 	check(str(d.next).begins_with("Next cycle in") and str(d.next).contains("1 Intel → 1 Crypto"), "Its next cycle reads in words: %s" % d.next)
 	n = own_pc(["cash"], 0)
 	d = diag(n)
-	check(str(d.status) == "starved" and lines_have(d, "cannot reach a remote converter") and lines_have(d, "Intel harvester"),
-		"A remote Miner without Intel is starved, says the bank cannot feed it, and names the fix")
+	check(str(d.status) == "starved" and lines_have(d, "keep some here") and lines_have(d, "Intel harvester"),
+		"A remote Miner without Intel is starved and names both fixes: keep Intel there, or build a harvester")
 	check(str(d.next).contains("Miner idle") and str(d.full).contains("1 Intel → 1 Crypto"), "Feasible (idle) and theoretical output are shown apart")
 	n = own_pc(["intel", "lab"], 0)
 	d = diag(n)

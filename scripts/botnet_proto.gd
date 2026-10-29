@@ -586,7 +586,7 @@ func _add_host(p: Vector2, c: Vector2i, is_hub: bool, value: int, ntype: String)
 		"cyc": PROD_CYCLE * (0.2 + 0.8 * fposmod(float(hosts.size()) * 0.618034, 1.0)), "fw_on": true, "sockets": [], "ship_rr": 0,
 		"ddos_until": 0.0, "filter_until": 0.0, "sabot_until": 0.0, "steal_by": -1, "steal_until": 0.0,
 		"siphon": {}, "patch_armed_until": 0.0, "patch_recover_until": 0.0, "cover_until": 0.0, "express_until": 0.0,
-		"couriers": 0, "want": {}, "claim": {}, "inbound": {}, "loot": {}, "socket_res": 0,
+		"couriers": 0, "want": {}, "claim": {}, "inbound": {}, "loot": {},
 		"hit_t": -100.0, "card_result": ""})
 	return hosts.size() - 1
 
@@ -844,6 +844,7 @@ func _slot_array(kinds: Array, n: int) -> Array:   # positional slots, "" = empt
 func _set_builds(i: int, kinds: Array) -> void:   # scripts/probes: place these kinds from slot 1, pad with empties
 	hosts[i].slots = maxi(int(hosts[i].slots), kinds.size())
 	hosts[i].builds = _slot_array(kinds, int(hosts[i].slots))
+	_trim_sockets(i)
 
 
 func _built_kinds(i: int) -> Array:   # kinds present, in slot order (empties skipped)
@@ -1339,7 +1340,7 @@ func _run_cycle(i: int) -> void:
 	if bots > 0: _station_send(i, owner, bots)   # couriers always belong to the host's owner (a thief gets the output, not the Bots)
 
 
-func _walls_building(i: int) -> int:   # Firewalls still under construction (no upkeep, no sockets yet)
+func _walls_building(i: int) -> int:   # installed Firewalls a job is taking down (no upkeep, no sockets): a new one counts only when finished
 	var n := 0
 	for slot_key in (hosts[i].jobs as Dictionary):
 		var slot := int(hosts[i].jobs[slot_key].slot)
@@ -1664,7 +1665,7 @@ func _card_back(f: Dictionary) -> void:   # a card that turned home is a ready c
 
 func _card_turn_home(f: Dictionary) -> void:   # a card that cannot go on heads back; the copy returns to your hand there
 	f.returning = true; f.dest = _hub(int(f.owner))
-	if bool(f.get("load", false)) and _host_ok(int(f.get("target", -1))): hosts[int(f.target)].socket_res = maxi(0, int(hosts[int(f.target)].get("socket_res", 0)) - 1); f.load = false
+	if bool(f.get("load", false)): _release_socket(int(f.get("target", -1)), str(f.get("sock", ""))); f.load = false
 
 
 func _courier_turn_home(f: Dictionary) -> void:   # its destination is gone: back to where it came from, cargo and all
@@ -1695,7 +1696,7 @@ func _lose(f: Dictionary, at: int, why: String) -> void:   # the packet is gone:
 			_release_incoming(fac, "bots", 1.0); _ledger_add(fac, "lost", "couriers", "bots", 1.0)
 		if fac == PLAYER: _event("lostcourier", EV_ACT, "Couriers lost at %s: the host was %s." % [str(hosts[at].name), why], at)
 	elif str(f.kind) == "op":
-		if bool(f.get("load", false)) and _host_ok(int(f.get("target", -1))): hosts[int(f.target)].socket_res = maxi(0, int(hosts[int(f.target)].get("socket_res", 0)) - 1)
+		if bool(f.get("load", false)): _release_socket(int(f.get("target", -1)), str(f.get("sock", "")))
 		if fac == PLAYER: _event("lostcard:%d" % int(f.id), EV_ACT, "Your %s was lost at %s: the host was %s." % [str(CARDS[_card_of(str(f.card))].name), str(hosts[at].name), why], at)
 
 
@@ -1792,12 +1793,78 @@ const SOCKET_TRIGGER := {"patch": "a capture, Worm or Vault raid starts here", "
 
 func _sockets(i: int) -> int: return FIREWALL_SOCKETS * maxi(0, _count_all(i, "wall") - _walls_building(i))
 func _socketable(recipe: String) -> bool: return SOCKET_TRIGGER.has(recipe)
-func _socket_free(i: int) -> bool: return (hosts[i].sockets as Array).size() + int(hosts[i].get("socket_res", 0)) < _sockets(i)   # cards on their way hold theirs
+# hosts[i].sockets holds one entry per socket position: "" empty, a recipe loaded, "@recipe#flight" held for a card on its way
+# (a shorter array means the rest are empty). Positions are seated on the finished Firewalls in slot order, 3 each
+# (_wall_seat): the leftmost Firewall holds positions 0-2, the next 3-5. A Firewall that finishes gets its 3 empty
+# positions inserted at its seat, one that is demolished or replaced takes its own 3 away (and loses the cards in
+# them), so every card stays in the Firewall it was loaded into.
+func _socket_free(i: int) -> bool: return _free_socket(i) >= 0
 func _fw_live(i: int) -> bool: return _sockets(i) > 0 and bool(hosts[i].get("fw_on", true))
 
 
-func _trim_sockets(i: int) -> void:   # a demolished Firewall loses the cards it held
-	while (hosts[i].sockets as Array).size() > _sockets(i): (hosts[i].sockets as Array).pop_back()
+func _free_socket(i: int) -> int:   # the first empty socket position (cards on their way hold theirs), -1 if none
+	var socks: Array = hosts[i].sockets
+	for k in _sockets(i):
+		if k >= socks.size() or str(socks[k]) == "": return k
+	return -1
+
+
+func _put_socket(i: int, val: String) -> int:   # fill the first empty position with val; its index, -1 if full
+	var k := _free_socket(i)
+	if k < 0: return -1
+	var socks: Array = hosts[i].sockets
+	while socks.size() <= k: socks.append("")
+	socks[k] = val
+	return k
+
+
+func _loaded(i: int) -> Array: return _loaded_of(hosts[i].sockets)
+func _loaded_of(socks: Array) -> Array:   # the recipes loaded (not the empty or held positions)
+	var out := []
+	for v in socks:
+		if str(v) != "" and not str(v).begins_with("@"): out.append(str(v))
+	return out
+
+
+func _socket_res(i: int) -> int:   # positions held for cards on their way
+	var n := 0
+	for v in (hosts[i].sockets as Array):
+		if str(v).begins_with("@"): n += 1
+	return n
+
+
+func _release_socket(i: int, token: String) -> bool:   # a held position is free again (its card acts, turns back or is lost)
+	if not _host_ok(i): return false
+	var k := (hosts[i].sockets as Array).find(token)
+	if k < 0: return false
+	hosts[i].sockets[k] = ""
+	return true
+
+
+func _wall_seat(i: int, slot: int) -> int:   # which finished Firewall this slot's is, counting from the left
+	var j := 0
+	for k in slot:
+		if str(hosts[i].builds[k]) == "wall" and not (hosts[i].jobs as Dictionary).has(k): j += 1
+	return j
+
+
+func _seat_out(i: int, slot: int) -> void:   # this Firewall stops working: its 3 positions go, with what is in them
+	var socks: Array = hosts[i].sockets
+	var a := FIREWALL_SOCKETS * _wall_seat(i, slot)
+	for k in FIREWALL_SOCKETS:
+		if a < socks.size(): socks.remove_at(a)
+
+
+func _seat_in(i: int, slot: int) -> void:   # a Firewall starts working: 3 empty positions at its seat
+	var socks: Array = hosts[i].sockets
+	var a := FIREWALL_SOCKETS * _wall_seat(i, slot)
+	if a < socks.size():
+		for k in FIREWALL_SOCKETS: socks.insert(a, "")
+
+
+func _trim_sockets(i: int) -> void:   # never more positions than the finished Firewalls have
+	var socks: Array = hosts[i].sockets
+	if socks.size() > _sockets(i): socks.resize(_sockets(i))
 
 
 func _trigger_now(recipe: String, i: int) -> bool:   # the attack this card answers is already running here
@@ -1812,14 +1879,14 @@ func _trigger_now(recipe: String, i: int) -> bool:   # the attack this card answ
 
 func _fire_socket(i: int, recipe: String, what: String) -> bool:   # a loaded card answers an attack; true if it fired
 	if not _fw_live(i) or not (hosts[i].sockets as Array).has(recipe): return false
-	(hosts[i].sockets as Array).erase(recipe)
+	hosts[i].sockets[(hosts[i].sockets as Array).find(recipe)] = ""   # the position stays where it is, empty
 	var owner := int(hosts[i].owner)
 	hosts[i].hit_t = _t
 	_fx.append({"host": i, "until": _t + 2.0, "col": fcol(owner)})
 	hosts[i].card_result = "Firewall fired %s" % str(CARDS[recipe].name)
 	if owner == PLAYER:
 		_flash("Firewall on %s fired %s against %s" % [str(hosts[i].name), str(CARDS[recipe].name), what], 0)
-		var left := (hosts[i].sockets as Array).size()
+		var left := _loaded(i).size()
 		_event("fw:%d:%s" % [i, recipe], EV_INFO, "Firewall on %s fired %s against %s; %s left in it." % [str(hosts[i].name), str(CARDS[recipe].name), what, "no cards" if left == 0 else ("1 card" if left == 1 else "%d cards" % left)], i)
 	return true
 
@@ -1847,6 +1914,7 @@ func _start_job(i: int, kind: String, slot := -1) -> bool:
 	for r in _build_cost(kind): _spend(fac, r, float(_build_cost(kind)[r]), "buildings")   # paid in full when the job starts
 	(hosts[i].get("producer_paused", {}) as Dictionary).erase(slot)
 	var price := _build_cost(kind)
+	if cur == "wall": _seat_out(i, slot)   # replaced: it stops working now
 	if cur == "": hosts[i].jobs[slot] = {"kind": kind, "slot": slot, "phase": "build", "left": BUILD_TIME, "total": BUILD_TIME, "cost_left": price.duplicate(), "cost_total": price.duplicate()}
 	else: hosts[i].jobs[slot] = {"kind": kind, "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME, "total": DEMOLISH_TIME, "cost_left": price.duplicate(), "cost_total": price.duplicate()}
 	return true
@@ -1915,6 +1983,7 @@ func _demolish(i: int, slot: int) -> void: _cmd(["demolish", i, slot])
 func _do_demolish(fac: int, i: int, slot: int) -> void:
 	if not _owns(fac, i) or slot < 0 or slot >= (hosts[i].builds as Array).size(): return
 	if str(hosts[i].builds[slot]) == "" or _slot_busy(i, slot): return
+	if str(hosts[i].builds[slot]) == "wall": _seat_out(i, slot)
 	hosts[i].jobs[slot] = {"kind": "", "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME, "total": DEMOLISH_TIME, "cost_left": {}, "cost_total": {}}
 	if fac == PLAYER: _refresh_panel()
 
@@ -1940,6 +2009,7 @@ func _tick_jobs(dt: float) -> void:
 				hosts[i].builds[slot] = str(job.kind)
 				if str(job.kind) == "wall": hosts[i].fw_on = true
 			jobs.erase(slot_key)
+			if str(hosts[i].builds[slot]) == "wall": _seat_in(i, slot)
 			if fac == PLAYER: _flash("%s · slot %d ready" % [str(hosts[i].name), slot + 1], 0)
 
 
@@ -1969,7 +2039,7 @@ func _eliminate(fac: int) -> void:
 		hosts[i].owner = NEUTRAL; hosts[i].gen = int(hosts[i].get("gen", 0)) + 1
 		hosts[i].builds = _slot_array([], int(hosts[i].slots)); hosts[i].jobs = {}; hosts[i].store = {}; hosts[i].sockets = []
 		hosts[i].producer_paused = {}; hosts[i].rig = false
-		hosts[i].couriers = 0; hosts[i].claim = {}; hosts[i].inbound = {}; hosts[i].want = {}; hosts[i].socket_res = 0
+		hosts[i].couriers = 0; hosts[i].claim = {}; hosts[i].inbound = {}; hosts[i].want = {}
 		_clear_effects(i)
 	flights = flights.filter(func(f): return int(f.owner) != fac)
 	_execs = _execs.filter(func(e): return int(e.fac) != fac)
@@ -2201,10 +2271,21 @@ func _deliver(f: Dictionary) -> bool:   # a packet reached the end of its route 
 	return false
 
 
-func _support_arrive(f: Dictionary) -> void:   # a defence card reached your host: it loads into its reserved socket or acts now
+func _support_arrive(f: Dictionary) -> void:   # a defence card reached your host: it loads into its held socket or acts now
 	var fac := int(f.owner); var t := int(f.target)
-	if bool(f.get("load", false)): hosts[t].socket_res = maxi(0, int(hosts[t].get("socket_res", 0)) - 1)
-	_apply_support(fac, _card_of(str(f.card)), t)
+	var recipe := _card_of(str(f.card))
+	if bool(f.get("load", false)):
+		var k := (hosts[t].sockets as Array).find(str(f.get("sock", "")))
+		if k >= 0 and not _trigger_now(recipe, t):   # its own position, still there: it loads into it
+			hosts[t].sockets[k] = recipe
+			hosts[t].hit_t = _t
+			_fx.append({"host": t, "until": _t + 2.0, "col": fcol(fac)})
+			if fac == PLAYER: _flash("%s loaded into the Firewall on %s: it fires when %s" % [str(CARDS[recipe].name), str(hosts[t].name), str(SOCKET_TRIGGER[recipe])], 0)
+			return
+		if k >= 0: hosts[t].sockets[k] = ""
+		_apply_support(fac, recipe, t, false)   # its Firewall went, or its attack is already here: it acts
+		return
+	_apply_support(fac, recipe, t)
 
 
 # ---- ownership change ----
@@ -2214,7 +2295,7 @@ func _capture(t: int, fac: int) -> void:
 	hosts[t].owner = fac; hosts[t].gen = int(hosts[t].get("gen", 0)) + 1
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # cleared: no salvage, the new owner develops empty slots
 	hosts[t].jobs = {}; hosts[t].store = {}; hosts[t].producer_paused = {}; hosts[t].sockets = []
-	hosts[t].couriers = 0; hosts[t].claim = {}; hosts[t].inbound = {}; hosts[t].want = {}; hosts[t].socket_res = 0   # its couriers and orders go with it
+	hosts[t].couriers = 0; hosts[t].claim = {}; hosts[t].inbound = {}; hosts[t].want = {}   # its couriers and orders go with it
 	if _route_memo != null: _route_memo = {}   # routes through it change at once
 	_clear_effects(t)
 	if bool(hosts[t].get("rig", false)) and prev != NEUTRAL: hosts[t].rig = false   # a captured main node is an ordinary host
@@ -2420,7 +2501,7 @@ func _known_defences(fac: int, t: int, eff: String, resolve_in: float) -> Array:
 		out.append(["Recon %d s ago%s: no Firewall." % [age, stale], C_DIM])
 		return out
 	var socks := []
-	for r in (rec.get("sockets", []) as Array): socks.append(str(CARDS[str(r)].name))
+	for r in _loaded_of(rec.get("sockets", [])): socks.append(str(CARDS[str(r)].name))
 	var counter := str(COUNTER_OF.get(eff, ""))
 	var hit := counter != "" and (rec.get("sockets", []) as Array).has(counter)
 	out.append(["Recon %d s ago%s: Firewall holding %s%s" % [age, stale, ", ".join(socks) if not socks.is_empty() else "nothing",
@@ -2483,8 +2564,8 @@ func _play_card(fac: int, key: String, t: int, res := "") -> bool:
 		if t == hub: _apply_support(fac, recipe, t)   # at the main node it acts at once
 		else:   # it travels there; a socket it will load is held for it on the way
 			var load := _socketable(recipe) and _socket_free(t) and not _trigger_now(recipe, t)
-			if load: hosts[t].socket_res = int(hosts[t].get("socket_res", 0)) + 1
 			var df := _schedule(_travel_route(fac, hub, t), _t, fac, "op", false, {"card": recipe, "target": t, "gen": int(hosts[t].gen), "load": load})
+			if load: df.sock = "@%s#%d" % [recipe, int(df.id)]; _put_socket(t, str(df.sock))
 			flights.append(df)
 			if fac == PLAYER: _flash("%s is on its way to %s — %s in %d s" % [str(CARDS[recipe].name), str(hosts[t].name), "loads its Firewall" if load else "acts", int(ceil(float(df.arrive_t) - _t))])
 	else:
@@ -2936,12 +3017,12 @@ func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the targ
 
 
 # ---- support cards (applied locally, instantly) ----
-func _apply_support(fac: int, recipe: String, t: int) -> void:
+func _apply_support(fac: int, recipe: String, t: int, may_load := true) -> void:
 	var eff := str(CARDS[recipe].effect)
 	hosts[t].hit_t = _t
 	_fx.append({"host": t, "until": _t + 2.0, "col": fcol(fac)})
-	if _socketable(recipe) and _socket_free(t) and not _trigger_now(recipe, t):
-		(hosts[t].sockets as Array).append(recipe)
+	if may_load and _socketable(recipe) and _socket_free(t) and not _trigger_now(recipe, t):
+		_put_socket(t, recipe)
 		if fac == PLAYER: _flash("%s loaded into the Firewall on %s: it fires when %s" % [str(CARDS[recipe].name), str(hosts[t].name), str(SOCKET_TRIGGER[recipe])], 0)
 		return
 	match eff:
@@ -3874,7 +3955,6 @@ func _play(t: int, recipe := "") -> void:   # launch the selected (or named) att
 	if recipe != "": _cmd(["card", recipe, t])
 
 
-func _play_support(recipe: String, t: int) -> void: _cmd(["card", recipe, t])
 
 
 func _set_reserve(fac_choice: int) -> void: _cmd(["reserve", fac_choice])
@@ -4317,7 +4397,7 @@ func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch
 	for h in hosts:
 		parts.append("%d,%d,%s,%s,%s,%s,%d,%d" % [int(h.owner), int(h.gen), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.store), ",".join(PackedStringArray(h.sockets)), int(h.fw_on), int(round(float(h.cyc) * 30.0))])
 		parts.append("%d,%d,%d,%d,%d" % [roundi(float(h.get("ddos_until", 0.0)) * 100.0), roundi(float(h.get("sabot_until", 0.0)) * 100.0), int(h.get("steal_by", -1)), roundi(float(h.get("steal_until", 0.0)) * 100.0), roundi(float(h.get("express_until", 0.0)) * 100.0)])
-		parts.append("%d|%s|%s|%s|%s|%d" % [int(h.get("couriers", 0)), JSON.stringify(h.get("want", {})), JSON.stringify(h.get("claim", {})), JSON.stringify(h.get("inbound", {})), JSON.stringify(h.get("loot", {})), int(h.get("socket_res", 0))])
+		parts.append("%d|%s|%s|%s|%s|%d" % [int(h.get("couriers", 0)), JSON.stringify(h.get("want", {})), JSON.stringify(h.get("claim", {})), JSON.stringify(h.get("inbound", {})), JSON.stringify(h.get("loot", {})), 0])
 	for fac in botnets:
 		for res in RES: parts.append(str(roundi(_avail(fac, res) * 1000.0)))
 		parts.append("%d" % int(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))
@@ -5135,8 +5215,9 @@ func _camp_supply(recipe: String, again := false) -> void:
 	cards[PLAYER][recipe] = _held(PLAYER, recipe) + 1
 
 
-func _camp_slots(i: int, n: int) -> void:
-	if i >= 0 and int(hosts[i].slots) < n: hosts[i].slots = n
+func _camp_slots(i: int, n: int) -> void:   # a lesson's host gets n slots (its installations stay)
+	if i >= 0 and int(hosts[i].slots) < n:
+		hosts[i].slots = n; hosts[i].builds = _slot_array(hosts[i].builds, n)
 
 
 func _camp_ensure_builds(i: int, kinds: Array) -> void:   # catch-up only: put these kinds in free slots unless already there
@@ -5813,18 +5894,15 @@ func _panel_build(i: int) -> void:
 	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 4)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	for slot in int(h.slots):
+		var col := VBoxContainer.new(); col.add_theme_constant_override("separation", 3)
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
-		box.custom_minimum_size = Vector2(112, 140); row.add_child(box)
+		box.custom_minimum_size = Vector2(112, 140); col.add_child(box)
+		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 socket positions right under it
+			var sl := SocketList.new(); sl.game = self; sl.host = i; sl.first = FIREWALL_SOCKETS * _wall_seat(i, slot)
+			col.add_child(sl)
+		row.add_child(col)
 	panel_box.add_child(row)
-	if _sockets(i) > 0:
-		var held := []
-		for r in (h.sockets as Array): held.append(str(CARDS[str(r)].short))
-		for k in _sockets(i) - held.size(): held.append("empty")
-		var fw := "Firewall sockets: %s" % ", ".join(held)
-		if not bool(h.get("fw_on", true)): fw += " · OFF until this host has Intel"
-		_plabel(fw, 12, C_WARN if not bool(h.get("fw_on", true)) else C_DIM)
-		if _socket_free(i): _plabel("Play Patch, Response, Filter or Cover here to load one.", 12, C_DIM)
-	_plabel("Build · %d s of funded work each" % int(BUILD_TIME), 16, C_TEXT)
+	_plabel("Build · %d s each" % int(BUILD_TIME), 16, C_TEXT)
 	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", PALETTE_GAP)
 	palette.alignment = BoxContainer.ALIGNMENT_CENTER
 	for kind in BUILD_KINDS:
@@ -6009,7 +6087,8 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 		elif main: probs.append(["starved", C_WARN, "%s has no %s in your bank to use." % [nm, RES_NAME[lim]]])
 		elif float(row.frac) > 0.0001: probs.append(["starved", C_WARN, "%s runs at %d%%: not enough %s on this host." % [nm, int(round(100.0 * float(row.frac))), RES_NAME[lim]]])
 		elif not _input_here(i, lim):
-			probs.append(["starved", C_WARN, "%s needs %s here; none is stored or made on this host. Your bank's %s cannot reach a remote converter. Build %s here, or replace the %s." % [nm, RES_NAME[lim], RES_NAME[lim], _MAKER_OF.get(lim, "its input"), nm]])
+			if _inbound(i, lim) >= 1.0: probs.append(["starved", C_WARN, "%s waits for the %s on its way from your main node." % [nm, RES_NAME[lim]]])
+			else: probs.append(["starved", C_WARN, "%s needs %s here: keep some here (below), or build %s here." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "its input")]])
 		else: probs.append(["starved", C_WARN, "%s gets no %s: the converters before it use it all. Add %s here, or pause one." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "more input")]])
 	if pv.has("fw") and not bool(pv.fw.on):
 		probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here and none is left. Build an Intel harvester here." % _amt(float(pv.fw.need))])
@@ -6105,16 +6184,31 @@ func _delivery_lines(i: int) -> Array:   # [[text, colour]] for a remote host: r
 	var lines := []
 	var route := _route_home_line(i)
 	lines.append([route, C_BAD if route.ends_with("none") else C_DIM])
-	if _courier_cap(i) > 0: lines.append(["Delivery: this host's couriers (%d here, %d out) carry its output home and come back." % [int(hosts[i].get("couriers", 0)), _couriers_out(owner, i)], C_DIM])
-	else: lines.append(["Delivery: couriers from your main node collect its output, 1 unit each, and come back.", C_DIM])
+	var c := _courier_counts(owner, i)
+	if _courier_cap(i) > 0:
+		var t := "Couriers: %d here · %d out" % [int(c.idle), int(c.out)]
+		if int(c.held) > 0: t += " · %d held" % int(c.held)
+		lines.append([t + " · up to %d" % _courier_cap(i), C_WARN if int(c.held) > 0 else C_DIM])
+	else: lines.append(["Couriers: from your main node · %d on the way" % int(c.out) + (" · %d held" % int(c.held) if int(c.held) > 0 else ""), C_WARN if int(c.held) > 0 else C_DIM])
 	lines.append([_store_text(i), C_WARN if _store_total(i) >= STORE_CAP - 0.5 else C_DIM])
 	var got := _host_delivered(owner, i)
 	var parts := []
 	for res in RES:
 		if float(got.get(res, 0.0)) >= 0.5: parts.append("%d %s" % [int(round(float(got[res]))), RES_NAME[res]])
-	if parts.is_empty(): lines.append(["Delivered recently: nothing in the last %d s." % int(_ledger_window()), C_DIM])
-	else: lines.append(["Delivered recently: %s per min%s." % [", ".join(parts), " (early estimate)" if _t < float(LEDGER_SECS) else ""], C_DIM])
+	if not parts.is_empty(): lines.append(["Delivered recently: %s per min%s." % [", ".join(parts), " (early estimate)" if _t < float(LEDGER_SECS) else ""], C_DIM])
 	return lines
+
+
+func _courier_counts(fac: int, i: int) -> Dictionary:   # {idle, out, held}: this host's own couriers, or the main node's serving it
+	var own := _courier_cap(i) > 0
+	var out := {"idle": int(hosts[i].get("couriers", 0)) if own else 0, "out": 0, "held": 0}
+	for f in flights:
+		if str(f.kind) != "courier" or int(f.owner) != fac: continue
+		var mine := int(f.origin) == i if own else (int(f.origin) == _hub(fac) and (int(f.get("dest", -1)) == i or int(f.get("src", -1)) == i))
+		if not mine: continue
+		if bool(f.get("blocked", false)): out.held = int(out.held) + 1
+		else: out.out = int(out.out) + 1
+	return out
 
 
 func _cut_off(i: int) -> Array:   # your hosts that, with i, have no route to your main node (the disconnected segment)
@@ -6129,16 +6223,47 @@ func _cut_off(i: int) -> Array:   # your hosts that, with i, have no route to yo
 	return out
 
 
-func _panel_host_econ(i: int) -> void:   # the order the brief asks for: role and status, problems, next cycle, delivery
+func _panel_host_econ(i: int) -> void:   # role and status, its first two problems, the next cycle, then couriers, storage and stock
 	var d := _host_diag(i)
 	_plabel("%s · %s" % [str(d.role), str(d.status)], 15, d.col)
-	for line in d.lines: _plabel(str(line[0]), 12, line[1])
+	for line in (d.lines as Array).slice(0, 2): _plabel(str(line[0]), 12, line[1])   # the rest: Economy view, Help
 	if str(d.next) != "": _plabel(str(d.next), 12, C_TEXT)
-	if str(d.full) != "": _plabel("At full capacity: " + str(d.full).trim_prefix("Every %d s: " % int(PROD_CYCLE)), 12, C_DIM)
-	if i == int(rig.get(int(hosts[i].owner), -1)):
-		_plabel("Everything made here goes straight into your bank.", 12, C_DIM)
-		return
+	if i == int(rig.get(int(hosts[i].owner), -1)): return
 	for line in _delivery_lines(i): _plabel(str(line[0]), 12, line[1])
+	_want_row(i)
+
+
+func _want_inputs(i: int) -> Array:   # the resources this host's installations use, in RES order
+	var need := {}
+	for b in (hosts[i].builds as Array):
+		var k := str(b)
+		if k == "" or not BUILD_KINDS.has(k): continue
+		for r in (BUILD_KINDS[k].get("use", {}) as Dictionary): need[str(r)] = true
+	var out := []
+	for res in RES:
+		if need.has(res): out.append(res)
+	return out
+
+
+func _want_row(i: int) -> void:   # desired stock: "Keep here  − 2 Intel +" for each input its installations use
+	var res_list := _want_inputs(i)
+	if res_list.is_empty(): return
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 4)
+	var head := _lbl(row, "Keep here", 12, C_DIM, 0)
+	head.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN; head.autowrap_mode = TextServer.AUTOWRAP_OFF
+	for res in res_list:
+		var n := int(_want(i, res))
+		var tip := "Your main node sends %s until this host holds %d (0 to %d). Its installations use it; it is never carried back out." % [RES_NAME[res], n, WANT_MAX]
+		for pair in [["−", n - 1, n > 0], ["+", n + 1, n < WANT_MAX]]:
+			if str(pair[0]) == "+":
+				var nl := _lbl(row, "%d %s" % [n, RES_NAME[res]], 12, C_TEXT if n > 0 else C_DIM, 0)
+				nl.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN; nl.autowrap_mode = TextServer.AUTOWRAP_OFF; nl.tooltip_text = tip
+				nl.mouse_filter = Control.MOUSE_FILTER_PASS
+			var b := Button.new(); b.text = str(pair[0]); b.custom_minimum_size = Vector2(26, 24)
+			b.add_theme_font_size_override("font_size", 13); b.disabled = not bool(pair[2]); b.tooltip_text = tip
+			b.pressed.connect(_cmd.bind(["want", i, res, int(pair[1])]))
+			row.add_child(b)
+	panel_box.add_child(row)
 
 
 const PALETTE_GAP := 4
@@ -6160,15 +6285,6 @@ func _panel_selecting() -> void:
 	if fx != "": _plabel(fx, 13, C_WARN)
 	if _mine(source): _panel_host_econ(source)
 	_panel_build(source)
-	# support cards you can apply to this host right now
-	var support := []
-	for recipe in DEFENSE_ORDER:
-		if _held(PLAYER, recipe) > 0: support.append(recipe)
-	if not support.is_empty():
-		_plabel("Apply support", 14, C_TEXT)
-		var items := []
-		for recipe in support: items.append([str(CARDS[recipe].name), _play_support.bind(recipe, source), true])
-		_btn_row(items)
 	if source == int(rig.get(PLAYER, -1)): _panel_logistics()
 func _fixed_button_style(button: Button, red := false) -> void:
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
@@ -6240,7 +6356,8 @@ func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, f
 func _panel_logistics() -> void:   # the main node's shipping controls: Bots reserve and shipping priority
 	_gap(4.0)
 	_plabel("Logistics", 16, C_TEXT)
-	_plabel("Couriers out on trips: %d · the reserve keeps Bots home for Vault raids" % _couriers_out(PLAYER, _hub(PLAYER)), 12, C_DIM)
+	var c := _courier_counts(PLAYER, _hub(PLAYER))
+	_plabel("Couriers: %d home · %d out%s · reserve keeps %d home" % [int(_avail(PLAYER, "bots")), int(c.out), (" · %d held" % int(c.held)) if int(c.held) > 0 else "", int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT))], 12, C_DIM)
 	var rrow := []
 	for choice in BOT_RESERVE_CHOICES:
 		rrow.append(["Reserve %d" % choice, _set_reserve.bind(choice), int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)) != choice])
@@ -6253,33 +6370,6 @@ func _panel_logistics() -> void:   # the main node's shipping controls: Bots res
 
 
 func _connection_list(_sources: Array) -> void: pass   # no manual connections in this model
-
-
-func _panel_node_in(t: int) -> void:   # the attack launcher on a foreign host's panel
-	var launchable := []
-	for recipe in ATTACK_ORDER:
-		if _held(PLAYER, recipe) > 0: launchable.append(recipe)
-	if _chosen_attack == "" or _held(PLAYER, _chosen_attack) <= 0:
-		_chosen_attack = launchable[0] if not launchable.is_empty() else ""
-	if launchable.is_empty():
-		_plabel("No attack cards ready — manufacture one from the deck.", 13, C_DIM)
-		return
-	_plabel("Launch", 16, C_TEXT)
-	var chips := []
-	for recipe in launchable:
-		chips.append(["%s ×%d" % [str(CARDS[recipe].short), _held(PLAYER, recipe)], func(r = recipe): _chosen_attack = r; _refresh_panel(), _chosen_attack != recipe])
-	_btn_row(chips)
-	if _chosen_attack != "":
-		var why := _can_play(PLAYER, _chosen_attack, t)
-		if str(CARDS[_chosen_attack].effect) == "siphon":
-			var srow := []
-			for res in ["intel", "cash", "creds", "research"]:
-				srow.append([RES_NAME[res], func(rr = res): _chosen_siphon_res = rr; _refresh_panel(), _chosen_siphon_res != res])
-			_plabel("Siphon resource", 12, C_DIM); _btn_row(srow)
-		var pv := _target_preview(PLAYER, _chosen_attack, t, _chosen_siphon_res)   # the verdict beside the button, the details under it
-		_plabel(str(pv.lines[0][0]), 12, pv.lines[0][1])
-		_action_button("Launch", func(): _cmd(["card", _chosen_attack, t, _chosen_siphon_res]), null, why == "")
-		for line in (pv.lines as Array).slice(1): _plabel(str(line[0]), 12, line[1])
 
 
 func _cycle_assault_pct() -> void: pass
@@ -6306,13 +6396,14 @@ func _panel_inspect() -> void:
 	if _recon_fresh(PLAYER, i):
 		var rec: Dictionary = (recon.get(PLAYER, {}) as Dictionary).get(i, {})
 		_plabel("Recon %ds ago · storage %s/%d" % [int(_t - float(rec.get("at", _t))), _amt(float(rec.get("store", 0.0))), int(STORE_CAP)], 12, C_DIM)
-		var socks: Array = rec.get("sockets", [])
+		var socks: Array = _loaded_of(rec.get("sockets", []))
 		if (rec.get("builds", []) as Array).has("wall"):
 			var names := []
 			for r in socks: names.append(str(CARDS[str(r)].short))
 			_plabel("Firewall holds: %s" % (", ".join(names) if not names.is_empty() else "nothing"), 12, C_WARN if not names.is_empty() else C_DIM)
 	_panel_enemy_slots(i)
-	_panel_node_in(i)
+	var c := _op_chance(PLAYER, i, "breach")
+	_plabel("Your attacks here: full chance while your Recon is fresh." if c >= 1.0 else "Your attacks here: %d%% without fresh Recon." % int(round(c * 100.0)), 12, C_GOOD if c >= 1.0 else C_WARN)
 
 
 func _panel_attack_diag(t: int, _f: Array, _s: Array) -> void:
@@ -7951,7 +8042,7 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 # A building card (palette and slots share it), in fixed bands so nothing overlaps at 112 x 140:
 # title 4-28 · icon 32-72 · two effect lines (88, 101) · bottom band 108-136: the price as icons (palette) or a status (slots).
 const BUILD_EFFECT := {   # per 5-s cycle (the host panel says "Every 5 s")
-	"bot": ["+2 Bots", "carry 2 home"], "intel": ["+2 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
+	"bot": ["+2 couriers", "1 unit a trip"], "intel": ["+2 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
 	"cred": ["+1 Cred", "uses 1 Intel"], "lab": ["+1 Research", "Intel+Crypto"], "wall": ["3 sockets", "uses 1 Intel"],
 }
 func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:
@@ -8065,7 +8156,8 @@ class SlotBox extends Control:
 				for input in (game.BUILD_KINDS[kind].use as Dictionary):   # its input must be made on this host (or be in the bank at the main node)
 					if not game._input_here(host, str(input)): footer = "Needs %s here" % game.RES_NAME[str(input)]
 		elif kind == "wall":
-			footer = "%d/%d loaded" % [(h.sockets as Array).size(), game._sockets(host)] if bool(h.get("fw_on", true)) else "OFF: no Intel"
+			var a: int = game.FIREWALL_SOCKETS * game._wall_seat(host, slot)
+			footer = "%d/%d loaded" % [game._loaded_of((h.sockets as Array).slice(a, a + game.FIREWALL_SOCKETS)).size(), game.FIREWALL_SOCKETS] if bool(h.get("fw_on", true)) else "OFF: no Intel"
 		if not job.is_empty():
 			footer = ""
 			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else "■  %.0fs" % float(job.left)
@@ -8082,6 +8174,72 @@ class SlotBox extends Control:
 				game._fit_text(self, "Needs %s" % res_name, Rect2(6, 89, size.x - 12, 0), 12, game.C_WARN)
 				game._fit_text(self, "%d / %d paid" % [int(paid), int(price)], Rect2(6, 102, size.x - 12, 0), 11, game.C_TEXT)
 
+
+
+class SocketList extends Control:   # one finished Firewall's 3 socket positions, under its slot: empty, a card on its way, loaded, or off
+	var game
+	var host := -1
+	var first := 0   # this Firewall's first position in hosts[host].sockets (_wall_seat × 3)
+	const ROW := 22.0
+	func _init() -> void:
+		custom_minimum_size = Vector2(112, ROW * 3.0)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+	func _process(_dt: float) -> void: queue_redraw()
+	func state(k: int) -> Array:   # [kind, recipe]: kind = "empty" | "held" | "loaded"
+		var socks: Array = game.hosts[host].sockets
+		var v := str(socks[first + k]) if first + k < socks.size() else ""
+		if v.begins_with("@"): return ["held", v.substr(1).split("#")[0]]
+		if v != "": return ["loaded", v]
+		return ["empty", ""]
+	func eta(k: int) -> float:   # seconds until the card on its way to position k arrives
+		var socks: Array = game.hosts[host].sockets
+		var tok := str(socks[first + k]) if first + k < socks.size() else ""
+		for f in game.flights:
+			if str(f.get("sock", "")) == tok and tok != "": return maxf(0.0, float(f.arrive_t) - game._t)
+		return -1.0
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var on: bool = bool(game.hosts[host].get("fw_on", true))
+		var drag: String = game._dragged_card()
+		var can_drop: bool = drag != "" and game._socketable(game._card_of(drag)) and game._can_play(game.PLAYER, drag, host) == ""
+		for k in 3:
+			var r := Rect2(0, k * ROW, size.x, ROW - 3.0)
+			var st := state(k)
+			var a := 1.0 if on else 0.45
+			match str(st[0]):
+				"empty":
+					draw_rect(r, Color(0.08, 0.1, 0.14, a), true)
+					var dash := Color(game.C_DIM, 0.6 * a); var x := 0.0
+					while x < r.size.x:   # a dashed outline: nothing loaded here
+						draw_line(Vector2(x, r.position.y), Vector2(minf(x + 4.0, r.size.x), r.position.y), dash, 1.0)
+						draw_line(Vector2(x, r.end.y), Vector2(minf(x + 4.0, r.size.x), r.end.y), dash, 1.0)
+						x += 8.0
+					game._text(self, f, r.position + Vector2(6, 14), "empty" if on else "OFF", 11, Color(game.C_DIM, a) if on else game.C_BAD)
+					if can_drop and game._free_socket(host) == first + k: draw_rect(r, game.FAMILY_COL[str(game.CARDS[game._card_of(drag)].fam)], false, 2.0)
+				"held":
+					var cc: Color = game.FAMILY_COL[str(game.CARDS[str(st[1])].fam)]
+					draw_rect(r, Color(cc.r, cc.g, cc.b, 0.12 * a), true); draw_rect(r, Color(cc, 0.7 * a), false, 1.0)
+					game._draw_card_glyph(self, str(st[1]), r.position + Vector2(10, ROW * 0.5 - 1.5), 15.0, Color(1, 1, 1, 0.55 * a), f)
+					var e := eta(k)
+					game._text(self, f, r.position + Vector2(21, 14), "%s %s" % [str(game.CARDS[str(st[1])].short), ("in %ds" % ceili(e)) if e >= 0.0 else "held"], 11, Color(cc.lightened(0.3), 0.8 * a))
+				"loaded":
+					var cc2: Color = game.FAMILY_COL[str(game.CARDS[str(st[1])].fam)]
+					draw_rect(r, Color(cc2.r, cc2.g, cc2.b, 0.3 * a), true); draw_rect(r, Color(cc2, a), false, 1.5)
+					game._draw_card_glyph(self, str(st[1]), r.position + Vector2(10, ROW * 0.5 - 1.5), 15.0, Color(1, 1, 1, a), f)
+					game._text(self, f, r.position + Vector2(21, 14), str(game.CARDS[str(st[1])].short) if on else "%s · OFF" % str(game.CARDS[str(st[1])].short), 11, Color(game.C_TEXT, a) if on else game.C_BAD)
+	func _get_tooltip(at: Vector2) -> String:
+		var k := clampi(int(at.y / ROW), 0, 2)
+		var st := state(k)
+		var on: bool = bool(game.hosts[host].get("fw_on", true))
+		var off := "" if on else "\nThe Firewall is OFF: no Intel on this host, so loaded cards wait."
+		match str(st[0]):
+			"held": return "%s on its way: it loads here on arrival.%s" % [str(game.CARDS[str(st[1])].name), off]
+			"loaded": return "%s loaded: it fires when %s.%s" % [str(game.CARDS[str(st[1])].name), str(game.SOCKET_TRIGGER[str(st[1])]), off]
+		return "Empty socket. Send Patch, Incident response, Traffic filter or Courier cover to this host: the first empty socket from the left takes it.%s" % off
+	func _can_drop_data(_p: Vector2, data: Variant) -> bool:
+		return data is Dictionary and (data as Dictionary).has("card") and game._socketable(game._card_of(str(data.card))) and game._can_play(game.PLAYER, str(data.card), host) == ""
+	func _drop_data(_p: Vector2, data: Variant) -> void:
+		game._cmd(["card", str(data.card), host])
 
 
 class PeekSlot extends Control:   # read-only view of ONE slot of a building you don't own (fogged if unscanned)

@@ -155,7 +155,7 @@ func counters_first() -> void:   # an armed Patch, a lost route: decided without
 	g._set_builds(t, ["intel", "wall"]); g.hosts[t].sockets = ["response"]; g.hosts[t].fw_on = true
 	st = g.sim_rng.state
 	g._op_land(P, "phish", t, int(g.hosts[t].gen), {"id": 40003})
-	check(not g._phished(t) and g.sim_rng.state == st and (g.hosts[t].sockets as Array).is_empty(), "A loaded Response stops an unscouted Phishing before any draw")
+	check(not g._phished(t) and g.sim_rng.state == st and g._loaded(t).is_empty(), "A loaded Response stops an unscouted Phishing before any draw")
 
 
 func exemptions_and_scope() -> void:

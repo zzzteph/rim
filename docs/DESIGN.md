@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 6fd1de9
+RIM 0.5.0-a · commit 4fa61a8
 
 ## Contents
 
@@ -619,7 +619,7 @@ Each finished Firewall gives its host 3 sockets (a host may hold several Firewal
 
 #### Power
 
-Each Firewall eats 1 Intel from its own host every cycle, before any converter. Without it the Firewall is off and its cards wait. Demolishing a Firewall loses the cards it held; capturing the host wipes them. A rival's Recon shows what is loaded.
+Each Firewall eats 1 Intel from its own host every cycle, before any converter. Without it the Firewall is off and its cards wait. Sockets are positions: the leftmost finished Firewall holds the first 3, the next one the next 3, and a card loads into the first empty position from the left. A card that fires leaves its position empty; demolishing or replacing a Firewall loses the cards in its own 3 positions as soon as the work starts, and a new Firewall gets 3 empty ones, so no card ever moves to another Firewall. Capturing the host wipes them. A rival's Recon shows what is loaded.
 
 | Loaded card       | Fires when                                                       | Result                                                          |
 |-------------------|------------------------------------------------------------------|-----------------------------------------------------------------|
@@ -697,8 +697,8 @@ Not offered in the menus at present. The backend below is kept and still tested.
 - **HUD** (top): the five banks with cap and incoming arrows, each with its measured net rate per minute underneath (hover for received, spent and lost by cause); to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.
 - **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
-- **Sidebar**: standings when idle; your host's panel when selected, in this order: role and status (e.g. RESEARCH HOST · starved), each problem with its cause and a fix, the next cycle as it will really run (and, when that falls short, the output at full capacity), delivery (route home with hops, travel and queueing, who carries, storage, what reached the bank from this host recently), then installations, Firewall sockets and the build palette; on the main node also logistics: reserve and shipping priority. A foreign host's panel shows its security, Recon view and the Launch row.
-- **Target preview**: on a foreign host's panel (the verdict beside Launch) and beside the cursor while a card is dragged over a host: can it launch and why not; its chance (full with fresh Recon still fresh when it resolves, else 50%); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
+- **Sidebar**: standings when idle; your host's panel when selected: role and status (e.g. RESEARCH HOST · starved), at most two problems with a fix, the next cycle as it will really run, the route home, couriers (here · out · held), storage and a Keep-here stepper for the inputs its installations use, then installations, each finished Firewall's 3 sockets right under it (empty, on its way, loaded, off), and the build palette; on the main node also the reserve and shipping priority. No card is sent from a host panel. A foreign host's panel shows owner, type, Recon status, what Recon saw and your odds there.
+- **Target preview**: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (full with fresh Recon still fresh when it resolves, else 50%); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
 - **Events**: a strip at the bottom-left of the map shows up to four entries, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, couriers held at the reserve, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
@@ -821,7 +821,7 @@ Choices made in the last rounds that are worth a second look.
 5.  **Milestone A visibility features** (HUD rates and the Economy view, host status and route home, target preview, event history) are checked by tests for correctness and layout only. Whether first-time players understand them is what `docs/PLAYTEST.md` is for; it has not been run yet.
 6.  **Vault raid on storage** only pays where output piles up. A network with Bot stations everywhere keeps little in storage.
 7.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
-8.  **DDoS on a junction destroys cargo** already routed through it that arrives while it is down, not just new traffic.
+8.  **DDoS on a relay holds traffic.** Every packet that has to pass it, couriers and cards alike, waits before it until it ends; nothing is destroyed unless the host it waits in is taken.
 9.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
 10. **Packet siphon dragged onto the map takes Crypto.** Picking another resource needs the host panel's Launch row.
 11. **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.

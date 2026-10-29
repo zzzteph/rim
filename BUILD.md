@@ -183,10 +183,23 @@ resource's net rate under its stock, a tooltip breaks it down, and the **Economy
 button, clicking the HUD, or `E`) lists sources, spending, cargo on the road and losses. The ledger is
 presentation only: it is not part of the lockstep fingerprint (`_mp_hash`).
 
-Host diagnoses and route inspection (Milestone A). A selected host's panel reads role → status → problems →
-next cycle → delivery → installations (`_panel_host_econ`). `_cycle_preview(i)` works the next cycle out exactly
-as `_run_cycle` will, on copies (`_pv_add`/`_pv_take`), so "Next cycle in 2.4 s: …" shows feasible output and the
-dim "At full capacity" line the theoretical one; `tests/diagnosis_test.gd` checks the preview against the real
+Host panels (round B). A selected host's panel holds state, quantities, progress and controls, not prose: role ·
+status, at most two problems, the next cycle, then (for a remote host) route home, couriers (idle · out · held),
+storage and a compact **Keep here** stepper for each input its installations use (`_want_row`, the `want` command),
+then installations and the build palette; the main node adds reserve and shipping priority (`_panel_host_econ`).
+No card is sent or launched from a host panel: cards go through the card UI and drag and drop. A foreign host's
+panel shows owner, type, Recon status, what Recon saw and your odds there. Under every finished Firewall a
+`SocketList` shows its 3 socket positions: empty, a card on its way (with its arrival time), loaded (by name and
+art), or off. Sockets are positional (`hosts[i].sockets`: "" empty, a recipe, or "@recipe#flight" held for a card
+on its way) and seated on the finished Firewalls in slot order, 3 each (`_wall_seat`): a card loads into the first
+empty position from the left; a card that fires leaves its position empty; a Firewall that is demolished or
+replaced takes its own 3 positions and their cards away when the work starts (`_seat_out`), and one that is
+finished gets 3 empty positions at its seat (`_seat_in`), so every card stays in the Firewall it was loaded into.
+`tests/host_panel_test.gd` covers this and checks that no control outlives its context.
+
+Host diagnoses and route inspection (Milestone A). `_cycle_preview(i)` works the next cycle out exactly
+as `_run_cycle` will, on copies (`_pv_add`/`_pv_take`), so "Next cycle in 2.4 s: …" shows feasible output;
+`tests/diagnosis_test.gd` checks the preview against the real
 cycle. `_host_diag(i)` names the status from the first problem (under DDoS, sabotaged, phished, no route,
 starved, blocked, waiting for couriers, Firewall off, paused, building, idle; else operating) with a cause and a
 fix. `_route_eta` reports hops, travel and the queueing a packet leaving now would meet, without reserving link
@@ -199,8 +212,8 @@ launch and why not (`_can_play`), the chance (`_chance_line`: full or 50%, with 
 and queueing, the execution time and what stops it, the hosts an area or chain effect would hit as far as the player
 can see (`_preview_nearest`, `_preview_chain` — never hosts out of sight), the Worm's next stage (`_worm_next`),
 public defences (an armed Patch, a Filter) and the last Recon snapshot with its age (`_known_defences`; loaded
-sockets are never read live). The foreign host's panel shows it with the verdict beside Launch; while a card is
-dragged over a host the same preview follows the cursor (`_paint_drag_preview`). The card is used only on launch.
+sockets are never read live). While a card is dragged over a host the preview follows the cursor
+(`_paint_drag_preview`). The card is used only on launch.
 
 Event history (Milestone A). `events` is one persistent queue for this screen's player, newest first, in three
 priorities (`EV_CRIT` needs you now, `EV_ACT` worth acting on, `EV_INFO` news). `_tick_events` polls every 0.5 s
@@ -228,8 +241,8 @@ open to research (with its price and time) or locked (`_research_node_state`); c
 node researches it, a known one opens its own tab. Pushed down, the strip shows the known recipes
 as mini cards (click = make a copy / pause, drag a held copy = play). Pulled up (a tab, the handle
 or `C`), ATTACK and DEFENCE show four detailed cards at a time; ← / → in the strip page through the
-rest (`_deck_page`, over the known recipes only). Drag a ready copy onto the map to play it, or
-launch from a host's panel. Drag a held ATTACK card onto a reachable foreign host, a DEFENCE
+rest (`_deck_page`, over the known recipes only). Drag a ready copy onto the map to play it.
+Drag a held ATTACK card onto a reachable foreign host, a DEFENCE
 (support) card onto one of your own hosts (including your rig).
 
 There are **no security levels**: any card may target any foreign host; a host's type decides only its slots

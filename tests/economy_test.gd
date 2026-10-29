@@ -170,22 +170,22 @@ func security_and_firewall() -> void:   # there are no security levels; a Firewa
 	check(g._sockets(n) == 3, "A Firewall adds 3 card sockets")
 	g.cards[P] = {"patch": 1, "response": 1}
 	g._play_card(P, "patch", n)
-	check(g._held(P, "patch") == 0 and (g.hosts[n].sockets as Array).is_empty() and int(g.hosts[n].socket_res) == 1, "A Patch sent to a Firewall host travels there: a socket is held for it, nothing is loaded yet")
+	check(g._held(P, "patch") == 0 and g._loaded(n).is_empty() and g._socket_res(n) == 1, "A Patch sent to a Firewall host travels there: a socket is held for it, nothing is loaded yet")
 	step(3.0)
-	check((g.hosts[n].sockets as Array).has("patch") and int(g.hosts[n].socket_res) == 0, "... and loads into that socket when it arrives")
+	check((g.hosts[n].sockets as Array).has("patch") and g._socket_res(n) == 0, "... and loads into that socket when it arrives")
 	step(g.PROD_CYCLE + 0.1)
 	check(bool(g.hosts[n].fw_on), "The Firewall is powered by its host's Intel (1 per cycle)")
 	var R: int = g.RIVAL
 	g._op_land(R, "breach", n, int(g.hosts[n].gen), {"id": 9001})
 	var busy := false
 	for e in g._execs: if int(e.target) == n: busy = true
-	check(not busy and (g.hosts[n].sockets as Array).is_empty(), "The loaded Patch fires itself and stops a rival Breach the moment it starts")
+	check(not busy and g._loaded(n).is_empty(), "The loaded Patch fires itself and stops a rival Breach the moment it starts")
 	g._mark_scanned(R, n)   # the rival scouted it: its attacks land at full odds
 	g._op_land(R, "phish", n, int(g.hosts[n].gen), {"id": 9002})
 	check(g._phished(n), "With the socket used up, the next attack (Phishing) lands")
 	g._play_card(P, "response", n)
 	step(3.0)
-	check(not g._phished(n) and (g.hosts[n].sockets as Array).is_empty(), "A defence card whose attack is already there acts on arrival instead of loading")
+	check(not g._phished(n) and g._loaded(n).is_empty(), "A defence card whose attack is already there acts on arrival instead of loading")
 	g._set_builds(n, ["", "wall"])   # no Intel on the host: the Firewall goes dark
 	g.hosts[n].store = {}
 	g.cards[P] = {"filter": 1}

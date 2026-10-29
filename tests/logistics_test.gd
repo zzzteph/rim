@@ -114,17 +114,17 @@ func firewall_sockets() -> void:
 	g.cards[P] = {"patch": 5}
 	for k in 4: g._play_card(P, "patch", far)
 	var loads: int = g.flights.filter(func(f): return str(f.kind) == "op" and bool(f.get("load", false))).size()
-	check(int(g.hosts[far].socket_res) == 3 and loads == 3 and (g.hosts[far].sockets as Array).is_empty(), "Four Patches sent to a 3-socket Firewall: three hold a socket, nothing is loaded before they arrive")
+	check(g._socket_res(far) == 3 and loads == 3 and g._loaded(far).is_empty(), "Four Patches sent to a 3-socket Firewall: three hold a socket, nothing is loaded before they arrive")
 	step(4.0)
-	check((g.hosts[far].sockets as Array).count("patch") == 3 and int(g.hosts[far].socket_res) == 0, "On arrival three load their sockets")
+	check((g.hosts[far].sockets as Array).count("patch") == 3 and g._socket_res(far) == 0, "On arrival three load their sockets")
 	check(float(g.hosts[far].patch_armed_until) > g._t, "...and the fourth, with no socket left, acts on arrival (it arms a Patch)")
 	g.hosts[far].sockets = []
 	g._play_card(P, "patch", far)
-	check(int(g.hosts[far].socket_res) == 1, "A Patch on its way holds a socket")
+	check(g._socket_res(far) == 1, "A Patch on its way holds a socket")
 	g._set_builds(far, ["intel", ""])   # the Firewall is demolished while the card flies
 	g.hosts[far].patch_armed_until = 0.0
 	step(4.0)
-	check(int(g.hosts[far].socket_res) == 0 and float(g.hosts[far].patch_armed_until) > g._t, "Its Firewall gone on arrival, the Patch acts instead and the held socket is released")
+	check(g._socket_res(far) == 0 and float(g.hosts[far].patch_armed_until) > g._t, "Its Firewall gone on arrival, the Patch acts instead and the held socket is released")
 	g._start_job(far, "wall", 1)
 	check(g._sockets(far) == 0, "A Firewall still being built has no sockets yet")
 	step(11.0)
@@ -194,7 +194,7 @@ func relays() -> void:   # every kind of packet, at a relay that is knocked out,
 	g._capture(via, R)
 	g._tick_blocked()
 	check(n0 >= 3 and g.flights.is_empty(), "Packets held in a relay that is taken are lost with it (%d)" % n0)
-	check(int(g.hosts[far].socket_res) == 0 and g._inbound(far, "cash") < 0.001 and g._claimed(far, P, "intel") < 0.001,
+	check(g._socket_res(far) == 0 and g._inbound(far, "cash") < 0.001 and g._claimed(far, P, "intel") < 0.001,
 		"Their reservations at the far host are released: the held socket, the room for the supply, the claimed pickup")
 	check(inc0 >= 2.0 and g._incoming(P, "intel") < 0.001 and g._incoming(P, "bots") < 0.001, "...and the bank room they held for cargo and couriers")
 	check(led("lost:cargo:cash") >= 1.0 and led("lost:couriers:bots") >= 1.0, "The lost cargo and couriers are recorded")
