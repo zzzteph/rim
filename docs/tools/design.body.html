@@ -66,7 +66,7 @@ flowchart LR
       <tr><th>End game</th><td class="num">10 min +</td><td>0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
     </tbody>
   </table></div>
-  <p class="note">Measured sample (0.5.0-a, deterministic capture): four AIs on a Medium spiral (41 hosts), seeds 1–5, 6 minutes each. Held hosts grow from 8 to 16–28 (mean 24); 30–57 intrusions resolve per match, 195 in all: 47% captured, 50% stopped by a Patch, 3% ended by a change of owner or a lost route. No match ends inside 6 minutes; the largest network then holds 5–11 of the 21 hosts needed. The share of intrusions a Patch stops is the number to watch for the Patch-stalemate question (brief §13).</p>
+  <p class="note">Measured sample (0.6.0): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each. Held hosts grow from 8 to 38–40; 64–74 intrusions resolve per match, 335 in all. On neutral hosts: 156 captured, 81 missed (no fresh Recon), 1 voided. On rival hosts (97): 35 captured, 24 stopped by a Patch, 24 missed, 14 voided by a change of owner or a lost route. After 6 minutes the largest network holds 9–11 of the 21 hosts needed; after 10 minutes 21–26, and no match has ended (the majority must be held 51 s). The AIs scout before most attacks but often attack without Recon when none is in hand, which is why about a third of their attempts miss.</p>
 </section>
 
 <section id="time">

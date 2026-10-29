@@ -59,6 +59,8 @@ func do_action(ch: int, st: int) -> void:
 		"2:1": if g._known(P, "exploit") and g._held(P, "exploit") == 0 and g._lane_of(P, "exploit") < 0: lane_make("exploit")
 		"2:2": play_when_held("recon", g._camp_gateway)
 		"2:3": play_when_held("exploit", g._camp_gateway)
+		"2:4": if once(key): build(g._camp_gateway, "cash")
+		"2:5": if once(key): g._cmd(["want", g._camp_gateway, "intel", 2])
 		"3:0": play_when_held("recon", g._camp_practice)
 		"3:1": play_when_held("phish", g._camp_practice)
 		"3:2": play_when_held("response", g._camp_relay)

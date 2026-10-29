@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 1136f71
+RIM 0.6.0 · commit 5567dcd
 
 ## Contents
 
@@ -98,7 +98,7 @@ The match ends when one network holds the majority for 51 s or is the last with 
 | Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch. |
 | End game  | 10 min +     | 0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                           |
 
-Measured sample (0.5.0-a, deterministic capture): four AIs on a Medium spiral (41 hosts), seeds 1–5, 6 minutes each. Held hosts grow from 8 to 16–28 (mean 24); 30–57 intrusions resolve per match, 195 in all: 47% captured, 50% stopped by a Patch, 3% ended by a change of owner or a lost route. No match ends inside 6 minutes; the largest network then holds 5–11 of the 21 hosts needed. The share of intrusions a Patch stops is the number to watch for the Patch-stalemate question (brief §13).
+Measured sample (0.6.0): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each. Held hosts grow from 8 to 38–40; 64–74 intrusions resolve per match, 335 in all. On neutral hosts: 156 captured, 81 missed (no fresh Recon), 1 voided. On rival hosts (97): 35 captured, 24 stopped by a Patch, 24 missed, 14 voided by a change of owner or a lost route. After 6 minutes the largest network holds 9–11 of the 21 hosts needed; after 10 minutes 21–26, and no match has ended (the majority must be held 51 s). The AIs scout before most attacks but often attack without Recon when none is in hand, which is why about a third of their attempts miss.
 
 ## Time model
 

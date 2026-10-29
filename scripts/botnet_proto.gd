@@ -116,7 +116,7 @@ const LANE_DONE_SECS := 3.0     # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.5.0-a"   # Milestone A of the 0.5.0 core-loop revision: deterministic capture changes the rules (lobbies match exact versions)
+const GAME_VERSION := "0.6.0"   # round B: no security levels, Recon odds, reusable couriers and supply, travelling defence cards (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -5434,19 +5434,21 @@ func _camp_steps(chapter: int) -> Array:   # t title · a the instruction · r w
 		]
 		1: return [
 			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s, kept on the relay.", "a": "Select the relay and build an Intel harvester in a slot.", "role": "relay", "ui": "build:intel", "pause": true},
-			{"t": "Bot station", "r": "The Bot station's Bots carry the relay's output home.", "a": "Build a Bot station in another slot of the relay.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a Bot to carry Intel home along the green route.", "role": "home", "pause": false},
+			{"t": "Bot station", "r": "The relay now has couriers of its own: they carry its output home and come back.", "a": "Build a Bot station in another slot of the relay.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a courier to carry Intel home along the green route.", "role": "home", "pause": false},
 		]
 		2: return [
 			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Click Research (top right or R), select Known exploit, then Research.", "role": "", "ui": "card:exploit", "pause": true},
 			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once it is learned, make a Known exploit copy in Attack recipes.", "role": "", "ui": "card:exploit", "pause": false},
 			{"t": "Scout the gateway", "r": "The gateway is scouted.", "a": "Drag Recon onto the Corporate Gateway.", "role": "gateway", "ui": "card:recon", "card": "recon", "pause": false},
 			{"t": "Use it", "r": "The Corporate Gateway is yours.", "a": "Launch Known exploit at the Corporate Gateway: it executes in 9 s.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
+			{"t": "A Miner far from Intel", "r": "The Miner needs Intel on the gateway, and none is made there.", "a": "Select the Corporate Gateway and build a Crypto miner.", "role": "gateway", "ui": "build:cash", "pause": true},
+			{"t": "Supply it", "r": "Couriers bring Intel there; the Miner uses what arrives, and Crypto rides back.", "a": "In the gateway's panel, set Keep here to 2 Intel.", "role": "gateway", "ui": "want:intel", "pause": true},
 		]
 		3: return [
 			{"t": "Scout the target", "r": "The Practice host is scouted.", "a": "Drag Recon onto the Practice host.", "role": "practice", "ui": "card:recon", "card": "recon", "pause": true},
 			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Launch Phishing on the Practice host.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
-			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "Launch Incident response on the Neighborhood Relay.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
+			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "Send Incident response to the Neighborhood Relay: it acts when it arrives.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
 		]
 		_: return [
 			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "role": "", "pause": true},
@@ -5500,6 +5502,7 @@ func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck c
 		match p[0]:
 			"card": out.append_array(_camp_card_ctrls(p[1]))
 			"build": out.append_array(_camp_build_ctrls(p[1]))
+			"want": out.append_array(_panel_find(func(c): return c is Button and str(c.text) == "+"))   # the Keep-here stepper
 	return out
 
 
@@ -5661,7 +5664,8 @@ func _camp_catch_up(chapter: int) -> void:
 		2:
 			if not known.has(PLAYER): known[PLAYER] = {}
 			known[PLAYER]["exploit"] = true
-			_camp_own(_camp_gateway)
+			_camp_own(_camp_gateway); _camp_ensure_builds(_camp_gateway, ["cash"])
+			if hosts[_camp_gateway].has("want"): hosts[_camp_gateway].want["intel"] = 2.0
 
 
 func _camp_own_path(a: int, b: int, avoid := -1) -> void:
@@ -5819,6 +5823,8 @@ func _camp_step_done(chapter: int, step: int) -> bool:
 				1: return _held(PLAYER, "exploit") > 0 or _mine(_camp_gateway)
 				2: return _recon_fresh(PLAYER, _camp_gateway) or _mine(_camp_gateway)
 				3: return _mine(_camp_gateway)
+				4: return _count_all(_camp_gateway, "cash") >= 1
+				5: return _want(_camp_gateway, "intel") >= 1.0
 		3:
 			match step:
 				0: return _camp_practice >= 0 and (_recon_fresh(PLAYER, _camp_practice) or int(hosts[_camp_practice].get("steal_by", -1)) == PLAYER)

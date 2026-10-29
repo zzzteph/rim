@@ -91,6 +91,10 @@ godot --headless --path . --script tests/accounting_test.gd  # economic ledger: 
 godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
 godot --headless --path . --script tests/preview_test.gd     # target preview: legality, route/arrival, execution, fog-safe areas, dated Recon
 godot --headless --path . --script tests/recon_test.gd       # no security levels; unscouted 50% odds, seeded dice, counters first
+godot --headless --path . --script tests/logistics_test.gd   # couriers: supply round trip, conservation, sockets on arrival, held / lost packets
+godot --headless --path . --script tests/host_panel_test.gd  # host panels: socket seating and states, no launch controls, no stale controls
+godot --headless --path . --script tests/cards_ui_test.gd    # cards strip and drawer, selection and launch, research and lane states
+godot --headless --path . --script tests/forecast_test.gd    # income forecast vs a steady simulation; couriers, routes, starvation, caps
 godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
