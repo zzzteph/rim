@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit 4fa61a8
+RIM 0.5.0-a · commit 1136f71
 
 ## Contents
 
@@ -190,7 +190,7 @@ Anything that would go over a cap is lost: the trickle and main-node production 
 
 ### Accounting: what the rates mean
 
-Every change to a bank is recorded once, with its cause, in one-second buckets over the last 30 s of play. The rates shown are measured, not predicted: what actually reached or left the bank, scaled to a minute. During the first 30 s of a match they are marked as an early estimate (~).
+Every change to a bank is recorded once, with its cause, in one-second buckets over the last 30 s of play. These measured rates are shown as **historical** (the Economy overview and the HUD tooltips). The HUD itself shows a **forecast** (below).
 
 | Kind     | Causes                                                                                                                                                                                                                                                 |
 |----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -204,6 +204,22 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
 ```
 
 Within the window the recorded flows reconcile exactly with the bank. The ledger is presentation only: it is not part of the multiplayer fingerprint.
+
+### The income forecast
+
+Under each material the HUD shows what will reach your bank per minute with your network as it stands: worked out from the network, not from the ledger, so it is steady while nothing changes and moves as soon as something does (a command, a capture, a full bank). A full bank reads “full”.
+
+``` code
+forecast(res) = main-node trickle (12/min while the main node is up)
+              + main-node buildings' output (their inputs come from the bank)
+              + Σ over hosts whose output is yours: what one cycle there sends home × 12/min, where
+                  inputs  = made on the host, or supplied to its Keep-here stock (plenty while the bank holds ≥ 5,
+                            else only what the main node brings in, shared by the hosts in turn)
+                  sent    ≤ its own couriers' round trips, or its share of the main node's spare couriers
+                  nothing from a host with no route home, under DDoS, or into a full bank
+```
+
+The tooltip and the Economy overview name where it comes from and what holds it back. Bots are couriers, so their column shows capacity instead: how many are home and out, how many are spare above the reserve, and about how many keeping up with your hosts needs.
 
 ## Production cycle
 
@@ -694,21 +710,21 @@ Not offered in the menus at present. The backend below is kept and still tested.
 
 #### Screen
 
-- **HUD** (top): the five banks with cap and incoming arrows, each with its measured net rate per minute underneath (hover for received, spent and lost by cause); to their right the objective, always visible: hosts needed of the total, yours, and who holds the majority with the seconds left.
+- **HUD** (top): the couriers (home · out, spare · needed), then the four banks with cap and the forecast income per minute underneath (hover for its sources, what holds it back, and the historical flows); to their right the objective, always visible. At the top right: Research, Economy and Menu.
 - **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
 - **Sidebar**: standings when idle; your host's panel when selected: role and status (e.g. RESEARCH HOST · starved), at most two problems with a fix, the next cycle as it will really run, the route home, couriers (here · out · held), storage and a Keep-here stepper for the inputs its installations use, then installations, each finished Firewall's 3 sockets right under it (empty, on its way, loaded, off), and the build palette; on the main node also the reserve and shipping priority. No card is sent from a host panel. A foreign host's panel shows owner, type, Recon status, what Recon saw and your odds there.
 - **Target preview**: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (full with fresh Recon still fresh when it resolves, else 50%); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
 - **Events**: a strip at the bottom-left of the map shows up to four entries, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, couriers held at the reserve, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
-- **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
+- **Cards** (bottom): a strip with the three manufacturing lanes (progress; click to pause or resume, x to cancel), the cards you hold at a fixed size (the rest behind “+n”) and a button that opens the drawer. The drawer keeps Ready cards (drag onto a host, or click and then click a host) apart from Attack recipes and Defence recipes (click to make a copy), and holds the Research view: the tree, the selected blueprint with its price, time and action, and the running research by name with its progress, paused or stalled.
 - **Menu** (Esc): navigation only — Resume, Learn, Skirmish, Help (six illustrated pages), Feedback, Exit. Every menu view uses one padding rule and sizes to its content, scrolling inside the window when taller. Nothing is locked behind Learn.
 
 #### Controls
 
 - Click a host: select (yours) or inspect (foreign). Shift-drag: box-select.
 - Drag empty map: pan · wheel: zoom · middle-drag: pan · **0**: recentre.
-- **C**: pull the deck up or down · **E**: Economy overview · **H**: event history · **Space**: pause (single player) · **Esc**: menu or clear selection.
+- **C**: open or close the cards drawer · **R**: research · **E**: Economy overview · **H**: event history · **Space**: pause (single player) · **Esc**: menu or clear selection.
 - Drag a card onto a host to play it; drag a building card onto a slot to build.
 
 ## Simulation step
@@ -803,7 +819,7 @@ Constants still defined in the config files that the current game never reads, l
 | File         | Constants                                                                                                                                                                                                                       |
 |--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | buildings.gd | `BUILD_COST_INTEL`                                                                                                                                                                                                              |
-| cards.gd     | `FAMILY_NAME`                                                                                                                                                                                                                   |
+| cards.gd     | `BANK_NAME`, `FAMILY_NAME`                                                                                                                                                                                                      |
 | factions.gd  | `AI_PROFILE`, `AI_MAX_STREAMS`, `AI_RESERVE`, `AI_PATIENCE`, `AI_SPEED`, `AI_CASH_MULT`, `AI_ASSAULT_PCT`, `AI_CRYPTO_WAIT`, `AI_REACT`, `AI_PRIOR_BOTNET`, `AI_SCOUT_INTEL`, `AI_CHOKE_LEAD`, `AI_EDGE_MEMORY`, `AI_SIEGE_MAX` |
 | town.gd      | `LINK_INTEL`, `TOWN_WORDS`                                                                                                                                                                                                      |
 | tuning.gd    | `SHIP_PRIORITY_TURNS`, `MAX_QUEUE`, `RESEARCH_SLOTS`                                                                                                                                                                            |
@@ -823,7 +839,7 @@ Choices made in the last rounds that are worth a second look.
 7.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Courier cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
 8.  **DDoS on a relay holds traffic.** Every packet that has to pass it, couriers and cards alike, waits before it until it ends; nothing is destroyed unless the host it waits in is taken.
 9.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
-10. **Packet siphon dragged onto the map takes Crypto.** Picking another resource needs the host panel's Launch row.
+10. **Packet siphon takes the resource chosen on its Ready card** (Crypto until you pick another), whether it is dragged or clicked onto a host.
 11. **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
 12. **The AI** never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see [AI](#ai)).
 13. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).

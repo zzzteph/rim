@@ -177,11 +177,24 @@ cap) or `_spend` (spending), each with a **cause** — trickle, production, deli
 refunds, buildings, manufacturing, research, couriers, converters, upkeep; cargo whose route breaks and
 storage drained by a Packet siphon are recorded as lost (`cargo`, `siphoned`), and each delivery also
 records its source host (`from:<host>`). `_ledger_add` keeps 1-s buckets over the last `LEDGER_SECS` (30) s
-per botnet; `_econ_rates(fac, res)` turns them into per-minute received/spent/lost rates by cause (marked
-early, "~", during the first 30 s) and `_incoming_eta` reports cargo on the road. The HUD shows each
-resource's net rate under its stock, a tooltip breaks it down, and the **Economy** overview (top-bar
-button, clicking the HUD, or `E`) lists sources, spending, cargo on the road and losses. The ledger is
-presentation only: it is not part of the lockstep fingerprint (`_mp_hash`).
+per botnet; `_econ_rates(fac, res)` turns them into per-minute received/spent/lost rates by cause, and
+`_incoming_eta` reports cargo on the road. These measured rates are shown only as **historical** (the Economy
+overview and tooltips say "Historical, last 30 s"). The ledger is presentation only: it is not part of the
+lockstep fingerprint (`_mp_hash`).
+
+Income forecast (round B). The HUD's second line under each material is a **forecast**: what will reach the
+main node's bank per minute with the network as it stands (`_forecast`, recomputed every 0.5 s or after any
+command). It is worked out from the network, never extrapolated from early ledger events: the main node's
+trickle and buildings (with their bank inputs), then each host whose output is yours (`_fc_cycle`: its active
+producers, inputs made there or supplied to its Keep-here stock from a shared budget — plenty while the bank holds
+a buffer, else what the main node itself brings in — Firewall upkeep, the converters in order), limited by its route
+home, by its own couriers' round trips or a fair share of the main node's spare couriers, and by the bank's room;
+remote production counts only as fast as it can be delivered (storage that fills stops production). A full bank
+shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
+couriers", "no route home from …", "your bank is full"). The **Bots** column is courier capacity, not income:
+"N home · M out" over "S spare · need K" (couriers above the reserve, and about how many keeping up with your
+hosts needs). `tests/forecast_test.gd` checks the forecast against 120 s of steady play and against no spare
+couriers, a cut route, starvation and supply, a paused producer and a full bank.
 
 Host panels (round B). A selected host's panel holds state, quantities, progress and controls, not prose: role ·
 status, at most two problems, the next cycle, then (for a remote host) route home, couriers (idle · out · held),
@@ -233,17 +246,24 @@ recipes are known from the start (`KNOWN_START`: Recon, Breach, Phishing, Patch,
 response). A known recipe is manufactured into single-use copies in one of three
 **manufacturing lanes** (`MANUFACTURE_LANES`, `_lane_*`/`_tick_manufacture`); each copy pays its
 `make` cost up front and takes `make_time` seconds, and finished copies sit in a 12-slot ready
-inventory (`READY_SLOTS`, `_ready_total`). A lane can **Repeat**. The deck drawer at the bottom
-has three tabs: a red ATTACK tab and a blue DEFENCE tab hold only the recipes you **know** — the
-cards you can make — and a purple **RESEARCH** tab shows the development tree (`ResearchTree`,
-`ResearchNode`): every recipe under the one it is researched from, marked known, researching,
-open to research (with its price and time) or locked (`_research_node_state`); clicking an open
-node researches it, a known one opens its own tab. Pushed down, the strip shows the known recipes
-as mini cards (click = make a copy / pause, drag a held copy = play). Pulled up (a tab, the handle
-or `C`), ATTACK and DEFENCE show four detailed cards at a time; ← / → in the strip page through the
-rest (`_deck_page`, over the known recipes only). Drag a ready copy onto the map to play it.
-Drag a held ATTACK card onto a reachable foreign host, a DEFENCE
-(support) card onto one of your own hosts (including your rig).
+inventory (`READY_SLOTS`, `_ready_total`).
+
+The cards area (round B). At the bottom an always-visible **strip** shows the three manufacturing lanes
+(`LaneChip`: what each makes, its progress, and making / paused / waiting with what it needs / done; a click
+pauses or resumes (`lane_pause`), its x cancels), then the cards you hold as fixed-size `ReadyChip`s (they are never
+shrunk: what does not fit goes behind "+n"), and on the right a three-bar button (`C`) that opens the **drawer**.
+The drawer keeps usable cards apart from recipes: **Ready** (`ReadyTile`s, paged, with Packet siphon's resource
+choice), **Attack recipes** and **Defence recipes** (four recipe cards a page: click makes a copy or pauses the one
+being made; recipes are never dragged) and **Research**. A ready card is dragged onto a host, or clicked to select it
+(`_armed`: the drawer closes, valid targets are framed, the preview follows the cursor) and then launched with a
+click on a host (`_launch_armed`); Esc, right-click or a click on empty map unselects it, and the selection survives
+opening and closing the drawer. **Research** is a button beside Economy and Menu in the top bar (`R`): its label is
+the active research's state ("Research 45%", "Paused 45%", "Stalled 45%", or "Research +n" open blueprints); the
+research view names it with its progress and time left (`_research_status_line`), shows the selected blueprint's
+price, time and action above the tree (`ResearchInfo`, `_research_action`), and draws the selection (a cyan band
+and outline) apart from hover (a lighter fill) and the states (known: family colour; researching: white with a
+bar; paused: amber; stalled: red; open: violet; locked: grey). `tests/cards_ui_test.gd` covers empty and crowded
+inventories, paging, selection and launch, research states and lane states.
 
 There are **no security levels**: any card may target any foreign host; a host's type decides only its slots
 and production multipliers. Capture cards differ by price and execution time (`exec`, and `exec_rig` on a held

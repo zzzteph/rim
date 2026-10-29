@@ -76,7 +76,7 @@ func _draw() -> void:
 # Each page's words, kept as data so tests/text_fit_test.gd measures exactly what is drawn:
 # every lead line fits on one line with room to spare, every caption fits in two lines.
 const LEADS := {
-	"research": ["Learn a blueprint in the RESEARCH tab to unlock its recipe.", "Manufacture copies, then launch a ready card."],
+	"research": ["Research a blueprint (top right) to unlock its recipe.", "Make copies from its recipe, then use a ready card."],
 	"deliver": ["A resource made outside your main node waits in its host's storage.", "Couriers carry it home, then come back. None are used up."],
 	"produce": ["Every 5 s a harvester makes 2 Intel; a converter uses 1.", "A Lab needs 1 Intel and 1 Crypto on the same host."],
 	"build": ["One research slot and three manufacturing lanes.", "Repeat makes more copies when resources and slots allow."],

@@ -105,7 +105,14 @@ const CARD_DOCK_GAP := 12.0
 const MAP_CELL := 190.0         # world size of one town cell; each host sits in its own cell (territories are drawn per cell)
 const DECK_BAR_HEIGHT := 40.0   # the always-visible deck strip: ATTACK / DEFENCE tabs, mini cards, pull handle
 const DECK_GAP := 8.0           # between the strip and the pulled-up cards
-const DECK_TAB_W := 136.0       # each of the three deck tabs: ATTACK, DEFENCE, RESEARCH (room for 15 mini cards at 1280 px)
+const DECK_TAB_W := 164.0       # each of the drawer's four tabs: Ready, Attack recipes, Defence recipes, Research
+const DRAWER_TABS := ["ready", "attack", "defense", "research"]
+const DRAWER_TAB_NAME := {"ready": "Ready", "attack": "Attack recipes", "defense": "Defence recipes", "research": "Research"}
+const LANE_CHIP_W := 186.0      # one manufacturing lane in the strip
+const READY_CHIP_W := 124.0     # one ready card in the strip: a fixed size, never shrunk to make room
+const READY_TILE := Vector2(236.0, 124.0)   # one ready card in the drawer
+const RESEARCH_INFO_H := 50.0   # the RESEARCH view's row over the tree: the selected blueprint and its action
+const LANE_DONE_SECS := 3.0     # how long the strip shows a finished copy as done
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
@@ -269,17 +276,29 @@ var _pan_last := Vector2.ZERO
 var hud: Control
 var panel: Panel
 var panel_box: VBoxContainer
-var hand_panel: Control          # the pulled-up deck: four detailed cards of the active tab
+var hand_panel: Control          # the drawer's body: ready cards, four recipes of a bank, or the research tree
 var hand_bar: GridContainer
-var card_banks: HBoxContainer    # the deck tabs: ATTACK (child 0) and DEFENCE (child 1)
-var deck_chips: HBoxContainer    # the strip's mini cards: all fifteen, click to research, drag to play
-var deck_handle: Button          # pull the deck up / push it down
-var _card_bank := "attack"
-var _deck_open := false          # the deck starts pushed down: the map gets the room
+var card_banks: HBoxContainer    # the drawer's tabs, in DRAWER_TABS order
+var deck_handle: Button          # the strip's cards button (three bars): open / close the drawer
+var _card_bank := "ready"        # the drawer's view: "ready" (cards you hold), "attack" / "defense" (recipes), "research"
+var _deck_open := false          # the drawer starts closed: the map gets the room
 var _deck_page := 0              # which four of the open bank's cards the pulled-up deck shows
 var research_tree: Control       # the RESEARCH tab: the development tree, in place of the cards
 var _known_sig := ""             # which recipes the player knows, last time the deck was laid out
-var deck_pager: HBoxContainer    # ← page n / m → in the strip while the deck is up and its bank holds more than four
+var deck_pager: HBoxContainer    # ← page n / m → in the drawer's header while its view holds more than one page
+var lane_strip: HBoxContainer    # the strip's manufacturing lanes, one LaneChip each
+var ready_strip: HBoxContainer   # the strip's ready cards, one ReadyChip per recipe held (never shrunk: the rest go to "+n")
+var ready_more: Button           # "+n" in the strip when more ready cards are held than fit
+var ready_empty: Label           # the strip when nothing is ready
+var ready_grid: GridContainer    # the drawer's READY view: one ReadyTile per recipe held, paged
+var research_info: Control       # the drawer's RESEARCH view: the selected blueprint and what you can do with it, over the tree
+var research_status: Label       # in the drawer's header on the RESEARCH view: what is being researched and how it goes
+var drawer_close: Button
+var research_button: Button      # top-right, beside Economy and Menu
+var _armed := ""                 # the ready card you selected: click a host to launch it there (Esc or right-click cancels)
+var _research_sel := ""          # the blueprint selected in the RESEARCH view
+var _lane_done := {}             # lane -> _t its last copy finished (the strip shows "done" for a moment; presentation only)
+var _ready_sig := ""
 var _deck_drag_restore := false  # the deck was pushed down for a card drag; pull it back up when the drag ends
 var _bank_alert := {}            # bank -> Time.get_ticks_msec() until which its tab blinks (a card became ready)
 var _hand_sig := ""              # rebuild the hand only when its composition changes (keeps it cheap)
@@ -373,33 +392,66 @@ func _ready() -> void:
 	research_tree = ResearchTree.new(); research_tree.game = self; research_tree.name = "ResearchTree"
 	research_tree.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); research_tree.visible = false
 	hand_panel.add_child(research_tree)
-	card_banks = HBoxContainer.new(); card_banks.add_theme_constant_override("separation", 8)
+	research_info = ResearchInfo.new(); research_info.game = self; research_info.name = "ResearchInfo"; research_info.visible = false
+	hand_panel.add_child(research_info)
+	ready_grid = GridContainer.new(); ready_grid.name = "ReadyGrid"
+	ready_grid.add_theme_constant_override("h_separation", int(CARD_DOCK_GAP)); ready_grid.add_theme_constant_override("v_separation", int(CARD_DOCK_GAP))
+	ready_grid.mouse_filter = Control.MOUSE_FILTER_IGNORE; hand_panel.add_child(ready_grid)
+	for card in CARD_ORDER:
+		var tile := ReadyTile.new(); tile.game = self; tile.key = _card_key(str(card), "linked"); ready_grid.add_child(tile)
+	var none := Label.new(); none.name = "ReadyNone"
+	none.text = "No ready cards yet. Open Attack recipes or Defence recipes and click a recipe to make a copy."
+	none.add_theme_font_size_override("font_size", 15); none.add_theme_color_override("font_color", C_DIM)
+	none.position = Vector2(8, 16); hand_panel.add_child(none)
+	card_banks = HBoxContainer.new(); card_banks.add_theme_constant_override("separation", 8)   # the drawer's tabs
 	add_child(card_banks)
-	for bank in ["attack", "defense", "research"]:
-		var button := Button.new(); button.name = str(BANK_NAME[bank])
-		button.custom_minimum_size = Vector2(DECK_TAB_W, DECK_BAR_HEIGHT)   # fixed: a longer label never shifts the strip
+	for bank in DRAWER_TABS:
+		var button := Button.new(); button.name = str(DRAWER_TAB_NAME[bank])
+		button.custom_minimum_size = Vector2(DECK_TAB_W, DECK_BAR_HEIGHT)   # fixed: a longer label never shifts the header
 		button.clip_text = true; button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.add_theme_font_size_override("font_size", 14)
 		button.focus_mode = Control.FOCUS_NONE
 		button.pressed.connect(_bank_pressed.bind(bank))
-		button.tooltip_text = {"attack": "Attack cards you can make: click one to make a copy, drag a copy onto a foreign host.",
-			"defense": "Defence cards you can make: drag a copy onto one of your hosts, or into a Firewall there.",
-			"research": "The development tree: learn new recipes here. +n = blueprints you can research now."}[bank]
+		button.tooltip_text = {"ready": "The cards you hold: drag one onto a host, or click it and then click a host.",
+			"attack": "Attack recipes you know: click one to make a copy.",
+			"defense": "Defence recipes you know: click one to make a copy.",
+			"research": "The development tree: select a blueprint, then research it (R)."}[bank]
 		card_banks.add_child(button)
-	deck_chips = HBoxContainer.new(); deck_chips.add_theme_constant_override("separation", 16)
-	deck_chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(deck_chips)
-	for order in [CfgCards.ATTACK_ORDER, CfgCards.DEFENSE_ORDER]:
-		var group := HBoxContainer.new(); group.add_theme_constant_override("separation", 6)
-		group.mouse_filter = Control.MOUSE_FILTER_IGNORE; deck_chips.add_child(group)
-		for card in order:
-			var chip := DeckChip.new(); chip.game = self; chip.key = _card_key(str(card), "linked")
-			group.add_child(chip)
-	deck_handle = Button.new(); deck_handle.name = "DeckHandle"
+	research_status = Label.new(); research_status.name = "ResearchStatus"
+	research_status.add_theme_font_size_override("font_size", 14); research_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	research_status.clip_text = true; research_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	add_child(research_status)
+	drawer_close = Button.new(); drawer_close.name = "DrawerClose"; drawer_close.tooltip_text = "Close the drawer (C)"
+	drawer_close.custom_minimum_size = Vector2(52, DECK_BAR_HEIGHT); drawer_close.focus_mode = Control.FOCUS_NONE
+	_fixed_button_style(drawer_close)
+	var shut := ActionGlyph.new(); shut.col = C_TEXT; shut.action = "DeckClose"
+	shut.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); drawer_close.add_child(shut)
+	drawer_close.pressed.connect(func(): _set_deck_open(false))
+	add_child(drawer_close)
+	lane_strip = HBoxContainer.new(); lane_strip.name = "LaneStrip"; lane_strip.add_theme_constant_override("separation", 6)
+	add_child(lane_strip)
+	for lane in MANUFACTURE_LANES:
+		var chip := LaneChip.new(); chip.game = self; chip.lane = lane; chip.name = "Lane%d" % (lane + 1)
+		chip.custom_minimum_size = Vector2(LANE_CHIP_W, DECK_BAR_HEIGHT); lane_strip.add_child(chip)
+	ready_strip = HBoxContainer.new(); ready_strip.name = "ReadyStrip"; ready_strip.add_theme_constant_override("separation", 6)
+	add_child(ready_strip)
+	for card in CARD_ORDER:
+		var rc := ReadyChip.new(); rc.game = self; rc.key = _card_key(str(card), "linked")
+		rc.custom_minimum_size = Vector2(READY_CHIP_W, DECK_BAR_HEIGHT); ready_strip.add_child(rc)
+	ready_more = Button.new(); ready_more.name = "ReadyMore"; ready_more.focus_mode = Control.FOCUS_NONE
+	ready_more.custom_minimum_size = Vector2(READY_CHIP_W * 0.6, DECK_BAR_HEIGHT); ready_more.add_theme_font_size_override("font_size", 14)
+	ready_more.tooltip_text = "More ready cards: open the drawer"
+	_fixed_button_style(ready_more); ready_more.pressed.connect(_open_drawer.bind("ready"))
+	ready_strip.add_child(ready_more)
+	ready_empty = Label.new(); ready_empty.name = "ReadyEmpty"; ready_empty.text = "No ready cards"
+	ready_empty.add_theme_font_size_override("font_size", 14); ready_empty.add_theme_color_override("font_color", C_DIM)
+	ready_empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER; ready_empty.custom_minimum_size = Vector2(0, DECK_BAR_HEIGHT)
+	add_child(ready_empty)
+	deck_handle = Button.new(); deck_handle.name = "DeckHandle"; deck_handle.tooltip_text = "Cards: ready copies, recipes and research (C)"
 	deck_handle.custom_minimum_size = Vector2(52, DECK_BAR_HEIGHT); deck_handle.focus_mode = Control.FOCUS_NONE
 	_fixed_button_style(deck_handle)
-	var chevron := ActionGlyph.new(); chevron.col = C_TEXT
-	chevron.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); deck_handle.add_child(chevron)
+	var burger := ActionGlyph.new(); burger.col = C_TEXT; burger.action = "Drawer"
+	burger.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); deck_handle.add_child(burger)
 	deck_handle.pressed.connect(func(): _set_deck_open(not _deck_open))
 	add_child(deck_handle)
 	deck_pager = HBoxContainer.new(); deck_pager.add_theme_constant_override("separation", 6)
@@ -1205,6 +1257,160 @@ func _econ_rates(fac: int, res: String) -> Dictionary:   # per-minute recent rat
 		(out[parts[0] + "_by"] as Dictionary)[parts[1]] = float((out[parts[0] + "_by"] as Dictionary).get(parts[1], 0.0)) + v
 	out["net"] = float(out["in"]) - float(out["out"])
 	return out
+
+
+# ---- the income forecast (round B): what will reach the bank per minute with the network as it stands now ----
+# Worked out from the network, never extrapolated from the ledger: the main node's trickle and buildings, then every
+# host whose output can come home, at the rate its active producers, its inputs (made there, or supplied to its Keep-here
+# stock), the couriers that carry it, its route and the bank's room allow. Remote output counts only as fast as it can
+# be delivered (storage that fills stops production); what a host is kept stocked with is counted where it is used.
+# It is presentation only (not in the lockstep fingerprint), recomputed at most every FORECAST_EVERY s or after a command.
+const FORECAST_EVERY := 0.5
+var _fc_cache := {}   # fac -> {"t", "gen", "data"}
+var _fc_gen := 0      # bumped by every command: a change you make shows at once, even paused
+
+
+func _forecast(fac: int) -> Dictionary:   # {rate: {res: per min}, from: {res: {source: per min}}, limits: {res: [why]}, need, spare, fleet}
+	var c: Dictionary = _fc_cache.get(fac, {})
+	if not c.is_empty() and int(c.gen) == _fc_gen and absf(_t - float(c.t)) < FORECAST_EVERY: return c.data
+	var d := _forecast_now(fac)
+	_fc_cache[fac] = {"t": _t, "gen": _fc_gen, "data": d}
+	return d
+
+
+func _fc_add(d: Dictionary, res: String, src: String, v: float) -> void:
+	if v <= 0.0001: return
+	d.rate[res] = float(d.rate[res]) + v
+	if not (d.from as Dictionary).has(res): d.from[res] = {}
+	d.from[res][src] = float((d.from[res] as Dictionary).get(src, 0.0)) + v
+
+
+func _fc_limit(d: Dictionary, res: String, why: String) -> void:
+	if not (d.limits as Dictionary).has(res): d.limits[res] = []
+	if not (d.limits[res] as Array).has(why): (d.limits[res] as Array).append(why)
+
+
+func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}) -> Dictionary:   # one steady cycle of host i for fac: {out: {res: units}, used: {res: units supplied}}
+	var out := {}; var used := {}
+	for res in RES: out[res] = 0.0
+	var supplied := {}   # inputs that keep coming: a remote host's Keep-here stock (from the bank's budget); at the main node, a bank with a buffer
+	for res in RES:
+		if at_main: supplied[res] = _avail(fac, res) >= 5.0
+		else: supplied[res] = int(hosts[i].owner) == fac and _want(i, res) >= 1.0 and float(budget.get(res, 0.0)) > 0.0001
+	out.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
+	var made := out.duplicate()   # at the main node every output is income; what converters and Firewalls use is spending
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0 and int(hosts[i].owner) == fac and not at_main:   # the Firewall eats first, from what is made here, then from supplies
+		var need := float(BUILD_KINDS.wall.use.intel) * walls
+		var own := minf(need, float(out.intel)); out.intel = float(out.intel) - own
+		if need - own > 0.0001 and bool(supplied.intel):
+			var got := minf(need - own, float(budget.intel)); budget.intel = float(budget.intel) - got
+			used.intel = float(used.get("intel", 0.0)) + got
+	for kind in CONVERT_ORDER:
+		var k := _count(i, kind)
+		if k == 0: continue
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var m := _tmult(i, str(spec.out))
+		var frac := 1.0
+		for r in (spec.use as Dictionary):
+			var need := float(spec.use[r]) * m * k
+			var have := float(out[str(r)])
+			if bool(supplied[str(r)]): have += INF if at_main else float(budget[str(r)])
+			elif at_main: have += float(inflow.get(str(r), 0.0)) * PROD_CYCLE / 60.0
+			frac = minf(frac, have / maxf(0.000001, need))
+		for r in (spec.use as Dictionary):
+			var take := float(spec.use[r]) * m * k * frac
+			var local := minf(take, float(out[str(r)]))
+			out[str(r)] = float(out[str(r)]) - local
+			if take - local > 0.0001:
+				used[str(r)] = float(used.get(str(r), 0.0)) + take - local
+				if not at_main: budget[str(r)] = maxf(0.0, float(budget[str(r)]) - (take - local))
+		out[str(spec.out)] = float(out[str(spec.out)]) + float(spec.rate) * m * k * frac
+		made[str(spec.out)] = float(made.get(str(spec.out), 0.0)) + float(spec.rate) * m * k * frac
+	if at_main: out = made
+	var bots := 0
+	for k in _count(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
+	out.bots = float(bots) if at_main else 0.0   # a remote host's stations make couriers for that host, not Bots for the bank
+	return {"out": out, "used": used}
+
+
+func _forecast_now(fac: int) -> Dictionary:
+	var per := 60.0 / PROD_CYCLE
+	var d := {"rate": {}, "from": {}, "limits": {}, "need": 0.0, "spare": 0.0, "fleet": 0}
+	for res in RES: d.rate[res] = 0.0
+	var hub := _hub(fac)
+	if hub < 0 or _eliminated.has(fac): return d
+	# what the bank can keep sending per cycle to hosts' Keep-here stocks: plenty while it holds a buffer, else what the
+	# main node itself brings in (its trickle and its Intel harvesters), shared by the hosts in turn
+	var budget := {}
+	for res in RES:
+		if _avail(fac, res) >= 5.0: budget[res] = INF
+		else:
+			budget[res] = MAIN_INCOME * PROD_CYCLE if _main_ok(fac) else 0.0
+			if res == "intel" and _main_ok(fac): budget[res] = float(budget[res]) + float(BUILD_KINDS.intel.rate) * _tmult(hub, "intel") * _count(hub, "intel")
+	# remote hosts first: what each could send home per cycle, and what it needs supplied
+	var remote := []   # [host, ship {res: units/cycle}, supply units/cycle, own couriers?, round trip s]
+	for i in hosts.size():
+		if i == hub: continue
+		var owner := int(hosts[i].owner)
+		var benef := _benef(i)
+		if benef != fac or owner == NEUTRAL: continue   # only output that is fac's (its own, or phished from a rival)
+		if _ddos_down(i):
+			if _standing(i) > 0: for res in RES: _fc_limit(d, res, "a host under DDoS")
+			continue
+		var cyc := _fc_cycle(i, fac, false, {}, budget)
+		var ship := {}; var sum := 0.0
+		for res in RES:
+			if res != "bots" and float(cyc.out[res]) > 0.0001: ship[res] = float(cyc.out[res]); sum += float(cyc.out[res])
+		var sup := 0.0
+		for r in (cyc.used as Dictionary): sup += float(cyc.used[r])
+		if sum <= 0.0001: continue
+		var rt := _home_route(fac, i)
+		if rt.size() < 2:
+			for res in ship: _fc_limit(d, res, "no route home from %s" % str(hosts[i].name))
+			continue
+		var own := owner == fac and _courier_cap(i) > 0
+		remote.append([i, ship, sup, own, 2.0 * _travel_time(rt, float(hosts[i].get("express_until", 0.0)) > _t)])
+	# couriers: a host's own carry its output; the main node's share its spare fleet among the rest
+	var fleet := int(_avail(fac, "bots")) + _couriers_out(fac, hub)
+	var spare := maxf(0.0, float(fleet) - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))
+	var need := 0.0
+	for row in remote:
+		var units := 0.0
+		for res in (row[1] as Dictionary): units += float(row[1][res])
+		if not bool(row[3]): need += maxf(units, float(row[2])) * float(row[4]) / PROD_CYCLE   # couriers busy keeping up with it
+	var share := 1.0 if need <= spare + 0.0001 else spare / maxf(0.0001, need)
+	d.need = need; d.spare = spare; d.fleet = fleet
+	var inflow := {}
+	for row in remote:
+		var i: int = row[0]
+		var units := 0.0
+		for res in (row[1] as Dictionary): units += float(row[1][res])
+		var trips := maxf(units, float(row[2]))
+		var cap_units := trips
+		if bool(row[3]): cap_units = float(_courier_cap(i)) * PROD_CYCLE / maxf(0.5, float(row[4]))   # its own couriers' round trips per cycle
+		else: cap_units = trips * share
+		var f := clampf(cap_units / maxf(0.0001, trips), 0.0, 1.0)
+		if f < 0.999:
+			for res in (row[1] as Dictionary): _fc_limit(d, str(res), "not enough couriers" if not bool(row[3]) else "%s's couriers are all busy" % str(hosts[i].name))
+		for res in (row[1] as Dictionary):
+			if _room(fac, str(res)) < 1.0 and _avail(fac, str(res)) >= _cap(fac, str(res)) - 0.5: continue   # a full bank takes nothing
+			var v := float(row[1][res]) * f * per
+			inflow[res] = float(inflow.get(res, 0.0)) + v
+			_fc_add(d, str(res), str(hosts[i].name), v)
+	# the main node: the trickle, then its buildings (inputs straight from the bank)
+	if _main_ok(fac):
+		for res in RES:
+			_fc_add(d, res, "main node trickle", MAIN_INCOME * 60.0)
+			inflow[res] = float(inflow.get(res, 0.0)) + MAIN_INCOME * 60.0
+		var mc := _fc_cycle(hub, fac, true, inflow)
+		for res in RES: _fc_add(d, res, "main node buildings", float(mc.out[res]) * per)
+	else: for res in RES: _fc_limit(d, res, "your main node is under DDoS")
+	# a full bank takes nothing more
+	for res in RES:
+		if res != "bots" and _avail(fac, res) >= _cap(fac, res) - 0.5 and float(d.rate[res]) > 0.0:
+			d.rate[res] = 0.0; d.from[res] = {}; _fc_limit(d, res, "your bank is full")
+	return d
 
 
 func _incoming_eta(fac: int, res: String) -> Dictionary:   # cargo on the road for this bank: count, next arrival, how many are at risk
@@ -2163,12 +2369,12 @@ func _process(dt: float) -> void:
 
 
 func _view_key() -> Array:   # what the slow map layers show besides the simulation: when it changes they repaint at once
-	return [_pan, _zoom, _hover_host, _aim_target(), sel.keys(), _inspect, _dragging, _drag_from, _boxing, _dragged_card(),
-		get_viewport_rect().size, _deck_open, menu_open, paused, won, lost, _tut, _tut_stage]
+	return [_pan, _zoom, _hover_host, _aim_target(), sel.keys(), _inspect, _dragging, _drag_from, _boxing, _aimed_card(),
+		get_viewport_rect().size, _deck_open, _card_bank, menu_open, paused, won, lost, _tut, _tut_stage]
 
 
 func _over_fast() -> bool:   # the over layer animates: a wire, card or box being dragged, a card packet flying, a landing pulse
-	if _dragging or _boxing or _dragged_card() != "": return true
+	if _dragging or _boxing or _aimed_card() != "": return true
 	if _camp and not menu_open and (_camp_target() >= 0 or _camp_from() >= 0): return true   # the campaign's pulsing cues (they beat through the reading pause)
 	if paused: return false
 	if not _fx.is_empty(): return true
@@ -2520,8 +2726,8 @@ func _wrap_text(f: Font, s: String, fs: int, width: float) -> Array:   # words i
 
 
 const PREVIEW_W := 360.0
-func _paint_drag_preview(f: Font) -> void:   # screen space: the preview beside the cursor while a card is held over a host
-	var dk := _dragged_card()
+func _paint_drag_preview(f: Font) -> void:   # screen space: the preview beside the cursor while a card is held (or selected) over a host
+	var dk := _aimed_card()
 	if dk == "": return
 	var mouse := get_local_mouse_position()
 	var t := _host_at(mouse)
@@ -3153,6 +3359,13 @@ func _lane_repeat(fac: int, lane: int) -> void:
 	if fac == PLAYER: _refresh_panel()
 
 
+func _lane_pause(fac: int, lane: int) -> void:   # an active copy stops making progress (its price stays paid) / goes on
+	var L: Array = lanes.get(fac, [])
+	if lane < 0 or lane >= L.size() or (L[lane].paid as Dictionary).is_empty(): return
+	L[lane].paused = not bool(L[lane].paused)
+	if fac == PLAYER: _refresh_panel()
+
+
 func _lane_cancel(fac: int, lane: int) -> void:
 	var L: Array = lanes.get(fac, [])
 	if lane < 0 or lane >= L.size(): return
@@ -3160,7 +3373,7 @@ func _lane_cancel(fac: int, lane: int) -> void:
 	if not paid.is_empty():   # refund the unworked fraction
 		var frac := clampf(1.0 - float(L[lane].progress) / maxf(0.001, _make_time(str(L[lane].recipe))), 0.0, 1.0)
 		for r in paid: _add_bank(fac, r, float(paid[r]) * frac, "refunds")
-	L[lane].paid = {}; L[lane].progress = 0.0; L[lane].pending = false
+	L[lane].paid = {}; L[lane].progress = 0.0; L[lane].pending = false; L[lane].paused = false; L[lane].repeat = false
 	if fac == PLAYER: _refresh_panel(); _refresh_hand()
 
 
@@ -3192,9 +3405,10 @@ func _tick_manufacture(dt: float) -> void:
 				if _ready_total(fac) - 1 < READY_SLOTS:   # it already reserves its slot as an active job
 					cards[fac][str(job.recipe)] = _held(fac, str(job.recipe)) + 1
 					if fac == PLAYER:
+						_lane_done[lane] = _t
 						_flash("Ready: %s" % str(CARDS[str(job.recipe)].name), 0)
 						_event("mf:" + str(job.recipe), EV_INFO, "Copy ready: %s (%d held)." % [str(CARDS[str(job.recipe)].name), _held(fac, str(job.recipe))])
-						_bank_alert[_bank_of(str(job.recipe))] = Time.get_ticks_msec() + 3000
+						_bank_alert["ready"] = Time.get_ticks_msec() + 3000
 				job.paid = {}; job.progress = 0.0
 				if bool(job.repeat): job.pending = true
 		# start pending manual requests (may spend the Bot reserve), rotating which lane goes first
@@ -3467,6 +3681,7 @@ func _input(event: InputEvent) -> void:
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus is LineEdit or focus is TextEdit: return
 	if event.keycode == KEY_ESCAPE:
+		if not menu_open and _armed != "": _armed = ""; _update_card_banks(); queue_redraw(); get_viewport().set_input_as_handled(); return
 		if menu_open: _open_menu(false)
 		elif _camp: _camp_leave()
 		elif _panel_has_context(): _clear_all(); _refresh_panel(); queue_redraw()
@@ -3480,6 +3695,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_0: _reset_view()
 	elif event.keycode == KEY_C: _set_deck_open(not _deck_open); get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_R: _toggle_research(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_E: _toggle_economy(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_H: _toggle_events(); get_viewport().set_input_as_handled()
 
@@ -3492,7 +3708,7 @@ func _can_drop_data(pos: Vector2, data: Variant) -> bool:   # a hand card held o
 
 func _drop_data(pos: Vector2, data: Variant) -> void:
 	var t := _host_at(pos)
-	if t >= 0: _cmd(["card", str(data.card), t])
+	if t >= 0: _cmd(["card", str(data.card), t, _chosen_siphon_res])
 
 
 func _dragged_card() -> String:   # the hand card being dragged right now, or ""
@@ -3518,69 +3734,108 @@ func _refresh_hand() -> void:
 	var width := floorf((hand_panel.size.x - CARD_DOCK_GAP * 3) / 4)
 	var shown := _deck_cards()
 	_deck_page = clampi(_deck_page, 0, _deck_pages() - 1)
+	var recipes := _card_bank in ["attack", "defense"]
 	for tile in hand_bar.get_children():
 		var index := shown.find(_card_of(tile.key))   # -1: the other bank
-		tile.visible = index >= _deck_page * 4 and index < _deck_page * 4 + 4
+		tile.visible = recipes and index >= _deck_page * 4 and index < _deck_page * 4 + 4
 		tile.custom_minimum_size = Vector2(width, CARD_DOCK_HEIGHT); tile.queue_redraw()
-	hand_bar.size = hand_panel.size
-	hand_bar.visible = _card_bank != "research"
-	if research_tree != null:
-		research_tree.visible = _card_bank == "research"
-		if research_tree.visible: research_tree.call("relayout")
+	hand_bar.size = Vector2(hand_panel.size.x, CARD_DOCK_HEIGHT)
+	hand_bar.visible = recipes
+	ready_grid.visible = _card_bank == "ready"
+	if ready_grid.visible: _layout_ready_grid()
+	(hand_panel.get_node("ReadyNone") as Label).visible = _card_bank == "ready" and _ready_list().is_empty()
+	var research := _card_bank == "research"
+	research_tree.visible = research; research_info.visible = research
+	if research:
+		research_info.position = Vector2.ZERO; research_info.size = Vector2(hand_panel.size.x, RESEARCH_INFO_H)
+		research_tree.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		research_tree.position = Vector2(0, RESEARCH_INFO_H + 6.0); research_tree.size = Vector2(hand_panel.size.x, CARD_DOCK_HEIGHT)
+		research_tree.call("relayout")
 	_update_card_banks()
 
 
-func _deck_cards() -> Array:   # the open bank's KNOWN recipes, in deck order (unknown ones live in the RESEARCH tab)
-	if _card_bank == "research": return []
+func _deck_cards() -> Array:   # what the drawer's view pages through: the cards you hold, or the open bank's KNOWN recipes
+	match _card_bank:
+		"ready": return _ready_list()
+		"research": return []
 	return _known_of(CfgCards.DEFENSE_ORDER if _card_bank == "defense" else CfgCards.ATTACK_ORDER)
+
+
+func _ready_list() -> Array:   # the recipes you hold at least one copy of, in deck order
+	return CARD_ORDER.filter(func(r): return _held(PLAYER, str(r)) > 0)
 
 
 func _known_of(order: Array) -> Array: return order.filter(func(r): return _known(PLAYER, str(r)))
 
 
+func _per_page() -> int:   # cards on one page of the drawer's view
+	if _card_bank != "ready": return 4
+	var cols := maxi(1, int((hand_panel.size.x + CARD_DOCK_GAP) / (READY_TILE.x + CARD_DOCK_GAP)))
+	var rows := maxi(1, int((CARD_DOCK_HEIGHT + CARD_DOCK_GAP) / (READY_TILE.y + CARD_DOCK_GAP)))
+	return cols * rows
+
+
 func _deck_pages() -> int:
-	return maxi(1, ceili(float(_deck_cards().size()) / 4.0))
+	return maxi(1, ceili(float(_deck_cards().size()) / float(_per_page())))
 
 
-func _deck_page_of(recipe: String) -> int:   # the page a recipe sits on in its own bank
+func _deck_page_of(recipe: String) -> int:   # the page a recipe sits on in its own bank's recipes
 	var order: Array = _known_of(CfgCards.DEFENSE_ORDER if _is_defense(recipe) else CfgCards.ATTACK_ORDER)
 	return maxi(0, order.find(recipe)) / 4
 
 
-func _deck_turn(step: int) -> void:   # page the pulled-up deck; wraps round
+func _layout_ready_grid() -> void:   # fixed-size tiles, as many columns as fit; more cards turn the page, never shrink
+	ready_grid.columns = maxi(1, int((hand_panel.size.x + CARD_DOCK_GAP) / (READY_TILE.x + CARD_DOCK_GAP)))
+	var list := _ready_list()
+	var per := _per_page()
+	for tile in ready_grid.get_children():
+		var index := list.find(_card_of(str(tile.key)))
+		tile.visible = index >= _deck_page * per and index < _deck_page * per + per
+		tile.custom_minimum_size = READY_TILE
+	ready_grid.position = Vector2.ZERO; ready_grid.size = ready_grid.get_combined_minimum_size()
+
+
+func _deck_turn(step: int) -> void:   # page the drawer; wraps round
 	_deck_page = posmod(_deck_page + step, _deck_pages())
 	_refresh_hand()
 
 
-func _update_card_banks(chips := true) -> void:   # tab text (owned · progress), tab look (open / closed / blinking), handle arrow; chips = repaint the mini cards
+func _tab_col(bank: String) -> Color: return BANK_COL[bank] if BANK_COL.has(bank) else C_GOOD
+
+
+func _update_card_banks(chips := true) -> void:   # tab text and look, pager, research line, top Research button; chips = repaint the strip
 	if card_banks == null or deck_handle == null: return
 	var now := Time.get_ticks_msec()
-	if _known_sig != _known_signature():   # a recipe was learned: its mini card and big card join the deck
-		_known_sig = _known_signature()
+	var sig := _known_signature() + "|" + ",".join(PackedStringArray(_ready_list()))
+	if sig != _ready_sig:   # a recipe was learned, or a card came into or went out of your hand: the strip and drawer change
+		_ready_sig = sig
+		if _armed != "" and _held(PLAYER, _armed) <= 0: _armed = ""
 		_layout_deck(); _refresh_hand()
-	for index in 3:
-		var bank: String = ["attack", "defense", "research"][index]
+	var held := 0
+	for r in CARD_ORDER: held += _held(PLAYER, str(r))
+	for index in DRAWER_TABS.size():
+		var bank: String = DRAWER_TABS[index]
 		var button: Button = card_banks.get_child(index)
-		if bank == "research":
-			button.text = "%s%s" % [BANK_NAME[bank], _research_tab_note()]
-		else:   # copies in hand; what each lane is making shows on its own card
-			var owned := 0
-			for card in _known_of(CfgCards.DEFENSE_ORDER if bank == "defense" else CfgCards.ATTACK_ORDER): owned += _held(PLAYER, str(card))
-			button.text = "%s x%d" % [BANK_NAME[bank], owned]
+		button.text = {"ready": "Ready ×%d" % held, "research": _research_label()}.get(bank, str(DRAWER_TAB_NAME[bank]))
 		var shown := _deck_open and bank == _card_bank
 		var blink := not shown and now < int(_bank_alert.get(bank, 0)) and (now / 250) % 2 == 0
 		var look := "flash" if blink else ("open" if shown else "closed")
 		if str(button.get_meta("look", "")) != look:
 			button.set_meta("look", look); _style_bank_tab(button, bank, look)
-	var chevron = deck_handle.get_child(0)
-	var arrow := "DeckClose" if _deck_open else "DeckOpen"
-	if chevron.action != arrow: chevron.action = arrow; chevron.queue_redraw()
 	if deck_pager != null:
 		var pages := _deck_pages()
-		deck_pager.visible = _deck_open and pages > 1 and not menu_open and not won and not lost
+		deck_pager.visible = _deck_open and _card_bank != "research" and pages > 1 and not menu_open and not won and not lost
 		(deck_pager.get_node("PageLabel") as Label).text = "Page %d / %d" % [mini(_deck_page, pages - 1) + 1, pages]
-	if deck_chips.visible and chips:
-		for chip in _deck_chip_nodes(): chip.queue_redraw()
+	if research_status != null:
+		var rl := _research_status_line()
+		research_status.text = str(rl[0]); research_status.add_theme_color_override("font_color", rl[1])
+		research_status.visible = _deck_open and _card_bank == "research" and not menu_open and not won and not lost
+	if research_button != null:
+		research_button.text = _research_label()
+		research_button.tooltip_text = "The development tree (R). " + str(_research_status_line()[0])
+	if chips:
+		for c in lane_strip.get_children(): c.queue_redraw()
+		for c in ready_strip.get_children(): c.queue_redraw()
 
 
 func _known_signature() -> String:
@@ -3589,40 +3844,71 @@ func _known_signature() -> String:
 	return bits
 
 
-func _research_tab_note() -> String:   # " 45%" while researching, " hold" while paused, else " +n": blueprints open to research
+func _research_label() -> String:   # the Research button and tab: "Research 45%", "Paused 45%", "Stalled 45%", or "Research +n" open
 	var job: Dictionary = research_job.get(PLAYER, {})
 	if not job.is_empty():
-		if bool(job.get("paused", false)): return " hold"
-		return " %d%%" % int(100.0 * clampf(float(job.progress) / maxf(0.001, _research_time(str(job.key))), 0.0, 1.0))
+		var pct := int(100.0 * clampf(float(job.progress) / maxf(0.001, _research_time(str(job.key))), 0.0, 1.0))
+		if bool(job.get("paused", false)): return "Paused %d%%" % pct
+		if _research_stall(PLAYER) != "": return "Stalled %d%%" % pct
+		return "Research %d%%" % pct
 	var open := 0
 	for r in RESEARCH:
 		if _can_research(PLAYER, str(r)) == "": open += 1
-	return " +%d" % open if open > 0 else ""
+	return "Research +%d" % open if open > 0 else "Research"
 
 
-func _research_node_state(recipe: String) -> Dictionary:   # one node of the development tree, as the RESEARCH tab draws it
+func _research_status_line() -> Array:   # [text, colour]: the active research, by name, with its progress and state
+	var job: Dictionary = research_job.get(PLAYER, {})
+	if job.is_empty(): return ["No research running. Select a blueprint, then Research.", C_DIM]
+	var recipe := str(job.key)
+	var pct := int(100.0 * clampf(float(job.progress) / maxf(0.001, _research_time(recipe)), 0.0, 1.0))
+	var left := int(ceil(maxf(0.0, _research_time(recipe) - float(job.progress))))
+	if bool(job.get("paused", false)): return ["Paused: %s at %d%%." % [str(CARDS[recipe].name), pct], C_WARN]
+	var stall := _research_stall(PLAYER)
+	if stall != "": return ["Stalled at %d%%: %s" % [pct, stall.trim_prefix("Research of %s stopped: " % str(CARDS[recipe].name))], C_BAD]
+	return ["Researching %s: %d%%, %d s left." % [str(CARDS[recipe].name), pct, left], C_TEXT]
+
+
+func _research_node_state(recipe: String) -> Dictionary:   # one node of the development tree, as the RESEARCH view draws it
 	var job: Dictionary = research_job.get(PLAYER, {})
 	var out := {"state": "locked", "progress": 0.0, "line": ""}
 	if _known(PLAYER, recipe):
-		out.state = "known"; out.line = "In the %s tab" % BANK_NAME[str(CARDS[recipe].bank)]
+		out.state = "known"; out.line = "Known"
 	elif str(job.get("key", "")) == recipe:
 		out.progress = clampf(float(job.progress) / maxf(0.001, _research_time(recipe)), 0.0, 1.0)
 		var paused := bool(job.get("paused", false))
-		out.state = "paused" if paused else "working"
-		out.line = ("Paused %d%%" if paused else "Researching %d%%") % int(float(out.progress) * 100)
+		var stalled := not paused and _research_stall(PLAYER) != ""
+		out.state = "paused" if paused else ("stalled" if stalled else "working")
+		out.line = ("Paused %d%%" if paused else ("Stalled %d%%" if stalled else "Researching %d%%")) % int(float(out.progress) * 100)
 	elif _can_research(PLAYER, recipe) == "":
-		out.state = "open"; out.line = "Research · %d s" % int(_research_time(recipe))
+		out.state = "open"; out.line = "Open · %d s" % int(_research_time(recipe))
 	else:
 		out.line = "Needs %s" % str(CARDS[str(RESEARCH[recipe].prereq)].get("short", ""))
 	return out
 
 
-func _research_node_click(recipe: String) -> void:
+func _research_node_click(recipe: String) -> void:   # a click selects the blueprint; its action is in the row above the tree
 	if menu_open or won or lost: return
-	if _known(PLAYER, recipe):   # already learned: its copies are made in its own tab
-		_bank_pressed(str(CARDS[recipe].bank)); return
-	if not RESEARCH.has(recipe): return
-	_cmd(["research", recipe])
+	_research_sel = recipe
+	_update_card_banks()
+
+
+func _research_action(recipe: String) -> Array:   # [button text, enabled, command or ""] for the selected blueprint
+	if recipe == "" or not CARDS.has(recipe): return ["Select a blueprint", false, ""]
+	if _known(PLAYER, recipe): return ["Open its recipes", true, "open"]
+	var job: Dictionary = research_job.get(PLAYER, {})
+	if str(job.get("key", "")) == recipe: return ["Resume" if bool(job.get("paused", false)) else "Pause", true, "research"]
+	var why := _can_research(PLAYER, recipe)
+	if why != "": return ["Locked", false, ""]
+	return ["Research" if job.is_empty() else "Research instead", true, "research"]
+
+
+func _research_act() -> void:   # the RESEARCH view's action button
+	var act := _research_action(_research_sel)
+	if not bool(act[1]): return
+	if str(act[2]) == "open": _open_drawer(str(CARDS[_research_sel].bank))
+	else: _cmd(["research", _research_sel])
+	_update_card_banks()
 
 
 func _research_tooltip(recipe: String) -> String:
@@ -3632,15 +3918,14 @@ func _research_tooltip(recipe: String) -> String:
 		var parts := []
 		for r in RES:
 			if float(c.get(r, 0.0)) > 0.0: parts.append("%d %s" % [int(c[r]), RES_NAME[r]])
-		t += "\n\nResearch: %s, %d s. Needs %s. Click to research it; click again to pause." % [", ".join(parts), int(_research_time(recipe)), str(CARDS[str(RESEARCH[recipe].prereq)].name)]
+		t += "\n\nResearch: %s, %d s. Needs %s. Click to select it." % [", ".join(parts), int(_research_time(recipe)), str(CARDS[str(RESEARCH[recipe].prereq)].name)]
 	else:
 		t += "\n\nKnown from the start."
-	if _known(PLAYER, recipe): t += " Click to open its tab and make copies."
 	return t
 
 
-func _style_bank_tab(button: Button, bank: String, look: String) -> void:   # red ATTACK / blue DEFENCE, filled while its cards show
-	var col: Color = BANK_COL[bank]
+func _style_bank_tab(button: Button, bank: String, look: String) -> void:   # a drawer tab in its colour, filled while its view shows
+	var col: Color = _tab_col(bank)
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		var style := StyleBoxFlat.new()
 		style.bg_color = {"open": col.darkened(0.55), "flash": col.darkened(0.15), "closed": Color(0.06, 0.08, 0.12)}[look]
@@ -3654,48 +3939,59 @@ func _style_bank_tab(button: Button, bank: String, look: String) -> void:   # re
 		button.add_theme_color_override(key, text)
 
 
-# ---- the deck: pushed down it is one strip (tabs · eight mini cards · handle); pulled up it shows four big cards ----
-func _deck_top() -> float:   # the top edge of everything the deck covers right now
+# ---- the cards area: an always-visible strip (manufacturing lanes · ready cards · the cards button) and a drawer above it ----
+func _drawer_h() -> float: return CARD_DOCK_HEIGHT + (RESEARCH_INFO_H + 6.0 if _card_bank == "research" else 0.0)
+
+
+func _deck_top() -> float:   # the top edge of everything the strip and the drawer cover right now
 	var top := get_viewport_rect().size.y - 12.0 - DECK_BAR_HEIGHT
-	if _deck_open: top -= CARD_DOCK_HEIGHT + DECK_GAP
+	if _deck_open: top -= DECK_GAP + _drawer_h() + DECK_GAP + DECK_BAR_HEIGHT
 	return top
 
 
-func _deck_chip_nodes() -> Array:
-	var out := []
-	for group in deck_chips.get_children(): out.append_array(group.get_children())
-	return out
-
-
 func _layout_deck() -> void:
-	if hand_panel == null or card_banks == null or deck_chips == null or deck_handle == null: return
+	if hand_panel == null or card_banks == null or lane_strip == null or deck_handle == null: return
 	var sz := get_viewport_rect().size
 	var playing := not menu_open and not won and not lost
-	var bar_top := _deck_top()
-	hand_panel.position = Vector2(24, sz.y - 12.0 - CARD_DOCK_HEIGHT)
-	hand_panel.size = Vector2(sz.x - 48, CARD_DOCK_HEIGHT)
-	hand_panel.visible = playing and _deck_open
-	card_banks.position = Vector2(24, bar_top); card_banks.size = card_banks.get_combined_minimum_size()
-	card_banks.visible = playing
-	deck_handle.size = deck_handle.custom_minimum_size
-	deck_handle.position = Vector2(sz.x - 24 - deck_handle.size.x, bar_top)
-	deck_handle.visible = playing
-	# the mini cards share the room between the tabs and the handle; attack and defence groups sit apart
-	var left := card_banks.position.x + card_banks.size.x + 16.0
-	var room := deck_handle.position.x - 12.0 - left
-	var chips := _deck_chip_nodes()
-	for chip in chips: chip.visible = _known(PLAYER, _card_of(str(chip.key)))   # the cards you can make; the rest are research
-	chips = chips.filter(func(c): return c.visible)
-	var group_gap := float(deck_chips.get_theme_constant("separation"))
-	var chip_gap := float((deck_chips.get_child(0) as Control).get_theme_constant("separation"))
-	var width := floorf((room - group_gap - chip_gap * float(maxi(0, chips.size() - 2))) / float(maxi(1, chips.size())))
-	for chip in chips: chip.custom_minimum_size = Vector2(clampf(width, 40.0, 150.0), DECK_BAR_HEIGHT)
-	deck_chips.position = Vector2(left, bar_top); deck_chips.size = deck_chips.get_combined_minimum_size()
-	deck_chips.visible = playing and not _deck_open
-	if deck_pager != null:   # the pager takes the strip's free middle while the mini cards are hidden
+	var strip_y := sz.y - 12.0 - DECK_BAR_HEIGHT
+	var head_y := _deck_top()
+	var open := playing and _deck_open
+	hand_panel.position = Vector2(24, head_y + DECK_BAR_HEIGHT + DECK_GAP)
+	hand_panel.size = Vector2(sz.x - 48, _drawer_h())
+	hand_panel.visible = open
+	card_banks.position = Vector2(24, head_y); card_banks.size = card_banks.get_combined_minimum_size()
+	card_banks.visible = open
+	drawer_close.size = drawer_close.custom_minimum_size
+	drawer_close.position = Vector2(sz.x - 24 - drawer_close.size.x, head_y); drawer_close.visible = open
+	var mid_left := card_banks.position.x + card_banks.size.x + 16.0
+	var mid_room := drawer_close.position.x - 16.0 - mid_left
+	research_status.position = Vector2(mid_left, head_y); research_status.size = Vector2(maxf(40.0, mid_room), DECK_BAR_HEIGHT)
+	if deck_pager != null:
 		deck_pager.size = deck_pager.get_combined_minimum_size()
-		deck_pager.position = Vector2(left + floorf((room - deck_pager.size.x) * 0.5), bar_top)
-	_update_card_banks()
+		deck_pager.position = Vector2(mid_left + floorf((mid_room - deck_pager.size.x) * 0.5), head_y)
+	deck_handle.size = deck_handle.custom_minimum_size
+	deck_handle.position = Vector2(sz.x - 24 - deck_handle.size.x, strip_y)
+	deck_handle.visible = playing
+	lane_strip.position = Vector2(24, strip_y); lane_strip.size = lane_strip.get_combined_minimum_size()
+	lane_strip.visible = playing
+	# the ready cards: fixed-size chips from the lanes to the handle; what does not fit goes behind "+n"
+	var left := lane_strip.position.x + lane_strip.size.x + 16.0
+	var room := deck_handle.position.x - 12.0 - left
+	var list := _ready_list()
+	var step := READY_CHIP_W + 6.0
+	var fit := maxi(0, int((room + 6.0) / step))
+	var shown := list
+	if list.size() > fit: shown = list.slice(0, maxi(0, int((room + 6.0 - ready_more.custom_minimum_size.x - 6.0) / step)))
+	for chip in ready_strip.get_children():
+		if chip == ready_more: continue
+		chip.visible = shown.has(_card_of(str(chip.key)))
+	ready_more.visible = shown.size() < list.size()
+	ready_more.text = "+%d" % (list.size() - shown.size())
+	ready_strip.position = Vector2(left, strip_y); ready_strip.size = ready_strip.get_combined_minimum_size()
+	ready_strip.visible = playing and not list.is_empty()
+	ready_empty.position = Vector2(left, strip_y); ready_empty.size = Vector2(maxf(40.0, room), DECK_BAR_HEIGHT)
+	ready_empty.visible = playing and list.is_empty()
+	_update_card_banks(false)
 
 
 func _set_deck_open(open: bool) -> void:
@@ -3703,16 +3999,99 @@ func _set_deck_open(open: bool) -> void:
 	if open == _deck_open: return
 	_deck_open = open
 	_layout_ui()
-	if open: _keep_target_visible()   # a selected building must not end up under the cards
+	if open: _keep_target_visible()   # a selected building must not end up under the drawer
 
 
-func _bank_pressed(bank: String) -> void:   # a closed tab pulls its cards up · the open tab pushes the deck down · the other tab switches
+func _open_drawer(bank: String) -> void:   # the drawer on this view (from the strip, the Research button, a tab)
+	if bank != _card_bank: _deck_page = 0
+	_card_bank = bank
+	if _deck_open: _layout_ui()
+	else: _set_deck_open(true)
+
+
+func _toggle_research() -> void:   # the top bar's Research button (R)
+	if _deck_open and _card_bank == "research": _set_deck_open(false)
+	else: _open_drawer("research")
+
+
+func _bank_pressed(bank: String) -> void:   # a drawer tab: switch to its view (the open one closes the drawer)
 	_bank_alert.erase(bank)
 	if _deck_open and bank == _card_bank: _set_deck_open(false); return
-	if bank != _card_bank: _deck_page = 0   # another bank opens on its first page
-	_card_bank = bank
-	if _deck_open: _refresh_hand()
-	else: _set_deck_open(true)
+	_open_drawer(bank)
+
+
+const SELECT_COL := Color(0.45, 0.85, 1.0)   # a selected blueprint or ready card: never used for a state
+const SIPHON_RES := ["intel", "cash", "creds", "research"]
+
+
+func _lane_short(recipe: String) -> String:   # why a requested copy has not started: the hand is full, or what the bank lacks
+	if _ready_total(PLAYER) >= READY_SLOTS: return "Hand full (%d)" % READY_SLOTS
+	var cost := _recipe_cost(recipe)
+	for r in RES:
+		var need := float(cost.get(r, 0.0)) - _avail(PLAYER, r)
+		if need > 0.0001: return "Needs %d %s" % [ceili(need), RES_NAME[r]]
+	return "Starting"
+
+
+func _draw_ready_face(c: Control, key: String, big: bool) -> void:   # a ready card in the strip (small) or the drawer (big)
+	var f := c.get_theme_default_font()
+	var recipe := _card_of(key)
+	var card: Dictionary = CARDS[recipe]
+	var bank: Color = BANK_COL[str(card.bank)]
+	var fam: Color = FAMILY_COL[str(card.fam)]
+	var picked := _armed == recipe
+	var hot := Rect2(Vector2.ZERO, c.size).has_point(c.get_local_mouse_position())
+	var fill := Color(0.06, 0.13, 0.17) if picked else Color(0.055, 0.075, 0.105)
+	if hot: fill = fill.lightened(0.06)
+	c.draw_rect(Rect2(Vector2.ZERO, c.size), fill)
+	c.draw_rect(Rect2(1, 1, c.size.x - 2, c.size.y - 2), bank, false, 1)
+	if picked:
+		c.draw_rect(Rect2(0, 0, c.size.x, 4), SELECT_COL)
+		c.draw_rect(Rect2(1, 1, c.size.x - 2, c.size.y - 2), SELECT_COL, false, 2)
+	var n := _held(PLAYER, recipe)
+	if not big:
+		_draw_card_glyph(c, recipe, Vector2(18, c.size.y * 0.5), 24, Color.WHITE, f)
+		_text(c, f, Vector2(34, 17), str(card.short), 12, C_TEXT, c.size.x - 40, HORIZONTAL_ALIGNMENT_LEFT)
+		var line := "×%d" % n
+		if str(card.effect) == "siphon": line += " · " + str({"intel": "Intel", "cash": "Crypto", "creds": "Creds", "research": "Res."}[_chosen_siphon_res])
+		_text(c, f, Vector2(34, 33), line, 11, SELECT_COL if picked else bank.lightened(0.3), c.size.x - 40, HORIZONTAL_ALIGNMENT_LEFT)
+		return
+	c.draw_rect(Rect2(6, 8, c.size.x - 12, 26), fam.darkened(0.8))
+	_text(c, f, Vector2(12, 27), str(card.name), 15, C_TEXT, c.size.x - 24, HORIZONTAL_ALIGNMENT_LEFT)
+	c.draw_rect(Rect2(12, 42, 44, 44), fam.darkened(0.9))
+	_draw_card_glyph(c, recipe, Vector2(34, 64), 38, fam, f)
+	_text(c, f, Vector2(66, 62), "×%d ready" % n, 18, C_TEXT, c.size.x - 74, HORIZONTAL_ALIGNMENT_LEFT)
+	var target := "To a host of yours" if _is_defense(recipe) else "To a foreign host"
+	_text(c, f, Vector2(66, 82), "Selected: click a host" if picked else target, 11, SELECT_COL if picked else C_DIM, c.size.x - 74, HORIZONTAL_ALIGNMENT_LEFT)
+	if str(card.effect) != "siphon":   # what it does, in two lines at most (the tooltip has the rules)
+		var lines := _wrap_text(f, str(card.get("lead", "")), 11, c.size.x - 24.0)
+		for k in mini(2, lines.size()): _text(c, f, Vector2(12, 102 + 14 * k), str(lines[k]), 11, C_DIM, c.size.x - 24, HORIZONTAL_ALIGNMENT_LEFT)
+
+
+func _arm_card(key: String) -> void:   # click a ready card: select it (again: unselect). The drawer gets out of the way of the map.
+	if menu_open or won or lost: return
+	var recipe := _card_of(key)
+	if _armed == recipe: _armed = ""
+	elif _held(PLAYER, recipe) > 0:
+		_armed = recipe
+		if _deck_open: _set_deck_open(false)
+	_update_card_banks(); queue_redraw()
+
+
+func _aimed_card() -> String:   # the card being aimed: dragged right now, or selected and waiting for a click on a host
+	var d := _dragged_card()
+	return d if d != "" else _armed
+
+
+func _launch_armed(t: int) -> bool:   # a click on a host while a card is selected: launch it there if it may go
+	if _armed == "" or t < 0: return false
+	var why := _can_play(PLAYER, _armed, t)
+	if why != "":
+		_flash("%s cannot go to %s: %s" % [str(CARDS[_armed].name), str(hosts[t].name), why]); return true
+	_cmd(["card", _armed, t, _chosen_siphon_res])
+	_armed = ""
+	_update_card_banks()
+	return true
 
 
 func _bank_of(key: String) -> String:
@@ -3783,6 +4162,8 @@ func _do_card_action(fac: int, recipe: String) -> void:
 	if not _known(fac, recipe):
 		_do_research(fac, recipe); return
 	var lane := _lane_of(fac, recipe)
+	if lane >= 0 and not (lanes[fac][lane].paid as Dictionary).is_empty():   # its copy is being made: a click pauses / resumes it
+		_lane_pause(fac, lane); return
 	if lane < 0: lane = _free_lane(fac)
 	if lane < 0:
 		if fac == PLAYER: _flash("All manufacturing lanes are busy")
@@ -3853,6 +4234,11 @@ func _gui_input(event: InputEvent) -> void:
 			_dragging = false
 			return
 		var moved: bool = event.position.distance_to(_press_pos) > 8.0
+		if _armed != "" and not moved:   # a card is selected: a click on a host launches it there, a click elsewhere unselects it
+			_panning = false; _boxing = false; _drag_from = -1; _dragging = false
+			if hit >= 0: _launch_armed(hit)
+			else: _armed = ""; _update_card_banks()
+			_refresh_panel(); queue_redraw(); return
 		if _panning:
 			_panning = false
 			if not moved: _left_click(-1, shift)                      # a tap on empty = clear selection
@@ -3867,6 +4253,8 @@ func _gui_input(event: InputEvent) -> void:
 		_boxing = false; _drag_from = -1; _dragging = false
 		_refresh_panel(); queue_redraw()
 		return
+	if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and _armed != "":   # right-click: unselect the card
+		_armed = ""; _update_card_banks(); queue_redraw(); return
 	if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var src := _connection_at(_s2w(event.position))   # right-click ON a connection removes it
 		if src >= 0:
@@ -3986,6 +4374,7 @@ func _cmd(c: Array) -> void:
 
 func _apply_cmd(fac: int, c: Array) -> void:
 	if c.is_empty() or not botnets.has(fac) or _eliminated.has(fac): return
+	_fc_gen += 1
 	var n := c.size()
 	match str(c[0]):
 		"build": if n == 4: _do_build(fac, _int(c[1]), _int(c[2]), str(c[3]))
@@ -4000,6 +4389,7 @@ func _apply_cmd(fac: int, c: Array) -> void:
 		"lane_make": if n == 2: _lane_manufacture(fac, _int(c[1]))
 		"lane_repeat": if n == 2: _lane_repeat(fac, _int(c[1]))
 		"lane_cancel": if n == 2: _lane_cancel(fac, _int(c[1]))
+		"lane_pause": if n == 2: _lane_pause(fac, _int(c[1]))
 		"reserve": if n == 2: _do_set_reserve(fac, _int(c[1]))
 		"priority": if n == 2: _do_set_priority(fac, str(c[1]))
 		"want": if n == 4: _do_set_want(fac, _int(c[1]), str(c[2]), _int(c[3]))
@@ -5038,7 +5428,7 @@ func _camp_steps(chapter: int) -> Array:   # t title · a the instruction · r w
 	match chapter:
 		0: return [
 			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 s, already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "role": "home", "pause": true},
-			{"t": "Manufacture a card", "r": "A Credential breach copy is being made.", "a": "Click Credential breach in the deck to make one copy.", "role": "", "ui": "card:breach", "pause": true},
+			{"t": "Manufacture a card", "r": "A Credential breach copy is being made.", "a": "Press C, open Attack recipes and click Credential breach.", "role": "", "ui": "card:breach", "pause": true},
 			{"t": "Scout", "r": "The relay is scouted: your attacks on it have full odds for 45 s.", "a": "Drag Recon onto the Neighborhood Relay. Unscouted attacks work half the time.", "role": "relay", "ui": "card:recon", "card": "recon", "pause": true},
 			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When it is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
@@ -5048,8 +5438,8 @@ func _camp_steps(chapter: int) -> Array:   # t title · a the instruction · r w
 			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a Bot to carry Intel home along the green route.", "role": "home", "pause": false},
 		]
 		2: return [
-			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Open the RESEARCH tab and click Known exploit.", "role": "", "ui": "card:exploit", "pause": true},
-			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once it is learned, make a Known exploit copy in the ATTACK tab.", "role": "", "ui": "card:exploit", "pause": false},
+			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Click Research (top right or R), select Known exploit, then Research.", "role": "", "ui": "card:exploit", "pause": true},
+			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once it is learned, make a Known exploit copy in Attack recipes.", "role": "", "ui": "card:exploit", "pause": false},
 			{"t": "Scout the gateway", "r": "The gateway is scouted.", "a": "Drag Recon onto the Corporate Gateway.", "role": "gateway", "ui": "card:recon", "card": "recon", "pause": false},
 			{"t": "Use it", "r": "The Corporate Gateway is yours.", "a": "Launch Known exploit at the Corporate Gateway: it executes in 9 s.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
 		]
@@ -5113,14 +5503,18 @@ func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck c
 	return out
 
 
-func _camp_card_ctrls(recipe: String) -> Array:
-	if not _known(PLAYER, recipe):   # still to research: point at the RESEARCH tab, then at its node in the tree
-		if not _deck_open or _card_bank != "research": return [card_banks.get_child(2)]
-		return research_tree.get_children().filter(func(c): return str(c.get("recipe")) == recipe)
-	if not _deck_open: return _deck_chip_nodes().filter(func(c): return _card_of(str(c.key)) == recipe)
-	var bank := _bank_of(recipe)
-	if bank != _card_bank: return [card_banks.get_child(0 if bank == "attack" else 1)]
-	if _deck_page_of(recipe) != _deck_page: return [deck_pager]   # the card is on another page: cue the pager
+func _camp_card_ctrls(recipe: String) -> Array:   # where the step's card is: its research node, its recipe, or the ready copy to use
+	if not _known(PLAYER, recipe):   # still to research: the Research button, then its node in the tree and the action
+		if not _deck_open or _card_bank != "research": return [research_button]
+		if _research_sel != recipe: return research_tree.get_children().filter(func(c): return str(c.get("recipe")) == recipe)
+		return [research_info]
+	if _held(PLAYER, recipe) > 0:   # a copy is ready: its chip in the strip (drag it, or click it then the target)
+		var chips := ready_strip.get_children().filter(func(c): return c != ready_more and _card_of(str(c.key)) == recipe and c.visible)
+		return chips if not chips.is_empty() else [ready_more]
+	var bank := _bank_of(recipe)   # nothing ready: make one from its recipe
+	if not _deck_open: return [deck_handle]
+	if bank != _card_bank: return [card_banks.get_child(DRAWER_TABS.find(bank))]
+	if _deck_page_of(recipe) != _deck_page: return [deck_pager]   # the recipe is on another page: cue the pager
 	return hand_bar.get_children().filter(func(c): return _card_of(str(c.key)) == recipe and c.visible)
 
 
@@ -5633,8 +6027,9 @@ func _on_ui_resized() -> void:
 func _layout_ui() -> void:
 	if hud == null or feedback_label == null: return
 	var sz := get_viewport_rect().size
-	hud.position = Vector2(24, 8); hud.size = Vector2(sz.x - 260, 46)
-	top_tabs.position = Vector2(sz.x - 24 - 88 - 6 - 104, 14)
+	top_tabs.size = top_tabs.get_combined_minimum_size()
+	top_tabs.position = Vector2(sz.x - 24 - top_tabs.size.x, 14)
+	hud.position = Vector2(24, 8); hud.size = Vector2(maxf(200.0, top_tabs.position.x - 16.0 - 24.0), 46)   # never under the buttons
 	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
 	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _tut else 64)
 	var panel_bottom := sz.y - 24 if won or lost else _deck_top() - 12
@@ -5695,11 +6090,12 @@ func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips
 		var old := int(hosts[_drag_from].assign)
 		feedback_label.text = "Connect %s · release over a target" % str(hosts[_drag_from].name)
 		if old >= 0: feedback_label.text += " · replaces route to %s; travelling packets still arrive" % str(hosts[old].name)
-	var dragged := _dragged_card()
+	var dragged := _aimed_card()
 	if dragged != "":
 		feedback_label.visible = true
 		var target := _host_at(get_local_mouse_position())
-		feedback_label.text = "DEFENCE · release over a highlighted host of yours." if _is_defense(_card_of(dragged)) else "ATTACK · release over a highlighted foreign host."
+		var verb := "release" if _dragged_card() != "" else "click"
+		feedback_label.text = ("%s selected · %s a highlighted %s · Esc cancels" % [str(CARDS[_card_of(dragged)].name), verb, "host of yours" if _is_defense(_card_of(dragged)) else "foreign host"])
 		if target >= 0:
 			var reason := _can_play(PLAYER, dragged, target)
 			var cd: Dictionary = CARDS[_card_of(dragged)]
@@ -5717,6 +6113,10 @@ func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips
 func _refresh_top_tabs() -> void:
 	if top_tabs == null: return
 	if top_tabs.get_child_count() > 0: return
+	research_button = Button.new(); research_button.text = "Research"; research_button.name = "Research"
+	research_button.custom_minimum_size = Vector2(150, 36); research_button.focus_mode = Control.FOCUS_NONE
+	research_button.clip_text = true; research_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	research_button.pressed.connect(_toggle_research); top_tabs.add_child(research_button)
 	var econ_button := Button.new(); econ_button.text = "Economy"; econ_button.name = "Economy"
 	econ_button.custom_minimum_size = Vector2(104, 36); econ_button.focus_mode = Control.FOCUS_NONE
 	econ_button.tooltip_text = "Your recent income, spending and losses for every bank (E)"
@@ -6414,12 +6814,12 @@ func _panel_attack_diag(t: int, _f: Array, _s: Array) -> void:
 func _panel_idle() -> void:
 	_plabel("Hold at least 51%% of the hosts for %d s to win." % int(HOLD_SECS), 16, C_TEXT)
 	_gap(2.0)
-	_plabel("①  Manufacture a card from the deck.", 13)
-	_plabel("②  Drag an attack card onto a foreign host, or select a host to launch.", 13)
+	_plabel("①  Make a card: C opens the recipes.", 13)
+	_plabel("②  Drag a ready card onto a host, or click it, then a host.", 13)
 	_plabel("③  Build producers; couriers bring their output home.", 13)
 	_gap(4.0)
 	_plabel("Drag empty map to pan · wheel to zoom · 0 recenters", 11, C_DIM)
-	_plabel("Esc menu · Space pause · C cards · E economy · H events", 11, C_DIM)
+	_plabel("Esc menu · Space pause · C cards · R research · E economy · H events", 11, C_DIM)
 
 
 func _panel_board() -> void:
@@ -6453,25 +6853,34 @@ func _res_now(res: String) -> float: return _avail(PLAYER, res)
 func _res_full(res: String) -> bool: return _avail(PLAYER, res) >= _cap(PLAYER, res) - 0.5
 
 
-func _hud_items() -> Array:   # [kind-icon, text, colour, column width]
+func _hud_items() -> Array:   # [kind-icon, text, colour, column width, res]
 	var out := []
 	for res in RES:
 		var kind := str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])
-		var inc := _incoming(PLAYER, res)
 		var txt := "%d/%d" % [int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]
-		if res == "bots" and _couriers_out(PLAYER, _hub(PLAYER)) > 0: txt += " (+%d out)" % _couriers_out(PLAYER, _hub(PLAYER))
-		elif inc > 0.5: txt += " ↓%d" % int(inc)
-		var col := C_WARN if _res_full(res) else C_TEXT
-		out.append([kind, txt, col, 150.0, res])
+		if res == "bots":   # couriers, not a material: how many are home and how many are out on trips
+			var c := _courier_counts(PLAYER, _hub(PLAYER))
+			txt = "%d home · %d out" % [int(_avail(PLAYER, "bots")), int(c.out) + int(c.held)]
+		var col := C_WARN if res != "bots" and _res_full(res) else C_TEXT
+		out.append([kind, txt, col, HUD_BOTS_W if res == "bots" else _hud_col_w(), res])
 	return out
 
 
-func _hud_rate(res: String) -> Array:   # [the HUD's second line for a bank, its colour]: recent net per minute
-	var r := _econ_rates(PLAYER, res)
-	var net := float(r.net)
-	var txt := "%s%d/min" % ["+" if net >= 0.5 else ("−" if net <= -0.5 else "±"), int(round(absf(net)))]
-	if bool(r.early): txt = "~" + txt
-	return [txt, C_GOOD if net >= 0.5 else (C_BAD if net <= -0.5 else C_DIM)]
+const HUD_BOTS_W := 186.0   # the couriers' column: "250 home · 250 out" over "250 spare · need 120"
+const HUD_OBJ_W := 240.0    # the objective's two lines after the banks
+func _hud_col_w() -> float:   # a material's column: the four share what the couriers' column and the objective leave
+	var w := hud.size.x if hud != null else 950.0
+	return clampf(floorf((w - HUD_BOTS_W - HUD_OBJ_W) / 4.0), 106.0, 150.0)
+
+
+func _hud_rate(res: String) -> Array:   # [the HUD's second line, its colour]: the forecast inflow to the bank; for Bots, courier capacity
+	var fc := _forecast(PLAYER)
+	if res == "bots":
+		var spare := int(fc.spare); var need := int(ceil(float(fc.need) - 0.05))
+		return ["%d spare · need %d" % [spare, need], C_WARN if need > spare else C_DIM]
+	if _res_full(res): return ["full", C_WARN]
+	var v := float(fc.rate[res])
+	return ["+%d/min" % int(round(v)), C_GOOD if v >= 0.5 else C_DIM]
 
 
 func _rate_txt(v: float) -> String: return "%d/min" % int(round(v))
@@ -6485,26 +6894,47 @@ func _by_txt(by: Dictionary) -> String:   # "research 12, buildings 4" — large
 	return ", ".join(PackedStringArray(items.map(func(it): return "%s %d" % [it[0], int(round(float(it[1])))])))
 
 
-func _econ_lines(res: String) -> Array:   # one bank's flows in words (the HUD tooltip and the Economy overview share them)
+func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast for one bank, where it comes from, what holds it back
+	var fc := _forecast(PLAYER)
+	var out := []
+	if res == "bots":
+		out.append(["Couriers: %d at your main node, %d out on trips; the reserve keeps %d home." % [int(_avail(PLAYER, "bots")), int(fc.fleet) - int(_avail(PLAYER, "bots")), int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT))], C_TEXT])
+		out.append(["Keeping up with your hosts needs about %d of your %d spare couriers." % [int(ceil(float(fc.need) - 0.05)), int(fc.spare)], C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
+		return out
+	var full := _res_full(res)
+	out.append(["Forecast: %s reaches your bank per minute." % ("nothing (the bank is full)" if full else "+%d" % int(round(float(fc.rate[res])))), C_WARN if full else C_TEXT])
+	var src: Dictionary = (fc.from as Dictionary).get(res, {})
+	if not src.is_empty(): out.append(["From: " + _by_txt(src), C_DIM])
+	var lim: Array = (fc.limits as Dictionary).get(res, [])
+	if not lim.is_empty(): out.append(["Held back: " + ", ".join(PackedStringArray(lim)), C_WARN])
+	return out
+
+
+func _history_lines(res: String) -> Array:   # the measured flows of one bank over the ledger window, clearly historical
 	var r := _econ_rates(PLAYER, res)
 	var inc := _incoming_eta(PLAYER, res)
 	var out := []
-	out.append("Received %s · spent %s · net %s%s" % [_rate_txt(float(r["in"])), _rate_txt(float(r.out)), "+" if float(r.net) >= 0.0 else "−", _rate_txt(absf(float(r.net)))])
-	if not (r.in_by as Dictionary).is_empty(): out.append("From: " + _by_txt(r.in_by))
+	out.append("Historical, last %d s: received %s · spent %s · net %s%s" % [int(_ledger_window()), _rate_txt(float(r["in"])), _rate_txt(float(r.out)), "+" if float(r.net) >= 0.0 else "−", _rate_txt(absf(float(r.net)))])
+	if not (r.in_by as Dictionary).is_empty(): out.append("Received from: " + _by_txt(r.in_by))
 	if not (r.out_by as Dictionary).is_empty(): out.append("Spent on: " + _by_txt(r.out_by))
-	if int(inc.n) > 0:
-		var line := "On the road: %d, next in ~%d s" % [int(inc.n), int(ceil(float(inc.next)))]
-		if int(inc.risk) > 0: line += " (%d at risk: route broken)" % int(inc.risk)
-		out.append(line)
 	if float(r.lost) >= 0.5: out.append("Lost: " + _by_txt(r.lost_by))
+	if int(inc.n) > 0:
+		var line := "On the road now: %d, next in ~%d s" % [int(inc.n), int(ceil(float(inc.next)))]
+		if int(inc.risk) > 0: line += " (%d held: route cut)" % int(inc.risk)
+		out.append(line)
+	return out
+
+
+func _econ_lines(res: String) -> Array:   # one bank's forecast and history in words (the HUD tooltip and the Economy view share them)
+	var out := []
+	for l in _forecast_lines(res): out.append(str(l[0]))
+	out.append_array(_history_lines(res))
 	return out
 
 
 func _econ_tooltip(res: String) -> String:
-	var r := _econ_rates(PLAYER, res)
-	var head := "%s  %d / %d" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]
-	var span := "Rates per minute over the last %d s%s." % [int(_ledger_window()), " (early estimate)" if bool(r.early) else ""]
-	return "%s\n%s\n\n%s\n\nClick for the Economy overview." % [head, "\n".join(PackedStringArray(_econ_lines(res))), span]
+	var head := "%s  %s" % [str(RES_NAME[res]).to_upper() + (" (couriers)" if res == "bots" else ""), str(_hud_items()[RES.find(res)][1]) if res == "bots" else "%d / %d" % [int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]]
+	return "%s\n%s\n\nClick for the Economy overview." % [head, "\n".join(PackedStringArray(_econ_lines(res)))]
 
 
 func _objective_tooltip() -> String:
@@ -6521,16 +6951,15 @@ func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the 
 
 func _panel_economy() -> void:
 	_plabel("Economy", 20, C_TEXT)
-	var early := _t < float(LEDGER_SECS)
-	_plabel("What reached and left your bank over the last %d s of play, per minute%s." % [int(_ledger_window()), " (early estimate)" if early else ""], 12, C_DIM)
+	_plabel("Forecast: what will reach your bank per minute with your network as it is now. Historical: what did over the last %d s." % int(_ledger_window()), 12, C_DIM)
 	for res in RES:
 		_gap(4.0)
-		var r := _econ_rates(PLAYER, res)
-		_plabel("%s  %d / %d   net %s%s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), "+" if float(r.net) >= 0.0 else "−", _rate_txt(absf(float(r.net)))], 14,
-			BUILD_KINDS[str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col)
-		for line in _econ_lines(res).slice(1): _plabel(str(line), 12, C_DIM)
+		var col: Color = BUILD_KINDS[str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col
+		if res == "bots": _plabel("BOTS (COURIERS)  %s" % str(_hud_items()[0][1]), 14, col)
+		else: _plabel("%s  %d / %d   forecast %s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), str(_hud_rate(res)[0])], 14, col)
+		for l in _forecast_lines(res).slice(1 if res != "bots" else 0): _plabel(str(l[0]), 12, l[1])
+		for l in _history_lines(res): _plabel(str(l), 12, C_DIM)
 	_gap(4.0)
-	_plabel("Bots are your couriers. They carry 1 unit a trip and come back; none are used up.", 12, C_DIM)
 	_plabel("E or Esc closes this view.", 11, C_DIM)
 
 
@@ -6807,8 +7236,8 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 	if focus_on and not _mine(aim) and rig.has(PLAYER):   # the automatic attack route to the focused foreign host
 		var rt := _attack_route(PLAYER, aim)
 		if not rt.is_empty(): _draw_dashed(rt, Color(1, 0.95, 0.55, 0.9), 1.6)   # no route: the sidebar says so (no map note over the name)
-	var dk := _dragged_card()
-	if dk != "":   # a card in the air: where it can land
+	var dk := _aimed_card()
+	if dk != "":   # a card in the air or selected: where it can land
 		var cd: Dictionary = CARDS[_card_of(dk)]
 		var cc: Color = FAMILY_COL[str(cd.fam)]
 		for i in hosts.size():
@@ -7690,6 +8119,8 @@ class ActionGlyph extends Control:   # operation icons also render without syste
 				draw_polyline(PackedVector2Array([centre + Vector2(-10, 5), centre + Vector2(0, -5), centre + Vector2(10, 5)]), col, 3, true)
 			"DeckClose":   # push them back down
 				draw_polyline(PackedVector2Array([centre + Vector2(-10, -5), centre + Vector2(0, 5), centre + Vector2(10, -5)]), col, 3, true)
+			"Drawer":      # the cards drawer: three bars
+				for k in 3: draw_line(centre + Vector2(-11, -7 + 7 * k), centre + Vector2(11, -7 + 7 * k), col, 2.5, true)
 			_:
 				if action.ends_with("%"):   # the commitment: a gauge filled to that share
 					var share := float(action.trim_suffix("%")) / 100.0
@@ -7794,9 +8225,7 @@ class CardTile extends Control:
 		stop_button.visible = bool(state.queued)
 		stop_button.size = Vector2(70, 22); stop_button.position = Vector2(size.x - 14 - 70, size.y - 56)
 		queue_redraw(); (get_child(0) as CanvasItem).queue_redraw()
-	func _get_drag_data(_pos: Vector2) -> Variant:
-		return game._card_drag_data(self, key)
-	func _gui_input(event: InputEvent) -> void:
+	func _gui_input(event: InputEvent) -> void:   # a recipe: click to make a copy (or pause / resume the one being made)
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed: press_position = event.position
 			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
@@ -7818,7 +8247,7 @@ class CardTile extends Control:
 			draw_line(Vector2(82, y), Vector2(size.x - 16, y), Color(colour, 0.1))
 		draw_rect(Rect2(16, 41, 56, 48), colour.darkened(0.9))
 		game._draw_card_glyph(self, game._card_of(key), Vector2(44, 65), 46, colour, font)
-		game._text(self, font, Vector2(90, 58), "OWNED", 10, game.C_DIM)
+		game._text(self, font, Vector2(90, 58), "READY", 10, game.C_DIM)
 		game._text(self, font, Vector2(90, 84), "x%d" % int(state.count), 24, game.C_TEXT, size.x - 104, HORIZONTAL_ALIGNMENT_LEFT)
 		draw_line(Vector2(14, 95), Vector2(size.x - 14, 95), Color(colour, 0.25))
 		# the lead in full, then whole rule sentences only (dimmer); shaped paragraphs, so what was measured is what is drawn
@@ -7834,7 +8263,7 @@ class CardTile extends Control:
 		draw_rect(Rect2(14, size.y - 30, size.x - 28, 8), Color(0.17, 0.20, 0.26))
 		draw_rect(Rect2(14, size.y - 30, (size.x - 28) * float(state.progress), 8), status_colour)
 		var hint := "Click to resume" if str(state.status) == "Paused" else ("Click to pause" if bool(state.queued) else "Click to make a copy")
-		if int(state.count) > 0: hint += " · Drag to play"
+		if int(state.count) > 0: hint += " · use it from Ready"
 		game._text(self, font, Vector2(14, size.y - 8), hint, 10, game.C_DIM, size.x - 28, HORIZONTAL_ALIGNMENT_LEFT)
 
 
@@ -7870,9 +8299,104 @@ class CardFrame extends Control:   # a big card's red / blue edge, drawn outside
 		game._draw_cost_row(self, game._card_cost(tile.key), game._card_time(tile.key), Vector2(14, size.y - 66))   # in colour, outside the shader
 
 
-class DeckChip extends Control:   # a mini card in the pushed-down deck: click = research / pause, drag a held copy = play
+class LaneChip extends Control:   # one manufacturing lane in the strip: what it makes, how far, its state; click pauses / resumes, x cancels
 	var game
-	var key := "phishworm:linked"
+	var lane := 0
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func job() -> Dictionary:
+		var L: Array = game.lanes.get(game.PLAYER, [])
+		return L[lane] if lane < L.size() else {}
+	func state() -> Dictionary:   # {recipe, kind: free | idle | making | paused | starved | done, progress, text}
+		var j := job()
+		var recipe := str(j.get("recipe", ""))
+		var out := {"recipe": recipe, "kind": "free", "progress": 0.0, "text": "Free lane"}
+		if recipe == "": return out
+		if not (j.get("paid", {}) as Dictionary).is_empty():
+			out.progress = clampf(float(j.progress) / maxf(0.001, game._make_time(recipe)), 0.0, 1.0)
+			out.kind = "paused" if bool(j.paused) else "making"
+			out.text = ("Paused %d%%" if bool(j.paused) else "Making %d%%") % int(float(out.progress) * 100)
+		elif bool(j.get("pending", false)):
+			out.kind = "starved"; out.text = game._lane_short(recipe)
+		elif game._t - float(game._lane_done.get(lane, -100.0)) < game.LANE_DONE_SECS:
+			out.kind = "done"; out.text = "Done: 1 ready"; out.progress = 1.0
+		else:
+			out.kind = "idle"; out.text = "Idle"
+		return out
+	func busy() -> bool: return str(state().kind) in ["making", "paused", "starved"]
+	func _get_tooltip(_at: Vector2) -> String:
+		var st := state()
+		if str(st.recipe) == "": return "A free manufacturing lane. Click to open the recipes and make a copy."
+		var nm := str(game.CARDS[str(st.recipe)].name)
+		match str(st.kind):
+			"making": return "Making %s. Click to pause; x cancels (the unworked part is refunded)." % nm
+			"paused": return "%s is paused. Click to resume; x cancels." % nm
+			"starved": return "%s waits to start: %s. x cancels." % [nm, str(st.text).to_lower()]
+		return "This lane last made %s. Click to make another." % nm
+	func _gui_input(event: InputEvent) -> void:
+		if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT): return
+		var st := state()
+		if busy() and event.position.x >= size.x - 24.0: game._cmd(["lane_cancel", lane])
+		elif str(st.kind) in ["making", "paused"]: game._cmd(["lane_pause", lane])
+		elif str(st.recipe) != "" and str(st.kind) != "starved": game._cmd(["card_action", str(st.recipe)])
+		elif str(st.recipe) == "": game._open_drawer("attack" if game._card_bank not in ["attack", "defense"] else game._card_bank)
+		accept_event(); queue_redraw()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var st := state()
+		var recipe := str(st.recipe)
+		var kind := str(st.kind)
+		var fam: Color = game.FAMILY_COL[str(game.CARDS[recipe].fam)] if recipe != "" else game.C_DIM
+		var edge: Color = {"making": fam, "paused": game.C_WARN, "starved": game.C_BAD, "done": game.C_GOOD}.get(kind, Color(0.3, 0.34, 0.42))
+		var hot := Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105).lightened(0.05 if hot else 0.0))
+		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), edge, false, 2 if kind in ["making", "starved", "done"] else 1)
+		if recipe == "":
+			game._text(self, f, Vector2(12, size.y * 0.5 + 5), "+  " + str(st.text), 13, game.C_DIM, size.x - 20, HORIZONTAL_ALIGNMENT_LEFT)
+			return
+		game._draw_card_glyph(self, recipe, Vector2(18, size.y * 0.5 - 1), 24, Color(1, 1, 1, 0.55 if kind == "idle" else 1.0), f)
+		var room := size.x - 34.0 - (24.0 if busy() else 6.0)
+		game._text(self, f, Vector2(34, 16), str(game.CARDS[recipe].short), 12, game.C_TEXT, room, HORIZONTAL_ALIGNMENT_LEFT)
+		var tc: Color = edge if kind != "idle" else game.C_DIM
+		game._text(self, f, Vector2(34, 32), str(st.text), 11, tc, room, HORIZONTAL_ALIGNMENT_LEFT)
+		if kind in ["making", "paused", "done"]:
+			draw_rect(Rect2(3, size.y - 5, size.x - 6, 3), Color(0.17, 0.20, 0.26))
+			draw_rect(Rect2(3, size.y - 5, (size.x - 6) * float(st.progress), 3), edge)
+		if busy():   # the cancel mark
+			var c := Vector2(size.x - 13, size.y * 0.5)
+			draw_line(c + Vector2(-5, -5), c + Vector2(5, 5), game.C_BAD, 2, true); draw_line(c + Vector2(-5, 5), c + Vector2(5, -5), game.C_BAD, 2, true)
+
+
+class ReadyChip extends Control:   # one ready card in the strip: drag it onto a host, or click it (selected) and then click a host
+	var game
+	var key := ""
+	var press_position := Vector2.ZERO
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	func _ready() -> void:
+		tooltip_text = game._card_tooltip(key) + "\n\nDrag onto a host, or click to select and then click a host."
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		return game._card_drag_data(self, key)
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed: press_position = event.position
+			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
+				game._arm_card(key); accept_event()
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_ENTER or what == NOTIFICATION_MOUSE_EXIT: queue_redraw()
+	func _draw() -> void:
+		game._draw_ready_face(self, key, false)
+
+
+class ReadyTile extends Control:   # one ready card in the drawer: picture, copies, what it does, where it goes; drag or click to select
+	var game
+	var key := ""
 	var press_position := Vector2.ZERO
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
@@ -7883,47 +8407,70 @@ class DeckChip extends Control:   # a mini card in the pushed-down deck: click =
 		return game._wrapped_tooltip(for_text)
 	func _get_drag_data(_pos: Vector2) -> Variant:
 		return game._card_drag_data(self, key)
+	func res_box(k: int) -> Rect2: return Rect2(size.x - 4.0 * 30.0 - 8.0 + k * 30.0, size.y - 32.0, 26.0, 24.0)   # a Packet siphon's resource choice
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed: press_position = event.position
 			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
-				game._card_research_click(key); accept_event()
+				if str(game.CARDS[game._card_of(key)].effect) == "siphon":
+					for k in 4:
+						if res_box(k).has_point(event.position):
+							game._chosen_siphon_res = game.SIPHON_RES[k]; queue_redraw(); accept_event(); return
+				game._arm_card(key); accept_event()
 	func _notification(what: int) -> void:
 		if what == NOTIFICATION_MOUSE_ENTER or what == NOTIFICATION_MOUSE_EXIT: queue_redraw()
 	func _draw() -> void:
-		var font := get_theme_default_font()
-		var card: Dictionary = game.CARDS[game._card_of(key)]
-		var state: Dictionary = game._card_research_state(key)
-		var bank: Color = game.BANK_COL[game._bank_of(key)]
-		var owned := int(state.count) > 0
-		var working := str(state.status) == "Researching"
-		var hot := working or Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105))
-		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.C_TEXT if hot else (bank if owned else bank.darkened(0.45)), false, 2 if hot else 1)
-		var warn: bool = str(state.status) in ["Paused", "Waiting"]
-		var line_col: Color = game.C_WARN if warn else (bank.lightened(0.3) if owned else game.C_DIM)
-		var tint := Color(1, 1, 1, 1.0 if owned else 0.4)
-		if size.x >= 84:   # wide: picture, then name over count + status
-			game._draw_card_glyph(self, game._card_of(key), Vector2(18, size.y * 0.5), 32, tint, font)
-			var room := size.x - 39.0
-			var line := "x%d" % int(state.count)
-			if bool(state.queued):
-				line += {"Paused": " pause", "Waiting": " wait", "Queued": " next"}.get(str(state.status), " %d%%" % int(float(state.progress) * 100))
-			if game._text_w(font, line, 11) > room: line = "x%d" % int(state.count)   # drop the status before clipping the count
-			var title := str(card.get("short", card.name))
-			var fs := 11 if game._text_w(font, title, 11) <= room else 10   # the whole name, never clipped
-			game._text(self, font, Vector2(35, 16), title, fs, game.C_TEXT if owned else game.C_DIM, room, HORIZONTAL_ALIGNMENT_LEFT)
-			game._text(self, font, Vector2(35, 31), line, 11, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
-		else:   # narrow (most screens): a smaller picture and the bare count, 4 px from every edge
-			var glyph := minf(24.0, size.x - 24.0)
-			game._draw_card_glyph(self, game._card_of(key), Vector2(4.0 + glyph * 0.5, size.y * 0.5), glyph, tint, font)
-			var count := str(int(state.count))
-			var room := size.x - glyph - 12.0
-			var fs := 12
-			while fs > 9 and game._text_w(font, count, fs) > room: fs -= 1
-			game._text(self, font, Vector2(glyph + 8.0, size.y * 0.5 + fs * 0.38), count, fs, line_col, room, HORIZONTAL_ALIGNMENT_LEFT)
-		if bool(state.queued):   # research progress along the bottom edge
-			draw_rect(Rect2(3, size.y - 5, (size.x - 6) * float(state.progress), 3), game.C_WARN if warn else Color.WHITE)
+		game._draw_ready_face(self, key, true)
+		if str(game.CARDS[game._card_of(key)].effect) == "siphon":
+			var f := get_theme_default_font()
+			game._text(self, f, Vector2(12, size.y - 14), "Takes:", 11, game.C_DIM)
+			for k in 4:
+				var res: String = game.SIPHON_RES[k]
+				var r := res_box(k)
+				var on: bool = game._chosen_siphon_res == res
+				draw_rect(r, Color(0.1, 0.13, 0.18) if not on else Color(game._res_col(res), 0.25), true)
+				draw_rect(r, game._res_col(res) if on else Color(0.3, 0.34, 0.42), false, 2 if on else 1)
+				game._draw_kind_icon(self, game._COST_ICON[res], r.get_center(), 14.0, game._res_col(res), f)
+
+
+class ResearchInfo extends Control:   # the RESEARCH view's top row: the selected blueprint, its price and time, and its action
+	var game
+	var action_button: Button
+	var cancel_button: Button
+	func _ready() -> void:
+		action_button = Button.new(); action_button.name = "ResearchAction"; action_button.focus_mode = Control.FOCUS_NONE
+		action_button.custom_minimum_size = Vector2(170, 36); action_button.add_theme_font_size_override("font_size", 15)
+		action_button.pressed.connect(game._research_act); add_child(action_button)
+		cancel_button = Button.new(); cancel_button.name = "ResearchCancel"; cancel_button.text = "Cancel research"
+		cancel_button.focus_mode = Control.FOCUS_NONE; game._link_button_style(cancel_button)
+		cancel_button.tooltip_text = "Stop it: what it has used is not refunded."
+		cancel_button.pressed.connect(func(): game._cmd(["cancel_research"])); add_child(cancel_button)
+	func _process(_dt: float) -> void:
+		if not visible: return
+		var act: Array = game._research_action(game._research_sel)
+		action_button.text = str(act[0]); action_button.disabled = not bool(act[1])
+		action_button.size = action_button.custom_minimum_size
+		action_button.position = Vector2(size.x - action_button.size.x - 8, (size.y - action_button.size.y) * 0.5)
+		var job: Dictionary = game.research_job.get(game.PLAYER, {})
+		cancel_button.visible = not job.is_empty() and str(job.get("key", "")) == game._research_sel
+		cancel_button.size = cancel_button.get_combined_minimum_size()
+		cancel_button.position = Vector2(action_button.position.x - cancel_button.size.x - 10, (size.y - cancel_button.size.y) * 0.5)
+		queue_redraw()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var r: String = game._research_sel
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.045, 0.06, 0.09))
+		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.SELECT_COL if r != "" else Color(0.3, 0.34, 0.42), false, 2 if r != "" else 1)
+		if r == "":
+			game._text(self, f, Vector2(14, size.y * 0.5 + 5), "Select a blueprint in the tree to see its price and research it.", 14, game.C_DIM, size.x - 200, HORIZONTAL_ALIGNMENT_LEFT)
+			return
+		var st: Dictionary = game._research_node_state(r)
+		game._draw_card_glyph(self, r, Vector2(26, size.y * 0.5), 30, Color.WHITE, f)
+		game._text(self, f, Vector2(48, 21), "Selected: %s" % str(game.CARDS[r].name), 15, game.C_TEXT, 330, HORIZONTAL_ALIGNMENT_LEFT)
+		var sc: Color = {"working": Color.WHITE, "paused": game.C_WARN, "stalled": game.C_BAD, "open": game.BANK_COL.research, "known": game.C_GOOD}.get(str(st.state), game.C_DIM)
+		game._text(self, f, Vector2(48, 40), str(st.line), 12, sc, 330, HORIZONTAL_ALIGNMENT_LEFT)
+		if game.RESEARCH.has(r) and not game._known(game.PLAYER, r):
+			game._draw_cost_row(self, game._research_cost(r), game._research_time(r), Vector2(400, size.y * 0.5), 13, 15.0)
 
 
 class ResearchTree extends Control:   # the RESEARCH tab: every recipe as a node under the one it is researched from
@@ -7990,11 +8537,15 @@ class ResearchNode extends Control:   # one recipe in the tree: known, researchi
 		tooltip_text = game._research_tooltip(recipe)
 	func _make_custom_tooltip(for_text: String) -> Object:
 		return game._wrapped_tooltip(for_text)
-	func _gui_input(event: InputEvent) -> void:
+	func _gui_input(event: InputEvent) -> void:   # click: select; double-click: select and do its action
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-			if event.pressed: press_position = event.position
+			if event.pressed:
+				press_position = event.position
+				if event.double_click: game._research_node_click(recipe); game._research_act(); accept_event()
 			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
 				game._research_node_click(recipe); accept_event()
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_ENTER or what == NOTIFICATION_MOUSE_EXIT: queue_redraw()
 	func _draw() -> void:
 		var font := get_theme_default_font()
 		var card: Dictionary = game.CARDS[recipe]
@@ -8002,9 +8553,18 @@ class ResearchNode extends Control:   # one recipe in the tree: known, researchi
 		var fam: Color = game.FAMILY_COL[str(card.fam)]
 		var state := str(st.state)
 		var hot := Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
-		var edge: Color = {"known": fam, "working": Color.WHITE, "paused": game.C_WARN, "open": game.BANK_COL.research, "locked": Color(0.3, 0.34, 0.42)}[state]
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105))
-		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), game.C_TEXT if hot and state != "locked" else edge, false, 2 if state in ["working", "open"] or hot else 1)
+		var picked: bool = game._research_sel == recipe
+		# state = the edge (known: family colour · working: white · paused: amber · stalled: red · open: violet · locked: grey);
+		# hover only lifts the fill; the selection is a cyan band on top and a tinted fill, whatever the state
+		var edge: Color = {"known": fam, "working": Color.WHITE, "paused": game.C_WARN, "stalled": game.C_BAD, "open": game.BANK_COL.research, "locked": Color(0.3, 0.34, 0.42)}[state]
+		var fill := Color(0.055, 0.075, 0.105)
+		if picked: fill = Color(0.06, 0.13, 0.17)   # a cyan-tinted fill
+		if hot: fill = fill.lightened(0.06)
+		draw_rect(Rect2(Vector2.ZERO, size), fill)
+		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), edge, false, 2 if state in ["working", "open", "stalled"] else 1)
+		if picked:
+			draw_rect(Rect2(0, 0, size.x, 4), game.SELECT_COL)
+			draw_rect(Rect2(-2, -2, size.x + 4, size.y + 4), game.SELECT_COL, false, 2)
 		var dim := state == "locked"
 		game._draw_card_glyph(self, recipe, Vector2(18, 18), 22, Color(1, 1, 1, 0.4 if dim else 1.0), font)
 		var room := size.x - 40.0
@@ -8014,11 +8574,11 @@ class ResearchNode extends Control:   # one recipe in the tree: known, researchi
 			game._draw_cost_row(self, game._research_cost(recipe), -1.0, Vector2(10, 42), 11, 12.0)
 		elif state == "known":
 			game._text(self, font, Vector2(10, 46), "x%d ready" % game._held(game.PLAYER, recipe), 12, fam.lightened(0.3), size.x - 20, HORIZONTAL_ALIGNMENT_LEFT)
-		var line_col: Color = game.C_WARN if state == "paused" else (game.C_DIM if state in ["locked", "known"] else game.C_TEXT)
+		var line_col: Color = game.C_WARN if state == "paused" else (game.C_BAD if state == "stalled" else (game.C_DIM if state in ["locked", "known"] else game.C_TEXT))
 		game._text(self, font, Vector2(10, 64), str(st.line), 11, line_col, size.x - 20, HORIZONTAL_ALIGNMENT_LEFT)
-		if state in ["working", "paused"]:
-			draw_rect(Rect2(10, size.y - 4, size.x - 20, 2), Color(0.17, 0.20, 0.26))
-			draw_rect(Rect2(10, size.y - 4, (size.x - 20) * float(st.progress), 2), Color.WHITE if state == "working" else game.C_WARN)
+		if state in ["working", "paused", "stalled"]:
+			draw_rect(Rect2(10, size.y - 6, size.x - 20, 3), Color(0.17, 0.20, 0.26))
+			draw_rect(Rect2(10, size.y - 6, (size.x - 20) * float(st.progress), 3), edge)
 
 
 class TypeBadge extends Control:   # "what this building is": its picture, name, slots and multipliers
