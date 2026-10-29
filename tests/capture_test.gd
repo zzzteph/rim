@@ -1,7 +1,8 @@
 extends SceneTree
-## Deterministic capture (Milestone A, brief §8): an eligible capture that runs its full execution always succeeds;
-## a Patch, a lost route or a change of owner stops it, each with its own outcome. Covers neutral and rival hosts,
-## a rival main node, route loss, two captures ending on the same step, a same-step manual Patch, and each Worm stage.
+## Capture with fresh Recon (the baseline): a capture that runs its full execution on a scouted host always
+## succeeds; a Patch, a lost route or a change of owner stops it, each with its own outcome. There are no security
+## levels: any capture card may target any foreign host. Covers neutral and rival hosts, a rival main node, route loss,
+## two captures ending on the same step, a same-step manual Patch, and each Worm stage. (Unscouted odds: recon_test.)
 ## godot --headless --path . --script tests/capture_test.gd
 var g
 var P := 1
@@ -74,6 +75,11 @@ func take_path(fac: int, path: Array) -> void:   # fac captures every host on pa
 		if int(g.hosts[path[k]].owner) != fac: g._capture(int(path[k]), fac)
 
 
+func scout(fac: int, hs: Array) -> void:   # fresh Recon of these hosts: the baseline, full odds
+	for h in hs:
+		if int(h) >= 0: g._mark_scanned(fac, int(h))
+
+
 func last_op_flight() -> Dictionary:
 	for k in range(g.flights.size() - 1, -1, -1):
 		if str(g.flights[k].kind) == "op": return g.flights[k]
@@ -82,7 +88,7 @@ func last_op_flight() -> Dictionary:
 
 func run() -> void:
 	neutral_on_every_seed()
-	ineligible_is_refused()
+	no_tier_gate()
 	rival_host()
 	rival_main_node()
 	route_loss()
@@ -101,6 +107,7 @@ func neutral_on_every_seed() -> void:
 		var t := soft_neighbour(P)
 		if t < 0: continue
 		g.cards[P] = {"breach": 1}
+		scout(P, [t])
 		g._play_card(P, "breach", t)
 		var lands := float(last_op_flight().get("arrive_t", -1.0))
 		var done_at := lands + float(g.CARDS.breach.exec)
@@ -111,13 +118,19 @@ func neutral_on_every_seed() -> void:
 	check(exact == seeds.size(), "An undefended neutral host is captured exactly after travel + %d s execution on every seed (%d of %d)" % [int(g.CARDS.breach.exec), exact, seeds.size()])
 
 
-func ineligible_is_refused() -> void:
+func no_tier_gate() -> void:   # no security levels: Breach may target any host type, and nothing still reads a tier
 	fresh()
-	var t := soft_neighbour(P, "server")
-	g.cards[P] = {"breach": 1}
-	var why: String = g._can_play(P, "breach", t)
-	var ok: bool = g._play_card(P, "breach", t)
-	check(not ok and g._held(P, "breach") == 1 and "security" in why, "Breach on a security-2 host is refused, keeps the card and says why (%s)" % why)
+	var t := soft_neighbour(P, "pc")
+	var refused := []
+	for type in ["iot", "pc", "server", "web", "file", "db", "erp"]:
+		g.hosts[t].type = type
+		g.cards[P] = {"breach": 1}
+		var why: String = g._can_play(P, "breach", t)
+		if why != "": refused.append("%s: %s" % [type, why])
+	check(refused.is_empty(), "Breach may target every host type (%s)" % str(refused))
+	var tiers := false
+	for k in g.CARDS: tiers = tiers or (g.CARDS[k] as Dictionary).has("sec_max")
+	check(not tiers and not g.has_method("_security"), "No card carries a security reach and no security level exists")
 
 
 func rival_host() -> void:
@@ -129,7 +142,8 @@ func rival_host() -> void:
 	g._capture(v, R); g.hosts[v].type = "pc"; g._set_builds(v, ["intel", "bot"])
 	take_path(P, path_avoiding(int(g.rig[P]), v, [R]))
 	g.cards[P] = {"breach": 1}
-	check(g._can_play(P, "breach", v) == "", "Breach can be launched at a rival security-1 host (%s)" % g._can_play(P, "breach", v))
+	check(g._can_play(P, "breach", v) == "", "Breach can be launched at a rival host (%s)" % g._can_play(P, "breach", v))
+	scout(P, [v])
 	g._play_card(P, "breach", v)
 	check(until(func(): return int(g.hosts[v].owner) == P, 60.0), "A rival host is captured when its execution completes")
 	check((g.hosts[v].builds as Array).count("") == (g.hosts[v].builds as Array).size(), "A captured rival host is wiped: no installations survive")
@@ -141,6 +155,7 @@ func rival_main_node() -> void:
 	take_path(P, path_avoiding(int(g.rig[P]), home, [R]))
 	g.cards[P] = {"zeroday": 1}; g.known[P]["zeroday"] = true
 	check(g._can_play(P, "zeroday", home) == "", "0day can be launched at the rival main node (%s)" % g._can_play(P, "zeroday", home))
+	scout(P, [home])
 	g._play_card(P, "zeroday", home)
 	var lands := float(last_op_flight().get("arrive_t", -1.0))
 	step(lands - g._t + float(g.CARDS.zeroday.exec) + 0.5)
@@ -184,6 +199,7 @@ func same_step_competition() -> void:
 	g.hosts[t].type = "pc"
 	take_path(P, pp); take_path(R, rp)
 	check(g._op_reachable(P, t) and g._op_reachable(R, t), "same step: both networks can reach the contested host")
+	scout(P, [t]); scout(R, [t])
 	var ends: float = g._t + 0.5
 	g._execs.append({"id": 9002, "fac": R, "card": "breach", "effect": "capture", "target": t, "gen": int(g.hosts[t].gen), "ends": ends, "stage": 1})
 	g._execs.append({"id": 9001, "fac": P, "card": "breach", "effect": "capture", "target": t, "gen": int(g.hosts[t].gen), "ends": ends, "stage": 1})
@@ -227,6 +243,7 @@ func worm_stages() -> void:
 		g.hosts[x].type = "pc"
 	take_path(P, path_avoiding(int(g.rig[P]), a, [R]))
 	g._refresh_sight()
+	scout(P, [a, b, c])
 	g.cards[P] = {"worm": 2}; g.known[P]["worm"] = true
 	check(g._can_play(P, "worm", a) == "", "worm: playable on the first rival host (%s)" % g._can_play(P, "worm", a))
 	g._play_card(P, "worm", a)
@@ -246,6 +263,7 @@ func worm_stages() -> void:
 		g.hosts[x].type = "pc"
 	take_path(P, path_avoiding(int(g.rig[P]), a, [R]))
 	g._refresh_sight()
+	scout(P, [a, b, c])
 	g.cards[P] = {"worm": 1}; g.known[P]["worm"] = true
 	g._play_card(P, "worm", a)
 	until(func(): return g._execs.any(func(e): return str(e.effect) == "worm" and int(e.stage) == 2), 40.0)
@@ -258,12 +276,12 @@ func worm_stages() -> void:
 		"worm: a Patch on stage 2 stops only that stage; stage 1's capture stands")
 
 
-func no_probability_text() -> void:
+func no_probability_text() -> void:   # the one rule about odds is stated by Recon (and Help); no card invents its own
 	var bad := []
 	for k in g.CARDS:
+		if k == "recon": continue
 		var text := (str(g.CARDS[k].lead) + " " + str(g.CARDS[k].rules)).to_lower()
 		if "chance" in text or "%" in text or "one time in" in text or "odds" in text: bad.append(k)
-	var help: Dictionary = load("res://scripts/botnet_help.gd").new().LEADS
-	for k in help:
-		for line in help[k]: if "odds" in str(line).to_lower() or "chance" in str(line).to_lower(): bad.append("help:" + str(k))
-	check(bad.is_empty(), "No card or Help text promises odds any more (%s)" % str(bad))
+	var recon_text := (str(g.CARDS.recon.lead) + " " + str(g.CARDS.recon.rules)).to_lower()
+	check(bad.is_empty(), "No card but Recon states odds (%s)" % str(bad))
+	check("half the time" in recon_text and "full odds" in recon_text, "Recon says what it is for: full odds while fresh, half without")

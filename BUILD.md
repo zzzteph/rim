@@ -90,6 +90,7 @@ godot --headless --path . --script tests/objective_test.gd   # the majority obje
 godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
 godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
 godot --headless --path . --script tests/preview_test.gd     # target preview: legality, route/arrival, execution, fog-safe areas, dated Recon
+godot --headless --path . --script tests/recon_test.gd       # no security levels; unscouted 50% odds, seeded dice, counters first
 godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
@@ -164,7 +165,7 @@ can see, its route home (green, chevrons pointing home) and a tag with hops and 
 route home rings its cut-off segment (`_cut_off`) in red. None of this changes the simulation.
 
 Target preview (Milestone A). `_target_preview(fac, card, host)` says, before anything is spent: whether the card can
-launch and why not (`_can_play`), the security tier and eligibility, the route from the main node with arrival time
+launch and why not (`_can_play`), the chance (`_chance_line`: full or 50%, with the Recon's age), the route from the main node with arrival time
 and queueing, the execution time and what stops it, the hosts an area or chain effect would hit as far as the player
 can see (`_preview_nearest`, `_preview_chain` — never hosts out of sight), the Worm's next stage (`_worm_next`),
 public defences (an armed Patch, a Filter) and the last Recon snapshot with its age (`_known_defences`; loaded
@@ -201,11 +202,14 @@ rest (`_deck_page`, over the known recipes only). Drag a ready copy onto the map
 launch from a host's panel. Drag a held ATTACK card onto a reachable foreign host, a DEFENCE
 (support) card onto one of your own hosts (including your rig).
 
-Hosts have a **security class** 1–3 (`SEC_BY_TYPE` by host type, `_security`): a capture card
-only takes a host whose security is at or below the card's reach (`sec_max` — Breach 1,
-Exploit 2, 0day 3). Security comes from the host type only; a main node is pinned to `SEC_MAIN`
-(3). Security is public; Recon is optional for capture and reveals installations, storage and
-Firewall cards for 45 s.
+There are **no security levels**: any card may target any foreign host; a host's type decides only its slots
+and production multipliers. Capture cards differ by price and execution time (`exec`, and `exec_rig` on a held
+main node — Breach 15/30 s, Known exploit 9/20 s, 0day 5/12 s, each Worm stage 12/24 s). **Recon** reveals
+installations, storage and Firewall cards for 45 s and gives that faction's attacks on the host their full
+chance: without fresh Recon (`_recon_fresh(fac, t, at)`, judged when the operation resolves, voided by a change
+of owner) every other attack card succeeds at `UNSCOUTED_CHANCE` (0.5) × its baseline of 1.0 (`_op_chance`).
+`_op_roll` draws once per resolved operation from `sim_rng` (seeded from the map in `_gen`, part of `_mp_hash`),
+only when the chance is below 1, and only after counters, a void target and the route have been decided.
 
 The idle right sidebar shows compact standings automatically; selecting a node replaces it
 with node controls (installations, build palette, logistics on the main node). Help uses six
@@ -307,14 +311,17 @@ Operations (cards do all the fighting; `cards.gd` `CARDS`, resolved in `_play_ca
 flight** from your main node along a route through your own network to the target
 (`_attack_route` / `_op_reachable` — you must own a path toward it). Capture and raid cards
 then **execute** on arrival for the card's `exec` seconds before they resolve
-(`_execs`). Capture is deterministic: there is no roll. An intrusion resolves in exactly one outcome,
+(`_execs`). An intrusion resolves in exactly one outcome,
 recorded by `_op_outcome` in `op_outcomes` with its own message for both sides: **countered** (a Patch: by
 hand, armed, or loaded in a Firewall), **owner changed** (the target's ownership generation moved first, so
 a host is never captured twice from one generation), **route failed** (no path from the attacker's main
-node when it ends) or **captured**. Intrusions resolve earliest end first, equal end times by operation id
+node when it ends), **missed** (unscouted and the 50% draw failed), **raided** (Vault raid) or **captured**.
+Intrusions resolve earliest end first, equal end times by operation id
 (launch order), and a turn's commands — a manual Patch included — apply before that turn's steps. A Worm
 captures its target, then runs one more stage on the nearest visible linked host of the same original owner
-(security ≤ 2); a stopped stage ends the chain.
+(its own Recon check and draw); a stopped stage ends the chain. Phishing and Siphon land as: a loaded Response
+first, then the draw, then the effect; DDoS and Sabotage draw once for the operation, then each host's own
+Filter/Response answers.
 Support (DEFENCE) cards apply locally and instantly to one of your hosts.
 
 The ten ATTACK/information recipes: **Recon**, **Credential breach**, **Known exploit**,

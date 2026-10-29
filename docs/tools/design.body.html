@@ -49,11 +49,11 @@ flowchart LR
       <p><b>Learn:</b> never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. Steps whose action is available at once pause the game until you act (or press Space). Continue restarts the saved lesson with what the earlier lessons had you do.</p>
       <p><b>Multiplayer:</b> hidden from the menus for now. The lockstep backend and its tests remain; see <a href="#multiplayer">Multiplayer</a>.</p></div>
     <div class="rule"><h4>Start state (every network)</h4>
-      <ul><li>A main node: a Server (3 slots, security 3) with an Intel harvester and a Bot station already built, one slot free.</li>
+      <ul><li>A main node: a Server (3 slots) with an Intel harvester and a Bot station already built, one slot free.</li>
       <li>One empty PC next to it, already yours.</li>
       <li>Bank: {{START}}.</li>
       <li>Known recipes: Recon, Credential breach, Phishing, Patch, Incident response.</li>
-      <li>Every other host is neutral (“city security”): no buildings, no defence beyond its security class.</li></ul></div>
+      <li>Every other host is neutral: no buildings and no defence.</li></ul></div>
     <div class="rule"><h4>Ending</h4>
       <p>The match ends when one network holds the majority for 51 s or is the last with a main node. In single player, losing your main node loses the match; in multiplayer you are out and the others play on. Space pauses a single-player match; multiplayer never pauses.</p></div>
   </div>
@@ -61,9 +61,9 @@ flowchart LR
     <thead><tr><th>Phase</th><th>Typical time</th><th>What happens</th></tr></thead>
     <tbody>
       <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.</td></tr>
-      <tr><th>Expansion</th><td class="num">1–6 min</td><td>Breach security-1 hosts: each Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
-      <tr><th>Contact</th><td class="num">5–10 min</td><td>Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.</td></tr>
-      <tr><th>End game</th><td class="num">10 min +</td><td>0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
+      <tr><th>Expansion</th><td class="num">1–6 min</td><td>Scout and Breach neutral hosts: a scouted Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
+      <tr><th>Contact</th><td class="num">5–10 min</td><td>Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch.</td></tr>
+      <tr><th>End game</th><td class="num">10 min +</td><td>0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
     </tbody>
   </table></div>
   <p class="note">Measured sample (0.5.0-a, deterministic capture): four AIs on a Medium spiral (41 hosts), seeds 1–5, 6 minutes each. Held hosts grow from 8 to 16–28 (mean 24); 30–57 intrusions resolve per match, 195 in all: 47% captured, 50% stopped by a Patch, 3% ended by a change of owner or a lost route. No match ends inside 6 minutes; the largest network then holds 5–11 of the 21 hosts needed. The share of intrusions a Patch stops is the number to watch for the Patch-stalemate question (brief §13).</p>
@@ -112,11 +112,11 @@ flowchart LR
 <section id="hosts">
   <h2>Host types</h2>
   <div class="tablebox"><table>
-    <thead><tr><th>Type</th><th>Slots</th><th>Security</th><th>Multipliers (output and input)</th><th>Who can capture it</th></tr></thead>
+    <thead><tr><th>Type</th><th>Slots</th><th>Multipliers (output and input)</th></tr></thead>
     <tbody>{{HOSTTYPES}}</tbody>
   </table></div>
   <ul class="plain">
-    <li>An active main node is always security 3, whatever its type. Nothing else changes security.</li>
+    <li>There are no security levels: any capture card can target any host. A held main node takes longer to execute against (each card's main-node time).</li>
     <li>A multiplier scales a building's input too: a Credential harvester on a web server turns 2 Intel into 2 Credentials per cycle; a Bot station on an ERP system makes 3 Bots.</li>
     <li>When a host changes owner its buildings, storage, Firewall cards and effects are wiped, and its ownership generation counts up: operations aimed at the old owner become void.</li>
   </ul>
@@ -128,7 +128,7 @@ flowchart LR
     <li>You see your own hosts and every host linked to one of them. Rival packets, effects and their busy streets show only there.</li>
     <li>Every main node is visible as a landmark, but nothing around it.</li>
     <li>Hosts you saw before stay on the map as dim outlines, without owner or contents; fogged hosts cannot be clicked.</li>
-    <li>Security and host type are public. What is inside a rival host (buildings, storage, Firewall cards) is shown only by a fresh Recon (45 s).</li>
+    <li>Host type and slot count are public. What is inside a rival host (buildings, storage, Firewall cards) is shown only by a fresh Recon (45 s), which also gives your attacks on it their full chance.</li>
     <li>Territories: each held, visible host claims a round patch; one network's patches merge, and the ground between rivals is split halfway.</li>
   </ul>
 </section>
@@ -258,11 +258,14 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
       <ul><li>Target: a foreign host (neutral or a rival's).</li>
       <li>Reachable: you hold a host linked to the target and a path of your hosts from your main node to it (or the target is linked to your main node).</li>
       <li>Your main node must not be under DDoS.</li>
-      <li>One capture or raid per attacker per host at a time.</li></ul></div>
+      <li>One capture or raid per attacker per host at a time.</li>
+      <li>No security levels: any card may target any foreign host.</li></ul></div>
     <div class="rule"><h4>Flight and arrival</h4>
       <p>The card flies from your main node along that path. It always arrives (the route is checked again when it resolves), unless the target changed owner on the way: then it is void. Effects (Recon, Phishing, Siphon, DDoS, Sabotage) apply on arrival. <b>Intrusions</b> (captures, Worm stages, Vault raid) start an execution countdown that the owner sees on the host.</p></div>
     <div class="rule"><h4>When an execution ends</h4>
-      <p>Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (<b>countered</b>); a target that changed owner first voids it (<b>owner changed</b>; a host can never be captured twice from the same generation); no path left fails it (<b>route failed</b>). Otherwise it is <b>captured</b>: the host is yours, wiped. There is no roll. Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.</p></div>
+      <p>Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (<b>countered</b>); a target that changed owner first voids it (<b>owner changed</b>; a host can never be captured twice from the same generation); no path left fails it (<b>route failed</b>). Only then the odds: without fresh Recon of the host (yours, still fresh at this moment) one draw from the match's seeded dice decides it at 50% (<b>missed</b>); with it nothing is drawn. Otherwise it is <b>captured</b> (a Vault raid <b>raids</b>). Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.</p></div>
+    <div class="rule"><h4>The Recon rule</h4>
+      <p>Every attack card except Recon succeeds at half its chance (0.5 × a baseline of 1.0) against a host you have no fresh Recon of. Effects that land on arrival (Phishing, Siphon, DDoS, Sabotage) draw on arrival, after a loaded Response has had its say; a DDoS or Sabotage reaching several hosts is one operation with one draw; each Worm stage is its own operation. Counters, a void target or a lost route are always decided first: a draw never lets a card past them. The draw comes from a generator seeded by the map, the same on every screen, and part of the multiplayer fingerprint. Defence cards on your own hosts never need Recon.</p></div>
     <div class="rule"><h4>Defence cards</h4>
       <p>Played on one of your own hosts; they act at once, wherever the host is, even cut off or under DDoS. Patch, Incident response, Traffic filter and Courier cover load into a free Firewall socket instead, unless their attack is already there.</p></div>
   </div>
@@ -274,6 +277,7 @@ stateDiagram-v2
   Executing --> Countered: Patch by hand or armed
   Executing --> OwnerChanged: target changed owner first
   Executing --> RouteFailed: no route left
+  Executing --> Missed: no fresh Recon and the 50% draw fails
   Executing --> Captured: countdown ends
   Captured --> [*]</pre><figcaption>The life of a capture card.</figcaption></figure>
 </section>
@@ -293,7 +297,7 @@ stateDiagram-v2
   <h2>Firewall</h2>
   <div class="rules">
     <div class="rule"><h4>What it is for</h4>
-      <p>It adds no security. It holds defence cards that fire on their own when an enemy card hits the host, so a host is defended while you look elsewhere and faster than anyone can react by hand.</p></div>
+      <p>It does not make a host harder to capture. It holds defence cards that fire on their own when an enemy card hits the host, so a host is defended while you look elsewhere and faster than anyone can react by hand.</p></div>
     <div class="rule"><h4>Loading</h4>
       <p>Each finished Firewall gives its host 3 sockets (a host may hold several Firewalls). Playing Patch, Incident response, Traffic filter or Courier cover on a host with a free socket loads the card, unless the attack it answers is already there: then it acts at once. Express route cannot be loaded.</p></div>
     <div class="rule"><h4>Power</h4>
@@ -379,7 +383,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
       <li><b>Economy</b> (top-bar button, a click on the banks, or <b>E</b>): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.</li>
       <li><b>Map</b>: hosts (with slot counts), territories, roads, packets, effects.</li>
       <li><b>Sidebar</b>: standings when idle; your host's panel when selected, in this order: role and status (e.g. RESEARCH HOST · starved), each problem with its cause and a fix, the next cycle as it will really run (and, when that falls short, the output at full capacity), delivery (route home with hops, travel and queueing, who carries, storage, what reached the bank from this host recently), then installations, Firewall sockets and the build palette; on the main node also logistics: reserve and shipping priority. A foreign host's panel shows its security, Recon view and the Launch row.</li>
-      <li><b>Target preview</b>: on a foreign host's panel (the verdict beside Launch) and beside the cursor while a card is dragged over a host: can it launch and why not; security and eligibility; route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.</li>
+      <li><b>Target preview</b>: on a foreign host's panel (the verdict beside Launch) and beside the cursor while a card is dragged over a host: can it launch and why not; its chance (full with fresh Recon still fresh when it resolves, else 50%); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.</li>
       <li><b>Events</b>: a strip at the bottom-left of the map shows up to four entries, most urgent first: <b>!</b> needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), <b>›</b> worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, couriers held at the reserve, research that cannot pay, a lost shipment, your operation stopped), <b>·</b> news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; <b>H</b> opens the full history (the last 80, with times).</li>
       <li><b>Route inspection</b>: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.</li>
       <li><b>Deck</b> (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.</li>
@@ -464,14 +468,14 @@ losing your main node = elimination: your bank, cards, research and flights are 
     <thead><tr><th>File</th><th>Constants</th></tr></thead>
     <tbody>{{UNUSED}}</tbody>
   </table></div>
-  <p>Also: <code>NODE_TYPES[…].sec</code> in types.gd is not read (security comes from <code>SEC_BY_TYPE</code>, which rates a file server 2, not 3); <code>BUILD_TIME</code> and <code>DEMOLISH_TIME</code> exist in both tuning.gd and buildings.gd and only the buildings.gd values are used; there is one research slot whatever <code>RESEARCH_SLOTS</code> says.</p>
+  <p>Also: <code>BUILD_TIME</code> and <code>DEMOLISH_TIME</code> exist in both tuning.gd and buildings.gd and only the buildings.gd values are used; there is one research slot whatever <code>RESEARCH_SLOTS</code> says.</p>
 </section>
 
 <section id="review">
   <h2>For review</h2>
   <p>Choices made in the last rounds that are worth a second look.</p>
   <ol class="review">
-    <li><b>Firewall (confirmed):</b> it adds no security; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.</li>
+    <li><b>Firewall (confirmed):</b> it does not make a host harder to capture; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.</li>
     <li><b>Cards cost no Bots:</b> Bots only carry resources. Their old Bot price moved to Intel; DDoS, which was priced in Bots, now costs 34 Intel and 14 Crypto.</li>
     <li><b>Deterministic capture (Milestone A):</b> no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.</li>
     <li><b>Patch stops half of all intrusions</b> in the measured AI sample (98 of 195). With capture now certain when nothing stops it, watch whether Patch loops stall borders before trying the Patch cooldown candidate (brief §13, still off).</li>

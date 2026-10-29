@@ -50,15 +50,18 @@ func do_action(ch: int, st: int) -> void:
 	match key:
 		"0:0": if once(key): g.sel = {g._camp_home: true}; g._inspect = -1
 		"0:1": if once(key): lane_make("breach")
-		"0:2": play_when_held("breach", g._camp_relay)
+		"0:2": play_when_held("recon", g._camp_relay)
+		"0:3": play_when_held("breach", g._camp_relay)
 		"1:0": if once(key): build(g._camp_relay, "intel")
 		"1:1": if once(key): build(g._camp_relay, "bot")
 		"1:2": pass   # wait for the courier to arrive
 		"2:0": if once(key): g._cmd(["research", "exploit"])
 		"2:1": if g._known(P, "exploit") and g._held(P, "exploit") == 0 and g._lane_of(P, "exploit") < 0: lane_make("exploit")
-		"2:2": play_when_held("exploit", g._camp_gateway)
-		"3:0": play_when_held("phish", g._camp_practice)
-		"3:1": play_when_held("response", g._camp_relay)
+		"2:2": play_when_held("recon", g._camp_gateway)
+		"2:3": play_when_held("exploit", g._camp_gateway)
+		"3:0": play_when_held("recon", g._camp_practice)
+		"3:1": play_when_held("phish", g._camp_practice)
+		"3:2": play_when_held("response", g._camp_relay)
 
 
 func run() -> void:

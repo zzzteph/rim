@@ -157,8 +157,8 @@
           "research": 0
         },
         "make_time": 3.0,
-        "lead": "Reveal a host's contents for 45 s.",
-        "rules": "Shows its installations, storage and Firewall cards. The snapshot goes stale after 45 s. Not an alarm, and not needed to capture."
+        "lead": "Scout a host: full odds for 45 s.",
+        "rules": "Shows its installations, storage and Firewall cards for 45 s. While that is fresh your attacks on it work every time; unscouted, they work half the time."
       },
       "breach": {
         "name": "Credential breach",
@@ -167,8 +167,8 @@
         "bank": "attack",
         "effect": "capture",
         "known": true,
-        "sec_max": 1,
         "exec": 15.0,
+        "exec_rig": 30.0,
         "make": {
           "bots": 0,
           "intel": 12,
@@ -177,8 +177,8 @@
           "research": 0
         },
         "make_time": 12.0,
-        "lead": "Capture a security-1 host.",
-        "rules": "Travels from your main node, then executes for 15 s. It captures the host unless a Patch, a lost route or a change of owner stops it first."
+        "lead": "Capture a host in 15 s.",
+        "rules": "Travels from your main node, then executes for 15 s, 30 s on a main node. It captures the host unless a Patch, a lost route or a change of owner stops it first."
       },
       "exploit": {
         "name": "Known exploit",
@@ -187,8 +187,8 @@
         "bank": "attack",
         "effect": "capture",
         "known": false,
-        "sec_max": 2,
-        "exec": 12.0,
+        "exec": 9.0,
+        "exec_rig": 20.0,
         "make": {
           "bots": 0,
           "intel": 14,
@@ -197,8 +197,8 @@
           "research": 12
         },
         "make_time": 14.0,
-        "lead": "Capture a host up to security 2.",
-        "rules": "Travels, then executes for 12 s. It captures unless a Patch, a lost route or a change of owner stops it first. Breach is cheaper against a security-1 host."
+        "lead": "Capture a host in 9 s.",
+        "rules": "Travels, then executes for 9 s, 20 s on a main node. That leaves a defender's Patch less time to arrive. A Patch, a lost route or a change of owner stops it."
       },
       "phish": {
         "name": "Phishing",
@@ -287,9 +287,8 @@
         "bank": "attack",
         "effect": "capture",
         "known": false,
-        "sec_max": 3,
-        "exec": 10.0,
-        "exec_rig": 15.0,
+        "exec": 5.0,
+        "exec_rig": 12.0,
         "make": {
           "bots": 0,
           "intel": 16,
@@ -298,8 +297,8 @@
           "research": 16
         },
         "make_time": 26.0,
-        "lead": "Capture a host up to security 3.",
-        "rules": "Travels, then executes for 10 s, or 15 s on a rival main node with a countdown they see. It captures unless a Patch, a lost route or a change of owner stops it."
+        "lead": "Capture a host in 5 s.",
+        "rules": "Travels, then executes for 5 s, 12 s on a main node. Only a Patch already armed or in a Firewall socket is in time. A lost route or a change of owner also stops it."
       },
       "worm": {
         "name": "Worm",
@@ -308,8 +307,8 @@
         "bank": "attack",
         "effect": "worm",
         "known": false,
-        "sec_max": 2,
         "exec": 12.0,
+        "exec_rig": 24.0,
         "reach": 2,
         "make": {
           "bots": 0,
@@ -319,8 +318,8 @@
           "research": 24
         },
         "make_time": 22.0,
-        "lead": "Known exploit on 2 linked hosts.",
-        "rules": "Captures the target, then its nearest linked host of the same owner, security 2 or less. Each stage executes for 12 s and can be stopped on its own. A Patch, a lost route or a change of owner ends it."
+        "lead": "Capture 2 linked hosts in turn.",
+        "rules": "Captures the target, then its nearest linked host of the same owner. Each stage executes for 12 s (24 s on a main node) and can be stopped on its own. A Patch, a lost route or a change of owner ends it."
       },
       "sabotage": {
         "name": "Supply-chain sabotage",
@@ -771,17 +770,7 @@
     "LINK_CAP": 8,
     "MAX_QUEUE": 1.0,
     "EXPRESS_MULT": 0.5,
-    "SEC_BY_TYPE": {
-      "iot": 1,
-      "pc": 1,
-      "server": 2,
-      "web": 2,
-      "file": 2,
-      "db": 3,
-      "erp": 3
-    },
-    "SEC_MAIN": 3,
-    "SEC_MAX": 3,
+    "UNSCOUTED_CHANCE": 0.5,
     "FIREWALL_SOCKETS": 3,
     "BUILD_TIME": 10.0,
     "DEMOLISH_TIME": 5.0,
@@ -801,7 +790,6 @@
         "cash": 1.0,
         "cred": 1.0,
         "research": 1.0,
-        "sec": 0,
         "desc": "an office workstation — 3 slots"
       },
       "iot": {
@@ -813,7 +801,6 @@
         "cash": 1.0,
         "cred": 0.5,
         "research": 0.5,
-        "sec": -3,
         "desc": "a camera or a router — 1 slot, soft, poor harvests"
       },
       "server": {
@@ -825,7 +812,6 @@
         "cash": 1.0,
         "cred": 1.0,
         "research": 1.5,
-        "sec": 2,
         "desc": "a rack server — 3 slots, Intel ×1.5, Research ×1.5"
       },
       "web": {
@@ -837,7 +823,6 @@
         "cash": 1.0,
         "cred": 2.0,
         "research": 1.0,
-        "sec": 2,
         "desc": "a public web host — 3 slots, Intel ×1.5, Credentials ×2"
       },
       "db": {
@@ -849,7 +834,6 @@
         "cash": 1.0,
         "cred": 1.5,
         "research": 1.5,
-        "sec": 3,
         "desc": "a database cluster — 4 slots, Intel ×2, Credentials & Research ×1.5"
       },
       "file": {
@@ -861,7 +845,6 @@
         "cash": 1.0,
         "cred": 1.0,
         "research": 2.0,
-        "sec": 3,
         "desc": "a file server — 4 slots, Intel ×2, Research ×2"
       },
       "erp": {
@@ -873,7 +856,6 @@
         "cash": 1.5,
         "cred": 1.5,
         "research": 1.5,
-        "sec": 6,
         "desc": "an enterprise core — 5 slots, everything ×1.5"
       }
     },

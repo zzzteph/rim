@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.5.0-a · commit e5ec77e
+RIM 0.5.0-a · commit 04b4630
 
 ## Contents
 
@@ -81,22 +81,22 @@ flowchart LR
 
 #### Start state (every network)
 
-- A main node: a Server (3 slots, security 3) with an Intel harvester and a Bot station already built, one slot free.
+- A main node: a Server (3 slots) with an Intel harvester and a Bot station already built, one slot free.
 - One empty PC next to it, already yours.
 - Bank: 20 Bots, 40 Intel, 20 Crypto, 15 Creds, 10 Research.
 - Known recipes: Recon, Credential breach, Phishing, Patch, Incident response.
-- Every other host is neutral (“city security”): no buildings, no defence beyond its security class.
+- Every other host is neutral: no buildings and no defence.
 
 #### Ending
 
 The match ends when one network holds the majority for 51 s or is the last with a main node. In single player, losing your main node loses the match; in multiplayer you are out and the others play on. Space pauses a single-player match; multiplayer never pauses.
 
-| Phase     | Typical time | What happens                                                                                                                                                                                                      |
-|-----------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Opening   | 0–1 min      | Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host. |
-| Expansion | 1–6 min      | Breach security-1 hosts: each Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.    |
-| Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit and Worm on security-2 hosts.           |
-| End game  | 10 min +     | 0day on databases, ERP systems and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                    |
+| Phase     | Typical time | What happens                                                                                                                                                                                                                                     |
+|-----------|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Opening   | 0–1 min      | Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.                                |
+| Expansion | 1–6 min      | Scout and Breach neutral hosts: a scouted Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.                       |
+| Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch. |
+| End game  | 10 min +     | 0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                           |
 
 Measured sample (0.5.0-a, deterministic capture): four AIs on a Medium spiral (41 hosts), seeds 1–5, 6 minutes each. Held hosts grow from 8 to 16–28 (mean 24); 30–57 intrusions resolve per match, 195 in all: 47% captured, 50% stopped by a Patch, 3% ended by a change of owner or a lost route. No match ends inside 6 minutes; the largest network then holds 5–11 of the 21 hosts needed. The share of intrusions a Patch stops is the number to watch for the Patch-stalemate question (brief §13).
 
@@ -146,17 +146,17 @@ The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are juncti
 
 ## Host types
 
-| Type        | Slots | Security | Multipliers (output and input)                                      | Who can capture it                |
-|-------------|-------|----------|---------------------------------------------------------------------|-----------------------------------|
-| IoT device  | 1     | 1        | Credentials ×0.5, Research ×0.5                                     | Breach, Known exploit, 0day, Worm |
-| PC          | 3     | 1        | none                                                                | Breach, Known exploit, 0day, Worm |
-| Server      | 3     | 2        | Intel ×1.5, Research ×1.5                                           | Known exploit, 0day, Worm         |
-| Web server  | 3     | 2        | Intel ×1.5, Credentials ×2                                          | Known exploit, 0day, Worm         |
-| File server | 4     | 2        | Intel ×2, Research ×2                                               | Known exploit, 0day, Worm         |
-| Database    | 4     | 3        | Intel ×2, Credentials ×1.5, Research ×1.5                           | 0day                              |
-| ERP system  | 5     | 3        | Intel ×1.5, Crypto ×1.5, Credentials ×1.5, Research ×1.5, Bots ×1.5 | 0day                              |
+| Type        | Slots | Multipliers (output and input)                                      |
+|-------------|-------|---------------------------------------------------------------------|
+| IoT device  | 1     | Credentials ×0.5, Research ×0.5                                     |
+| PC          | 3     | none                                                                |
+| Server      | 3     | Intel ×1.5, Research ×1.5                                           |
+| Web server  | 3     | Intel ×1.5, Credentials ×2                                          |
+| File server | 4     | Intel ×2, Research ×2                                               |
+| Database    | 4     | Intel ×2, Credentials ×1.5, Research ×1.5                           |
+| ERP system  | 5     | Intel ×1.5, Crypto ×1.5, Credentials ×1.5, Research ×1.5, Bots ×1.5 |
 
-- An active main node is always security 3, whatever its type. Nothing else changes security.
+- There are no security levels: any capture card can target any host. A held main node takes longer to execute against (each card's main-node time).
 - A multiplier scales a building's input too: a Credential harvester on a web server turns 2 Intel into 2 Credentials per cycle; a Bot station on an ERP system makes 3 Bots.
 - When a host changes owner its buildings, storage, Firewall cards and effects are wiped, and its ownership generation counts up: operations aimed at the old owner become void.
 
@@ -165,7 +165,7 @@ The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are juncti
 - You see your own hosts and every host linked to one of them. Rival packets, effects and their busy streets show only there.
 - Every main node is visible as a landmark, but nothing around it.
 - Hosts you saw before stay on the map as dim outlines, without owner or contents; fogged hosts cannot be clicked.
-- Security and host type are public. What is inside a rival host (buildings, storage, Firewall cards) is shown only by a fresh Recon (45 s).
+- Host type and slot count are public. What is inside a rival host (buildings, storage, Firewall cards) is shown only by a fresh Recon (45 s), which also gives your attacks on it their full chance.
 - Territories: each held, visible host claims a round patch; one network's patches merge, and the ground between rivals is split halfway.
 
 ## Resources and banks
@@ -287,7 +287,7 @@ A courier whose route has lost a host it passed (captured, or under DDoS) by the
 | Crypto miner         | −1 Intel → +1 Crypto              | 15 Intel            | +50 Crypto cap   | Uses Intel from its own host’s storage only (the bank, at the main node).                                                                                                                                                                                                                                                            |
 | Credential harvester | −1 Intel → +1 Creds               | 15 Intel, 4 Crypto  | +50 Creds cap    | Uses Intel from its own host’s storage only.                                                                                                                                                                                                                                                                                         |
 | Research lab         | −1 Intel, −1 Crypto → +1 Research | 20 Intel, 8 Crypto  | +50 Research cap | Uses Intel and Crypto from its own host only: put a Miner beside it, or build it at the main node.                                                                                                                                                                                                                                   |
-| Firewall             | −1 Intel upkeep                   | 25 Intel, 15 Crypto | —                | Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. Adds no security.                                                                                                                                      |
+| Firewall             | −1 Intel upkeep                   | 25 Intel, 15 Crypto | —                | Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. It does not make the host harder to capture.                                                                                                           |
 
 - Drag a building card from the host panel onto a slot. The full price is paid when the job starts; the job takes 10 s. Replacing a building first demolishes it (5 s).
 - Click a producer to pause or resume it; a job can be paused or cancelled.
@@ -324,6 +324,7 @@ These tabs hold only the recipes you know. Click a card to make a copy in one of
 - Reachable: you hold a host linked to the target and a path of your hosts from your main node to it (or the target is linked to your main node).
 - Your main node must not be under DDoS.
 - One capture or raid per attacker per host at a time.
+- No security levels: any card may target any foreign host.
 
 #### Flight and arrival
 
@@ -331,7 +332,11 @@ The card flies from your main node along that path. It always arrives (the route
 
 #### When an execution ends
 
-Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (**countered**); a target that changed owner first voids it (**owner changed**; a host can never be captured twice from the same generation); no path left fails it (**route failed**). Otherwise it is **captured**: the host is yours, wiped. There is no roll. Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.
+Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (**countered**); a target that changed owner first voids it (**owner changed**; a host can never be captured twice from the same generation); no path left fails it (**route failed**). Only then the odds: without fresh Recon of the host (yours, still fresh at this moment) one draw from the match's seeded dice decides it at 50% (**missed**); with it nothing is drawn. Otherwise it is **captured** (a Vault raid **raids**). Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.
+
+#### The Recon rule
+
+Every attack card except Recon succeeds at half its chance (0.5 × a baseline of 1.0) against a host you have no fresh Recon of. Effects that land on arrival (Phishing, Siphon, DDoS, Sabotage) draw on arrival, after a loaded Response has had its say; a DDoS or Sabotage reaching several hosts is one operation with one draw; each Worm stage is its own operation. Counters, a void target or a lost route are always decided first: a draw never lets a card past them. The draw comes from a generator seeded by the map, the same on every screen, and part of the multiplayer fingerprint. Defence cards on your own hosts never need Recon.
 
 #### Defence cards
 
@@ -346,6 +351,7 @@ stateDiagram-v2
   Executing --> Countered: Patch by hand or armed
   Executing --> OwnerChanged: target changed owner first
   Executing --> RouteFailed: no route left
+  Executing --> Missed: no fresh Recon and the 50% draw fails
   Executing --> Captured: countdown ends
   Captured --> [*]
 ```
@@ -360,7 +366,7 @@ stateDiagram-v2
 
 `ATTACK` `Known from the start`
 
-Reveal a host's contents for 45 s.
+Scout a host: full odds for 45 s.
 
 **Make:** 8 Intel, 3 s (≈ 10 s early · 6 s mid of Intel income)
 
@@ -370,21 +376,21 @@ Reveal a host's contents for 45 s.
 - **Timing:** Travels, then takes effect on arrival. No execution.
 - **Effect:** Takes a snapshot of the host: what is in each slot, how full its storage is, and which cards wait in its Firewall. You see the snapshot, not later changes, for 45 s; then the slots go back to “?”.
 - **Quiet:** The target gets no red frame and no pulse. It is the only attack card that does not show.
-- **Not needed for:** Capture. Security is always public.
+- **Odds:** While the snapshot is fresh (45 s, and only for the faction that made it), your attacks on that host succeed at their full chance. Without it every other attack card succeeds half the time (UNSCOUTED_CHANCE 0.5). Freshness is judged when the operation resolves. A change of owner voids it.
 
 ### Credential breach
 
 `ATTACK` `Known from the start`
 
-Capture a security-1 host.
+Capture a host in 15 s.
 
 **Make:** 12 Intel, 12 Creds, 12 s (≈ 60 s early · 20 s mid of Credentials income)
 
 - **Why it exists:** The way to grow: every host adds slots, and holding 51% of all hosts wins.
-- **Play it when:** Whenever security-1 hosts are in reach; neutral hosts first, as nobody defends them.
-- **Target:** A foreign host of security ≤ 1: PCs and IoT devices, neutral or a rival’s.
-- **Timing:** Travels, then executes for 15 s on the host. The owner sees “Breach executing” and has that long to react.
-- **Outcome:** When its execution ends the host is captured. Before that it can only be stopped, each way with its own message: a Patch (**countered**), losing your path to it (**route failed**), or another owner taking it first (**owner changed**). There is no roll.
+- **Play it when:** On neutral hosts first, as nobody defends them; scouted, so it cannot miss.
+- **Target:** Any foreign host your operations can reach, neutral or a rival’s. There are no security levels.
+- **Timing:** Travels, then executes for 15 s on the host (30 s on a held main node). The owner sees “Breach executing” and has that long to react.
+- **Outcome:** When its execution ends: first a Patch (**countered**), losing your path to it (**route failed**) or another owner taking it first (**owner changed**) stop it; then, without fresh Recon of the host, one 50% draw (**missed**). With fresh Recon nothing is drawn: it is captured.
 - **Effect:** On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots.
 - **Stopped by:** A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile.
 - **Limit:** One capture or raid per attacker per host at a time.
@@ -393,15 +399,15 @@ Capture a security-1 host.
 
 `ATTACK` `Research after Credential breach`
 
-Capture a host up to security 2.
+Capture a host in 9 s.
 
 **Make:** 14 Intel, 12 Research, 14 s (≈ 60 s early · 30 s mid of Research income)
 
-- **Why it exists:** Opens the first rich hosts: servers, web servers and file servers.
-- **Play it when:** When the security-1 hosts near you are gone.
-- **Target:** A foreign host of security ≤ 2: also servers, web servers and file servers.
-- **Timing:** Travels, then executes for 12 s.
-- **Outcome:** As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed.
+- **Why it exists:** A faster capture: 9 s leaves a defender little time to get a Patch there.
+- **Play it when:** Against a rival's hosts, where a Patch might be sent.
+- **Target:** Any foreign host your operations can reach.
+- **Timing:** Travels, then executes for 9 s (20 s on a held main node): less time for a defender's Patch to travel there.
+- **Outcome:** As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured.
 - **Effect:** As Credential breach: the host becomes yours, wiped.
 - **Stopped by:** As Credential breach.
 
@@ -409,15 +415,15 @@ Capture a host up to security 2.
 
 `ATTACK` `Research after Known exploit`
 
-Capture a host up to security 3.
+Capture a host in 5 s.
 
 **Make:** 16 Intel, 12 Crypto, 12 Creds, 16 Research, 26 s (≈ 80 s early · 40 s mid of Research income)
 
 - **Why it exists:** The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.
 - **Play it when:** After a Recon shows no Patch waiting, or after a cheaper card has used it up.
-- **Target:** Any foreign host (security ≤ 3): also databases, ERP systems and a rival’s active main node.
-- **Timing:** Travels, then executes for 10 s; 15 s on an active rival main node, with a countdown the owner sees.
-- **Outcome:** As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed.
+- **Target:** Any foreign host your operations can reach.
+- **Timing:** Travels, then executes for 5 s; 12 s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time.
+- **Outcome:** As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured.
 - **Effect:** The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host.
 - **Stopped by:** As Credential breach.
 
@@ -425,16 +431,16 @@ Capture a host up to security 3.
 
 `ATTACK` `Research after Known exploit`
 
-Known exploit on 2 linked hosts.
+Capture 2 linked hosts in turn.
 
 **Make:** 24 Intel, 24 Research, 22 s (≈ 120 s early · 60 s mid of Research income)
 
-- **Why it exists:** Three Known exploits in one launch, reaching hosts behind a rival's front line.
-- **Play it when:** When a rival holds a chain of hosts of security 2 or less.
-- **Target:** A foreign host of security ≤ 2 that your operations can reach.
-- **What it is:** Known exploit on up to 2 linked hosts, one after the other.
-- **Timing:** Travels; each stage executes for 12 s, and each can be stopped on its own.
-- **Chain:** Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the **same owner** as the first target and has security ≤ 2. It never jumps to another owner.
+- **Why it exists:** Two captures in one launch, reaching a host behind a rival's front line.
+- **Play it when:** When a rival holds a chain of linked hosts; scout both.
+- **Target:** Any foreign host your operations can reach.
+- **What it is:** A capture on up to 2 linked hosts, one after the other.
+- **Timing:** Travels; each stage executes for 12 s (24 s on a main node), and each can be stopped on its own.
+- **Chain:** Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the **same owner** as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw when unscouted.
 - **Stops when:** A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured.
 
 ### Phishing
@@ -594,7 +600,7 @@ Halve delivery time for 45 s.
 
 #### What it is for
 
-It adds no security. It holds defence cards that fire on their own when an enemy card hits the host, so a host is defended while you look elsewhere and faster than anyone can react by hand.
+It does not make a host harder to capture. It holds defence cards that fire on their own when an enemy card hits the host, so a host is defended while you look elsewhere and faster than anyone can react by hand.
 
 #### Loading
 
@@ -681,7 +687,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 - **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
 - **Sidebar**: standings when idle; your host's panel when selected, in this order: role and status (e.g. RESEARCH HOST · starved), each problem with its cause and a fix, the next cycle as it will really run (and, when that falls short, the output at full capacity), delivery (route home with hops, travel and queueing, who carries, storage, what reached the bank from this host recently), then installations, Firewall sockets and the build palette; on the main node also logistics: reserve and shipping priority. A foreign host's panel shows its security, Recon view and the Launch row.
-- **Target preview**: on a foreign host's panel (the verdict beside Launch) and beside the cursor while a card is dragged over a host: can it launch and why not; security and eligibility; route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
+- **Target preview**: on a foreign host's panel (the verdict beside Launch) and beside the cursor while a card is dragged over a host: can it launch and why not; its chance (full with fresh Recon still fresh when it resolves, else 50%); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
 - **Events**: a strip at the bottom-left of the map shows up to four entries, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, couriers held at the reserve, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
 - **Deck** (bottom): ATTACK and DEFENCE tabs (known recipes: click to make, drag a copy onto a host to play), RESEARCH tab (the tree). Pushed down it is one strip of mini cards; pulled up it shows four big cards or the tree.
@@ -724,12 +730,12 @@ per minute; the trickle is included
 
 ### What a capture costs
 
-| Card              | Price per copy                             | Make | Execution (reaction window) | Early · mid seconds of income           |
-|-------------------|--------------------------------------------|------|-----------------------------|-----------------------------------------|
-| Credential breach | 12 Intel, 12 Creds                         | 12 s | 15 s                        | 60 s (Credentials) · 20 s (Credentials) |
-| Known exploit     | 14 Intel, 12 Research                      | 14 s | 12 s                        | 60 s (Research) · 30 s (Research)       |
-| 0day              | 16 Intel, 12 Crypto, 12 Creds, 16 Research | 26 s | 10 s (15 s on a main node)  | 80 s (Research) · 40 s (Research)       |
-| Worm              | 24 Intel, 24 Research                      | 22 s | 12 s per stage, 2 stages    | 120 s (Research) · 60 s (Research)      |
+| Card              | Price per copy                             | Make | Execution (reaction window)                    | Early · mid seconds of income           |
+|-------------------|--------------------------------------------|------|------------------------------------------------|-----------------------------------------|
+| Credential breach | 12 Intel, 12 Creds                         | 12 s | 15 s (30 s on a main node)                     | 60 s (Credentials) · 20 s (Credentials) |
+| Known exploit     | 14 Intel, 12 Research                      | 14 s | 9 s (20 s on a main node)                      | 60 s (Research) · 30 s (Research)       |
+| 0day              | 16 Intel, 12 Crypto, 12 Creds, 16 Research | 26 s | 5 s (12 s on a main node)                      | 80 s (Research) · 40 s (Research)       |
+| Worm              | 24 Intel, 24 Research                      | 22 s | 12 s (24 s on a main node) per stage, 2 stages | 120 s (Research) · 60 s (Research)      |
 
 ### What buildings add
 
@@ -790,13 +796,13 @@ Constants still defined in the config files that the current game never reads, l
 | town.gd      | `LINK_INTEL`, `TOWN_WORDS`                                                                                                                                                                                                      |
 | tuning.gd    | `MAX_QUEUE`, `RESEARCH_SLOTS`                                                                                                                                                                                                   |
 
-Also: `NODE_TYPES[…].sec` in types.gd is not read (security comes from `SEC_BY_TYPE`, which rates a file server 2, not 3); `BUILD_TIME` and `DEMOLISH_TIME` exist in both tuning.gd and buildings.gd and only the buildings.gd values are used; there is one research slot whatever `RESEARCH_SLOTS` says.
+Also: `BUILD_TIME` and `DEMOLISH_TIME` exist in both tuning.gd and buildings.gd and only the buildings.gd values are used; there is one research slot whatever `RESEARCH_SLOTS` says.
 
 ## For review
 
 Choices made in the last rounds that are worth a second look.
 
-1.  **Firewall (confirmed):** it adds no security; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.
+1.  **Firewall (confirmed):** it does not make a host harder to capture; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.
 2.  **Cards cost no Bots:** Bots only carry resources. Their old Bot price moved to Intel; DDoS, which was priced in Bots, now costs 34 Intel and 14 Crypto.
 3.  **Deterministic capture (Milestone A):** no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.
 4.  **Patch stops half of all intrusions** in the measured AI sample (98 of 195). With capture now certain when nothing stops it, watch whether Patch loops stall borders before trying the Patch cooldown candidate (brief §13, still off).

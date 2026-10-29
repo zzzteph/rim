@@ -50,10 +50,11 @@ func path_avoiding(a: int, b: int, avoid: int) -> Array:   # a shortest link pat
 	return p
 
 
-func reach(target: int) -> void:   # the player takes the hosts leading up to target, so a card can get there
+func reach(target: int) -> void:   # the player takes the hosts leading up to target, so a card can get there, and scouts it
 	var path := path_avoiding(int(g.rig[P]), target, R)
 	for k in range(1, path.size() - 1):
 		if int(g.hosts[path[k]].owner) != P: g._capture(path[k], P)
+	g._mark_scanned(P, target)   # fresh Recon: these checks are about what the theft does, at full odds (recon_test covers the odds)
 
 
 func rival_outpost() -> int:   # a rival host next to its main node, given an Intel harvester (2 Intel every 5 s, no input)

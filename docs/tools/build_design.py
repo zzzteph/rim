@@ -72,6 +72,7 @@ def wait(cost, inc):
             best, who = v / inc[r] * 60, RES_NAME[r]
     return best, who
 
+UNSCOUTED = re.search(r"UNSCOUTED_CHANCE := ([0-9.]+)", open(f"{ROOT}/scripts/botnet_cfg/tuning.gd").read()).group(1)
 # ---- what every card does, exactly (checked against scripts/botnet_proto.gd) ----
 D = {}
 D["recon"] = [
@@ -79,35 +80,35 @@ D["recon"] = [
     ("Timing", "Travels, then takes effect on arrival. No execution."),
     ("Effect", f"Takes a snapshot of the host: what is in each slot, how full its storage is, and which cards wait in its Firewall. You see the snapshot, not later changes, for {n(C['recon']['dur'])} s; then the slots go back to “?”."),
     ("Quiet", "The target gets no red frame and no pulse. It is the only attack card that does not show."),
-    ("Not needed for", "Capture. Security is always public."),
+    ("Odds", f"While the snapshot is fresh ({n(C['recon']['dur'])} s, and only for the faction that made it), your attacks on that host succeed at their full chance. Without it every other attack card succeeds half the time (UNSCOUTED_CHANCE {UNSCOUTED}). Freshness is judged when the operation resolves. A change of owner voids it."),
 ]
 D["breach"] = [
-    ("Target", f"A foreign host of security ≤ {n(C['breach']['sec_max'])}: PCs and IoT devices, neutral or a rival’s."),
-    ("Timing", f"Travels, then executes for {n(C['breach']['exec'])} s on the host. The owner sees “Breach executing” and has that long to react."),
-    ("Outcome", "When its execution ends the host is captured. Before that it can only be stopped, each way with its own message: a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>), or another owner taking it first (<b>owner changed</b>). There is no roll."),
+    ("Target", "Any foreign host your operations can reach, neutral or a rival’s. There are no security levels."),
+    ("Timing", f"Travels, then executes for {n(C['breach']['exec'])} s on the host ({n(C['breach']['exec_rig'])} s on a held main node). The owner sees “Breach executing” and has that long to react."),
+    ("Outcome", "When its execution ends: first a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>) or another owner taking it first (<b>owner changed</b>) stop it; then, without fresh Recon of the host, one 50% draw (<b>missed</b>). With fresh Recon nothing is drawn: it is captured."),
     ("Effect", "On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots."),
     ("Stopped by", "A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile."),
     ("Limit", "One capture or raid per attacker per host at a time."),
 ]
 D["exploit"] = [
-    ("Target", f"A foreign host of security ≤ {n(C['exploit']['sec_max'])}: also servers, web servers and file servers."),
-    ("Timing", f"Travels, then executes for {n(C['exploit']['exec'])} s."),
-    ("Outcome", "As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed."),
+    ("Target", "Any foreign host your operations can reach."),
+    ("Timing", f"Travels, then executes for {n(C['exploit']['exec'])} s ({n(C['exploit']['exec_rig'])} s on a held main node): less time for a defender's Patch to travel there."),
+    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured."),
     ("Effect", "As Credential breach: the host becomes yours, wiped."),
     ("Stopped by", "As Credential breach."),
 ]
 D["zeroday"] = [
-    ("Target", f"Any foreign host (security ≤ {n(C['zeroday']['sec_max'])}): also databases, ERP systems and a rival’s active main node."),
-    ("Timing", f"Travels, then executes for {n(C['zeroday']['exec'])} s; {n(C['zeroday']['exec_rig'])} s on an active rival main node, with a countdown the owner sees."),
-    ("Outcome", "As Credential breach: captured when its execution ends unless countered, route-failed or owner-changed."),
+    ("Target", "Any foreign host your operations can reach."),
+    ("Timing", f"Travels, then executes for {n(C['zeroday']['exec'])} s; {n(C['zeroday']['exec_rig'])} s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time."),
+    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured."),
     ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host."),
     ("Stopped by", "As Credential breach."),
 ]
 D["worm"] = [
-    ("Target", f"A foreign host of security ≤ {n(C['worm']['sec_max'])} that your operations can reach."),
-    ("What it is", f"Known exploit on up to {n(C['worm']['reach'])} linked hosts, one after the other."),
-    ("Timing", f"Travels; each stage executes for {n(C['worm']['exec'])} s, and each can be stopped on its own."),
-    ("Chain", f"Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target and has security ≤ {n(C['worm']['sec_max'])}. It never jumps to another owner."),
+    ("Target", "Any foreign host your operations can reach."),
+    ("What it is", f"A capture on up to {n(C['worm']['reach'])} linked hosts, one after the other."),
+    ("Timing", f"Travels; each stage executes for {n(C['worm']['exec'])} s ({n(C['worm']['exec_rig'])} s on a main node), and each can be stopped on its own."),
+    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw when unscouted."),
     ("Stops when", "A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured."),
 ]
 D["phish"] = [
@@ -174,10 +175,10 @@ D["express"] = [
 
 WHY = {
     "recon": ("Tells you whether an expensive card will pay off: what a host holds, how full its storage is, and whether a Patch waits in its Firewall.", "Before an 0day, Vault raid, Worm or Sabotage, or to find a rival's richest host."),
-    "breach": ("The way to grow: every host adds slots, and holding 51% of all hosts wins.", "Whenever security-1 hosts are in reach; neutral hosts first, as nobody defends them."),
-    "exploit": ("Opens the first rich hosts: servers, web servers and file servers.", "When the security-1 hosts near you are gone."),
+    "breach": ("The way to grow: every host adds slots, and holding 51% of all hosts wins.", "On neutral hosts first, as nobody defends them; scouted, so it cannot miss."),
+    "exploit": ("A faster capture: 9 s leaves a defender little time to get a Patch there.", "Against a rival's hosts, where a Patch might be sent."),
     "zeroday": ("The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.", "After a Recon shows no Patch waiting, or after a cheaper card has used it up."),
-    "worm": ("Three Known exploits in one launch, reaching hosts behind a rival's front line.", "When a rival holds a chain of hosts of security 2 or less."),
+    "worm": ("Two captures in one launch, reaching a host behind a rival's front line.", "When a rival holds a chain of linked hosts; scout both."),
     "phish": ("Hurts a rival without taking ground: you gain exactly what they lose.", "On their best-producing host."),
     "siphon": ("Takes a whole supply line, not one host's output.", "On a host their deliveries cross, set to the resource they need most."),
     "vault": ("Punishes a network whose output piles up in storage.", "On hosts with no Bot station, no spare couriers or no route home."),
@@ -212,7 +213,7 @@ B_NOTE = {
     "cash": "Uses Intel from its own host’s storage only (the bank, at the main node).",
     "cred": "Uses Intel from its own host’s storage only.",
     "lab": "Uses Intel and Crypto from its own host only: put a Miner beside it, or build it at the main node.",
-    "wall": "Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. Adds no security.",
+    "wall": "Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. It does not make the host harder to capture.",
 }
 def brow(k):
     b = builds[k]
@@ -285,12 +286,10 @@ def weights():
 MULT_NAME = {"bot": "Bots", "intel": "Intel", "cash": "Crypto", "cred": "Credentials", "research": "Research"}
 def hosttypes():
     rows = []
-    cap = {1: "Breach, Known exploit, 0day, Worm", 2: "Known exploit, 0day, Worm", 3: "0day"}
     for t in TYPE_ORDER:
         nt = TY["NODE_TYPES"][t]
-        sec = int(T["SEC_BY_TYPE"][t])
         mults = [f"{MULT_NAME[k]} ×{n(nt[k])}" for k in ["intel", "cash", "cred", "research", "bot"] if float(nt[k]) != 1.0]
-        rows.append(f"<tr><th>{html.escape(nt['name'])}</th><td class='num'>{int(nt['slots'])}</td><td class='num'>{sec}</td><td>{', '.join(mults) or 'none'}</td><td>{cap[sec]}</td></tr>")
+        rows.append(f"<tr><th>{html.escape(nt['name'])}</th><td class='num'>{int(nt['slots'])}</td><td>{', '.join(mults) or 'none'}</td></tr>")
     return "".join(rows)
 def ch(d):
     return chips({k: v for k, v in d.items() if v})

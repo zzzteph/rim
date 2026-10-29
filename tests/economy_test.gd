@@ -1,6 +1,6 @@
 extends SceneTree
 ## RIM research–manufacture–deliver model: main-node income, 5-s production cycles with host storage,
-## Bot stations, bank caps, research unlock, manufacture into ready copies, security thresholds,
+## Bot stations, bank caps, research unlock, manufacture into ready copies, no security levels,
 ## Firewall sockets that fire on their own, and a card capture end to end.
 ## godot --headless --path . --script tests/economy_test.gd
 var g
@@ -157,18 +157,16 @@ func manufacture_into_inventory() -> void:
 	check(g._held(P, "breach") == 1, "A lane manufactures one ready Breach copy after its make time")
 
 
-func security_and_firewall() -> void:
+func security_and_firewall() -> void:   # there are no security levels; a Firewall holds defence cards that fire on their own
 	fresh()
 	var t := neutral_neighbour("iot")
-	check(g._security(t) == 1, "An IoT host is security 1")
 	g.hosts[t].type = "server"
 	g.cards[P] = {"breach": 1}
 	var why: String = g._can_play(P, "breach", t)
-	check("security" in why, "Breach is refused on a security-2 host (%s)" % why)
-	# a Firewall: no security, 3 sockets for defence cards that fire on their own
+	check(why == "", "Breach may target a server: there are no security levels (%s)" % ("ok" if why == "" else why))
 	var n := own_pc()
 	g._set_builds(n, ["intel", "wall"])
-	check(g._security(n) == 1 and g._sockets(n) == 3, "A Firewall adds 3 card sockets and no security")
+	check(g._sockets(n) == 3, "A Firewall adds 3 card sockets")
 	g.cards[P] = {"patch": 1, "response": 1}
 	g._play_card(P, "patch", n)
 	check(g._held(P, "patch") == 0 and (g.hosts[n].sockets as Array).has("patch"), "Patch played on a Firewall host is loaded into a socket")
@@ -179,6 +177,7 @@ func security_and_firewall() -> void:
 	var busy := false
 	for e in g._execs: if int(e.target) == n: busy = true
 	check(not busy and (g.hosts[n].sockets as Array).is_empty(), "The loaded Patch fires itself and stops a rival Breach the moment it starts")
+	g._mark_scanned(R, n)   # the rival scouted it: its attacks land at full odds
 	g._op_land(R, "phish", n, int(g.hosts[n].gen), {"id": 9002})
 	check(g._phished(n), "With the socket used up, the next attack (Phishing) lands")
 	g._play_card(P, "response", n)
@@ -190,6 +189,7 @@ func security_and_firewall() -> void:
 	g._play_card(P, "filter", n)
 	step(g.PROD_CYCLE + 0.1)
 	check(not bool(g.hosts[n].fw_on), "Without Intel on its host the Firewall switches off")
+	g._mark_scanned(R, n)
 	g._op_land(R, "ddos", n, int(g.hosts[n].gen), {"id": 9003})
 	check(g._ddos_down(n) and (g.hosts[n].sockets as Array).has("filter"), "A switched-off Firewall does not fire: the DDoS lands, the Filter waits")
 
@@ -198,7 +198,7 @@ func recon_and_worm() -> void:
 	fresh()
 	var R: int = g.RIVAL
 	var home: int = int(g.rig[P])
-	var soft := []   # two neutral neighbours of your main node, made security-1
+	var soft := []   # two neutral neighbours of your main node
 	for nb in g.hosts[home].links:
 		if int(g.hosts[int(nb)].owner) == g.NEUTRAL and soft.size() < 2:
 			g.hosts[int(nb)].type = "iot"; soft.append(int(nb))
@@ -221,7 +221,8 @@ func capture_end_to_end() -> void:
 	var t := neutral_neighbour("iot")
 	g.cards[P] = {"breach": 1}
 	var why: String = g._can_play(P, "breach", t)
-	check(why == "", "Breach is playable on a reachable security-1 neighbour (%s)" % ("ok" if why == "" else why))
+	check(why == "", "Breach is playable on a reachable neighbour (%s)" % ("ok" if why == "" else why))
+	g._mark_scanned(P, t)   # scouted: the baseline, a capture that runs its time succeeds
 	var ok: bool = g._play_card(P, "breach", t)
 	check(ok and g._held(P, "breach") == 0, "Playing Breach consumes the copy and launches an operation")
 	step(float(g.CARDS["breach"].exec) + 12.0)   # travel + execution + margin (tests/capture_test.gd checks the exact timing)
