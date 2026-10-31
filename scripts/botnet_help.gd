@@ -85,8 +85,8 @@ const LEADS := {
 }
 const CAPTIONS := {
 	"research": "Only materials at your main node fund cards and research. Research gives no free card; a copy pays when it starts.",
-	"deliver": "Missing inputs are fetched from your main node; its workers serve hosts with no station. Losing a host destroys its stations' workers.",
-	"produce": "Workers bring what a host needs automatically. Refill supplies asks once for one cycle of inputs; clicking again adds nothing. Full storage (10) stops it.",
+	"deliver": "All your workers work from your main node: building materials first, then missing inputs, then surplus home. Losing a host destroys its stations' workers.",
+	"produce": "Every 12 s each producer makes 1 unit. Workers bring what a host needs automatically; full storage (10) stops its producers.",
 	"build": "A building's materials must reach its site before its 10 s of work start. The 12-card Ready inventory is separate from the queue.",
 	"attack": "Stolen resources help only when your workers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
 	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",

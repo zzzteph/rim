@@ -95,7 +95,7 @@ func supply_round_trip() -> void:   # automatic: nobody asks; the Miner's need i
 	var supplied := led("out:supply:intel")
 	var at_host: float = float(g.hosts[far].store.get(P, {}).get("intel", 0.0))
 	var cash_made: float = led("in:delivered:cash") + float(g.hosts[far].store.get(P, {}).get("cash", 0.0)) + in_flight("cash")
-	check(supplied >= 4.0 and cash_made >= 1.0, "The Miner turns the supplied Intel into Crypto (%.0f Intel sent, %.0f Crypto made)" % [supplied, cash_made])
+	check(supplied >= 2.0 and cash_made >= 1.0, "The Miner turns the supplied Intel into Crypto (%.0f Intel sent, %.0f Crypto made)" % [supplied, cash_made])
 	check(absf(supplied - (at_host + in_flight("intel") + cash_made)) < 0.01, "Intel is conserved: sent %.0f = %.0f at the host + %.0f on the way + %.0f turned into Crypto" % [supplied, at_host, in_flight("intel"), cash_made])
 	check(led("in:delivered:cash") >= 1.0 and led("from:%d:cash" % far) == led("in:delivered:cash"), "Its Crypto rides back with the workers and reaches the bank (%.0f)" % led("in:delivered:cash"))
 	check(led("from:%d:intel" % far) == 0.0, "The Intel it needs is never carried back out of the host")

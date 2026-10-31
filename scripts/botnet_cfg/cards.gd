@@ -60,10 +60,10 @@ const CARDS := {
 		"lead": "Clear DDoS and block it for 30 s.", "rules": "In a Firewall socket it waits and blocks the next DDoS as it lands. It does not boost production or stop capture."},
 	"cover":     {"name": "Cargo cover", "short": "Cover", "fam": "cover", "bank": "defense", "effect": "cover", "known": false, "dur": 30.0,
 		"make": {"intel": 12, "cash": 4, "creds": 0, "research": 2}, "make_time": 8.0,
-		"lead": "Shield this host's cargo for 30 s.", "rules": "Its workers' cargo is safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs some, and saves it."},
+		"lead": "Shield this host's cargo for 30 s.", "rules": "Cargo leaving this host is safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs some, and saves it."},
 	"express":   {"name": "Express route", "short": "Express", "fam": "express", "bank": "defense", "effect": "express", "known": false, "dur": 45.0,
 		"make": {"intel": 14, "cash": 4, "creds": 0, "research": 2}, "make_time": 10.0,
-		"lead": "Halve delivery time for 45 s.", "rules": "Shipments and new Bots from this host cross each link twice as fast. It cannot go in a Firewall socket: play it when you need the speed."},
+		"lead": "Halve delivery time for 45 s.", "rules": "Workers leaving this host cross each link twice as fast. It cannot go in a Firewall socket: play it when you need the speed."},
 }
 
 # The research tree: a locked recipe, its prerequisite blueprint, one-time cost and time.

@@ -18,7 +18,7 @@
   <p>RIM is a real-time strategy game about botnets on a generated city network. Two to four networks (you and 1–3 AI rivals, or 2–3 players online) start in different parts of the town. There are no units to fight with: everything is done with <b>cards</b>. You build an economy inside the hosts you own, research card blueprints, manufacture single-use cards, and play them on hosts. Capture cards take hosts, theft cards take resources, disruption cards stop production, defence cards protect. You win by holding 51% of all hosts for 51 s in a row, or by being the last network with a main node.</p>
   <figure><pre class="mermaid">%%{init: {'theme':'neutral'}}%%
 flowchart LR
-  H["Hosts you hold (slots)"] --> B["Buildings make resources every 5 s"]
+  H["Hosts you hold (slots)"] --> B["Buildings make 1 unit every 12 s"]
   B --> C["Workers carry the surplus home"]
   C --> K["Bank at your main node"]
   K --> B2["Build more"]
@@ -75,8 +75,8 @@ flowchart LR
     <thead><tr><th>Clock</th><th>Value</th><th>Notes</th></tr></thead>
     <tbody>
       <tr><th>Simulation step</th><td class="num">1/30 s</td><td>Fixed step; the screen draws at up to 60 fps (30 in menus or in the background) and never changes the rules.</td></tr>
-      <tr><th>Production cycle</th><td class="num">5 s</td><td>Per host, each on its own phase (a host's first cycle comes 1–5 s after the match starts), so the network does not pulse all at once.</td></tr>
-      <tr><th>Main node trickle</th><td class="num">0.2/s each</td><td>Continuous: 1 of every resource per 5 s.</td></tr>
+      <tr><th>Production cycle</th><td class="num">12 s</td><td>Per host, each on its own phase (a host's first cycle comes 2.4–12 s after the match starts), so the network does not pulse all at once. Every producer makes 1 unit a cycle: 5 a minute.</td></tr>
+      <tr><th>Main node trickle</th><td class="num">1/12 per s each</td><td>Continuous: 1 of every resource per 12 s (5 a minute).</td></tr>
       <tr><th>AI decisions</th><td class="num">every 2.5 s</td><td>Each AI on its own offset.</td></tr>
       <tr><th>Travel</th><td class="num">1 s per link + 0.25 s per host passed</td><td>Halved by Express route; queues when a link is full.</td></tr>
       <tr><th>Construction</th><td class="num">10 s (+5 s to replace)</td><td></td></tr>
@@ -139,7 +139,7 @@ flowchart LR
     <thead><tr><th>Resource</th><th>Comes from</th><th>Is spent on</th></tr></thead>
     <tbody>
       <tr><th>Workers</th><td>2 per finished Bot station (the main node starts with one); not a resource</td><td>Nothing: workers carry. Each carries 1 unit a leg and returns for another job. No card or building costs workers.</td></tr>
-      <tr><th class="r-intel">Intel</th><td>Intel harvesters (2 per cycle), the trickle</td><td>Every building, every card, every converter's input, Firewall upkeep, research.</td></tr>
+      <tr><th class="r-intel">Intel</th><td>Intel harvesters (1 per cycle), the trickle</td><td>Every building, every card, every converter's input, Firewall upkeep, research.</td></tr>
       <tr><th class="r-cash">Crypto</th><td>Crypto miners, the trickle</td><td>Some buildings, most cards, research, the Lab's input.</td></tr>
       <tr><th class="r-creds">Credentials</th><td>Credential harvesters, the trickle</td><td>Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.</td></tr>
       <tr><th class="r-research">Research</th><td>Research labs, the trickle</td><td>Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.</td></tr>
@@ -148,7 +148,7 @@ flowchart LR
   <pre class="code">bank cap(resource) = BASE_CAP[resource] + 50 × (your buildings whose output is that resource)
 BASE_CAP = {{BASECAP}}
 spendable   = what is in the bank at your main node (nothing else counts)
-income      = main-node trickle (1 of each per 5 s, while the main node is held and not under DDoS)
+income      = main-node trickle (1 of each per 12 s, while the main node is held and not under DDoS)
             + building output that reaches the bank</pre>
   <p>Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and workers are not sent to a full bank (shipments on the road reserve their room, and so do supplies on their way to a host's storage or a project's escrow).</p>
   <h3>Accounting: what the rates mean</h3>
@@ -166,23 +166,23 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
   <p>Within the window the recorded flows reconcile exactly with the bank. The ledger is presentation only: it is not part of the multiplayer fingerprint.</p>
   <h3>The income forecast</h3>
   <p>Under each material the HUD shows what will reach your bank per minute with your network as it stands: worked out from the network, not from the ledger, so it is steady while nothing changes and moves as soon as something does (a command, a capture, a full bank). A full bank reads “full”.</p>
-  <pre class="code">forecast(res) = main-node trickle (12/min while the main node is up)
+  <pre class="code">forecast(res) = main-node trickle (5/min while the main node is up)
               + main-node buildings' output (their inputs come from the bank)
-              + Σ over hosts whose output is yours: what one cycle there sends home × 12/min, where
+              + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
                   inputs  = made on the host, or brought by workers (plenty while the bank holds ≥ 5,
                             else only what the main node brings in, shared by the hosts in turn)
-                  sent    ≤ its own workers' round trips, or its share of the main node's workers
+                  sent    ≤ its share of your workers' round trips (one pool, working from the main node)
                   nothing from a host with no route home, under DDoS, or into a full bank</pre>
   <p>The tooltip and the Economy overview name where it comes from and what holds it back, and how much is stored at hosts, in transit and reserved at the main node. The Workers column shows the population and what it is doing (busy · free · blocked), not an income.</p>
 </section>
 
 <section id="production">
   <h2>Production cycle</h2>
-  <pre class="code">every 5 s, for each held host h (on its own phase):
+  <pre class="code">every 12 s, for each held host h (on its own phase):
   beneficiary = the Phishing thief while h is phished, else its owner
   storage     = the beneficiary's bank if h is their main node, else h's storage (10 units, all resources together)
 
-  1. Intel harvesters:  + 2 × m_intel × (active harvesters) Intel into storage, up to its room
+  1. Intel harvesters:  + 1 × m_intel × (active harvesters) Intel into storage, up to its room
   2. Firewalls:         each eats 1 Intel from storage (the owner's first); paid in full → on, else off
   3. Converters, in order Miner → Credential harvester → Lab, each active one:
         frac = min(1, inputs available in storage / inputs needed × m)
@@ -225,9 +225,9 @@ m      = the host type's multiplier for that resource</pre>
     <div class="rule"><h4>Workers</h4>
       <p>Each finished Bot station provides two reusable workers that belong to its host; the main node starts with its station's two. A worker carries 1 unit per leg and returns for another job; delivery does not consume it. States: available, collecting, carrying, blocked. A worker lost on a cut route is replaced after 5 s if its station still stands; a demolished or replaced station's workers retire after their leg; capture destroys every worker of the captured host's stations, even those away. The map shows a loaded worker as a filled dot in its cargo's colour, an empty one as a ring, each direction on its own side.</p></div>
     <div class="rule"><h4>Who carries, and what first</h4>
-      <p>Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. A host with a station is served by its own workers (they fetch from the main node and carry surplus home, both ways on one round trip); any other host by the main node's workers. Three of four assignments go by purpose — inputs, then construction, then surplus and loot — and every fourth to the oldest feasible request. A pickup claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
-    <div class="rule"><h4>Refill supplies</h4>
-      <p>Supply is automatic. <b>Refill supplies</b> on a host asks once for one full cycle of its inputs (the panel shows the exact quantities first); clicking again adds nothing, and it can be cancelled. What it brings is kept for that host's next use and is not carried back out.</p></div>
+      <p>Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. Three of four assignments go by purpose — construction first, then inputs, then surplus and loot — and within a purpose to the host served least recently; every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
+    <div class="rule"><h4>No supply settings</h4>
+      <p>Supply is automatic and in the background: there is nothing to set per host. What a host's next cycle needs is brought; what was brought for it is not carried back out.</p></div>
     <div class="rule"><h4>Construction</h4>
       <p>Ordering is free. A project's materials go into an escrow at its site — separate from the 10-unit storage, so a 16-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. Pause stops work and new deliveries; cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.</p></div>
     <div class="rule"><h4>Routes</h4>
@@ -238,7 +238,7 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
     <div class="rule"><h4>Held and lost</h4>
       <p>When the way on is cut (a relay taken or under DDoS) a packet waits at the last host it reached, marked <b>held</b>, and goes on as soon as a route opens. A worker whose destination is lost turns back with its cargo. A card held for 20 s, or whose target is gone, comes back to your hand. Packets are lost only with a host they wait in. Packet siphon drops grabbed cargo on its host for the thief's workers; Cargo cover protects it.</p></div>
   </div>
-  <p class="note"><b>Interpretations (0.6.1):</b> a worker lost on a cut route is replaced after 5 s while its station stands; a refill's earmark is used first at the host's next cycle; cancelling a project during its work leaves the unworked share of its materials at the site; one in four assignments goes to the oldest feasible request. Cargo and workers are never teleported.</p>
+  <p class="note"><b>Interpretations (0.6.2):</b> a worker lost on a cut route is replaced after 5 s while its station stands; a station whose host has no route to the main node keeps its new workers waiting there; cancelling a project during its work leaves the unworked share of its materials at the site; one in four assignments is a host turn. Cargo and workers are never teleported.</p>
 </section>
 
 <section id="buildings">
@@ -387,7 +387,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
     <li>2–3 players; lobbies public or by 5-letter code; sizes Small, Medium, Big; players meet only on the same game version.</li>
     <li>Deterministic lockstep: the server never simulates. Every screen runs the same simulation from the same seed; only commands travel, grouped in turns of 3 steps (0.1 s) and run 2 turns after they are sent.</li>
     <li>Commands: {{COMMANDS}}.</li>
-    <li>After every turn each screen fingerprints the whole simulation (time, flights, intrusions, every host's owner, buildings, jobs, storage, sockets, Firewall power, cycle phase and timed effects, every bank, every worker and team, claims, inbound and fetched supplies, project escrow, refills and earmarks, the fair-dispatch turns, incoming, cards, known recipes, research and the queue) so drift is caught.</li>
+    <li>After every turn each screen fingerprints the whole simulation (time, flights, intrusions, every host's owner, buildings, jobs, storage, sockets, Firewall power, cycle phase and timed effects, every bank, every worker and team, claims, inbound supplies, project escrow, the round-robin and fair-dispatch turns, incoming, cards, known recipes, research and the queue) so drift is caught.</li>
     <li>No pause; a player whose main node falls is out and the others play on.</li>
   </ul>
 </section>
@@ -396,12 +396,12 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <h2>Interface and controls</h2>
   <div class="rules">
     <div class="rule"><h4>Screen</h4>
-      <ul><li><b>HUD</b> (top): Workers (busy · free · blocked), then the four banks with cap and the forecast income per minute underneath (hover for its sources, what holds it back, and the historical flows); to their right the objective, always visible. At the top right: Research, Economy and Menu. Under the HUD, the research bar.</li>
+      <ul><li><b>HUD</b> (top): Workers (busy · free · blocked; workers on their way to the main node count as busy), then the four banks with cap and the forecast income per minute underneath (hover for its sources, what holds it back, and the historical flows); to their right the objective, always visible. At the top right: Research, Economy and Menu. Under the HUD, the Logs button and, while research runs, the research bar.</li>
       <li><b>Economy</b> (top-bar button, a click on the banks, or <b>E</b>): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.</li>
       <li><b>Map</b>: hosts (with slot counts), territories, roads, packets, effects.</li>
-      <li><b>Sidebar</b>: standings when idle; your host's inspector (384 px at 1280×720) when selected: role and status (e.g. RESEARCH HOST · starved) with at most two problems saying what, why and what to do, the next cycle as it will really run, LOCAL STOCK (Material · Here · On the way · Needed now, with Refill supplies and its exact preview), WORKERS by number with what each is doing and the route home, CONSTRUCTION with each ingredient here / on the way / to send and the work progress, then installations (each finished Firewall's 3 sockets right under it) and the build palette in rows of three. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.</li>
+      <li><b>Sidebar</b>: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, paused, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings — no prose, never scrolled, the same height every frame. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.</li>
       <li><b>Target preview</b>: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (full with fresh Recon still fresh when it resolves, else 50%); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.</li>
-      <li><b>Events</b>: a strip at the bottom-left of the map shows up to four entries, most urgent first: <b>!</b> needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), <b>›</b> worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, no workers at all, research that cannot pay, a lost shipment, your operation stopped), <b>·</b> news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; <b>H</b> opens the full history (the last 80, with times).</li>
+      <li><b>Logs</b>: nothing is drawn over the map. A Logs button at the top-left under the HUD counts the new entries (red while something critical is new or still going on) and opens the history, most urgent first: <b>!</b> needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), <b>›</b> worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, no workers at all, research that cannot pay, a lost shipment, your operation stopped), <b>·</b> news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; <b>H</b> opens the full history (the last 80, with times).</li>
       <li><b>Route inspection</b>: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.</li>
       <li><b>Cards</b> (bottom): the queue's four places (the head making, paused or waiting with what it lacks; x removes a copy) with its own Pause button, the cards you hold at a fixed size (the rest behind “+n”) and a button that opens the drawer. The drawer keeps Ready cards (drag onto a host, or click and then click a host) apart from Attack recipes and Defence recipes (each with + Queue and “2 queued · 1 ready”), and holds the Research view: the tree, the selected blueprint with its price, time and action.</li>
       <li><b>Menu</b> (Esc): navigation only — Resume, Learn, Skirmish, Help (six illustrated pages), Feedback, Exit. Every menu view uses one padding rule and sizes to its content, scrolling inside the window when taller. Nothing is locked behind Learn.</li></ul></div>
@@ -422,7 +422,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
   3  research advances (paying as it goes)
   4  the queue's head advances; a waiting head starts when it can pay
   5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
-  6  production: main-node trickle; each host's 5-s cycle when its phase comes round
+  6  production: main-node trickle; each host's 12-s cycle when its phase comes round
   7  workers: teams follow the stations (replacements after 5 s); free workers take jobs — inputs, construction
      materials, surplus and loot, every fourth turn the oldest (Packet siphons take cargo off workers as they leave a
      host); every 0.5 s held packets look for a way on
@@ -456,11 +456,11 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <div class="tablebox"><table>
     <thead><tr><th>Card</th><th>Typical result</th><th>Upper bound</th></tr></thead>
     <tbody>
-      <tr><th>Phishing (60 s)</th><td>On a Bot station + Intel harvester + converter PC: 12 cycles × (1 Intel + 1 converted) = 24 units to you, 24 lost to them</td><td>A 4-slot ×2 host: ~2× that</td></tr>
+      <tr><th>Phishing (60 s)</th><td>On a Bot station + Intel harvester + converter PC: 5 cycles × (0 Intel + 1 converted) = 5 units to you, 5 lost to them</td><td>A 4-slot ×2 host: ~2× that</td></tr>
       <tr><th>Packet siphon (30 s)</th><td>Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 units</td></tr>
       <tr><th>Vault raid</th><td>Whatever waits in 3 linked storages; near 0 where stations ship every cycle</td><td>30 units</td></tr>
-      <tr><th>DDoS (45 s)</th><td>3 hosts × 9 cycles × ~4 units ≈ 100 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>
-      <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 12 cycles × 2–4 units ≈ 70–140 units never made</td><td></td></tr>
+      <tr><th>DDoS (45 s)</th><td>3 hosts × ~4 cycles × ~2 units ≈ 20–25 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>
+      <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 5 cycles × 1–2 units ≈ 15–30 units never made</td><td></td></tr>
     </tbody>
   </table></div>
 </section>
@@ -504,7 +504,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
     <li><b>DDoS on a relay holds traffic.</b> Every packet that has to pass it, workers and cards alike, waits before it until it ends; nothing is destroyed unless the host it waits in is taken.</li>
     <li><b>An eliminated network's hosts go neutral</b> with empty slots; the captor keeps only the old main node.</li>
     <li><b>Packet siphon takes the resource chosen on its Ready card</b> (Crypto until you pick another), whether it is dragged or clicked onto a host.</li>
-    <li><b>Focus by card:</b> Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 12 Credentials and 12 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.</li>
+    <li><b>Focus by card:</b> Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 5 Credentials and 5 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.</li>
     <li><b>The AI</b> never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see <a href="#ai">AI</a>).</li>
     <li><b>Leftover config:</b> 20 constants are no longer read (see <a href="#unused">Unused config</a>).</li>
   </ol>

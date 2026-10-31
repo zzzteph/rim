@@ -256,8 +256,18 @@ func panel_controls(res: Vector2i) -> void:
 		game._set_builds(remote, ["lab", "wall", "cred"])
 		game.hosts[remote].store = {P: {"creds": 10.0}}
 		game.sel = {remote: true}; game._inspect = -1; game._refresh_panel(); await settle()
-		check(game._panel_text().contains("starved"), "diagnosed host panel shows its status @%s" % res)
-		controls_inside(game.panel_box, visible_area(game.panel_scroll), "diagnosed host panel @%s" % res)
+		controls_inside(game.panel_box, visible_area(game.panel_scroll), "build panel with a Firewall @%s" % res)
+		var area := visible_area(game.panel_scroll)
+		var h0: float = game.panel_box.get_combined_minimum_size().y
+		check(h0 <= area.size.y + 0.5, "the build panel (3 slots, a Firewall's sockets, 6 buildings) needs no scrolling: %.0f of %.0f px @%s" % [h0, area.size.y, res])
+		for k in 60: game._sim_step(game.SIM_DT)
+		game._refresh_panel(); await settle()
+		check(absf(game.panel_box.get_combined_minimum_size().y - h0) < 0.5, "...and keeps its height while the game runs @%s" % res)
+		game._set_builds(remote, ["intel", "cash", "intel", "cash", "bot"]); game.hosts[remote].slots = 5
+		game._refresh_panel(); await settle()
+		var h5: float = game.panel_box.get_combined_minimum_size().y
+		check(h5 <= area.size.y + 0.5, "a 5-slot host's build panel needs no scrolling either: %.0f of %.0f px @%s" % [h5, area.size.y, res])
+		controls_inside(game.panel_box, visible_area(game.panel_scroll), "5-slot build panel @%s" % res)
 		game.hosts[remote].builds = keep_builds; game.hosts[remote].slots = keep_slots; game.hosts[remote].store = keep_store
 	var foreign := -1
 	for i in game.hosts.size():
@@ -277,10 +287,9 @@ func panel_controls(res: Vector2i) -> void:
 	game._tab = "events"; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "event history @%s" % res)
 	game._refresh_event_strip(); await settle()
-	var strip_clip: Rect2 = game._map_rect()
-	for b in game.event_strip.get_children():
-		var r: Rect2 = (b as Control).get_global_rect()
-		check(strip_clip.encloses(r), "event strip row '%s' stays inside the map @%s" % [(b as Button).text.substr(0, 30), res])
+	var lb: Rect2 = game.logs_button.get_global_rect()
+	check(lb.position.y >= game.hud.get_global_rect().end.y - 0.5 and not lb.intersects(game.panel.get_global_rect()) and lb.end.y <= game._map_rect().position.y, "the Logs button sits under the HUD, clear of the panel and the map @%s" % res)
+	check(w(game.logs_button.text, 14) + 12.0 <= lb.size.x, "the Logs button text '%s' fits @%s" % [game.logs_button.text, res])
 	game._tab = ""; game._refresh_panel(); await settle()
 
 
@@ -329,3 +338,10 @@ func campaign(res: Vector2i) -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(game._camp_save_path()))
 	game._start_campaign(0); game._fit_view(); await settle()
 	await map_names(res, "campaign board")
+	# Learn: the build panel under the banner needs no scrolling either, even for the relay's 4 slots
+	game._camp_own(game._camp_relay); game._camp_slots(game._camp_relay, 4)
+	game.sel = {game._camp_relay: true}; game._inspect = -1; game._refresh_panel(); await settle()
+	var area := visible_area(game.panel_scroll)
+	var hl: float = game.panel_box.get_combined_minimum_size().y
+	check(hl <= area.size.y + 0.5, "Learn: the relay's build panel (4 slots, 6 buildings) needs no scrolling under the banner: %.0f of %.0f px @%s" % [hl, area.size.y, res])
+	controls_inside(game.panel_box, visible_area(game.panel_scroll), "Learn build panel @%s" % res)

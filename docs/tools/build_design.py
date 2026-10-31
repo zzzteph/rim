@@ -62,8 +62,8 @@ def chips(cost, secs=None):
     return "".join(out)
 
 # reference income (units per minute) for the "price in seconds of income" column
-EARLY = {"intel": 48, "cash": 36, "creds": 12, "research": 12}
-MID = {"intel": 84, "cash": 48, "creds": 36, "research": 24}
+EARLY = {"intel": 8, "cash": 15, "creds": 5, "research": 5}    # 1 unit per producer per 12-s cycle, the trickle 5/min
+MID = {"intel": 8, "cash": 20, "creds": 15, "research": 10}
 def wait(cost, inc):
     best, who = 0.0, ""
     for r in RES:
@@ -209,7 +209,7 @@ def card_sheet(key):
 # ---- buildings table ----
 B_NOTE = {
     "intel": "Feeds the converters on its own host first; the rest is stored.",
-    "bot": "Provides 2 reusable workers that belong to its host. Each carries 1 unit per leg: surplus to the main node, missing inputs and building materials back. A worker lost on the road is replaced after 5 s; capture destroys them all.",
+    "bot": "Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and missing inputs out, surplus back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are.",
     "cash": "Uses Intel on its own host (the bank, at the main node); workers bring it when none is made there.",
     "cred": "Uses Intel from its own host’s storage only.",
     "lab": "Uses Intel and Crypto on its own host: a Miner beside it, or workers bring them as one bundle.",
@@ -262,8 +262,8 @@ def find_unused():   # constants in the config files that the game's scripts nev
     return out
 UNUSED = find_unused()
 T = DATA["tuning"]; TY = DATA["types"]
-def per_min(cost_cycle):   # units per 5-s cycle -> per minute
-    return cost_cycle * 12
+def per_min(cost_cycle):   # units per 12-s cycle -> per minute
+    return cost_cycle * 5
 
 def start_chips():
     return chips({r: int(T["START"][r]) for r in RES})
@@ -296,22 +296,22 @@ def hosttypes():
 def ch(d):
     return chips({k: v for k, v in d.items() if v})
 LAYOUTS = [
-    ("Bot station + Intel harvester + Miner", "2 Intel → 1 Intel + 1 Crypto; 2 workers of its own", "both units, by its own workers", {"intel": 12, "cash": 12}),
-    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 workers", "both units, by its own workers", {"intel": 12, "creds": 12}),
-    ("Intel harvester + Miner + Lab (Research host)", "2 Intel → 1 Crypto → with 1 Intel, 1 Research", "1 unit by the main node's workers", {"research": 12}),
-    ("Bot station + 2 Intel harvesters", "4 Intel; 2 workers", "4 units by its 2 workers while a round trip takes under 2.5 s", {"intel": 48}),
-    ("Intel harvester + Miner + Cred. harvester (no station)", "1 Crypto + 1 Credential", "2 units by the main node's workers", {"cash": 12, "creds": 12}),
-    ("Bot station alone (IoT device)", "2 workers for this host", "nothing to carry", {}),
-    ("Miner alone (no Intel made there)", "1 Intel (delivered) → 1 Crypto", "Intel out and Crypto back on the same worker round trips, automatically", {"intel": -12, "cash": 12}),
-    ("Database: station + harvester + 2 Cred. harvesters", "4 Intel → 1 Intel + 3 Credentials; 2 workers", "4 units by its 2 workers", {"intel": 12, "creds": 36}),
-    ("Main node (Server): Intel harvester + Bot station + Miner", "3 Intel → 2 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 36, "cash": 24, "creds": 12, "research": 12}),
+    ("Bot station + Intel harvester + Miner", "1 Intel → 1 Crypto; 2 workers for the pool", "1 unit by your workers", {"cash": 5}),
+    ("Bot station + Intel harvester + Cred. harvester", "1 Intel → 1 Credential; 2 workers", "1 unit by your workers", {"creds": 5}),
+    ("Intel harvester + Miner + Lab (Research host)", "1 Intel → 1 Crypto; the Lab's Intel is brought", "1 unit in, 1 out", {"intel": -5, "research": 5}),
+    ("2 Intel harvesters + Miner", "2 Intel → 1 Intel + 1 Crypto", "2 units by your workers", {"intel": 5, "cash": 5}),
+    ("Intel harvester + Miner + Cred. harvester", "1 Intel (+1 brought) → 1 Crypto + 1 Credential", "1 unit in, 2 out", {"intel": -5, "cash": 5, "creds": 5}),
+    ("Bot station alone (IoT device)", "2 workers for the pool", "nothing to carry", {}),
+    ("Miner alone (no Intel made there)", "1 Intel (brought) → 1 Crypto", "Intel out and Crypto back on the same worker round trips, automatically", {"intel": -5, "cash": 5}),
+    ("Database: harvester + 2 Cred. harvesters", "2 Intel (+1 brought) → 3 Credentials", "1 unit in, 3 out", {"intel": -5, "creds": 15}),
+    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel → 0.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 7, "cash": 10, "creds": 5, "research": 5}),
 ]
 def layouts():
     out = []
     for nm, made, deliv, net in LAYOUTS:
         net_txt = "".join(f'<span class="chip r-{r}"><b>{"+" if v > 0 else "−"}{abs(v)}</b> {RES_SHORT[r]}</span>' for r, v in ((r, net.get(r, 0)) for r in RES) if v)
         out.append(f"<tr><th>{html.escape(nm)}</th><td>{html.escape(made)}</td><td>{html.escape(deliv)}</td><td class='nowrap'>{net_txt or '0'}</td></tr>")
-    out.append("<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−12</b> Intel</span></td></tr>")
+    out.append("<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−5</b> Intel</span></td></tr>")
     return "".join(out)
 def inc_row(inc):
     return "".join(f"<td class='num'>{inc[r]}</td>" for r in RES)
@@ -324,8 +324,8 @@ def capture_ev():   # what a capture costs: a vector, its times and the reaction
         rows.append(f"<tr><th>{html.escape(c['name'])}</th><td class='nowrap'>{chips(c['make'])}</td><td class='num'>{n(c['time'])} s</td><td class='num'>{ex}</td><td class='num'>{e:.0f} s ({ew}) · {m:.0f} s ({mw})</td></tr>")
     return "".join(rows)
 PAYBACK = [   # what each building adds and uses; no single "payback" number: the resources are not interchangeable
-    ("Intel harvester", {"intel": 12}, "+2 Intel (+3 on a Server, +4 on a database or file server)", "Raw input: everything else converts it."),
-    ("Bot station", {"intel": 12, "cash": 4}, "2 reusable workers for its host", "Its host stops waiting for the main node's 2 workers: surplus goes home and inputs come in on its own round trips."),
+    ("Intel harvester", {"intel": 12}, "+1 Intel a cycle (+1.5 on a Server, +2 on a database or file server)", "Raw input: everything else converts it."),
+    ("Bot station", {"intel": 12, "cash": 4}, "2 reusable workers for the one pool at the main node", "More round trips for every host: building materials first, then inputs, then surplus."),
     ("Crypto miner", {"intel": 15}, "+1 Crypto, uses 1 Intel on its host", "Turns Intel into Crypto: worth it only while Crypto limits your plan."),
     ("Credential harvester", {"intel": 15, "cash": 4}, "+1 Credential, uses 1 Intel on its host", "The capture and theft budget early in a match."),
     ("Research lab", {"intel": 20, "cash": 8}, "+1 Research, uses 1 Intel and 1 Crypto on its host", "Needs a Miner beside it, or workers bring both inputs as a bundle."),
@@ -335,7 +335,7 @@ def payback():
     return "".join(f"<tr><th>{html.escape(nm)}</th><td class='nowrap'>{chips(c)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>" for nm, c, a, b in PAYBACK)
 def unused():
     return "".join(f"<tr><th>{f}.gd</th><td><code>{'</code>, <code>'.join(v)}</code></td></tr>" for f, v in UNUSED.items())
-COMMANDS = "build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause, refill (one cycle of inputs, once), refill_cancel"
+COMMANDS = "build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause"
 json_txt = json.dumps(DATA, indent=1, ensure_ascii=False)
 
 page = open(os.path.join(HERE, "design.head.html")).read() + open(os.path.join(HERE, "design.body.html")).read()

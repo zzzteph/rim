@@ -11,18 +11,18 @@ const BASE_CAP := {"intel": 150.0, "cash": 300.0, "creds": 150.0, "research": 15
 const CAP_PER_PRODUCER := 50.0     # each installed producer adds this to its own output resource's cap
 
 # ── production: every host runs one cycle each PROD_CYCLE seconds ──
-const PROD_CYCLE := 5.0            # seconds per production cycle (all producers, the Firewall's upkeep, Bot stations)
+const PROD_CYCLE := 12.0           # seconds per production cycle: every producer makes 1 unit per cycle (5 a minute), the Firewall eats 1 Intel
 const STORE_CAP := 10.0            # what a remote host can hold before its producers stop (all resources together)
 
 # ── the main node (rig). While operational it makes one of EACH resource per cycle, delivered locally. ──
-const MAIN_INCOME := 0.2           # per resource per second (one of each every 5 s): a trickle that keeps a stalled player alive; producers are the economy
+const MAIN_INCOME := 1.0 / 12.0    # per resource per second (one of each every 12 s, 5 a minute): a trickle that keeps a stalled player alive
 
 # ── delivery workers ──
 const WORKERS_PER_STATION := 2     # every operational Bot station has exactly this many reusable workers (any host type)
 const WORKER_CARRY := 1.0          # one resource unit of one type per trip leg (a valid final fraction may be less)
 const WORKER_REPLACE := 5.0        # a worker lost on the road is replaced at its surviving, operational station after this
-const PRIORITY_TURNS := 3          # of every PRIORITY_TURNS + 1 new assignments in a pool, this many go by purpose
-                                   # (production inputs, then construction, then collection); the next to the oldest request
+const PRIORITY_TURNS := 3          # of every PRIORITY_TURNS + 1 new assignments, this many go by purpose (construction,
+                                   # then inputs, then surplus) and then to the host served least recently; the next by host turn alone
 const CARD_GIVE_UP := 20.0         # a card held this long on its way heads back to its main node; the copy returns to your hand
 
 # ── routes (unchanged baseline) ──

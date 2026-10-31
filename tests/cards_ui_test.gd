@@ -179,14 +179,15 @@ func queue_strip() -> void:
 	check(str(chip(0).state().kind) in ["empty", "done"] and g._mq(P).is_empty(), "x on the chip removes it")
 
 
-func research_bar() -> void:   # always on screen, outside the drawer: name, track, %, state, work left; idle says so
+func research_bar() -> void:   # on screen outside the drawer while research runs: name, track, %, state, work left; gone when idle
 	fresh(); await frames()
 	var bar: Control = g.research_bar
-	check(bar.visible and not g._deck_open, "The research bar is on screen with the drawer closed")
-	check(str(g._research_bar_state().state) == "idle" and str(bar._get_tooltip(Vector2.ZERO)).begins_with("Nothing is being researched"), "Idle: it says nothing is being researched and how to start")
+	await frames()
+	check(not bar.visible and str(g._research_bar_state().state) == "idle", "Nothing being researched: no bar at all")
+	g._cmd(["research", "ddos"]); step(2.0); await frames()
+	check(bar.visible and not g._deck_open, "Research running: the bar is on screen with the drawer closed")
 	var hud_end: float = g.hud.get_global_rect().end.y
-	check(bar.get_global_rect().position.y >= hud_end - 0.5 and not bar.get_global_rect().intersects(g.panel.get_global_rect()), "It sits under the HUD and clear of the inspector")
-	g._cmd(["research", "ddos"]); step(2.0)
+	check(bar.get_global_rect().position.y >= hud_end - 0.5 and not bar.get_global_rect().intersects(g.panel.get_global_rect()) and not bar.get_global_rect().intersects(g.logs_button.get_global_rect()), "It sits under the HUD, beside the Logs button, clear of the inspector")
 	var st: Dictionary = g._research_bar_state()
 	check(str(st.state) == "active" and str(st.name) == "DDoS" and str(st.track) == "Attack" and float(st.frac) > 0.0 and float(st.left) > 0.0,
 		"Active: name, track, progress and work left (%s)" % str(st))

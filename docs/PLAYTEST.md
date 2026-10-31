@@ -1,8 +1,9 @@
 # RIM — Milestone A usability tasks
 
-Build: **0.6.1** (two reusable workers per Bot station with automatic supply and a one-time Refill, construction
-supplied before work, one four-place manufacturing queue, a compact host inspector with Local stock, workers and
-construction, a persistent research bar, and unscouted hosts that show only their name).
+Build: **0.6.2** (one pool of workers working from the main node, two per Bot station, building first and the hosts
+served in turn; 1 unit per producer every 12 s; construction supplied before work; one four-place manufacturing
+queue; your host's panel is a build menu with no prose; a Logs button instead of messages over the map; a research
+bar only while research runs; unscouted hosts that show only their name).
 
 This is the exit-gate session from the implementation brief (§22, §23.1): **5–8 first-time players** attempt the
 tasks below without being taught the interface. It is a small qualitative sample. Report counts ("4 of 6 completed
@@ -38,7 +39,7 @@ same match.
 | 2 | "Take one neutral host. Before you launch, tell me what could stop it." | Capture, its stop conditions and the Recon odds; target preview | A neutral host is captured, **and** they named at least two of: a Patch, losing the route, the host changing owner, no fresh Recon (half the chance) |
 | 3 | "How many hosts do you need to win, and how close are you?" | Objective on the HUD (§16.2) | They read the majority needed, their count, and who leads or holds it |
 | 4 | "Increase your Credential income, then show me that it is actually reaching your bank." | The income forecast and the Economy view | A Credential harvester runs with Intel on its host (made there or brought by workers), **and** they point to the Credentials forecast on the HUD or in the Economy overview (E) rising |
-| 5 | "Build a Research lab on its own on one of your other hosts. Is it working? If not, why not?" | Host diagnosis of a starved remote Lab; supply | They read its Local stock (Needed now vs Here / On the way) and say whether workers are bringing Intel and Crypto, or what blocks them (no workers, no stock at the main node, no route) |
+| 5 | "Build a Research lab on its own on one of your other hosts. Is it working? If not, why not?" | Host diagnosis of a starved remote Lab; supply | They hover its Lab slot (or open the Logs) and say whether workers are bringing Intel and Crypto, or what blocks them (no workers, no stock at the main node, no route) |
 | 6 | "One of your hosts may be cut off from your main node. Find out which, and what income you lose." *(Ask when a host has no route home. If it doesn't happen, ask them to check any remote host's route instead and record "staged: no".)* | Route inspection and the cut-off event (§12.1, §17.4) | They find the host (the red ring, its panel's "no route", or the critical event) and name what it was delivering |
 | 7 | "Look at a rival's host. Pick an attack that hurts their economy, and before launching tell me what you expect and what you can't know." | Target preview, fog and dated Recon (§12.2) | They choose an economic card and state its effect and timing, and say what is unknown without Recon (e.g. its Firewall cards, its production) |
 | 8 | "Set up a defence on one of your hosts so it protects itself, then later tell me what it did." | Firewall sockets, travelling defence cards, the event history | A defence card reaches a Firewall socket (they can point to it under the Firewall), **and** after an attack they find what fired (the event strip or H history) |

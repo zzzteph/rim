@@ -88,7 +88,7 @@ func income_and_known() -> void:
 	var grew := true
 	for res in g.RES:
 		if absf(float(g.bank[P][res]) - float(before[res]) - 10.0 * g.MAIN_INCOME) > 0.3: grew = false
-	check(grew, "The main node delivers one of each resource every 5 s locally (every bank grew ~2 in 10 s)")
+	check(grew, "The main node delivers one of each resource every 12 s locally (every bank grew ~0.8 in 10 s)")
 
 
 func cycles_and_storage() -> void:
@@ -97,8 +97,8 @@ func cycles_and_storage() -> void:
 	g._set_builds(n, ["intel", "cash"])
 	g._set_builds(int(g.rig[P]), ["intel"])   # no Bot station anywhere: no workers, so what the host makes stays in its storage
 	step(g.PROD_CYCLE + 0.1)
-	check(is_equal_approx(g._st_get(n, P, "intel"), 1.0) and is_equal_approx(g._st_get(n, P, "cash"), 1.0),
-		"One cycle: the harvester makes 2 Intel, the Miner turns 1 of it into 1 Crypto (%s)" % g._store_text(n))
+	check(is_equal_approx(g._st_get(n, P, "intel"), 0.0) and is_equal_approx(g._st_get(n, P, "cash"), 1.0),
+		"One cycle: the harvester makes 1 Intel and the Miner turns it into 1 Crypto (%s)" % g._store_text(n))
 	step(g.PROD_CYCLE * 10.0)
 	check(g._store_total(n) <= g.STORE_CAP + 0.001 and g._store_total(n) >= g.STORE_CAP - 1.0, "Host storage fills to its cap of 10 and stops there (%s)" % g._store_text(n))
 	var m := own_pc()
@@ -114,14 +114,14 @@ func cycles_and_storage() -> void:
 func stations() -> void:
 	fresh()
 	var n := own_pc()
-	g._set_builds(n, ["intel", "cash", "bot"])
+	g._set_builds(n, ["intel", "intel", "cash", "bot"])   # 2 Intel made, 1 used: 1 Intel and 1 Crypto to send each cycle
 	g._set_builds(int(g.rig[P]), [])
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	step(g.PROD_CYCLE * 4.0 + 6.0)   # four cycles plus the trip home
 	var trickle: float = (g.PROD_CYCLE * 4.0 + 6.0) * g.MAIN_INCOME
-	check(g._worker_counts(P, n).total == 2 and g._worker_counts(P).total == 2, "A Bot station's two workers belong to its host (%d here, %d in all)" % [int(g._worker_counts(P, n).total), int(g._worker_counts(P).total)])
+	check(g._worker_counts(P, n).total == 2 and g._worker_counts(P).total == 2, "A Bot station's two workers have it as their station (%d here, %d in all)" % [int(g._worker_counts(P, n).total), int(g._worker_counts(P).total)])
 	check(float(g.bank[P].intel) - float(before.intel) - trickle >= 3.0 and float(g.bank[P].cash) - float(before.cash) - trickle >= 3.0,
-		"... carrying the host's 1 Intel and 1 Crypto per cycle home with them")
+		"... and, working from the main node, carry the host's 1 Intel and 1 Crypto per cycle home")
 	check(g._store_total(n) < 1.0, "With a station nothing waits in storage, even with no bank couriers")
 
 

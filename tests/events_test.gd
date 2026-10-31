@@ -168,15 +168,22 @@ func strip_and_history() -> void:
 	g.hosts[t].ddos_until = g._t + 20.0
 	intrusion(9300, int(g.rig[P]), 30.0)
 	step(1.0)
-	var rows: Array = g._ev_strip_rows()
-	check(rows.size() == g.EV_STRIP_ROWS and int(rows[0].pri) == g.EV_CRIT, "The map strip shows at most %d rows, critical first" % g.EV_STRIP_ROWS)
 	g._refresh_event_strip()
-	check(g.event_strip.get_child_count() == g.EV_STRIP_ROWS + 1 and str((g.event_strip.get_child(g.EV_STRIP_ROWS) as Button).text).begins_with("Event history (H)"), "Under the rows, a button opens the history")
-	g._on_strip_row(0)
-	check(g._inspect == int(g.rig[P]) or g.sel.has(int(g.rig[P])), "Clicking the critical row opens its host")
-	g._toggle_events()
+	var lb: Button = g.logs_button
+	check(lb.text.begins_with("Logs · ") and lb.text.ends_with("new") and lb.get_theme_color("font_color") == g.C_BAD, "No strip over the map: the Logs button counts the new entries, red while something critical is new (%s)" % lb.text)
+	check(not ("event_strip" in g), "The old map strip is gone")
+	g._open_logs()
 	var txt: String = g._panel_text()
-	check(g._tab == "events" and txt.contains("Events") and txt.contains("(ongoing)"), "H opens the history, marking what is still going on")
+	check(g._tab == "events" and txt.contains("Events") and txt.contains("(ongoing)"), "Logs opens the history, marking what is still going on")
+	g._refresh_event_strip()
+	check(g.logs_button.text == "Logs", "Opened, nothing is new any more")
+	g._tab = ""; step(3.0); g._refresh_event_strip()
+	check(g.logs_button.text == "Logs", "An ongoing condition's countdown is not news: still nothing new after 3 s (%s)" % g.logs_button.text)
+	var crit := {}
+	for e in g.events:
+		if int(e.pri) == g.EV_CRIT: crit = e; break
+	g._focus_event(crit)
+	check(g._inspect == int(g.rig[P]) or g.sel.has(int(g.rig[P])), "Clicking the critical entry opens its host")
 	for k in 100: g._event("spam:%d" % k, g.EV_INFO, "news %d" % k)
 	check(g.events.size() == g.EV_KEEP, "The history keeps the last %d entries" % g.EV_KEEP)
 	g._gen()

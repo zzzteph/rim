@@ -64,7 +64,7 @@ func do_action(ch: int, st: int) -> void:
 		"2:4":
 			if once(key + "c"): build(g._camp_gateway, "cash")
 			if once(key + "b"): build(g._camp_gateway, "bot")
-		"2:5", "2:6": pass   # its workers fetch the Intel; the Local stock step needs no click
+		"2:5": pass   # your workers bring the Intel and carry the Crypto home
 		"3:0": play_when_held("recon", g._camp_practice)
 		"3:1": play_when_held("phish", g._camp_practice)
 		"3:2": play_when_held("response", g._camp_relay)
@@ -136,6 +136,9 @@ func run() -> void:
 	var t0: float = g._t
 	pump(2.0)
 	check(g._camp_chapter == g.CAMP_OPEN and not g._camp_paused and not g.paused and g._t > t0 + 1.5, "Free play runs without Space (%.1f s passed)" % (g._t - t0))
+	check(g.tut_panel.visible, "Free play shows its banner at first")
+	pump(9.0)
+	check(not g.tut_panel.visible and g._map_rect().position.y < 120.0, "...and hides it after 10 s of play, giving the map its room back")
 	var space := InputEventKey.new(); space.keycode = KEY_SPACE; space.pressed = true
 	g._input(space)
 	t0 = g._t; pump(2.0)

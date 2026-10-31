@@ -51,11 +51,11 @@ func script_for(g) -> Dictionary:   # turn -> {faction: [commands]}, every verb 
 			2: [["research", "ddos"], ["queue", "phish", 3], ["queue_pause"]]},
 		9: {1: [["build", -5, "x", 7], ["build", r1, 0, "nuke"], ["card", "nope", 99999], ["research", "nope"],   # garbage: ignored alike
 				["queue", "nope", 9], ["unqueue", 4242], ["reserve", 7], ["priority", "gold"], ["lane_make", 0], ["want", r1, "intel", 3], [], ["warp"]],
-			2: [["job", r2, s2], ["job", r2, s2], ["queue_pause"], ["refill", r2]]},
+			2: [["job", r2, s2], ["job", r2, s2], ["queue_pause"], ["refill", r2]]},   # "refill" is a retired verb: ignored on both screens
 		40: {1: [["cancel_research"], ["research", "exploit"]], 2: [["cancel", r2, s2]]},
 		130: {1: [["card", "breach", n1]], 2: [["card", "breach", n2]]},
 		180: {1: [["card", "patch", r1], ["produce", r1, s1]], 2: [["unqueue", 3], ["demolish", r2, s2]]},
-		260: {1: [["produce", r1, s1], ["queue", "recon", 3]], 2: [["build", r2, s2, "wall"], ["refill_cancel", r2]]},
+		260: {1: [["produce", r1, s1], ["queue", "recon", 3]], 2: [["build", r2, s2, "wall"], ["refill_cancel", r2]]},   # (retired: ignored)
 	}
 
 
@@ -68,6 +68,15 @@ func run() -> void:
 	for g in screens:   # the same well-stocked banks on both screens, so research and lanes run in the time the test has
 		for fac in [1, 2]: g.bank[fac] = {"intel": 200.0, "cash": 150.0, "creds": 120.0, "research": 120.0}
 	var plan := script_for(a)
+	var n1 := neutral_next_to(a, int(a.rig[1]))
+	var outpost := -1   # a remote host with a Bot station on every screen: its new workers join the pool, then serve every host
+	for i in a.hosts.size():   # next to any host of faction 1, but not the one its Breach will take
+		if int(a.hosts[i].owner) != 1 or outpost >= 0: continue
+		for nb in a.hosts[i].links:
+			if int(a.hosts[int(nb)].owner) == a.NEUTRAL and int(nb) != n1 and int(nb) != neutral_next_to(a, int(a.rig[2])): outpost = int(nb); break
+	for g in screens:
+		if outpost >= 0: g._capture(outpost, 1); g.hosts[outpost].slots = 3; g._set_builds(outpost, ["bot", "intel"])
+	check(outpost >= 0 and a._mp_hash() == b._mp_hash(), "Both screens start with the same remote station")
 	var start_owned := 0
 	for i in a.hosts.size():
 		if int(a.hosts[i].owner) != a.NEUTRAL: start_owned += 1

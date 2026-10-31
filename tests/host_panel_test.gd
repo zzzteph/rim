@@ -208,29 +208,35 @@ func local_supplies() -> void:   # supplies are automatic: no Keep-here stepper 
 	check(probs <= 2, "At most two problem lines; the rest are for the Economy view and Help (%d)" % probs)
 
 
-func inspector() -> void:   # compact at 1280×720; workers by number; Refill supplies is a one-time ticket you can cancel
+func inspector() -> void:   # compact at 1280×720: your host's panel is its name, its slots and the buildings, nothing else
 	fresh()
 	await frames()
 	check(g.PANEL_W >= 360.0 and g.PANEL_W <= 400.0, "The inspector is %d px wide at 1280×720" % int(g.PANEL_W))
 	var home: int = int(g.rig[P])
 	g.sel = {home: true}; g._inspect = -1
 	var items := panel_items()
-	var lines := items.filter(func(s): return str(s).begins_with("L:#"))
-	check(lines.size() == 2, "The main node lists its two workers by number (%s)" % str(lines))
+	var labels := items.filter(func(s): return str(s).begins_with("L:"))
+	check(labels == ["L:" + str(g.hosts[home].name)], "The main node's panel has no prose: only its name (%s)" % str(labels))
 	var n := neighbour(g.NEUTRAL)
 	g._capture(n, P); g._set_builds(n, ["lab"])
 	g.bank[P].intel = 0.0; g.bank[P].cash = 0.0
 	g.sel = {n: true}; g._inspect = -1
 	items = panel_items()
-	var m: float = g._tmult(n, "research")
-	var use := {"intel": float(g.BUILD_KINDS.lab.use.intel) * m, "cash": float(g.BUILD_KINDS.lab.use.cash) * m}   # the host type scales a Lab's inputs
-	var want := "Refill brings %s Intel + %s Crypto" % [g._amt(use.intel), g._amt(use.cash)]
-	check(items.has("B:Refill supplies") and items.any(func(s): return str(s).contains(want)), "Refill previews its exact quantities: one cycle's gross inputs (%s)" % str(items.filter(func(s): return str(s).contains("Refill"))))
-	check(items.any(func(s): return str(s).begins_with("L:Still uncovered:") and str(s).contains("your main node has no Intel")), "The uncovered shortage is shown apart from what is needed, with why it is not coming")
-	g._refill_click(n)
-	items = panel_items()
-	check(items.has("B:Cancel refill") and items.any(func(s): return str(s).contains("waiting: your main node has no Intel")), "A requested refill says honestly why it waits")
-	g._refill_click(n)
-	check((g.hosts[n].refill as Dictionary) == {"intel": float(use.intel), "cash": float(use.cash)}, "Asking again does not add a second ticket (%s)" % str(g.hosts[n].refill))
-	g._refill_cancel_click(n)
-	check((g.hosts[n].refill as Dictionary).is_empty() and panel_items().has("B:Refill supplies"), "Cancel removes it")
+	check(not items.any(func(s): return str(s).contains("Refill") or str(s).contains("LOCAL STOCK") or str(s).contains("WORKERS") or str(s).contains("slots")), "No Refill, no stock table, no worker list, no slot count")
+	var boxes := 0; var cards := 0
+	var stack := [g.panel_box]
+	while not stack.is_empty():
+		var c: Node = stack.pop_back()
+		for ch in c.get_children(): stack.append(ch)
+		if "slot" in c and "host" in c and c.has_method("_can_drop_data") and not ("first" in c): boxes += 1
+		elif "kind" in c and c.has_method("_get_drag_data"): cards += 1
+	check(boxes == int(g.hosts[n].slots) and cards == g.BUILD_KINDS.size(), "Its slots and the six buildings are all there (%d, %d)" % [boxes, cards])
+	g._cmd(["build", n, 1, "intel"])
+	var box = null
+	stack = [g.panel_box]
+	while not stack.is_empty():
+		var c2: Node = stack.pop_back()
+		for ch in c2.get_children(): stack.append(ch)
+		if "slot" in c2 and "host" in c2 and c2.has_method("_can_drop_data") and not ("first" in c2) and int(c2.slot) == 1: box = c2
+	g._refresh_panel(); await frames()
+	check(box != null and str(box.stop_button.text).contains("Supplying"), "An order waiting for its materials shows it on its slot, not in prose")
