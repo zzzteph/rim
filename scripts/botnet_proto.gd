@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.4"   # AI develops on credit, resources take turns per host, honest forecast and research state (lobbies match exact versions)
+const GAME_VERSION := "0.6.5"   # AI drops cut-off projects and researches when boxed in, per-resource forecast, the view stays put (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -4051,11 +4051,12 @@ func _ai_develop(fac: int, mine: Array) -> void:   # every host gets a layout th
 	# At 5 units a minute the bank rarely holds a whole bill: the card queue would spend it first. So, like a person, it
 	# orders a project before it can pay and lets the workers bring the materials. Only one project at a time waits for
 	# them, and building and cards take turns: after each such order, the next waits for a new copy to be made.
+	_ai_drop_stranded(fac, mine)
 	var may_owe := _ai_may_owe(fac)
 	var owed_before := may_owe
 	if _ai_workers_short(fac):   # the pool is short of workers: a station in the first free slot anywhere, ahead of the plans
-		var site := _ai_station_site(fac, sites)
-		if site >= 0 and (_can_afford_build(fac, "bot") or may_owe) and _start_job(site, "bot", _free_slot(site)):
+		var spot := _ai_station_spot(fac, sites, mine.size())
+		if not spot.is_empty() and (_can_afford_build(fac, "bot") or may_owe) and _start_job(int(spot[0]), "bot", int(spot[1])):
 			may_owe = false
 	for i in sites:
 		if not (hosts[i].jobs as Dictionary).is_empty(): continue
@@ -4071,13 +4072,34 @@ func _ai_develop(fac: int, mine: Array) -> void:   # every host gets a layout th
 	if owed_before and (not may_owe or _ai_waiting_build(fac)): _ai[fac].owe_mark = _ai_cards_made(fac)   # cards' turn now
 
 
-func _ai_waiting_build(fac: int) -> bool:   # one of its projects (not paused) still waits for materials
+func _ai_waiting_build(fac: int) -> bool:   # one of its projects (not paused) still waits for materials its workers can bring
 	for i in hosts.size():
-		if int(hosts[i].owner) != fac: continue
+		if int(hosts[i].owner) != fac or (hosts[i].jobs as Dictionary).is_empty(): continue
+		if i != int(rig[fac]) and _home_route(fac, i).is_empty(): continue   # cut off: nothing reaches it, so nothing waits on it
 		for s in (hosts[i].jobs as Dictionary):
-			var j: Dictionary = hosts[i].jobs[s]
-			if str(j.phase) == "build" and not bool(j.get("paused", false)) and not _job_funded(j): return true
+			if _ai_job_owed(hosts[i].jobs[s]) and not bool(hosts[i].jobs[s].get("paused", false)): return true
 	return false
+
+
+func _ai_job_owed(j: Dictionary) -> bool:   # a project (not a bare demolition) whose bill is not all there; a retool counts from its demolition on
+	return str(j.get("kind", "")) != "" and not _job_funded(j)
+
+
+const AI_STRAND_DROP := 60.0   # seconds a project may sit cut off from the main node before the AI cancels it (longer than a DDoS)
+
+
+func _ai_drop_stranded(fac: int, mine: Array) -> void:   # a project whose host lost its road home cannot get its bill: drop it after a while,
+	var was: Dictionary = _ai[fac].get("cut", {})       # so its slot, the retool turn and the worker count are free again
+	var now := {}
+	for i in mine:
+		if i == int(rig[fac]) or (hosts[i].jobs as Dictionary).is_empty() or not _home_route(fac, i).is_empty(): continue
+		for s in (hosts[i].jobs as Dictionary).keys():
+			var j: Dictionary = hosts[i].jobs[s]
+			if not _ai_job_owed(j): continue
+			var id := int(j.id)
+			now[id] = float(was.get(id, _t))
+			if _t - float(now[id]) >= AI_STRAND_DROP: _do_cancel_job(fac, i, int(s)); now.erase(id)
+	_ai[fac].cut = now
 
 
 func _ai_capture_in_play(fac: int) -> bool:   # a capture copy in hand, on its way or executing (or nothing to capture): the
@@ -4102,15 +4124,30 @@ func _ai_may_owe(fac: int) -> bool:   # it may order a project it cannot pay for
 	return _ai_capture_targets(fac).is_empty() or _ai_cards_made(fac) > int(_ai[fac].get("owe_mark", -1))
 
 
-func _ai_station_site(fac: int, sites: Array) -> int:   # the host with the most free slots and a road home (a station anywhere serves all)
-	var best := -1; var most := 0
-	for i in sites:
+func _ai_station_spot(fac: int, sites: Array, held: int) -> Array:   # [host, slot] for a station (one anywhere serves all): the host with the most
+	var best := []; var most := 0; var lab_spot := []                 # free slots and a road home; the host planned to make Research only when no
+	for i in sites:                                                   # other has room, and then in a slot that keeps its layout
 		if i != int(rig[fac]) and _home_route(fac, i).is_empty(): continue
 		var free := 0
 		for slot in (hosts[i].builds as Array).size():
 			if str(hosts[i].builds[slot]) == "" and not _slot_busy(i, slot): free += 1
-		if free > most: most = free; best = i
-	return best
+		if free == 0 or (free <= most and not lab_spot.is_empty()): continue
+		var plan := [] if i == int(rig[fac]) else _ai_plan(fac, i, held)
+		if plan.has("lab"):
+			var k := _ai_lab_station_slot(i, plan)
+			if lab_spot.is_empty() and k >= 0: lab_spot = [i, k]
+		elif free > most: most = free; best = [i, _free_slot(i)]
+	return best if not best.is_empty() else lab_spot
+
+
+func _ai_lab_station_slot(i: int, plan: Array) -> int:   # a slot of the Research host a station may take without undoing its layout, else -1
+	var b: Array = hosts[i].builds
+	for k in plan.size():   # its plan's own station
+		if str(plan[k]) == "bot" and str(b[k]) == "" and not _slot_busy(i, k): return k
+	if plan.size() == 3: return 0 if str(b[0]) == "" and not _slot_busy(i, 0) else -1   # [station, Miner, Lab]: workers bring the Intel
+	for k in range(plan.size() - 1, 0, -1):   # a spare harvester's place (never the first: it feeds the Miner)
+		if str(plan[k]) == "intel" and str(b[k]) == "" and not _slot_busy(i, k): return k
+	return -1
 
 
 func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host i should hold
@@ -4123,8 +4160,9 @@ func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host 
 	var b: Array = hosts[i].builds
 	var near := _ai_capture_targets(fac)
 	var wants_research := held >= 3 or (not near.is_empty() and int(hosts[int(near[0])].owner) != NEUTRAL)   # faster captures against a rival run on Research
-	if n == 3 and wants_research and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
-		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; main-node workers carry it)
+	if n == 3 and wants_research and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel", "bot"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
+		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; main-node workers carry it; a station
+		                                  # that had to take the harvester's place leaves the Intel to them)
 	if n >= 4 and not _ai_has_lab_host(fac, i):   # a self-fed Research host: one harvester for the Miner, one for the Lab
 		plan = (["bot", "intel", "cash", "intel", "lab"] if short_workers and n >= 5 else ["intel", "cash", "intel", "lab", "intel"]).slice(0, n)
 	elif n >= 4 and held >= 6 and not _ai_has_firewall(fac): plan[3] = "wall"   # one guarded host once the network is worth guarding
@@ -4180,18 +4218,27 @@ func _ai_rebalance(fac: int, sites: Array, may_owe := false) -> void:   # a bank
 	var makes := {"cash": "cash", "cred": "creds", "intel": "intel"}
 	var want := _ai_wanted(fac)
 	var full := ""; var short := ""; var lo := 0.15; var hi := -1.0
+	var spot := {}   # kind -> [host, slot]: the first producer of it the AI may retool
 	for kind in makes:
+		spot[kind] = _ai_retool_spot(fac, sites, kind)
 		var have := _avail(fac, makes[kind])
 		var fill := have / maxf(1.0, _cap(fac, makes[kind]))
 		var piling := fill >= 0.4 or have >= maxf(24.0, 3.0 * float(want.get(makes[kind], 0.0)))   # far more than its cards need
-		if piling and fill > hi: hi = fill; full = kind
-		elif not piling and fill < lo: lo = fill; short = kind
+		if piling:   # only a piling bank with a producer to retool can give one up (the trickle alone fills Crypto)
+			if fill > hi and not (spot[kind] as Array).is_empty(): hi = fill; full = kind
+		elif fill < lo: lo = fill; short = kind
 	if full == "" or short == "" or not (_can_afford_build(fac, short) or may_owe): return
 	if _t < float(_ai[fac].get("retool_t", -999.0)) + AI_RETOOL_GAP: return   # let the last retool show before the next: no flip-flopping
+	if _start_job(int(spot[full][0]), short, int(spot[full][1])): _ai[fac].retool_t = _t
+
+
+func _ai_retool_spot(fac: int, sites: Array, kind: String) -> Array:   # [host, slot] of the first producer of `kind` it may retool, else []
 	for i in sites:   # the main node first: its converters eat the bank's surplus directly
+		if i != int(rig[fac]) and _home_route(fac, i).is_empty(): continue   # no road home: the new bill could never arrive
 		var first := 0 if i == int(rig[fac]) else 2   # on other hosts never the station or the harvester that feeds them
 		for k in range(first, (hosts[i].builds as Array).size()):
-			if str(hosts[i].builds[k]) == full and _start_job(i, short, k): _ai[fac].retool_t = _t; return
+			if str(hosts[i].builds[k]) == kind and not _slot_busy(i, k): return [i, k]
+	return []
 
 
 func _ai_wanted(fac: int) -> Dictionary:   # the price of the card the AI is working towards: its capture card, else Breach
@@ -4216,16 +4263,18 @@ func _ai_research(fac: int) -> void:
 		return
 
 
-func _ai_research_due(fac: int) -> bool:   # research's turn: fewer blueprints learned than its buildings / 4
+func _ai_research_due(fac: int) -> bool:   # research's turn: fewer blueprints learned than its buildings / 4, or nowhere left to build
 	var learned := 0
 	for r in RESEARCH:
 		if _known(fac, str(r)): learned += 1
-	var built := 0
+	var built := 0; var free := 0
 	for i in hosts.size():
 		if int(hosts[i].owner) != fac: continue
-		for k in hosts[i].builds:
-			if str(k) != "": built += 1
-	return learned < built / 4
+		var reach := i == int(rig[fac]) or not _home_route(fac, i).is_empty()
+		for slot in (hosts[i].builds as Array).size():
+			if str(hosts[i].builds[slot]) != "": built += 1
+			elif reach and not _slot_busy(i, slot): free += 1
+	return learned < built / 4 or (free == 0 and learned < RESEARCH.size())   # boxed in: building has no turn to take
 
 
 func _ai_first_known(fac: int, options: Array) -> String:
@@ -6781,11 +6830,15 @@ func _refresh_panel() -> void:
 	_refresh_top_tabs()
 	var shown := _panel_shown()
 	panel.visible = shown and not menu_open
+	var pruned := false
 	for k in sel.keys():   # a selected host a rival took is no longer yours to build on: inspect it instead, behind its fog
 		if _host_ok(int(k)) and not _mine(int(k)):
-			sel.erase(k)
+			sel.erase(k); pruned = true
 			if sel.is_empty(): _inspect = int(k)
-	var context := "%s|%s|%d|%s|%s|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost), str(_banner_on()), str(_deck_open)]   # (the build menu's density follows the banner and the drawer)
+	if sel.size() == 1 and _deck_open and _armed == "" and not (won or lost):   # however one host became the selection (a capture, a lesson
+		_deck_open = false; _deck_drag_restore = false                          # step, a shift-click, a log entry): its build menu gets the full height
+	var context := "%s|%s|%d|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost)]
+	if not sel.is_empty(): context += "|%s|%s" % [str(_banner_on()), str(_deck_open)]   # the build menu's density follows the banner and the drawer
 	if _tab == "events": context += "|" + ",".join(PackedStringArray(events.map(func(e): return str(e.key))))   # a new order rebuilds the rows, so each still opens its own event
 	var changed := context != _panel_context
 	var keep := 0 if changed else _scroll_pos()
@@ -6814,7 +6867,7 @@ func _refresh_panel() -> void:
 	_restore_scroll(keep)
 	_layout_ui()
 	_pan.x += (previous_width - panel.size.x) * 0.5
-	if changed: _keep_target_visible()
+	if changed and not pruned: _keep_target_visible()   # a host lost to a rival never moves your view
 
 
 func _sockets_first(box: Node) -> int:   # the first socket a slot card's embedded SocketList shows, or -1 without one

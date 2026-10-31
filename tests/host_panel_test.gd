@@ -80,6 +80,7 @@ func run() -> void:
 	await local_supplies()
 	await inspector()
 	await typed_rates_and_lost_selection()
+	await view_stays_put()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -255,3 +256,32 @@ func typed_rates_and_lost_selection() -> void:
 	g._capture(n, R); g._set_builds(n, ["wall", "lab", "", ""])   # a rival takes the host you are looking at, and builds
 	var txt := "\n".join(PackedStringArray(panel_items()))
 	check(g.sel.is_empty() and g._inspect == n and not txt.contains("Research lab") and not txt.contains("Firewall"), "A selected host a rival takes stops being your build menu: you inspect it behind its fog")
+
+
+func view_stays_put() -> void:   # the sim never moves your view or your reading place; one selected host never sits under the drawer
+	fresh()
+	var home: int = int(g.rig[P])
+	var n := neighbour(g.NEUTRAL)
+	g._capture(n, P); g._set_builds(n, ["intel"])
+	g.sel = {n: true}; g._inspect = n; g._refresh_panel(); await frames()
+	g._pan += Vector2(-3000, 0); var pan0: Vector2 = g._pan   # the player looks at another part of the town
+	g._capture(n, R); await frames()
+	check(g._pan.distance_to(pan0) < 1.0 and g._inspect == n, "A rival taking your selected host does not move your view (moved %s)" % str(g._pan - pan0))
+	var m := neighbour(g.NEUTRAL)
+	g._capture(m, P)
+	g.sel = {m: true, home: true}; g._inspect = -1; g._refresh_panel(); await frames()
+	g._pan += Vector2(-3000, 0); pan0 = g._pan
+	g._capture(m, R); await frames()
+	check(g._pan.distance_to(pan0) < 1.0 and g.sel.keys() == [home], "...nor does it jump to the other host you had selected (moved %s)" % str(g._pan - pan0))
+	g.sel = {}; g._inspect = -1; g._tab = ""; g._refresh_panel()
+	for k in 40: g._event("scroll:%d" % k, g.EV_INFO, "Entry number %d of a long history" % k)
+	g._open_logs(); await frames(3)
+	g.panel_scroll.scroll_vertical = 200; await frames()
+	var s0: int = g.panel_scroll.scroll_vertical
+	g._set_deck_open(true); g._refresh_panel(); await frames()
+	var s1: int = g.panel_scroll.scroll_vertical
+	g._set_deck_open(false); g._refresh_panel(); await frames()
+	check(s0 > 0 and s1 == s0 and g.panel_scroll.scroll_vertical == s0, "Opening and closing the card drawer keeps your place in the Logs (%d -> %d -> %d)" % [s0, s1, g.panel_scroll.scroll_vertical])
+	g._tab = ""; g._set_deck_open(true)
+	g.sel = {home: true}; g._inspect = home; g._refresh_panel()   # selected by a capture, a lesson step, a log entry, a shift-click
+	check(not g._deck_open, "One host of yours selected while the drawer is open: the drawer closes, its build menu gets the full height")

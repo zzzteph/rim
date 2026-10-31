@@ -101,6 +101,7 @@ godot --headless --path . --script tests/forecast_test.gd    # income forecast v
 godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
+godot --headless --path . --script tests/ai_rules_test.gd    # AI turn-taking: cut-off projects, Research host, boxed-in research, retools
 godot --headless --path . --script tests/campaign_test.gd    # plays Learn as one session: no rebuilds, no waits, resume
 godot --headless --path . --script tests/mp_lockstep_test.gd # two screens, same command stream: identical every turn
 godot --headless --path . --script tests/text_fit_test.gd    # every text fits with a margin; no overlaps; whole sentences
@@ -217,7 +218,10 @@ cards in rows of three; a finished Firewall shows its three sockets inside its o
 the six buildings (`BuildCard`, `PALETTE_H` 112 px in rows of three, or `PALETTE_H_MINI` 74 px — name, picture,
 price — when `_palette_h` finds the full menu would not fit `_panel_avail_h`, as under Learn's banner). No prose, and
 the same height every frame, so it never scrolls or jumps at 1280×720. Selecting your host closes the card drawer, and
-opening the drawer closes the build menu; a selected host a rival takes turns into an inspection behind its fog.
+opening the drawer closes the build menu; however one host of yours becomes the selection (a capture, a Learn step,
+a shift-click, a Logs entry), `_refresh_panel` closes the drawer too (0.6.5). A selected host a rival takes turns into
+an inspection behind its fog without moving your view, and the drawer's state is part of the panel's context only
+while the build menu shows, so opening it keeps your place in the Logs or the Economy view.
 A slot card says what it makes on that host (`_build_short`: the type multiplier, e.g. +1.5 Intel on a Server). A slot shows its state on the card (materials n/m while a project waits
 for them, its work bar, paused, inactive, needs an input) and a red stop button while busy; its tooltip
 (`_slot_tip`) says what it is, what it is doing and the host's first two problems from `_host_diag`.

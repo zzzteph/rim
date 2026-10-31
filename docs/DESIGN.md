@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.4 · commit e1c47bb
+RIM 0.6.5 · commit e65201d
 
 ## Contents
 
@@ -685,16 +685,16 @@ One AI for every rival, no difficulty setting. It plays by the same rules, price
 
 - Main node: Intel harvester, Bot station, then a converter chosen by need (it may be a Lab, fed from the bank), Lab, Credential harvester.
 - Other hosts: Intel harvester, converter, Intel harvester, converter, Intel harvester (a harvester for each converter); a 1-slot host gets a harvester.
-- Workers: while it has fewer than one Bot station per two hosts held (stations on order counted), it puts a station in the first free slot of the host with the most free slots, ahead of the plans.
+- Workers: while it has fewer than one Bot station per two hosts held (stations on order counted), it puts a station in the first free slot of the host with the most free slots, ahead of the plans. It uses the host it plans to make Research on only when no other host has room, and then only a slot that keeps that layout: a 3-slot host's first slot (station, Miner, Lab: workers bring the Intel), a spare harvester's place on a bigger one.
 - One Research host once it holds 3 hosts or its nearest target is a rival's: Intel harvester, Miner, Lab on 3 slots; Intel harvester, Miner, Intel harvester, Lab, Intel harvester on 4+. A Lab on order counts, so it never plans two.
 - One Firewall (in the fourth slot) on a 4+-slot host once it holds 6 hosts.
-- The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 5 units a minute the card queue would otherwise spend every unit first.
+- The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 5 units a minute the card queue would otherwise spend every unit first. A project whose host loses its road home no longer counts as waiting (nothing can bring its bill); after 60 s cut off (longer than a DDoS) the AI cancels it.
 - Converter choice: what its next capture card lacks for two copies, else the emptiest bank.
-- Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least 24 and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind; at most one retool every 120 s.
+- Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least 24 and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind (only a kind it has a producer of on a host with a road home: Crypto piles from the trickle alone); at most one retool every 120 s. A retool ordered on credit waits like any other project from its demolition on.
 
 #### 2 · Research
 
-In this order: Known exploit, Traffic filter, DDoS, 0day, Worm, Packet siphon, Cargo cover, Sabotage, Vault raid, Express route. Research takes its turn with building: it is due while it knows fewer blueprints than a quarter of its buildings, and while due no project is ordered on credit. A running research pauses while one of its projects waits for materials, since its per-second payments would keep the bank below the whole unit a worker carries.
+In this order: Known exploit, Traffic filter, DDoS, 0day, Worm, Packet siphon, Cargo cover, Sabotage, Vault raid, Express route. Research takes its turn with building: it is due while it knows fewer blueprints than a quarter of its buildings, or when every slot it could build on is taken (building has no turn to take), and while due no project is ordered on credit. A running research pauses while one of its projects waits for materials, since its per-second payments would keep the bank below the whole unit a worker carries.
 
 #### 3 · Manufacture
 
