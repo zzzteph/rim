@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.3"   # odds: Recon 50%, attacks 50% scouted / 25% unscouted (lobbies match exact versions)
+const GAME_VERSION := "0.6.4"   # AI develops on credit, resources take turns per host, honest forecast and research state (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -558,7 +558,7 @@ func _gen() -> void:
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; _roads = {}; flights = []; _execs = []; _res = {}; _flight_id = 0
 	bank = {}; incoming = {}; _delivered = {}; ship_cursor = {}; known = {}; research_job = {}; mq = {}; mq_paused = {}; _mq_next = 0; _mq_cids = {}; cards = {}; recon = {}
-	workers = {}; _wid_next = 0; _inst_gen = 0; _reqs = {}; _req_next = 0; _pool_turn = {}; _served = {}; _serve_n = {}; _plan_cache = {}; _job_next = 0
+	workers = {}; _wid_next = 0; _inst_gen = 0; _reqs = {}; _req_next = 0; _pool_turn = {}; _served = {}; _serve_n = {}; _served_res = {}; _plan_cache = {}; _job_next = 0
 	_logi_dirty = {}; _logi_next = {}
 	_ai = {}; _fx = []; _worms = []; _hold = {}; card_plays = {}
 	_ledger = {}; op_outcomes = []; intrusions_resolved = 0; events = []; _ev_next_poll = 0.0; _ev_dirty = true; _ev_seen_t = -1.0   # per-match records
@@ -1415,23 +1415,38 @@ func _forecast_now(fac: int) -> Dictionary:
 			continue
 		var hub_x := float(hosts[hub].get("express_until", 0.0)) > _t; var host_x := float(hosts[i].get("express_until", 0.0)) > _t
 		remote.append([i, ship, sup, _travel_time(rt, hub_x) + _travel_time(rt, host_x)])   # out leg leaves the main node, back leg the host
-	# workers: one pool at the main node shares its time among every host
+	# workers: one pool at the main node, with the dispatcher's priorities. Inputs go first, and each input trip brings
+	# one unit of the host's output back on its return leg. What is left of the pool's time then carries the remaining
+	# surplus, shared by the hosts in turn. Starved inputs starve that host's output in proportion.
 	var fleet: int = int(_worker_counts(fac).total)
 	var spare := float(fleet)
-	var need := 0.0
+	var need_in := 0.0; var need := 0.0
 	for row in remote:
 		var units := 0.0
 		for res in (row[1] as Dictionary): units += float(row[1][res])
-		need += maxf(units, float(row[2])) * float(row[3]) / PROD_CYCLE   # workers busy keeping up with it
-	var share := 1.0 if need <= spare + 0.0001 else spare / maxf(0.0001, need)
+		need_in += float(row[2]) * float(row[3]) / PROD_CYCLE
+		need += maxf(units, float(row[2])) * float(row[3]) / PROD_CYCLE   # workers busy keeping up with all of it
+	var share_in := 1.0 if need_in <= spare + 0.0001 else spare / maxf(0.0001, need_in)
+	var left := maxf(0.0, spare - need_in * share_in)
+	var rest := []   # per row: [ride units, surplus units still to carry]
+	var need_out := 0.0
+	for row in remote:
+		var units := 0.0
+		for res in (row[1] as Dictionary): units += float(row[1][res])
+		var made := units * (share_in if float(row[2]) > 0.0001 else 1.0)   # outputs shrink with starved inputs
+		var ride := minf(made, float(row[2]) * share_in)
+		rest.append([ride, made - ride])
+		need_out += (made - ride) * float(row[3]) / PROD_CYCLE
+	var share_out := 1.0 if need_out <= left + 0.0001 else left / maxf(0.0001, need_out)
 	d.need = need; d.spare = spare; d.fleet = fleet
 	var inflow := {}
-	for row in remote:
+	for k in remote.size():
+		var row: Array = remote[k]
 		var i: int = row[0]
 		var units := 0.0
 		for res in (row[1] as Dictionary): units += float(row[1][res])
-		var trips := maxf(units, float(row[2]))
-		var f := clampf(share, 0.0, 1.0)
+		var got := float(rest[k][0]) + float(rest[k][1]) * share_out
+		var f := clampf(got / maxf(0.0001, units), 0.0, 1.0)
 		if f < 0.999:
 			for res in (row[1] as Dictionary): _fc_limit(d, str(res), "not enough workers")
 		for res in (row[1] as Dictionary):
@@ -1677,6 +1692,7 @@ var _req_next := 0
 var _pool_turn := {}     # fac -> assignments made (every fourth goes to the least recently served host, whatever it needs)
 var _served := {}        # fac -> {host: the assignment number that last served it}: round robin across hosts
 var _serve_n := {}       # fac -> assignments counted for _served
+var _served_res := {}    # fac -> {host: {res: the assignment number that last moved res there or from there}}: within a host, in turn
 var _plan_cache := {}    # host -> its plan for this step (rebuilt every step)
 var _logi_dirty := {}    # fac -> true: something that can create work happened (an arrival, a cycle, a command...): plan this step
 var _logi_next := {}     # fac -> when it plans again anyway (time-based changes: a trickle, a route reopening)
@@ -2008,12 +2024,24 @@ func _mark_served(fac: int, i: int) -> void:
 	_served[fac][i] = int(_serve_n[fac])
 
 
+func _served_res_at(fac: int, i: int, res: String) -> int:
+	return int(((_served_res.get(fac, {}) as Dictionary).get(i, {}) as Dictionary).get(res, -1))
+
+
+func _mark_res(fac: int, r: Dictionary) -> void:   # this host's resource was just moved: its others go first next time
+	if r.is_empty(): return
+	if not _served_res.has(fac): _served_res[fac] = {}
+	if not (_served_res[fac] as Dictionary).has(int(r.host)): _served_res[fac][int(r.host)] = {}
+	_served_res[fac][int(r.host)][str(r.res)] = int(_serve_n.get(fac, 0))
+
+
 func _pick_request(fac: int, cands: Array, turn: int) -> Dictionary:   # three of four by purpose, then the least recently served host;
 	var best := {}                                                      # the fourth by host turn alone (round robin, nobody starves)
 	var fair: bool = turn % (PRIORITY_TURNS + 1) == PRIORITY_TURNS
 	var bk := []
 	for r in cands:
-		var k := [_served_at(fac, int(r.host)), int(r.id)] if fair else [_req_class(r), _served_at(fac, int(r.host)), int(r.id)]
+		var h := int(r.host); var rs := _served_res_at(fac, h, str(r.res))   # (within a host, the resource moved longest ago)
+		var k := [_served_at(fac, h), rs, int(r.id)] if fair else [_req_class(r), _served_at(fac, h), rs, int(r.id)]
 		if best.is_empty() or k < bk: best = r; bk = k
 	return best
 
@@ -2050,6 +2078,7 @@ func _join(fac: int, hub: int, wid: int, reqs: Array) -> void:   # a new worker 
 		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
 	var cargo := {}
 	var outr := _pick_request(fac, cands, 0)
+	_mark_res(fac, outr)
 	if not outr.is_empty():
 		_take_from(at, fac, str(outr.res), float(outr.amt)); _reserve_incoming(fac, str(outr.res), float(outr.amt))
 		cargo[str(outr.res)] = float(outr.amt)
@@ -2076,6 +2105,7 @@ func _assign(fac: int, hub: int, wid: int, reqs: Array) -> bool:   # one new tri
 	var comp := _pick_request(fac, cands.filter(func(c): return int(c.host) == i and str(c.dir) == other and str(c.key) != str(pick.key)), 0)
 	var inr: Dictionary = pick if str(pick.dir) == "in" else comp
 	var outr: Dictionary = pick if str(pick.dir) == "out" else comp
+	_mark_res(fac, inr); _mark_res(fac, outr)
 	_send_from_hub(fac, hub, wid, i, inr, outr)
 	for r in [inr, outr]:   # what this trip took is no longer open for the next worker in the same step
 		if r.is_empty(): continue
@@ -2326,6 +2356,7 @@ func _backhaul(fac: int, hub: int, f: Dictionary, i: int) -> void:   # an empty 
 		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
 	var r := _pick_request(fac, cands, 0)
 	if r.is_empty(): return
+	_mark_res(fac, r)
 	_take_from(i, fac, str(r.res), float(r.amt)); _reserve_incoming(fac, str(r.res), float(r.amt))
 	f.cargo = {str(r.res): float(r.amt)}; f.src = i
 
@@ -2731,7 +2762,7 @@ func _eliminate(fac: int) -> void:
 	flights = flights.filter(func(f): return int(f.owner) != fac)
 	for wid in workers.keys():
 		if int(workers[wid].fac) == fac: workers.erase(wid)   # its workers go with it
-	_reqs.erase(fac); _pool_turn.erase(fac); _served.erase(fac); _serve_n.erase(fac)
+	_reqs.erase(fac); _pool_turn.erase(fac); _served.erase(fac); _serve_n.erase(fac); _served_res.erase(fac)
 	_execs = _execs.filter(func(e): return int(e.fac) != fac)
 	if fac != PLAYER: _flash("%s eliminated · its remaining hosts are neutral" % fname(fac), 0)
 
@@ -2997,6 +3028,7 @@ func _capture(t: int, fac: int) -> void:
 	hosts[t].jobs = {}; hosts[t].store = {}; hosts[t].producer_paused = {}; hosts[t].sockets = []
 	hosts[t].teams = {}; hosts[t].claim = {}; hosts[t].inbound = {}   # its orders go with it
 	if _served.has(prev): (_served[prev] as Dictionary).erase(t)   # a host retaken later starts afresh in the round robin
+	if _served_res.has(prev): (_served_res[prev] as Dictionary).erase(t)
 	hosts[t].plan_frac = {}; hosts[t].plan_rr = 0; hosts[t].plan_limited = false
 	if prev == PLAYER:
 		var what := "%s lost to %s — %d station worker%s destroyed." % [nm, fname(fac), dead, "" if dead == 1 else "s"] if dead > 0 else "%s lost to %s." % [nm, fname(fac)]
@@ -3532,16 +3564,30 @@ func _tick_events() -> void:   # every EV_POLL s of play: post, update and end t
 	if _ev_dirty: _refresh_event_strip()
 
 
-func _research_stall(fac: int) -> String:   # "" while research advances; else what stops it (mirrors _tick_research)
+func _research_short(fac: int) -> Array:   # what the bank lacks for a second of research at full speed (names)
 	var job: Dictionary = research_job.get(fac, {})
-	if job.is_empty() or bool(job.get("paused", false)): return ""
+	if job.is_empty() or bool(job.get("paused", false)): return []
 	var recipe := str(job.key)
-	var frac := 1.0 / maxf(0.001, _research_time(recipe))   # a second's worth: a trickle that pays a step now and then is still a stall
+	var frac := 1.0 / maxf(0.001, _research_time(recipe))
 	var cost := _research_cost(recipe)
 	var short := []
 	for r in cost:
 		if _avail(fac, r) < float(cost[r]) * frac - 0.000001: short.append(str(RES_NAME[r]))
-	return "" if short.is_empty() else "Research of %s stopped: no %s in your bank." % [str(CARDS[recipe].name), " or ".join(short)]
+	return short
+
+
+func _research_stall(fac: int) -> String:   # "" while research advances (even slowly); else what stops it (mirrors _tick_research)
+	var short := _research_short(fac)
+	if short.is_empty(): return ""
+	var job: Dictionary = research_job.get(fac, {})
+	if _t - float(job.get("paid_t", -999.0)) < RESEARCH_STALL_SECS: return ""   # it paid within the last cycle: slow, not stopped
+	return "Research of %s stopped: no %s in your bank." % [str(CARDS[str(job.key)].name), " or ".join(short)]
+
+
+func _research_slow(fac: int) -> String:   # "" at full speed or when stopped; else what it is short of while it still advances
+	var short := _research_short(fac)
+	if short.is_empty() or _research_stall(fac) != "": return ""
+	return ("slowed: %s comes in slower than it uses it" if short.size() == 1 else "slowed: %s come in slower than it uses them") % " and ".join(short)
 
 
 func _event_outcome(e: Dictionary, outcome: String, via: String, victim: int) -> void:   # from _op_outcome: your operations and attacks on you
@@ -3827,6 +3873,7 @@ func _tick_research(dt: float) -> void:
 		if not afford: continue
 		for r in cost: _spend(fac, r, float(cost[r]) * frac, "research")
 		job.progress = float(job.progress) + work
+		job.paid_t = _t   # it advanced: _research_stall tells a slow research from a stopped one
 		if float(job.progress) >= duration - 0.00001:
 			if not known.has(fac): known[fac] = {}
 			known[fac][recipe] = true
@@ -4001,16 +4048,69 @@ func _ai_develop(fac: int, mine: Array) -> void:   # every host gets a layout th
 	var home := int(rig[fac])
 	var sites := mine.duplicate()
 	sites.erase(home); sites.push_front(home)   # the main node first: what it makes needs no courier
+	# At 5 units a minute the bank rarely holds a whole bill: the card queue would spend it first. So, like a person, it
+	# orders a project before it can pay and lets the workers bring the materials. Only one project at a time waits for
+	# them, and building and cards take turns: after each such order, the next waits for a new copy to be made.
+	var may_owe := _ai_may_owe(fac)
+	var owed_before := may_owe
+	if _ai_workers_short(fac):   # the pool is short of workers: a station in the first free slot anywhere, ahead of the plans
+		var site := _ai_station_site(fac, sites)
+		if site >= 0 and (_can_afford_build(fac, "bot") or may_owe) and _start_job(site, "bot", _free_slot(site)):
+			may_owe = false
 	for i in sites:
 		if not (hosts[i].jobs as Dictionary).is_empty(): continue
 		if i != home and _home_route(fac, i).is_empty(): continue   # a producer needs a road home
 		var plan := _ai_plan(fac, i, mine.size())
-		for slot in mini(plan.size(), (hosts[i].builds as Array).size()):   # the first empty slot whose planned kind it can pay for
+		for slot in mini(plan.size(), (hosts[i].builds as Array).size()):   # the first empty slot, in plan order
 			if str(hosts[i].builds[slot]) != "" or _slot_busy(i, slot): continue
-			if _can_afford_build(fac, str(plan[slot])):
-				_start_job(i, str(plan[slot]), slot)
-				break
-	_ai_rebalance(fac, sites)
+			var kind := str(plan[slot])
+			if _can_afford_build(fac, kind): _start_job(i, kind, slot)
+			elif may_owe and _start_job(i, kind, slot): may_owe = false
+			break
+	_ai_rebalance(fac, sites, not _ai_waiting_build(fac))   # a retool may owe without waiting for a card: it fixes the shortage that starves them
+	if owed_before and (not may_owe or _ai_waiting_build(fac)): _ai[fac].owe_mark = _ai_cards_made(fac)   # cards' turn now
+
+
+func _ai_waiting_build(fac: int) -> bool:   # one of its projects (not paused) still waits for materials
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac: continue
+		for s in (hosts[i].jobs as Dictionary):
+			var j: Dictionary = hosts[i].jobs[s]
+			if str(j.phase) == "build" and not bool(j.get("paused", false)) and not _job_funded(j): return true
+	return false
+
+
+func _ai_capture_in_play(fac: int) -> bool:   # a capture copy in hand, on its way or executing (or nothing to capture): the
+	if _ai_capture_targets(fac).is_empty(): return true   # card queue has done its part for now
+	for r in ["breach", "exploit", "zeroday"]:
+		if _held(fac, r) > 0: return true
+	for f in flights:
+		if str(f.kind) == "op" and int(f.owner) == fac and str(CARDS[_card_of(str(f.get("card", "recon")))].effect) in ["capture", "worm"]: return true
+	for e in _execs:
+		if int(e.fac) == fac and str(e.effect) in ["capture", "worm"]: return true
+	return false
+
+
+func _ai_cards_made(fac: int) -> int:   # copies made so far: the ones played plus the ones in hand
+	var n := int(card_plays.get(fac, 0))
+	for r in (cards.get(fac, {}) as Dictionary): n += int(cards[fac][r])
+	return n
+
+
+func _ai_may_owe(fac: int) -> bool:   # it may order a project it cannot pay for yet: none waits, it is not research's
+	if _ai_waiting_build(fac) or _ai_research_due(fac): return false   # turn, and a copy was made since the last such order
+	return _ai_capture_targets(fac).is_empty() or _ai_cards_made(fac) > int(_ai[fac].get("owe_mark", -1))
+
+
+func _ai_station_site(fac: int, sites: Array) -> int:   # the host with the most free slots and a road home (a station anywhere serves all)
+	var best := -1; var most := 0
+	for i in sites:
+		if i != int(rig[fac]) and _home_route(fac, i).is_empty(): continue
+		var free := 0
+		for slot in (hosts[i].builds as Array).size():
+			if str(hosts[i].builds[slot]) == "" and not _slot_busy(i, slot): free += 1
+		if free > most: most = free; best = i
+	return best
 
 
 func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host i should hold
@@ -4040,9 +4140,12 @@ func _ai_workers_short(fac: int) -> bool:   # one pool serves every host: about 
 	return stations * 2 < held
 
 
-func _ai_has_lab_host(fac: int, except: int) -> bool:   # a host other than `except` (and not the main node) already runs a Lab
+func _ai_has_lab_host(fac: int, except: int) -> bool:   # a host other than `except` (and not the main node) runs a Lab, or has one on order
 	for i in hosts.size():
-		if i != except and int(hosts[i].owner) == fac and i != int(rig[fac]) and (hosts[i].builds as Array).has("lab"): return true
+		if i == except or int(hosts[i].owner) != fac or i == int(rig[fac]): continue
+		if (hosts[i].builds as Array).has("lab"): return true
+		for s in (hosts[i].jobs as Dictionary):
+			if str(hosts[i].jobs[s].get("kind", "")) == "lab": return true
 	return false
 
 
@@ -4068,20 +4171,27 @@ func _ai_has_firewall(fac: int) -> bool:
 	return false
 
 
-func _ai_rebalance(fac: int, sites: Array) -> void:   # a bank that overflows while another runs dry: retool one producer
+const AI_RETOOL_GAP := 120.0   # seconds between two retools of one AI
+
+
+func _ai_rebalance(fac: int, sites: Array, may_owe := false) -> void:   # a bank that overflows while another runs dry: retool one producer
 	for i in sites:
 		if not (hosts[i].jobs as Dictionary).is_empty(): return   # one retool at a time
 	var makes := {"cash": "cash", "cred": "creds", "intel": "intel"}
-	var full := ""; var short := ""; var lo := 0.15; var hi := 0.4
+	var want := _ai_wanted(fac)
+	var full := ""; var short := ""; var lo := 0.15; var hi := -1.0
 	for kind in makes:
-		var fill := _avail(fac, makes[kind]) / maxf(1.0, _cap(fac, makes[kind]))
-		if fill >= hi: hi = fill; full = kind
-		elif fill < lo: lo = fill; short = kind
-	if full == "" or short == "" or not _can_afford_build(fac, short): return
+		var have := _avail(fac, makes[kind])
+		var fill := have / maxf(1.0, _cap(fac, makes[kind]))
+		var piling := fill >= 0.4 or have >= maxf(24.0, 3.0 * float(want.get(makes[kind], 0.0)))   # far more than its cards need
+		if piling and fill > hi: hi = fill; full = kind
+		elif not piling and fill < lo: lo = fill; short = kind
+	if full == "" or short == "" or not (_can_afford_build(fac, short) or may_owe): return
+	if _t < float(_ai[fac].get("retool_t", -999.0)) + AI_RETOOL_GAP: return   # let the last retool show before the next: no flip-flopping
 	for i in sites:   # the main node first: its converters eat the bank's surplus directly
 		var first := 0 if i == int(rig[fac]) else 2   # on other hosts never the station or the harvester that feeds them
 		for k in range(first, (hosts[i].builds as Array).size()):
-			if str(hosts[i].builds[k]) == full and _start_job(i, short, k): return
+			if str(hosts[i].builds[k]) == full and _start_job(i, short, k): _ai[fac].retool_t = _t; return
 
 
 func _ai_wanted(fac: int) -> Dictionary:   # the price of the card the AI is working towards: its capture card, else Breach
@@ -4091,22 +4201,31 @@ func _ai_wanted(fac: int) -> Dictionary:   # the price of the card the AI is wor
 
 
 func _ai_research(fac: int) -> void:
-	if not research_job.get(fac, {}).is_empty(): return
-	# capture ladder first (reach is what wins ground), then a counter, disruption, theft, then the rest.
-	# Research is paid as it progresses and pauses when short, so it starts as soon as the prerequisite is known.
-	# The first capture upgrade starts at once (a faster capture leaves a defender less time); the rest only
-	# from a surplus, so research never starves the cards it is meant to unlock.
-	var first := true
-	for recipe in ["exploit", "filter", "ddos", "zeroday", "worm", "siphon", "cover", "sabotage", "vault", "express"]:
-		if _known(fac, recipe): continue
-		if _can_research(fac, recipe) != "": first = false; continue
-		var spare := true
-		if not (first and recipe == "exploit"):
-			var cost := _research_cost(recipe)
-			for r in cost:
-				if _avail(fac, r) < 1.5 * float(cost[r]): spare = false; break
-		if spare: _do_research(fac, recipe)
+	# Capture ladder first (reach is what wins ground), then a counter, disruption, theft, then the rest. Research takes
+	# its turn with building and cards: one blueprint per four of its buildings. A running research pays as it goes, so
+	# it pauses while one of its projects waits for materials: its per-second payments would keep the bank below the
+	# whole unit a worker carries.
+	var job: Dictionary = research_job.get(fac, {})
+	if not job.is_empty():
+		job.paused = _ai_waiting_build(fac)   # construction first
 		return
+	if not _ai_research_due(fac): return
+	for recipe in ["exploit", "filter", "ddos", "zeroday", "worm", "siphon", "cover", "sabotage", "vault", "express"]:
+		if _known(fac, recipe) or _can_research(fac, recipe) != "": continue
+		_do_research(fac, recipe)
+		return
+
+
+func _ai_research_due(fac: int) -> bool:   # research's turn: fewer blueprints learned than its buildings / 4
+	var learned := 0
+	for r in RESEARCH:
+		if _known(fac, str(r)): learned += 1
+	var built := 0
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac: continue
+		for k in hosts[i].builds:
+			if str(k) != "": built += 1
+	return learned < built / 4
 
 
 func _ai_first_known(fac: int, options: Array) -> String:
@@ -4159,11 +4278,12 @@ func _ai_manufacture(fac: int) -> void:
 	if not targets.is_empty():
 		var cap_card := _ai_capture_card(fac, int(targets[0]), false)
 		if cap_card != "" and _held(fac, cap_card) < 3: plan.append(cap_card)
-		if _known(fac, "recon") and _held(fac, "recon") < 2: plan.append("recon")   # unscouted attacks work half as often (25% vs 50%)
+		if _known(fac, "recon") and _held(fac, "recon") < 1: plan.append("recon")   # unscouted attacks work half as often (25% vs 50%)
 	var threatened := false   # a hostile capture or raid is executing on one of our hosts
 	for e in _execs:
 		if int(e.fac) != fac and int(hosts[int(e.target)].owner) == fac: threatened = true; break
-	if _known(fac, "patch") and _held(fac, "patch") < (2 if threatened else 1): plan.append("patch")
+	var spare_patch := 1 if _ai_mine(fac).size() >= 5 else 0   # a small network spends its Intel on growing, not on a spare
+	if _known(fac, "patch") and _held(fac, "patch") < (2 if threatened else spare_patch): plan.append("patch")
 	for recipe in ["response", "filter"]:   # a Firewall socket with room gets a card that fires on its own
 		if _known(fac, recipe) and _held(fac, recipe) < 1 and _ai_free_socket(fac): plan.append(recipe); break
 	for press in ["ddos", "phish"]:   # pressure only with somewhere to apply it: an idle copy is resources thrown away
@@ -4414,6 +4534,7 @@ func _research_label() -> String:   # the Research button and tab: "Research 45%
 
 
 const RESEARCH_BAR_W := 520.0
+const RESEARCH_STALL_SECS := 13.0   # research that paid nothing for longer than a production cycle is "stopped" (else "slowed")
 const RESEARCH_BAR_H := 28.0
 
 
@@ -4439,7 +4560,7 @@ func _research_bar_state() -> Dictionary:   # {state: idle | active | paused | s
 		var stall := _research_stall(PLAYER)
 		if stall != "": st = "stalled"; why = stall.trim_prefix("Research of %s stopped: " % str(CARDS[recipe].name)).trim_suffix(".")
 	return {"state": st, "name": str(CARDS[recipe].name), "track": "Defence" if str(CARDS[recipe].bank) == "defense" else "Attack",
-		"frac": frac, "left": maxf(0.0, _research_time(recipe) - float(job.progress)), "why": why}
+		"frac": frac, "left": maxf(0.0, _research_time(recipe) - float(job.progress)), "why": why, "slow": _research_slow(PLAYER) if st == "active" else ""}
 
 
 func _research_status_line() -> Array:   # [text, colour]: the active research, by name, with its progress and state
@@ -4451,6 +4572,8 @@ func _research_status_line() -> Array:   # [text, colour]: the active research, 
 	if bool(job.get("paused", false)): return ["Paused: %s at %d%%." % [str(CARDS[recipe].name), pct], C_WARN]
 	var stall := _research_stall(PLAYER)
 	if stall != "": return ["Stalled at %d%%: %s" % [pct, stall.trim_prefix("Research of %s stopped: " % str(CARDS[recipe].name))], C_BAD]
+	var slow := _research_slow(PLAYER)
+	if slow != "": return ["Researching %s: %d%%, %s." % [str(CARDS[recipe].name), pct, slow], C_WARN]
 	return ["Researching %s: %d%%, %d s left." % [str(CARDS[recipe].name), pct, left], C_TEXT]
 
 
@@ -5356,6 +5479,12 @@ func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch
 	for fac in sf:
 		var hs: Array = (_served[fac] as Dictionary).keys(); hs.sort()
 		parts.append("s%d=%d:%s" % [int(fac), int(_serve_n.get(fac, 0)), ",".join(PackedStringArray(hs.map(func(h): return "%d/%d" % [int(h), int(_served[fac][h])])))])
+	var sr := _served_res.keys(); sr.sort()
+	for fac in sr:
+		var hs2: Array = (_served_res[fac] as Dictionary).keys(); hs2.sort()
+		for h in hs2:
+			var rs: Array = (_served_res[fac][h] as Dictionary).keys(); rs.sort()
+			parts.append("r%d:%d:%s" % [int(fac), int(h), ",".join(PackedStringArray(rs.map(func(x): return "%s/%d" % [str(x), int(_served_res[fac][h][x])])))])
 	for h in hosts:
 		parts.append("%d,%d,%s,%s,%s,%s,%d,%d" % [int(h.owner), int(h.gen), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.store), ",".join(PackedStringArray(h.sockets)), int(h.fw_on), int(round(float(h.cyc) * 30.0))])
 		parts.append("%d,%d,%d,%d,%d" % [roundi(float(h.get("ddos_until", 0.0)) * 100.0), roundi(float(h.get("sabot_until", 0.0)) * 100.0), int(h.get("steal_by", -1)), roundi(float(h.get("steal_until", 0.0)) * 100.0), roundi(float(h.get("express_until", 0.0)) * 100.0)])
@@ -9113,6 +9242,7 @@ class ResearchBar extends Control:   # always on screen: what is being researche
 			"idle": return "Nothing is being researched. Open Research (R), select a blueprint, then Research. Research costs Intel, Crypto and Research while it runs."
 			"paused": return "%s is paused at %d%%. Open Research (R) and resume it." % [str(st.name), int(float(st.frac) * 100)]
 			"stalled": return "%s has stopped at %d%%: %s. It continues by itself once your bank has it." % [str(st.name), int(float(st.frac) * 100), str(st.why)]
+		if str(st.get("slow", "")) != "": return "Researching %s (%s track): %d%%, %s. It pays as it goes and goes faster once your bank keeps up. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), str(st.slow)]
 		return "Researching %s (%s track): %d%%, %d s of work left. It pays as it goes. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
 	func _process(_dt: float) -> void:
 		var on: bool = not game.menu_open and not game.won and not game.lost and str(game._research_bar_state().state) != "idle"
@@ -9137,7 +9267,7 @@ class ResearchBar extends Control:   # always on screen: what is being researche
 		var txt := ""
 		match state:
 			"idle": txt = "idle · %d blueprint%s open · press R" % [int(st.open), "" if int(st.open) == 1 else "s"] if int(st.open) > 0 else "idle · nothing open to research"
-			"active": txt = "%s · %s · %d%% · %d s left" % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
+			"active": txt = ("%s · %s · %d%% · slowed" % [str(st.name), str(st.track), int(float(st.frac) * 100)]) if str(st.get("slow", "")) != "" else "%s · %s · %d%% · %d s left" % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
 			"paused": txt = "%s · %s · %d%% · paused" % [str(st.name), str(st.track), int(float(st.frac) * 100)]
 			"stalled": txt = "%s · %d%% · stalled: %s" % [str(st.name), int(float(st.frac) * 100), str(st.why)]
 		game._text(self, f, Vector2(x, size.y * 0.5 + 5), txt, 13, game.C_TEXT if state == "active" else col, size.x - x - 8.0, HORIZONTAL_ALIGNMENT_LEFT)

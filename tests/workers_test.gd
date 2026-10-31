@@ -78,6 +78,7 @@ func run() -> void:
 	cancel_and_pause()
 	fairness()
 	escrow_theft()
+	resources_in_turn()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -419,3 +420,16 @@ func escrow_theft() -> void:
 	for r in g.RES: pile += g._loot(h, R, r)
 	check(esc >= 1.0 and after < esc and absf(pile - (esc - after)) < 0.001, "A Vault raid takes unbuilt site materials (%.0f of %.0f) into the raider's pile" % [esc - after, esc])
 	check(not g._job_funded(g.hosts[h].jobs[0]) and g._build_requests(h, P).size() > 0, "The project lacks them again and asks for them")
+
+
+func resources_in_turn() -> void:   # one host with two surpluses: both go home in turn, not only the older request's
+	fresh()
+	var home: int = int(g.rig[P])
+	var h := near()
+	own(h, [])
+	g.hosts[h].type = "server"; g.hosts[h].slots = 3; g._set_builds(h, ["intel", "intel", "lab"])   # Intel always spare, plus Research
+	for res in g.RES: g.bank[P][res] = 100.0
+	step(240.0)
+	var sums: Dictionary = g._ledger_sums(P)
+	var research := float(sums.get("from:%d:research" % h, 0.0)); var intel := float(sums.get("from:%d:intel" % h, 0.0))
+	check(research > 0.5 and intel > 0.5, "A Lab host that always has spare Intel still sends its Research home (recent: %.1f Research, %.1f Intel)" % [research, intel])

@@ -126,6 +126,7 @@ func conditions() -> void:
 	# research that cannot pay
 	g.bank[P] = {"intel": 0.0, "cash": 0.0, "creds": 60.0, "research": 0.0}
 	g.research_job[P] = {"key": "exploit", "progress": 1.0, "paused": false}
+	g.hosts[int(g.rig[P])].ddos_until = g._t + 60.0   # nothing comes in: it cannot pay at all
 	step(1.0)
 	check(entries("research").size() == 1 and str(entries("research")[0].text).contains("stopped"), "Research that cannot pay is actionable: %s" % (str(entries("research")[0].text) if entries("research").size() > 0 else "none"))
 	# a rival holding the majority

@@ -47,6 +47,16 @@ func run() -> void:
 	check(researched >= 3, "The AIs research new blueprints (%d learned beyond the starting set)" % researched)
 	check(plays >= 8, "The AIs manufacture and play cards (%d plays)" % plays)
 	check(end_owned >= start_owned + 5, "The AIs capture ground (owned %d -> %d of %d)" % [start_owned, end_owned, g.hosts.size()])
+	# every AI on its own keeps developing (not just the total): buildings, workers and a second blueprint in 10 minutes
+	for fac in g.botnets:
+		if g._eliminated.has(fac): continue
+		var built := 0
+		for i in g.hosts.size():
+			if int(g.hosts[i].owner) != int(fac): continue
+			for k in g.hosts[i].builds: if str(k) != "": built += 1
+		var learned := (g.known.get(fac, {}) as Dictionary).size() - int(g.KNOWN_START.size())
+		var w: Dictionary = g._worker_counts(int(fac))
+		check(built >= 7 and int(w.total) >= 4 and learned >= 1, "AI %d keeps developing: %d buildings (>= 7), %d workers (>= 4), %d blueprints learned" % [int(fac), built, int(w.total), learned])
 
 	print(JSON.stringify({"checks": checks, "failures": failures, "owned": "%d->%d" % [start_owned, end_owned], "plays": plays}))
 	g.free(); quit(0 if failures.is_empty() else 1)

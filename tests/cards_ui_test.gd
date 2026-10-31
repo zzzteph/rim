@@ -141,7 +141,12 @@ func research_states() -> void:
 	check(g.research_button.text.begins_with("Paused") and str(g._research_status_line()[0]).begins_with("Paused: DDoS"), "Paused: %s" % g.research_button.text)
 	g._research_act()
 	for r in ["intel", "cash", "research"]: g.bank[P][r] = 0.0
-	step(1.0); g._update_card_banks()
+	step(2.0); g._update_card_banks()   # an empty bank with the main node's trickle still coming in: slower, not stopped
+	check(not g.research_button.text.begins_with("Stalled") and str(g._research_status_line()[0]).contains("slowed") and str(g._research_status_line()[1]) == str(g.C_WARN),
+		"An empty bank that still takes in a trickle: research goes on, slowed (%s)" % str(g._research_status_line()[0]))
+	g.hosts[int(g.rig[P])].ddos_until = g._t + 60.0   # nothing comes in at all: after a production cycle with no payment it has stopped
+	for r in ["intel", "cash", "research"]: g.bank[P][r] = 0.0
+	step(g.RESEARCH_STALL_SECS + 1.0); g._update_card_banks()
 	check(g.research_button.text.begins_with("Stalled") and str(g._research_status_line()[1]) == str(g.C_BAD), "Starved of resources: %s, in red" % g.research_button.text)
 	g._research_node_click("express")
 	var st_sel: Dictionary = g._research_node_state("express"); var st_run: Dictionary = g._research_node_state("ddos")
@@ -195,6 +200,7 @@ func research_bar() -> void:   # on screen outside the drawer while research run
 	check(str(g._research_bar_state().state) == "paused", "Paused reads paused")
 	g.research_job[P].paused = false
 	for r in ["intel", "cash", "research"]: g.bank[P][r] = 0.0
+	g.research_job[P].paid_t = g._t - g.RESEARCH_STALL_SECS - 1.0   # nothing paid for longer than a cycle
 	check(str(g._research_bar_state().state) == "stalled" and str(g._research_bar_state().why).contains("no"), "Stalled names what is missing: %s" % str(g._research_bar_state().why))
 	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true
 	bar._gui_input(ev); await frames()

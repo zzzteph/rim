@@ -88,6 +88,7 @@ func run() -> void:
 	paused()
 	full_bank()
 	no_early_spike()
+	short_of_workers()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -199,3 +200,39 @@ func no_early_spike() -> void:   # the old reading extrapolated the first second
 	var steady: float = trickle() + per_cycle() * float(g.BUILD_KINDS.intel.rate) * g._tmult(home, "intel")
 	check(absf(early - rate("intel")) < 0.01 and absf(early - steady) < 0.01, "From the first second the forecast is the network's steady rate (%.0f Intel/min: trickle + harvester)" % early)
 	check(not str(g._hud_rate("intel")[0]).begins_with("~"), "No early-estimate tilde: it is a forecast, not a measurement")
+
+
+func short_of_workers() -> void:   # two workers for six hosts: the forecast follows the dispatcher (inputs first, output back on
+	fresh()                          # their return legs, then the surplus in turn), not one even share for everything
+	var home: int = int(g.rig[P])
+	var hs := []
+	var frontier := [home]; var seen := {home: true}
+	while hs.size() < 6 and not frontier.is_empty():
+		var nxt := []
+		for f0 in frontier:
+			for nb in g.hosts[int(f0)].links:
+				if seen.has(int(nb)): continue
+				seen[int(nb)] = true
+				if hs.size() < 6 and int(g.hosts[int(nb)].owner) == g.NEUTRAL: hs.append(int(nb)); g._capture(int(nb), P); nxt.append(int(nb))
+		frontier = nxt
+	var lays := [["intel", "cash", "intel"], ["intel", "cred", "intel"], ["cash"], ["cred"], ["intel", "intel", "lab"], ["intel"]]
+	for k in hs.size(): g._set_builds(hs[k], (lays[k] as Array).slice(0, int(g.hosts[hs[k]].slots)))
+	for res in g.RES: g.bank[P][res] = 100.0
+	for k in int(240.0 / g.SIM_DT): g._sim_step(g.SIM_DT)   # settle
+	var fc_sum := 0.0; var n := 0   # what the remote hosts deliver, all resources together (the mix follows each store)
+	var got := 0.0
+	for sec in 300:
+		for k in int(round(1.0 / g.SIM_DT)): g._sim_step(g.SIM_DT)
+		for res in g.RES: g.bank[P][res] = 100.0   # nothing caps, nothing starves
+		g._fc_gen += 1
+		var fc: Dictionary = g._forecast(P)
+		for r in g.RES:
+			for src in (fc.from.get(r, {}) as Dictionary):
+				if not str(src).begins_with("main node"): fc_sum += float(fc.from[r][src])
+		n += 1
+		if sec % 30 == 29:
+			var sums: Dictionary = g._ledger_sums(P)
+			for key in sums:
+				if str(key).begins_with("from:"): got += float(sums[key])
+	var f := fc_sum / n; var m := got / 5.0
+	check(absf(f - m) <= 0.3 * m, "Two workers for six hosts: the forecast of what the hosts deliver (%.1f/min) is within 30%% of what arrives (%.1f/min)" % [f, m])

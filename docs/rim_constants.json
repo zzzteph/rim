@@ -175,7 +175,7 @@
         },
         "make_time": 12.0,
         "lead": "Capture a host in 15 s.",
-        "rules": "Travels from your main node, then executes for 15 s, 30 s on a main node. It captures the host unless a Patch, a lost route or a change of owner stops it first."
+        "rules": "Travels from your main node, then executes for 15 s, 30 s on a main node. If it succeeds it captures the host. A Patch, a lost route or a change of owner stops it first."
       },
       "exploit": {
         "name": "Known exploit",
@@ -251,7 +251,7 @@
         },
         "make_time": 16.0,
         "lead": "Empty the storage of 3 linked hosts.",
-        "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your workers collect it from there. A Patch stops it."
+        "rules": "Raids a rival host for 10 s. If it succeeds it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your workers collect it from there. A Patch stops it."
       },
       "ddos": {
         "name": "DDoS",
@@ -309,7 +309,7 @@
         },
         "make_time": 22.0,
         "lead": "Capture 2 linked hosts in turn.",
-        "rules": "Captures the target, then its nearest linked host of the same owner. Each stage executes for 12 s (24 s on a main node) and can be stopped on its own. A Patch, a lost route or a change of owner ends it."
+        "rules": "Tries to capture the target, then its nearest linked host of the same owner. Each stage executes for 12 s (24 s on a main node) and can be stopped on its own. A Patch, a lost route or a change of owner ends it."
       },
       "sabotage": {
         "name": "Supply-chain sabotage",
@@ -877,7 +877,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.3",
+    "GAME_VERSION": "0.6.4",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

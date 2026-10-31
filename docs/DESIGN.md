@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.3 · commit 5bc6603
+RIM 0.6.4 · commit e1c47bb
 
 ## Contents
 
@@ -98,7 +98,7 @@ The match ends when one network holds the majority for 51 s or is the last with 
 | Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch.                                                       |
 | End game  | 10 min +     | 0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                                                                                 |
 
-Measured sample (0.6.3): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each, at 5 units a minute per producer. Held hosts grow from 8 to 13–18; 16 intrusions resolve per match, all Credential breaches on neutral hosts. 60 Recons: 29 got through, 31 missed. Scouted breaches: 19 captured, 10 missed. Unscouted: 16 captured, 35 missed. Overall 35 of 80 breaches captured (44%), against 47 of 78 (60%) under 0.6.2's odds (50% unscouted, 100% scouted). After 10 minutes the largest network holds 4–6 of the 21 hosts needed. The economy, not the odds, sets the pace: each AI launches about one capture every 95 s. The AIs scout first and keep the capture copy for the scouted host; when the Recon misses and no other is in hand or being made, they attack at 25%.
+Measured sample (0.6.4): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each, at 5 units a minute per producer. Held hosts grow from 8 to 14–17. Per match 18–23 intrusions resolve and 27–35 cards are played. All intrusions were Credential breaches on neutral hosts. 54 Recons: 35 got through, 19 missed. Scouted breaches: 21 captured, 18 missed. Unscouted: 16 captured, 49 missed. Overall 37 of 104 breaches captured (36%; the odds predict about 32% for this mix). After 10 minutes the largest network holds 4–5 of the 21 hosts needed. Each AI keeps building on credit, one project at a time, taking turns with its cards. It reaches 7–13 buildings, 4–6 workers and 2–3 blueprints by 10 minutes (0.6.3's AI stopped at 4 buildings and 2 workers). It scouts first and keeps the capture copy for the scouted host; when the Recon misses and no other is in hand or being made, it attacks at 25%.
 
 ## Time model
 
@@ -215,7 +215,10 @@ forecast(res) = main-node trickle (5/min while the main node is up)
               + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
                   inputs  = made on the host, or brought by workers (plenty while the bank holds ≥ 5,
                             else only what the main node brings in, shared by the hosts in turn)
-                  sent    ≤ its share of your workers' round trips (one pool, working from the main node)
+                  sent    = what your workers' round trips can carry, as the dispatcher serves them (one pool
+                            at the main node): inputs first, each input trip bringing one unit of output back,
+                            then the remaining surplus with what is left of the pool, the hosts in turn;
+                            a host whose inputs are short makes less in proportion
                   nothing from a host with no route home, under DDoS, or into a full bank
 ```
 
@@ -282,7 +285,7 @@ Each finished Bot station provides two reusable workers that belong to its host;
 
 #### Who carries, and what first
 
-Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. Three of four assignments go by purpose — construction first, then inputs, then surplus and loot — and within a purpose to the host served least recently; every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.
+Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. Three of four assignments go by purpose — construction first, then inputs, then surplus and loot — and within a purpose to the host served least recently; every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.
 
 #### No supply settings
 
@@ -328,7 +331,7 @@ When the way on is cut (a relay taken or under DDoS) a packet waits at the last 
 
 #### Research (RESEARCH tab)
 
-The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.
+The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. While it still pays now and then it reads **slowed** (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read **stopped** and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.
 
 #### Manufacturing (ATTACK and DEFENCE tabs)
 
@@ -681,20 +684,21 @@ One AI for every rival, no difficulty setting. It plays by the same rules, price
 #### 1 · Develop
 
 - Main node: Intel harvester, Bot station, then a converter chosen by need (it may be a Lab, fed from the bank), Lab, Credential harvester.
-- Other hosts: Intel harvester, converter, Intel harvester, converter, Intel harvester (a harvester for each converter). While its workers are short (fewer than one Bot station per two hosts held, stations on order counted) the first slot is a Bot station; a 1-slot host gets a Bot station only then, else a harvester.
-- One Research host once it holds 3 hosts or its nearest target is a rival's: Intel harvester, Miner, Lab on 3 slots; Intel harvester, Miner, Intel harvester, Lab, Intel harvester on 4+.
+- Other hosts: Intel harvester, converter, Intel harvester, converter, Intel harvester (a harvester for each converter); a 1-slot host gets a harvester.
+- Workers: while it has fewer than one Bot station per two hosts held (stations on order counted), it puts a station in the first free slot of the host with the most free slots, ahead of the plans.
+- One Research host once it holds 3 hosts or its nearest target is a rival's: Intel harvester, Miner, Lab on 3 slots; Intel harvester, Miner, Intel harvester, Lab, Intel harvester on 4+. A Lab on order counts, so it never plans two.
 - One Firewall (in the fourth slot) on a 4+-slot host once it holds 6 hosts.
-- The main node first, then every other host with a road home; per host the first empty planned slot it can pay for.
-- Converter choice: what its next capture card lacks for two copies, else the emptiest bank. It builds the first planned slot it can pay for and saves for the rest.
-- Retool: when one of Intel, Crypto, Credentials is ≥ 40% full and another \< 15%, it rebuilds one producer of the full kind as the short kind.
+- The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 5 units a minute the card queue would otherwise spend every unit first.
+- Converter choice: what its next capture card lacks for two copies, else the emptiest bank.
+- Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least 24 and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind; at most one retool every 120 s.
 
 #### 2 · Research
 
-Known exploit at once; then Traffic filter, DDoS, 0day, Worm, Packet siphon, Cargo cover, Sabotage, Vault raid, Express route, each only when its whole price is in the bank 1.5 times over.
+In this order: Known exploit, Traffic filter, DDoS, 0day, Worm, Packet siphon, Cargo cover, Sabotage, Vault raid, Express route. Research takes its turn with building: it is due while it knows fewer blueprints than a quarter of its buildings, and while due no project is ordered on credit. A running research pauses while one of its projects waits for materials, since its per-second payments would keep the bank below the whole unit a worker carries.
 
 #### 3 · Manufacture
 
-A capture card for its nearest target (the cheapest known for a neutral host, the fastest for a rival's; up to 3 held); Recon (up to 2 held); a Patch (2 when one of its hosts is under attack); Response or Filter while a Firewall socket is free; one DDoS or Phishing when a target exists.
+A capture card for its nearest target (the cheapest known for a neutral host, the fastest for a rival's; up to 3 held); one Recon; a Patch once it holds 5 hosts (2 when one of its hosts is under attack); Response or Filter while a Firewall socket is free; one DDoS or Phishing when a target exists.
 
 #### 4 · Operate and defend
 
