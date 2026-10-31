@@ -7,7 +7,7 @@ const DEMOLISH_TIME := 5.0         # seconds to clear an occupied slot first (re
 
 # Every host runs one production cycle each PROD_CYCLE (5 s): Intel harvesters first, then the Firewall's upkeep,
 # then the converters (Miner, Credential harvester, Research lab) from what is in THAT host's storage (at the main
-# node: the bank), then the Bot stations, whose couriers stay on their host (at the main node: the bank's Bots).
+# node: the bank), then the Bot stations, each with two reusable workers that belong to its host.
 # "rate" is output per cycle at x1, "use" the input per cycle; host type multipliers scale both.
 const BUILD_KINDS := {
 	"intel": {"name": "Intel harvester",      "card": "Intel harv.",  "short": "I", "col": Color(0.4, 0.85, 1.0),

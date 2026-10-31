@@ -30,16 +30,16 @@ const CARDS := {
 		"lead": "Capture a host in 9 s.", "rules": "Travels, then executes for 9 s, 20 s on a main node. That leaves a defender's Patch less time to arrive. A Patch, a lost route or a change of owner stops it."},
 	"phish":     {"name": "Phishing", "short": "Phish", "fam": "phish", "bank": "attack", "effect": "phish", "known": true, "dur": 60.0,
 		"make": {"intel": 18, "cash": 6, "creds": 8, "research": 4}, "make_time": 12.0,
-		"lead": "Divert new output for 60 s.", "rules": "What a rival host makes is kept there for you, and your couriers collect it. They keep the host and its couriers but get nothing from it. Incident response ends it."},
+		"lead": "Divert new output for 60 s.", "rules": "What a rival host makes is kept there for you, and your workers collect it. They keep the host and its workers but get nothing from it. Incident response ends it."},
 	"siphon":    {"name": "Packet siphon", "short": "Siphon", "fam": "siphon", "bank": "attack", "effect": "siphon", "known": false, "dur": 30.0, "cargo": 30,
 		"make": {"intel": 20, "cash": 6, "creds": 6, "research": 5}, "make_time": 12.0,
-		"lead": "Hijack couriers crossing a host.", "rules": "Pick a resource. For 30 s, their couriers carrying it that leave or pass this host drop it there for your couriers, up to 30. Best on a host their deliveries cross. Courier cover protects cargo."},
+		"lead": "Hijack cargo crossing a host.", "rules": "Pick a resource. For 30 s, their workers carrying it that leave or pass this host drop it there for your workers, up to 30. Best on a host their deliveries cross. Cargo cover protects cargo."},
 	"vault":     {"name": "Vault raid", "short": "Vault", "fam": "vault", "bank": "attack", "effect": "vault", "known": false, "exec": 10.0, "cargo": 30, "reach": 3,
 		"make": {"intel": 24, "cash": 0, "creds": 10, "research": 8}, "make_time": 16.0,
-		"lead": "Empty the storage of 3 linked hosts.", "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your couriers collect it from there. A Patch stops it."},
+		"lead": "Empty the storage of 3 linked hosts.", "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your workers collect it from there. A Patch stops it."},
 	"ddos":      {"name": "DDoS", "short": "DDoS", "fam": "dos", "bank": "attack", "effect": "ddos", "known": false, "dur": 45.0, "reach": 3,
 		"make": {"intel": 34, "cash": 14, "creds": 0, "research": 5}, "make_time": 14.0,
-		"lead": "Halt 3 hosts' output for 45 s.", "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing couriers; incoming cargo still arrives. Traffic filter clears it."},
+		"lead": "Halt 3 hosts' output for 45 s.", "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing deliveries; incoming cargo still arrives. Traffic filter clears it."},
 	"zeroday":   {"name": "0day", "short": "0day", "fam": "zeroday", "bank": "attack", "effect": "capture", "known": false, "exec": 5.0, "exec_rig": 12.0,
 		"make": {"intel": 16, "cash": 12, "creds": 12, "research": 16}, "make_time": 26.0,
 		"lead": "Capture a host in 5 s.", "rules": "Travels, then executes for 5 s, 12 s on a main node. Only a Patch already armed or in a Firewall socket is in time. A lost route or a change of owner also stops it."},
@@ -58,9 +58,9 @@ const CARDS := {
 	"filter":    {"name": "Traffic filter", "short": "Filter", "fam": "filter", "bank": "defense", "effect": "filter", "known": false, "dur": 30.0,
 		"make": {"intel": 14, "cash": 4, "creds": 0, "research": 2}, "make_time": 8.0,
 		"lead": "Clear DDoS and block it for 30 s.", "rules": "In a Firewall socket it waits and blocks the next DDoS as it lands. It does not boost production or stop capture."},
-	"cover":     {"name": "Courier cover", "short": "Cover", "fam": "cover", "bank": "defense", "effect": "cover", "known": false, "dur": 30.0,
+	"cover":     {"name": "Cargo cover", "short": "Cover", "fam": "cover", "bank": "defense", "effect": "cover", "known": false, "dur": 30.0,
 		"make": {"intel": 12, "cash": 4, "creds": 0, "research": 2}, "make_time": 8.0,
-		"lead": "Shield this host's cargo for 30 s.", "rules": "Its couriers are safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs one, and saves that courier."},
+		"lead": "Shield this host's cargo for 30 s.", "rules": "Its workers' cargo is safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs some, and saves it."},
 	"express":   {"name": "Express route", "short": "Express", "fam": "express", "bank": "defense", "effect": "express", "known": false, "dur": 45.0,
 		"make": {"intel": 14, "cash": 4, "creds": 0, "research": 2}, "make_time": 10.0,
 		"lead": "Halve delivery time for 45 s.", "rules": "Shipments and new Bots from this host cross each link twice as fast. It cannot go in a Firewall socket: play it when you need the speed."},
@@ -90,7 +90,7 @@ const READY_SLOTS := 12            # ready copies + the copy being made + cards 
 # the two deck tabs: red ATTACK, blue DEFENCE (internal key stays "defense")
 const BANK_NAME := {"attack": "ATTACK", "defense": "DEFENCE", "research": "RESEARCH"}
 const BANK_COL := {"attack": Color(1.0, 0.36, 0.33), "defense": Color(0.36, 0.6, 1.0), "research": Color(0.75, 0.55, 1.0)}
-const FAMILY_NAME := {"recon": "recon", "breach": "credential breach", "exploit": "known exploits", "phish": "phishing", "siphon": "packet siphon", "vault": "vault raids", "dos": "denial of service", "zeroday": "0day exploits", "worm": "worms", "supply": "supply-chain sabotage", "patch": "patches", "response": "incident response", "filter": "traffic filters", "cover": "courier cover", "express": "express routes"}
+const FAMILY_NAME := {"recon": "recon", "breach": "credential breach", "exploit": "known exploits", "phish": "phishing", "siphon": "packet siphon", "vault": "vault raids", "dos": "denial of service", "zeroday": "0day exploits", "worm": "worms", "supply": "supply-chain sabotage", "patch": "patches", "response": "incident response", "filter": "traffic filters", "cover": "cargo cover", "express": "express routes"}
 # Schematic art: one picture per family (assets/cards/schematic/; make_art.py draws vault, worm, siphon,
 # cover and express in the style of the hand-made ones). tests/text_fit_test.gd checks no two cards share one.
 const FAMILY_ART := {

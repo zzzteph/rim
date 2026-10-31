@@ -41,6 +41,7 @@ func run() -> void:
 	names_are_neutral()
 	unknown_reveals_nothing()
 	recon_reveals_then_expires()
+	two_hidden_hosts_match()
 	ai_uses_recon_only()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
@@ -74,7 +75,7 @@ func unknown_reveals_nothing() -> void:
 	var leaks := []
 	for tp in g.NODE_TYPES: if txt.contains(str(g.NODE_TYPES[tp].name)): leaks.append(str(g.NODE_TYPES[tp].name))
 	if txt.contains("slot"): leaks.append("slots")
-	if txt.contains("storage"): leaks.append("storage")
+	if txt.contains("/%d" % int(g.STORE_CAP)): leaks.append("storage")
 	check(txt.contains("Unknown host — send Recon to inspect.") and leaks.is_empty(), "The inspector says only: unknown, send Recon (leaks: %s)" % str(leaks))
 	var rival_rig: int = int(g.rig[g.botnets[1] if int(g.botnets[0]) == P else g.botnets[0]])
 	g._inspect = rival_rig
@@ -117,3 +118,23 @@ func ai_uses_recon_only() -> void:   # it presses the host whose producers its R
 	g.recon[ai] = {}
 	g._mark_scanned(ai, b)
 	check(g._ai_press_target(ai, "phish") == b, "Its Recon of the busy one makes it the target")
+
+
+func two_hidden_hosts_match() -> void:   # different types, slots, buildings, stores, workers and defences: the same presentation
+	fresh()
+	var a := -1; var b := -1
+	for i in g.hosts.size():
+		if int(g.hosts[i].owner) != g.NEUTRAL or bool(g.hosts[i].hub): continue
+		if a < 0: a = i
+		elif str(g.hosts[i].type) != str(g.hosts[a].type) and int(g.hosts[i].slots) != int(g.hosts[a].slots): b = i; break
+	if b < 0: check(false, "two neutral hosts of different types and slot counts"); return
+	var rival: int = g.botnets[1] if int(g.botnets[0]) == P else g.botnets[0]
+	for h in [a, b]: g._capture(h, rival)
+	g._set_builds(b, ["bot", "lab", "wall"]); g.hosts[b].store = {rival: {"intel": 6.0, "cash": 3.0}}
+	g.hosts[b].patch_armed_until = g._t + 30.0; g.hosts[b].express_until = g._t + 30.0
+	var look := func(h: int) -> Array:
+		g.sel = {}; g._inspect = h
+		var txt := panel_text().replace(str(g.hosts[h].name), "NAME")
+		return [g._r(h), g._public_type(h), g._visible_bot_count(h), str(g._node_sub(h, true)[0]), g._effects_line(h), txt]
+	var la: Array = look.call(a); var lb: Array = look.call(b)
+	check(la == lb, "Two unscouted rival hosts differ only by name (%s vs %s)" % [str(la.slice(0, 5)), str(lb.slice(0, 5))])

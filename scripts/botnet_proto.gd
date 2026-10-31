@@ -2429,7 +2429,7 @@ func _build_cost_text(kind: String) -> String:
 
 # ---- the Firewall: FIREWALL_SOCKETS defence cards per Firewall, each firing itself when its attack hits this host ----
 const SOCKET_TRIGGER := {"patch": "a capture, Worm or Vault raid starts here", "response": "Phishing, Packet siphon or sabotage lands here",
-	"filter": "a DDoS lands here", "cover": "a Packet siphon grabs a courier from here"}
+	"filter": "a DDoS lands here", "cover": "a Packet siphon grabs cargo from here"}
 
 
 func _sockets(i: int) -> int: return FIREWALL_SOCKETS * maxi(0, _count_all(i, "wall") - _walls_building(i))
@@ -3168,7 +3168,7 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 			lines.append(["Would hit, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
 		"siphon":
 			var res := siphon_res if RES.has(siphon_res) and siphon_res != "bots" else "cash"
-			lines.append(["On arrival, for %d s, %s couriers leaving or passing this host drop it there for yours (up to %d)." % [int(card.dur), RES_NAME[res], int(card.cargo)], C_TEXT])
+			lines.append(["On arrival, for %d s, %s carried by workers leaving or passing this host is dropped there for yours (up to %d)." % [int(card.dur), RES_NAME[res], int(card.cargo)], C_TEXT])
 			if by_drag: lines.append(["A drag takes Crypto; choose another resource in the host's panel.", C_DIM])
 		"recon": lines.append(["On arrival, shows its installations, storage and Firewall cards; the snapshot is fresh for %d s." % int(card.dur), C_TEXT])
 	lines.append_array(_known_defences(fac, t, eff, arrive + ex))
@@ -3786,7 +3786,7 @@ func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the targ
 	if took <= 0:
 		if fac == PLAYER: _flash("Vault raid on %s found nothing to carry" % str(hosts[t].name), 1)
 		return
-	if fac == PLAYER: _flash("Vault raid on %s: %d units wait there for your couriers" % [str(hosts[t].name), took], 0)
+	if fac == PLAYER: _flash("Vault raid on %s: %d units wait there for your workers" % [str(hosts[t].name), took], 0)
 	elif victim == PLAYER: _flash("%s emptied your storage near %s: %d units taken" % [fname(fac), str(hosts[t].name), took], 2)
 
 
@@ -3820,7 +3820,7 @@ func _apply_response(t: int) -> void:   # Incident response: theft and sabotage 
 func _apply_filter(t: int) -> void: hosts[t].ddos_until = 0.0; hosts[t].filter_until = _t + float(CARDS.filter.dur)
 
 
-func _apply_cover(t: int) -> void:   # Courier cover: this host's couriers in flight and new ones are safe from siphons
+func _apply_cover(t: int) -> void:   # Cargo cover: this host's workers in flight and new ones are safe from siphons
 	hosts[t].cover_until = _t + float(CARDS.cover.dur)
 	for f in flights:
 		if str(f.kind) == "courier" and int(f.origin) == t and int(f.owner) == int(hosts[t].owner): f.covered = true
@@ -4294,9 +4294,10 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled(); return
 	if menu_open or won or lost: return
 	if event.keycode == KEY_SPACE:
-		if _camp_paused: _camp_set_pause(false); get_viewport().set_input_as_handled(); return   # resume reading pause
-		if _mp_on or _camp: return   # a shared match never pauses; the campaign uses its reading pause
-		paused = not paused; _refresh_panel(); queue_redraw()
+		if _camp_paused: _camp_set_pause(false); get_viewport().set_input_as_handled(); return   # resume the lesson's reading pause
+		if _mp_on: return   # a shared match never pauses
+		paused = not paused; _refresh_panel(); queue_redraw()   # your own pause (in Learn too): separate from the lesson's
+		if _camp: _show_tut()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_0: _reset_view()
 	elif event.keycode == KEY_C: _set_deck_open(not _deck_open); get_viewport().set_input_as_handled()
@@ -5844,8 +5845,8 @@ func _submit_feedback() -> void:
 # ---------------------------------------------------------------- TUTORIAL
 func _tut_stages() -> Array:
 	return [
-		{"title": "Your main node", "text": "Your main node makes one of each resource every 5 seconds. What other hosts make waits in their storage until a Bot carries it home."},
-		{"title": "Manufacture", "text": "Click a known card in the deck to manufacture a copy, then drag it from the deck onto a target to launch it."},
+		{"title": "Your main node", "text": "Your main node makes one of each resource every 5 seconds. What other hosts make is used there first; workers carry the surplus home."},
+		{"title": "Manufacture", "text": "Open the recipes (C) and click + Queue to make a copy, then drag the ready card onto a target to launch it."},
 		{"title": "Win", "text": "Hold at least 51% of the hosts for 51 seconds, or be the last network with its main node."},
 	]
 
@@ -5865,7 +5866,7 @@ const RICH_TERMS := {
 	"Recon": "card:recon", "Credential breach": "card:breach", "Known exploit": "card:exploit", "Phishing": "card:phish",
 	"Packet siphon": "card:siphon", "Vault raid": "card:vault", "DDoS": "card:ddos", "0day": "card:zeroday",
 	"Worm": "card:worm", "Supply-chain sabotage": "card:sabotage", "Patch": "card:patch", "Incident response": "card:response",
-	"Traffic filter": "card:filter", "Courier cover": "card:cover", "Express route": "card:express",
+	"Traffic filter": "card:filter", "Cargo cover": "card:cover", "Express route": "card:express",
 	"ATTACK": "bank:attack", "DEFENCE": "bank:defense",
 	# panel buttons: the button's colour (+ its glyph where one exists)
 	"Scan": "act:Scan", "Launch": "act:Attack", "Stop": "act:Stop",
@@ -6033,37 +6034,41 @@ func _tut_finish() -> void:
 # the step within a chapter reuses _tut_stage. Advancement is gated on real game-state outcomes. A reading pause
 # (_camp_paused) freezes the WHOLE simulation; the player resumes with Space or by taking the action.
 func _camp_chapters() -> Array:
-	return ["Prepare an operation", "Production is not delivery", "Research and manufacture", "Steal and protect", "Run the network"]
+	return ["Scout and capture", "Build and deliver", "Research and manufacture", "Steal, protect, recover", "Run the network"]
 
 
-func _camp_steps(chapter: int) -> Array:   # t title · a the instruction · r what it did · pause: the game waits only where the action is available at once
+# t title · a the instruction · r what it did · pause: the game waits only where the action is available at once ·
+# ui: the control(s) to cue · card: an operation the step launches (cue stops on the accepted launch; the step ends on the result)
+func _camp_steps(chapter: int) -> Array:
 	match chapter:
 		0: return [
-			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 s, already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "role": "home", "pause": true},
-			{"t": "Manufacture a card", "r": "A Credential breach copy is being made.", "a": "Press C, open Attack recipes and click Credential breach.", "role": "", "ui": "card:breach", "pause": true},
-			{"t": "Scout", "r": "The relay is scouted: your attacks on it have full odds for 45 s.", "a": "Drag Recon onto the Neighborhood Relay. Unscouted attacks work half the time.", "role": "relay", "ui": "card:recon", "card": "recon", "pause": true},
-			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When it is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
+			{"t": "Your main node", "r": "Your main node's stock is what pays for cards and research; its Bot station's 2 workers carry for it.", "a": "Select YOUR MAIN NODE: its stock is the top bar, and its Bot station gives it 2 workers.", "role": "home", "pause": true},
+			{"t": "Scout", "r": "Recon revealed the relay: what it is, its slots and its storage.", "a": "Drag Recon onto the Neighborhood Relay. Until you scout it, it shows only its name.", "role": "relay", "ui": "card:recon", "card": "recon", "pause": true},
+			{"t": "Manufacture a card", "r": "A Credential breach copy is in the queue.", "a": "Press C, open Attack recipes and click + Queue on Credential breach.", "role": "", "ui": "card:breach", "pause": true},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When the copy is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
 		1: return [
-			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s, kept on the relay.", "a": "Select the relay and build an Intel harvester in a slot.", "role": "relay", "ui": "build:intel", "pause": true},
-			{"t": "Bot station", "r": "The relay now has 2 workers of its own: they carry its output home and come back.", "a": "Build a Bot station in another slot of the relay.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a worker to carry Intel home along the green route.", "role": "home", "pause": false},
+			{"t": "A building far from home", "r": "The relay's Bot station is built: 2 workers of its own.", "a": "Drag a Bot station onto a free relay slot: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "Local use first", "r": "The Miner uses the relay's own Intel first.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
+			{"t": "Surplus goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: the relay's workers carry its spare Intel and Crypto to your main node.", "role": "relay", "pause": false},
 		]
 		2: return [
-			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Click Research (top right or R), select Known exploit, then Research.", "role": "", "ui": "card:exploit", "pause": true},
-			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once it is learned, make a Known exploit copy in Attack recipes.", "role": "", "ui": "card:exploit", "pause": false},
+			{"t": "Research a blueprint", "r": "Known exploit is learned.", "a": "Open Research (R), select Known exploit, then Research; the bar at the top shows progress.", "role": "", "ui": "card:exploit", "pause": true},
+			{"t": "Queue two copies", "r": "Copies are made one at a time, in order.", "a": "In Attack recipes, click + Queue on Known exploit twice.", "role": "", "ui": "card:exploit", "copies": 2, "pause": false},
 			{"t": "Scout the gateway", "r": "The gateway is scouted.", "a": "Drag Recon onto the Corporate Gateway.", "role": "gateway", "ui": "card:recon", "card": "recon", "pause": false},
-			{"t": "Use it", "r": "The Corporate Gateway is yours.", "a": "Launch Known exploit at the Corporate Gateway: it executes in 9 s.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
-			{"t": "A Miner far from Intel", "r": "The Miner needs Intel on the gateway, and none is made there.", "a": "Select the Corporate Gateway and build a Crypto miner.", "role": "gateway", "ui": "build:cash", "pause": true},
-			{"t": "Supply it", "r": "Workers bring the Intel it needs; the Miner uses what arrives, and Crypto rides back.", "a": "Watch: your main node's workers bring Intel to the gateway by themselves.", "role": "gateway", "pause": false},
+			{"t": "Launch the ready copy", "r": "The Corporate Gateway is yours.", "a": "Launch the ready Known exploit at the Corporate Gateway.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
+			{"t": "A Miner far from Intel", "r": "The gateway has a Miner and its own 2 workers.", "a": "Build a Crypto miner and a Bot station on the gateway. No Intel is made there.", "role": "gateway", "ui": ["build:cash", "build:bot"], "pause": true},
+			{"t": "Missing inputs are fetched", "r": "Crypto from the gateway reached your main node.", "a": "Watch: the gateway's workers fetch Intel from your main node, and its Crypto comes home.", "role": "gateway", "pause": false},
+			{"t": "Local stock and Refill", "r": "Supply is automatic; Refill only adds one cycle's inputs once.", "a": "Read the gateway's LOCAL STOCK. Refill supplies is optional: one cycle's inputs, once.", "role": "gateway", "ui": "refill", "secs": 14.0, "pause": false},
 		]
 		3: return [
 			{"t": "Scout the target", "r": "The Practice host is scouted.", "a": "Drag Recon onto the Practice host.", "role": "practice", "ui": "card:recon", "card": "recon", "pause": true},
 			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Launch Phishing on the Practice host.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
 			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "Send Incident response to the Neighborhood Relay: it acts when it arrives.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
+			{"t": "Losses", "r": "A new Bot station is on order: its 2 workers start when it is built.", "a": "NYX took your Outpost: its 2 workers died with it. Order a Bot station on a host of yours.", "role": "", "ui": "build:bot", "fire": "ch4_outpost", "pause": true},
 		]
 		_: return [
-			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "role": "", "pause": true},
+			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "role": "", "pause": false},
 		]
 
 
@@ -6073,7 +6078,7 @@ func _camp_role_host(role: String) -> int:
 		"relay", "income": return _camp_relay
 		"gateway", "frontier": return _camp_gateway
 		"practice": return _camp_practice
-		"practice2": return _camp_practice2
+		"practice2", "outpost": return _camp_practice2
 		"support": return _camp_support
 	return -1
 
@@ -6102,7 +6107,7 @@ func _camp_from() -> int: return -1   # no manual wiring to guide any more
 func _camp_fill(s: String) -> String: return s
 
 
-func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck card or a build card), re-found each frame
+func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck card, a build card, a button), re-found each frame
 	var st := _camp_step()
 	if st.is_empty() or menu_open or won or lost: return []
 	var specs = st.get("ui", [])
@@ -6110,32 +6115,110 @@ func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck c
 	var out := []
 	for spec in specs:
 		var p := str(spec).split(":", true, 1)
-		if p.size() != 2: continue
 		match p[0]:
-			"card": out.append_array(_camp_card_ctrls(p[1]))
-			"build": out.append_array(_camp_build_ctrls(p[1]))
+			"card": if p.size() == 2: out.append_array(_camp_card_ctrls(p[1]))
+			"build":
+				if p.size() == 2:
+					var c := _camp_build_ctrls(p[1])
+					out.append_array(c)
+					if not c.is_empty(): break   # one building at a time
+			"refill":
+				var h := _camp_target()
+				if h >= 0 and (hosts[h].get("refill", {}) as Dictionary).is_empty(): out.append_array(_panel_find(func(c): return c is Button and str(c.text) == "Refill supplies"))
 	return out
 
 
+func _camp_op_active(recipe: String, t: int) -> bool:   # your matching operation is on its way to t, or executing there
+	for f in flights:
+		if str(f.kind) == "op" and int(f.owner) == PLAYER and str(f.get("card", "")) == recipe and not bool(f.get("returning", false)) and int(f.get("target", f.get("dest", -1))) == t: return true
+	for e in _execs:
+		if int(e.fac) == PLAYER and str(e.card) == recipe and int(e.target) == t: return true
+	return false
+
+
 func _camp_card_ctrls(recipe: String) -> Array:   # where the step's card is: its research node, its recipe, or the ready copy to use
+	var st := _camp_step()
+	var launch := str(st.get("card", "")) == recipe   # this step launches it (else it makes or learns it)
 	if not _known(PLAYER, recipe):   # still to research: the Research button, then its node in the tree and the action
+		if str((research_job.get(PLAYER, {}) as Dictionary).get("key", "")) == recipe: return []   # accepted: the research bar shows it
 		if not _deck_open or _card_bank != "research": return [research_button]
 		if _research_sel != recipe: return research_tree.get_children().filter(func(c): return str(c.get("recipe")) == recipe)
 		return [research_info]
-	if _held(PLAYER, recipe) > 0:   # a copy is ready: its chip in the strip (drag it, or click it then the target)
+	if launch and _camp_op_active(recipe, _camp_target()): return []   # accepted launch: it travels or executes; no second copy is asked for
+	if not launch:   # a making step: its copies are queued or ready, so nothing more to click
+		if _held(PLAYER, recipe) + _mq_count(PLAYER, recipe) >= int(st.get("copies", 1)): return []
+	elif _held(PLAYER, recipe) == 0 and _mq_count(PLAYER, recipe) > 0: return []   # being made: it waits for the copy, not for another order
+	if launch and _held(PLAYER, recipe) > 0:   # a copy is ready: its chip in the strip (drag it, or click it then the target)
 		var chips := ready_strip.get_children().filter(func(c): return c != ready_more and _card_of(str(c.key)) == recipe and c.visible)
 		return chips if not chips.is_empty() else [ready_more]
 	var bank := _bank_of(recipe)   # nothing ready: make one from its recipe
 	if not _deck_open: return [deck_handle]
 	if bank != _card_bank: return [card_banks.get_child(DRAWER_TABS.find(bank))]
 	if _deck_page_of(recipe) != _deck_page: return [deck_pager]   # the recipe is on another page: cue the pager
-	return hand_bar.get_children().filter(func(c): return _card_of(str(c.key)) == recipe and c.visible)
+	var tiles := hand_bar.get_children().filter(func(c): return _card_of(str(c.key)) == recipe and c.visible)
+	return tiles.map(func(t): return t.queue_button if t.queue_button != null else t)   # its + Queue button
 
 
-func _camp_build_ctrls(kind: String) -> Array:
-	var h := int(sel.keys()[0]) if sel.size() == 1 else _inspect
-	if h < 0 or not _mine(h) or _count_all(h, kind) > 0: return []
+func _camp_build_ctrls(kind: String) -> Array:   # the build card, until the order is accepted at the step's host
+	var h := _camp_target()
+	if h < 0: h = int(sel.keys()[0]) if sel.size() == 1 else _inspect
+	if h < 0 or not _mine(h) or _camp_ordered(h, kind): return []
+	var shown := int(sel.keys()[0]) if sel.size() == 1 else _inspect
+	if shown != h: return []   # the map frames the host to select first
 	return _panel_find(func(c): return c is BuildCard and c.kind == kind)
+
+
+func _camp_ordered(i: int, kind: String) -> bool:   # installed, or a project for it at this host (waiting, paused or in work)
+	if i < 0: return false
+	if _count_all(i, kind) > 0: return true
+	for slot in (hosts[i].jobs as Dictionary):
+		if str(hosts[i].jobs[slot].get("kind", "")) == kind: return true
+	return false
+
+
+func _camp_status() -> String:   # what the game is still resolving for this step after your action was accepted ("" = nothing)
+	var st := _camp_step()
+	if st.is_empty(): return ""
+	var tgt := _camp_target()
+	var need := str(st.get("card", ""))
+	if need != "" and tgt >= 0:
+		var nm := str(CARDS[need].name)
+		for e in _execs:
+			if int(e.fac) == PLAYER and str(e.card) == need and int(e.target) == tgt: return "%s executing on %s: %d s left." % [nm, str(hosts[tgt].name), ceili(float(e.ends) - _t)]
+		for f in flights:
+			if str(f.kind) == "op" and int(f.owner) == PLAYER and str(f.get("card", "")) == need and not bool(f.get("returning", false)) and int(f.get("target", f.get("dest", -1))) == tgt:
+				return "%s travelling to %s: arrives in %d s." % [nm, str(hosts[tgt].name), ceili(maxf(0.0, float(f.arrive_t) - _t))]
+	var specs = st.get("ui", [])
+	if specs is String: specs = [specs]
+	for spec in specs:
+		var p := str(spec).split(":", true, 1)
+		if p.size() != 2: continue
+		if p[0] == "card":
+			var r := p[1]
+			var job: Dictionary = research_job.get(PLAYER, {})
+			if str(job.get("key", "")) == r:
+				var rb := _research_bar_state()
+				return "Researching %s: %d%%%s." % [str(CARDS[r].name), int(float(rb.frac) * 100), "" if str(rb.state) == "active" else " (%s)" % str(rb.state)]
+			if _known(PLAYER, r) and _held(PLAYER, r) == 0 and _mq_count(PLAYER, r) > 0:
+				var q := _mq(PLAYER)
+				var why := _mq_head_why(PLAYER)
+				if not q.is_empty() and str(q[0].recipe) == r and not (q[0].paid as Dictionary).is_empty():
+					return "Your order is underway: %s being made, %d%%." % [str(CARDS[r].name), int(100.0 * float(q[0].progress) / maxf(0.001, _make_time(r)))]
+				return "%s is queued%s." % [str(CARDS[r].name), (": " + why) if why != "" else ""]
+		elif p[0] == "build" and tgt >= 0:
+			for slot in (hosts[tgt].jobs as Dictionary):
+				var jb: Dictionary = hosts[tgt].jobs[slot]
+				if str(jb.get("kind", "")) != p[1]: continue
+				var what := str(BUILD_KINDS[p[1]].name)
+				match _job_state(jb):
+					"paused": return "%s is paused: resume it in the host's CONSTRUCTION section." % what
+					"demolishing": return "Your order is underway: clearing the slot for %s." % what
+					"waiting":
+						var bill := 0.0; var here := 0.0
+						for r2 in (jb.bill as Dictionary): bill += float(jb.bill[r2]); here += minf(float(jb.bill[r2]), float((jb.escrow as Dictionary).get(r2, 0.0)))
+						return "Your order is underway: %s materials %d of %d here; workers bring the rest, then %d s of work." % [what, int(here + 0.0001), int(bill + 0.0001), int(BUILD_TIME)]
+					_: return "Your order is underway: building %s, %d s left." % [what, ceili(float(jb.left))]
+	return ""
 
 
 func _panel_find(ok: Callable) -> Array:
@@ -6230,10 +6313,12 @@ func _camp_slots(i: int, n: int) -> void:   # a lesson's host gets n slots (its 
 
 func _camp_ensure_builds(i: int, kinds: Array) -> void:   # catch-up only: put these kinds in free slots unless already there
 	if i < 0: return
+	_camp_slots(i, maxi(int(hosts[i].slots), kinds.size()))
 	for kind in kinds:
 		if _count_all(i, str(kind)) > 0: continue
 		var slot := _free_slot(i)
 		if slot >= 0: hosts[i].builds[slot] = str(kind)
+	_sync_teams(i)
 
 
 # Learn is ONE session on one board. A lesson's entry brings in what it is about, on top of whatever you have built;
@@ -6260,10 +6345,14 @@ func _camp_enter(chapter: int, announce := true) -> void:
 				var p := _camp_practice
 				hosts[p].owner = RIVAL; hosts[p].gen += 1; _camp_slots(p, 3); _set_builds(p, ["intel", "cash"]); hosts[p].name = "Practice host"
 				if announce: _flash("NYX runs a Practice host with an Intel harvester and a Miner.", 3)
+			if _camp_practice2 >= 0 and int(hosts[_camp_practice2].owner) == NEUTRAL:   # lesson fixture: an outpost of yours with a staffed station
+				var o := _camp_practice2
+				_camp_own(o); _camp_slots(o, 3); _set_builds(o, ["bot"]); hosts[o].name = "Outpost"
 			_camp_grant(30, 80, 40, 40, 40)
 			for recipe in ["phish", "response"]: _camp_supply(recipe)
 		CAMP_OPEN:
 			_ai_paused = false
+			_camp_paused = false   # free play runs: only the lesson's own pause is cleared; a pause you chose stays yours
 			_camp_grant(40, 80, 50, 40, 40)
 	_refresh_sight()
 
@@ -6271,11 +6360,13 @@ func _camp_enter(chapter: int, announce := true) -> void:
 func _camp_catch_up(chapter: int) -> void:
 	match chapter:
 		0: _camp_own(_camp_relay)
-		1: _camp_own(_camp_relay); _camp_ensure_builds(_camp_relay, ["intel", "bot"])
+		1: _camp_own(_camp_relay); _camp_ensure_builds(_camp_relay, ["bot", "intel", "cash"])
 		2:
 			if not known.has(PLAYER): known[PLAYER] = {}
 			known[PLAYER]["exploit"] = true
-			_camp_own(_camp_gateway); _camp_ensure_builds(_camp_gateway, ["cash"])
+			_camp_own(_camp_gateway); _camp_ensure_builds(_camp_gateway, ["cash", "bot"])
+		3:
+			if _camp_practice2 >= 0 and _mine(_camp_practice2): _capture(_camp_practice2, RIVAL)   # the Outpost was lost
 
 
 func _camp_own_path(a: int, b: int, avoid := -1) -> void:
@@ -6324,7 +6415,8 @@ func _start_campaign(chapter: int, replay := false) -> void:
 	_msg_t = 0.0; _msg_priority = 0
 	_camp = true; _tut = true; _tut_stage = 0; _camp_replay = replay
 	var steps := _camp_steps(_camp_chapter)
-	_camp_paused = bool(steps[0].get("pause", false))
+	_camp_paused = bool(steps[0].get("pause", false)); _camp_step_t = _camp_clock
+	if str(steps[0].get("fire", "")) != "": _camp_fire(str(steps[0].fire))
 	_open_menu(false); _show_tut(); _fit_view()
 	if not replay: _camp_save()
 
@@ -6412,6 +6504,27 @@ func _camp_fire(name: String) -> void:
 			if _camp_relay >= 0:
 				hosts[_camp_relay].steal_by = RIVAL; hosts[_camp_relay].steal_until = _t + 24.0
 			_flash("A rival is phishing your relay — clear it with Incident response.", 3)
+		"ch4_outpost":   # a scripted loss: the rival takes your Outpost, and its station's workers die with it
+			var o := _camp_practice2
+			if o >= 0 and _mine(o): _capture(o, RIVAL)
+			_camp_station_base = _camp_stations()
+
+
+func _camp_delivered(i: int, res: String) -> float:   # what host i delivered of res to your main node, recently
+	return float(_ledger_sums(PLAYER).get("from:%d:%s" % [i, res], 0.0)) if i >= 0 else 0.0
+
+
+func _camp_stations() -> int:   # your Bot stations, built or ordered
+	var n := 0
+	for i in hosts.size():
+		if not _mine(i): continue
+		n += _count_all(i, "bot")
+		for slot in (hosts[i].jobs as Dictionary): if str(hosts[i].jobs[slot].get("kind", "")) == "bot": n += 1
+	return n
+
+
+var _camp_step_t := 0.0            # _camp_clock when the current step began (a reading step lasts its "secs")
+var _camp_station_base := 0        # Ch4: your stations right after the Outpost fell
 
 
 func _camp_step_done(chapter: int, step: int) -> bool:
@@ -6419,27 +6532,29 @@ func _camp_step_done(chapter: int, step: int) -> bool:
 		0:
 			match step:
 				0: return _inspect == _camp_home or sel.has(_camp_home)
-				1: return _held(PLAYER, "breach") > 0 or _mq_count(PLAYER, "breach") > 0 or _mine(_camp_relay)
-				2: return _recon_fresh(PLAYER, _camp_relay) or _mine(_camp_relay)
+				1: return _recon_fresh(PLAYER, _camp_relay) or _mine(_camp_relay)
+				2: return _held(PLAYER, "breach") > 0 or _mq_count(PLAYER, "breach") > 0 or _mine(_camp_relay)
 				3: return _mine(_camp_relay)
 		1:
 			match step:
-				0: return _count_all(_camp_relay, "intel") >= 1
-				1: return _count_all(_camp_relay, "bot") >= 1
-				2: return int(_delivered.get(PLAYER, 0)) > 0
+				0: return _count_all(_camp_relay, "bot") >= 1 and _worker_ids(PLAYER, _camp_relay).size() >= WORKERS_PER_STATION
+				1: return _count_all(_camp_relay, "intel") >= 1 and _count_all(_camp_relay, "cash") >= 1
+				2: return _camp_delivered(_camp_relay, "cash") > 0.0
 		2:
 			match step:
 				0: return _known(PLAYER, "exploit")
-				1: return _held(PLAYER, "exploit") > 0 or _mine(_camp_gateway)
+				1: return (_held(PLAYER, "exploit") >= 1 and _held(PLAYER, "exploit") + _mq_count(PLAYER, "exploit") >= 2) or _mine(_camp_gateway)
 				2: return _recon_fresh(PLAYER, _camp_gateway) or _mine(_camp_gateway)
 				3: return _mine(_camp_gateway)
-				4: return _count_all(_camp_gateway, "cash") >= 1
-				5: return _count_all(_camp_gateway, "cash") >= 1 and float(_store_of(_camp_gateway, PLAYER).get("intel", 0.0)) + _inbound(_camp_gateway, "intel") > 0.0
+				4: return _count_all(_camp_gateway, "cash") >= 1 and _count_all(_camp_gateway, "bot") >= 1
+				5: return _camp_delivered(_camp_gateway, "cash") > 0.0
+				6: return not (hosts[_camp_gateway].get("refill", {}) as Dictionary).is_empty() or _camp_clock - _camp_step_t >= float(_camp_step().get("secs", 0.0))
 		3:
 			match step:
 				0: return _camp_practice >= 0 and (_recon_fresh(PLAYER, _camp_practice) or int(hosts[_camp_practice].get("steal_by", -1)) == PLAYER)
 				1: return _camp_practice >= 0 and int(hosts[_camp_practice].get("steal_by", -1)) == PLAYER
 				2: return bool(_camp_events.get("ch4_phish", false)) and int(hosts[_camp_relay].get("steal_by", -1)) < 0
+				3: return bool(_camp_events.get("ch4_outpost", false)) and _camp_stations() > _camp_station_base
 		CAMP_OPEN:
 			return won
 	return false
@@ -6458,8 +6573,12 @@ func _camp_card_in_flight(recipe: String) -> bool:
 	return false
 
 
+var _camp_status_shown := ""   # the banner's status line as last drawn (it is redrawn when the status changes)
+
+
 func _camp_tick() -> void:
 	if not _camp: return
+	if _camp_status() != _camp_status_shown: _show_tut()
 	var step := _camp_step()
 	var need := str(step.get("card", ""))
 	if need != "" and not _camp_step_done(_camp_chapter, _tut_stage) and _held(PLAYER, need) <= 0 \
@@ -6491,9 +6610,10 @@ func _camp_next() -> void:   # the next step, or the next lesson on the same boa
 			_camp_finish(); return
 		_camp_chapter += 1; _tut_stage = 0
 		_camp_enter(_camp_chapter)
+	_camp_step_t = _camp_clock
 	var step := _camp_step()
 	if str(step.get("fire", "")) != "": _camp_fire(str(step.fire))
-	if bool(step.get("pause", false)) and not _camp_step_done(_camp_chapter, _tut_stage): _camp_paused = true
+	_camp_paused = bool(step.get("pause", false)) and not _camp_step_done(_camp_chapter, _tut_stage)   # the lesson's own pause only
 	var tgt := _camp_target()
 	if tgt >= 0 and _mine(tgt): sel = {tgt: true}; _inspect = -1
 	elif tgt >= 0: sel = {}; _inspect = tgt
@@ -6519,10 +6639,10 @@ func _camp_show() -> void:   # one short instruction, the last result while it i
 	var head := "LEARN  %d/%d  %s" % [_camp_chapter + 1, CAMP_CHAPTERS, _camp_chapters()[_camp_chapter]]
 	if _camp_chapter < CAMP_OPEN: head += "  ·  step %d of %d" % [_tut_stage + 1, _camp_steps(_camp_chapter).size()]
 	_lbl(row, head, 15, C_DIM, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if _camp_paused:   # the game waits for you: a bundled vector pause mark and plain words, never a font fallback
+	if _camp_paused or paused:   # the game waits: a bundled vector pause mark and plain words, never a font fallback
 		var mark := TextureRect.new(); mark.texture = UiIcons.texture("pause", 18); mark.modulate = C_WARN
 		mark.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED; mark.custom_minimum_size = Vector2(20, 20)
-		row.add_child(mark); _lbl(row, "Paused until you act (Space resumes)", 15, C_WARN, 0)
+		row.add_child(mark); _lbl(row, "Paused until you act (Space resumes)" if _camp_paused else "Paused by you (Space resumes)", 15, C_WARN, 0)
 	var body := RichTextLabel.new(); body.bbcode_enabled = true; body.fit_content = true; body.scroll_active = false
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # the card art is shrunk to a 16 px inline icon
@@ -6530,7 +6650,10 @@ func _camp_show() -> void:   # one short instruction, the last result while it i
 	body.add_theme_font_size_override("bold_font_size", 19)
 	var seen := {}   # each icon only on its first mention in this banner
 	var txt := "[b]%s[/b]" % _tut_rich(_camp_fill(str(step.a)), seen)
-	if _camp_result != "": txt += "\n[color=#%s]Done: %s[/color]" % [C_GOOD.to_html(false), _tut_rich(_camp_result, seen)]
+	var status := _camp_status()
+	_camp_status_shown = status
+	if status != "": txt += "\n[color=#%s]%s[/color]" % [C_DIM.lightened(0.25).to_html(false), _tut_rich(status, seen)]
+	elif _camp_result != "": txt += "\n[color=#%s]Done: %s[/color]" % [C_GOOD.to_html(false), _tut_rich(_camp_result, seen)]
 	body.text = txt; tut_box.add_child(body)
 	body.custom_minimum_size.x = maxf(200, get_viewport_rect().size.x - 80)
 	tut_box.reset_size.call_deferred()   # a rebuilt box keeps the tall width-0 transient of its wrapped text unless shrunk back once laid out
@@ -6875,8 +6998,8 @@ func _panel_result() -> void:
 func _type_line(i: int) -> String:
 	var tp: Dictionary = NODE_TYPES[str(hosts[i].get("type", "pc"))]
 	var mults := ""
-	for what in ["bot", "intel", "cash", "cred", "research"]:
-		if float(tp.get(what, 1.0)) != 1.0: mults += " · %s ×%.1f" % [{"bot": "Bots", "intel": "Intel", "cash": "Crypto", "cred": "Creds", "research": "Research"}[what], float(tp[what])]
+	for what in ["intel", "cash", "cred", "research"]:   # (a station has 2 workers on any host type)
+		if float(tp.get(what, 1.0)) != 1.0: mults += " · %s ×%.1f" % [{"intel": "Intel", "cash": "Crypto", "cred": "Creds", "research": "Research"}[what], float(tp[what])]
 	return "%s · %d slots%s" % [str(tp.name), int(tp.slots), mults]
 
 
@@ -6897,6 +7020,14 @@ func _stage_line(i: int) -> String:
 
 func _effects_line(i: int) -> String:
 	var e := []
+	if not _known_host(PLAYER, i):   # an unknown host shows only what you did to it, and a DDoS (its routing visibly stops)
+		if _ddos_down(i): e.append("DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t)))
+		if _phished(i) and int(hosts[i].get("steal_by", -1)) == PLAYER: e.append("Phished %ds" % int(ceil(float(hosts[i].steal_until) - _t)))
+		var sp0: Dictionary = hosts[i].get("siphon", {})
+		if not sp0.is_empty() and int(sp0.get("by", -1)) == PLAYER and float(sp0.get("until", 0.0)) > _t: e.append("Siphon %ds" % int(ceil(float(sp0.until) - _t)))
+		for e0 in _execs:
+			if int(e0.target) == i and int(e0.fac) == PLAYER: e.append("%s executing %ds" % [str(CARDS[str(e0.card)].short), int(ceil(float(e0.ends) - _t))])
+		return " · ".join(e)
 	if _ddos_down(i): e.append("DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t)))
 	if _sabotaged(i): e.append("Sabotaged %ds" % int(ceil(float(hosts[i].sabot_until) - _t)))
 	if _phished(i): e.append("Phished %ds" % int(ceil(float(hosts[i].steal_until) - _t)))
@@ -7598,7 +7729,7 @@ func _panel_inspect() -> void:
 	if fx != "": _plabel(fx, 13, C_WARN)
 	if not _recon_fresh(PLAYER, i):   # nothing about what it is until a Recon lands
 		if _recon_expired(PLAYER, i): _plabel("Recon expired — send Recon again to inspect it.", 14, C_WARN)
-		else: _plabel("Unknown host — send Recon to inspect.", 14, C_TEXT)
+		else: _plabel("Unknown host — send Recon to inspect. Its buildings and storage are concealed.", 14, C_TEXT)
 		var c0 := _op_chance(PLAYER, i, "breach")
 		_plabel("Your attacks here: %d%% without fresh Recon." % int(round(c0 * 100.0)), 12, C_WARN)
 		return
@@ -7626,7 +7757,7 @@ func _panel_idle() -> void:
 	_gap(2.0)
 	_plabel("①  Make a card: C opens the recipes.", 13)
 	_plabel("②  Drag a ready card onto a host, or click it, then a host.", 13)
-	_plabel("③  Build producers; couriers bring their output home.", 13)
+	_plabel("③  Build producers; workers bring their output home.", 13)
 	_gap(4.0)
 	_plabel("Drag empty map to pan · wheel to zoom · 0 recenters", 11, C_DIM)
 	_plabel("Esc menu · Space pause · C cards · R research · E economy · H events", 11, C_DIM)
@@ -7710,6 +7841,8 @@ func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast f
 		var wc := _worker_counts(PLAYER)
 		out.append(["Workers %d — %d working, %d available, %d blocked (all your stations; 2 per station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), int(wc.blocked)], C_TEXT])
 		out.append(["Your main node's %d serve the hosts without a station; keeping up with them needs about %d." % [int(fc.fleet), int(ceil(float(fc.need) - 0.05))], C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
+		out.append(["Each Bot station provides two reusable workers. Each carries one unit per leg; delivery does not consume them.", C_DIM])
+		out.append(["They supply active needs first, then building materials, then carry surplus home; older deliveries get turns too.", C_DIM])
 		return out
 	var full := _res_full(res)
 	out.append(["Forecast: %s reaches your bank per minute." % ("nothing (the bank is full)" if full else "+%d" % int(round(float(fc.rate[res])))), C_WARN if full else C_TEXT])
@@ -8324,7 +8457,7 @@ func _flight_lines(fl: Dictionary) -> Array:   # what the details beside a packe
 		return out
 	var res := _cargo_res(fl)
 	var origin := int(fl.origin)
-	out.append("Courier of %s" % ("your main node" if origin == _hub(PLAYER) else str(hosts[origin].name)))
+	out.append("Worker #%d of %s" % [int(fl.get("wid", 0)), "your main node" if origin == _hub(PLAYER) else str(hosts[origin].name)])
 	if bool(fl.get("blocked", false)): out.append("Held at %s: the way on is cut" % str(hosts[int(fl.at)].name))
 	if str(fl.trip) == "out":
 		if res != "": out.append("Carrying 1 %s to %s" % [str(RES_NAME[res]), dname])
@@ -8347,7 +8480,7 @@ func _paint_flight_tip(f: Font) -> void:   # screen space: the details of the pa
 			for fl in flights:
 				if bool(fl.get("blocked", false)) and int(fl.owner) == PLAYER and int(fl.at) == int(i):
 					var l := _flight_lines(fl)
-					lines.append(str(l[0]) + (" · " + str(l[1]) if l.size() > 1 and str(l[0]).begins_with("Courier") and not str(l[1]).begins_with("Held") else ""))
+					lines.append(str(l[0]) + (" · " + str(l[1]) if l.size() > 1 and str(l[0]).begins_with("Worker") and not str(l[1]).begins_with("Held") else ""))
 			if not lines.is_empty(): lines.push_front("Held at %s: the way on is cut" % str(hosts[int(i)].name))
 			break
 	if lines.is_empty(): return
@@ -8576,14 +8709,19 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 func _node_sub(i: int, focused := false) -> Array:   # [text, colour, screen rect]: ONE warning under the glyph, most urgent first
 	var sub := ""
 	if bool(hosts[i].get("junction", false)): sub = "junction"
-	if _ddos_down(i): sub = "DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t))
+	if not _known_host(PLAYER, i):   # an unknown host: its own defences and states stay hidden (as in its inspector)
+		var sp0: Dictionary = hosts[i].get("siphon", {})
+		if _ddos_down(i): sub = "DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t))
+		elif _phished(i) and int(hosts[i].get("steal_by", -1)) == PLAYER: sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))
+		elif not sp0.is_empty() and int(sp0.get("by", -1)) == PLAYER and float(sp0.get("until", 0.0)) > _t: sub = "SIPHON %ds" % int(ceil(float(sp0.until) - _t))
+	elif _ddos_down(i): sub = "DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t))
 	elif _sabotaged(i): sub = "SABOT %ds" % int(ceil(float(hosts[i].sabot_until) - _t))
 	elif _phished(i): sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))
 	elif not (hosts[i].get("siphon", {}) as Dictionary).is_empty() and float((hosts[i].siphon as Dictionary).get("until", 0.0)) > _t: sub = "SIPHON %ds" % int(ceil(float(hosts[i].siphon.until) - _t))
 	elif float(hosts[i].get("patch_armed_until", 0.0)) > _t: sub = "PATCH"
 	elif float(hosts[i].get("express_until", 0.0)) > _t: sub = "EXPRESS"
 	for e in _execs:
-		if int(e.target) == i: sub = "%s %ds" % [str(CARDS[str(e.card)].short).to_upper(), int(ceil(float(e.ends) - _t))]; break
+		if int(e.target) == i and (_known_host(PLAYER, i) or int(e.fac) == PLAYER): sub = "%s %ds" % [str(CARDS[str(e.card)].short).to_upper(), int(ceil(float(e.ends) - _t))]; break
 	if sub == "" or not (_zoom >= 0.45 or focused or _mine(i)): return ["", Color.WHITE, Rect2()]
 	var col := Color(1, 0.85, 0.4)
 	if sub == "junction": col = Color(0.7, 0.85, 1.0, 0.8)
@@ -9681,7 +9819,7 @@ class SocketList extends Control:   # one finished Firewall's 3 socket positions
 		match str(st[0]):
 			"held": return "%s on its way: it loads here on arrival.%s" % [str(game.CARDS[str(st[1])].name), off]
 			"loaded": return "%s loaded: it fires when %s.%s" % [str(game.CARDS[str(st[1])].name), str(game.SOCKET_TRIGGER[str(st[1])]), off]
-		return "Empty socket. Send Patch, Incident response, Traffic filter or Courier cover to this host: the first empty socket from the left takes it.%s" % off
+		return "Empty socket. Send Patch, Incident response, Traffic filter or Cargo cover to this host: the first empty socket from the left takes it.%s" % off
 	func _can_drop_data(_p: Vector2, data: Variant) -> bool:
 		return data is Dictionary and (data as Dictionary).has("card") and game._socketable(game._card_of(str(data.card))) and game._can_play(game.PLAYER, str(data.card), host) == ""
 	func _drop_data(_p: Vector2, data: Variant) -> void:
@@ -9731,6 +9869,11 @@ class BuildCard extends Control:   # a draggable card for one building kind
 		custom_minimum_size = Vector2(72, 94)
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		focus_mode = Control.FOCUS_ALL
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _get_tooltip(_at: Vector2) -> String:
+		return "%s\n\nMaterials: %s. They must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [str(game.BUILD_KINDS[kind].desc), game._build_cost_text(kind), int(game.BUILD_TIME)]
 
 	func _get_drag_data(_p: Vector2) -> Variant:
 		var icon := DragIcon.new(); icon.game = game; icon.kind = kind
