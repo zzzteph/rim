@@ -73,6 +73,7 @@ func run() -> void:
 	no_ping_pong()
 	one_pool()
 	builds_first()
+	building_first_rules()
 	storage_fair()
 	construction()
 	cancel_and_pause()
@@ -278,6 +279,51 @@ func one_pool() -> void:   # every worker works from the main node: a remote sta
 	check(int(counts.idle) == 0, "With materials to carry, no worker stays free (%s)" % str(counts))
 
 
+func cands_now(owed: Dictionary) -> Array:   # every request a worker could take right now, as _assign sees them
+	var home: int = int(g.rig[P])
+	var out := []
+	for r in g._open_requests(P, home):
+		var amt: float = g._amount(P, home, r, owed)
+		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; out.append(c)
+	return out
+
+
+func building_first_rules() -> void:   # 0.6.10: building is the workers' first job, and the bank's stock it needs is its own
+	fresh()
+	var a := near(); own(a, ["intel", "cash"])   # a Miner that wants Intel from the bank (its harvester feeds it, so it asks for 0..1)
+	var b := near([a]); own(b, ["cash"])          # a lone Miner: every cycle it asks the bank for Intel
+	g.bank[P].intel = 12.0
+	g._cmd(["build", b, 1, "intel"])               # a project that needs exactly the bank's 12 Intel
+	var owed: Dictionary = g._build_owed(P)
+	check(absf(float(owed.get("intel", 0.0)) - 12.0) < 0.01 and float(g._supply_budget(P, owed).intel) < 0.01, "The bank's 12 Intel are owed to the project: supplies may use none (owed %s)" % str(owed))
+	var cands := cands_now(owed)
+	check(not cands.any(func(r): return str(r.purpose) == "input" and str(r.res) == "intel"), "No Intel supply to a Miner is feasible while the project needs it")
+	var low := INF   # the bank's Intel beyond what the project still needs: supplies only ever take from that
+	for k in 40:
+		step(0.5)
+		low = minf(low, g._free(P, "intel") - float(g._build_owed(P).get("intel", 0.0)))
+	var got := float((g.hosts[b].jobs.get(1, {}).get("escrow", {}) as Dictionary).get("intel", 0.0)) if g.hosts[b].jobs.has(1) else 12.0
+	check(low > -0.01 and got >= 6.0, "For 20 s supplies only took Intel the project did not need (the bank never fell below its need: %.2f), and the project got %.0f of 12" % [low, got])
+	# a Bot station first, whatever was ordered before it
+	fresh()
+	a = near(); own(a, ["intel", "", ""]); b = near([a]); own(b, ["intel", "", ""])
+	g._cmd(["build", a, 1, "wall"]); g._cmd(["build", b, 1, "bot"])
+	var first: Dictionary = g._pick_request(P, cands_now(g._build_owed(P)), 0, {})
+	var job: Dictionary = g._job_for(int(first.get("host", -1)), str(first.get("purpose", "")).trim_prefix("build:"))
+	check(str(job.get("kind", "")) == "bot", "A Bot station's materials go first: its workers carry for every other project (%s)" % str(job.get("kind", "")))
+	# the fourth turn keeps production going: a host about to fill up, or what the projects wait for
+	g.hosts[a].store = {P: {"intel": 9.0}}
+	var cands2 := cands_now(g._build_owed(P))
+	var turn3: Dictionary = g._pick_request(P, cands2, 3, {})
+	var turn0: Dictionary = g._pick_request(P, cands2, 0, {})
+	check(str(turn3.get("dir", "")) == "out" and int(turn3.get("host", -1)) == a and str(turn0.get("purpose", "")).begins_with("build:"), "While building, three turns of four carry materials and the fourth relieves a host about to fill up (%s, then %s)" % [str(turn0.get("purpose", "")), str(turn3.get("purpose", ""))])
+	g.hosts[a].store = {}; g.hosts[b].store = {P: {"cash": 3.0}}; g.bank[P].cash = 0.0
+	var owed3: Dictionary = g._build_owed(P)
+	var lack: Dictionary = g._build_lack(P, owed3)
+	var pick_lack: Dictionary = g._pick_request(P, cands_now(owed3), 3, lack)
+	check(lack.has("cash") and str(pick_lack.get("res", "")) == "cash" and str(pick_lack.get("dir", "")) == "out", "Crypto the projects wait for, not in the bank, is collected from a host on that turn (%s %s)" % [str(lack), str(pick_lack.get("purpose", ""))])
+
+
 func builds_first() -> void:   # construction first, then inputs, then surplus; the hosts are served in turn
 	fresh()
 	var home: int = int(g.rig[P])
@@ -302,8 +348,8 @@ func builds_first() -> void:   # construction first, then inputs, then surplus; 
 		if amt > 0.0001: var cc: Dictionary = r.duplicate(); cc.amt = amt; cands.append(cc)
 	var first: Dictionary = g._pick_request(P, cands, 0)
 	check(str(first.get("purpose", "")).begins_with("build:"), "A building order is served before surplus (%s)" % str(first.get("purpose", "")))
-	step(30.0)
-	check(led("from:%d:intel" % a) >= 1.0 and led("from:%d:intel" % b) >= 1.0, "Both hosts' surplus is collected in turn, not one host's only (%.0f, %.0f)" % [led("from:%d:intel" % a), led("from:%d:intel" % b)])
+	step(60.0)
+	check(led("from:%d:intel" % a) >= 1.0 and led("from:%d:intel" % b) >= 1.0, "Once the building is supplied, both hosts' surplus is collected in turn, not one host's only (%.0f, %.0f)" % [led("from:%d:intel" % a), led("from:%d:intel" % b)])
 
 
 func storage_fair() -> void:

@@ -169,10 +169,17 @@ needed for the next cycle is **surplus** and goes to the main node. **All of a b
 from the main node**: a new station's workers first make a one-way trip to the main node (`_join`, carrying their
 host's surplus if any) and from then on every trip is main node → host → main node (`_send_from_hub`): out with
 building materials or a missing input, back with that host's surplus or a theft / salvage pile. Dispatch
-(`_tick_logistics`, event-driven with a 0.25 s fallback) gives three of four assignments by purpose — construction
-first, then inputs, then surplus and loot — and, within a purpose, to the host served least recently; every fourth
-goes to the host served least recently whatever it needs (`_pick_request`, `_served`/`_serve_n`/`_pool_turn`, part of
-the lockstep fingerprint), so the hosts are served in turn. A collection **claims** its unit (`claim`) and the
+(`_tick_logistics`, event-driven with a 0.25 s fallback; `_pick_request`, `_served`/`_serve_n`/`_pool_turn`, part of the
+lockstep fingerprint) puts **building first** (0.6.10): while a project's materials can go, three of four assignments
+carry them — Bot stations first (their workers carry for everything else), then by order (job id), a site whose trip
+back can relieve a host about to fill up (`_storage_tight`) first — and the fourth relieves such a host or collects
+what the projects wait for. `_build_owed` is the bank stock the projects still need: supplies to production only get
+`_supply_budget` (the rest), in requests, in `_amount` and in each host's own cycle plan, and `_build_lack` (what they
+wait for that is neither in the bank nor on its way) is collected from the hosts first. With nothing to build, the
+old turns hold: three of four by purpose (inputs, then surplus and loot) to the host served least recently, every
+fourth to the host served least recently whatever it needs, so the hosts are served in turn. Benchmark (6 projects,
+130 units, 5 producing hosts, 3 seeds, 2 and 4 workers): all built 11–17% sooner than 0.6.9 with more income meanwhile;
+no change without construction. A collection **claims** its unit (`claim`) and the
 destination holds room for what is coming (`inbound`), so two workers never take the same last unit or the same last
 room. Supplies leave the bank with their worker. There is no Refill or any other supply setting: input supply is
 automatic, in the background.
@@ -180,7 +187,7 @@ automatic, in the background.
 > **Interpretations (0.6.2):** a worker lost on a cut route with its station still standing is replaced after 5 s;
 > a station whose host has no route to the main node keeps its workers waiting there (they count as "on their way",
 > not free); cancelling a project during its work leaves the unworked share of its materials at the site as salvage
-> (workers take it home), never back in the bank at once; every fourth assignment is a host-turn for fairness.
+> (workers take it home), never back in the bank at once; every fourth assignment is a host-turn for fairness (0.6.10: while something is being built, a turn to keep production going).
 
 Movement (`_advance_flights`, every step). Every packet — workers and every card — moves hop by hop
 (`hop_i`) and is checked whenever it leaves a host: that host must still be its owner's (else it is lost

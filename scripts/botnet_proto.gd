@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.9"   # build cards say what each building does; tooltips stay on screen; no building pause; clearer Learn lesson 4 and free play (lobbies match exact versions)
+const GAME_VERSION := "0.6.10"   # workers build first: materials before supplies, the bank stock projects need is theirs, Bot stations first (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1696,8 +1696,7 @@ func _run_cycle(i: int) -> void:
 	var use_plan: bool = not _st_local(i, owner) and benef == owner
 	var planned := {}
 	if use_plan:   # the plan for this very cycle, from what is here and what can still come (never stale)
-		var budget := {}
-		for res in RES: budget[res] = _free(owner, res)
+		var budget := _supply_budget(owner, _build_owed(owner))
 		var pl := _host_plan(i, owner, budget)
 		planned = pl.frac; hosts[i].plan_limited = bool(pl.limited)
 	for kind in CONVERT_ORDER:
@@ -2049,8 +2048,7 @@ const REQ_CLASS := {"build": 0, "input": 1, "export": 2, "loot": 2}   # purpose 
 
 func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, since, host, purpose, res, qty, dir}] in a stable order
 	var want := {}   # key -> [host, purpose, res, qty, dir]
-	var budget := {}
-	for res in RES: budget[res] = _free(fac, res)
+	var budget := _supply_budget(fac, _build_owed(fac))   # (supplies get what the projects do not need)
 	var n := hosts.size()
 	var start := posmod(int(ship_cursor.get(fac, 0)), maxi(1, n))   # the hosts share a short main node in turn
 	for k in n:
@@ -2096,14 +2094,50 @@ func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, sin
 func _req_class(r: Dictionary) -> int: return int(REQ_CLASS.get(str(r.purpose).split(":")[0], 2))
 
 
-func _amount(fac: int, hub: int, r: Dictionary) -> float:   # what one worker could carry for request r right now (0: not feasible)
+# Building comes first for the workers (0.6.10): a project's materials go out before anything else, the bank's stock
+# that the projects still need is theirs (supplies to production get only the rest), and what the projects wait for
+# that is not in the bank is collected from the hosts first.
+func _build_owed(fac: int) -> Dictionary:   # {res: what fac's projects still need from its bank: bill not at the site and not on its way}
+	var out := {}
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac or (hosts[i].jobs as Dictionary).is_empty(): continue
+		for s in (hosts[i].jobs as Dictionary):
+			var job: Dictionary = hosts[i].jobs[s]
+			if str(job.get("kind", "")) == "": continue
+			for res in RES:
+				var q := _job_short(job, res)
+				if q > 0.0001: out[res] = float(out.get(res, 0.0)) + q
+	return out
+
+
+func _supply_budget(fac: int, owed := {}) -> Dictionary:   # {res: bank stock supplies to production may use}: what the projects do not need
+	var out := {}
+	for res in RES: out[res] = maxf(0.0, _free(fac, res) - float(owed.get(res, 0.0)))
+	return out
+
+
+func _build_lack(fac: int, owed := {}) -> Dictionary:   # {res: what the projects wait for that is neither in the bank nor on its way there}
+	var out := {}
+	for res in owed:
+		var q := float(owed[res]) - _free(fac, str(res)) - _incoming(fac, str(res))
+		if q > 0.0001: out[res] = q
+	return out
+
+
+func _storage_tight(i: int) -> bool:   # a host whose next cycle would not fit its storage: its producers stop when it is full
+	return _store_room(i) < 1.0 + float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
+
+
+func _amount(fac: int, hub: int, r: Dictionary, owed := {}) -> float:   # what one worker could carry for request r right now (0: not feasible)
 	var res := str(r.res); var i := int(r.host)
 	var amt := minf(WORKER_CARRY, float(r.qty))
 	if str(r.dir) == "in":
 		if _free(fac, res) < amt - 0.0001: return 0.0                    # the main node does not have it
 		if str(r.purpose).begins_with("build:"):
 			if not _build_room(i, str(r.purpose).trim_prefix("build:"), res, amt): return 0.0
-		elif _store_room(i) < amt - 0.0001: return 0.0                     # no room at the host for it
+		else:
+			if _store_room(i) < amt - 0.0001: return 0.0                   # no room at the host for it
+			if _free(fac, res) - float(owed.get(res, 0.0)) < amt - 0.0001: return 0.0   # the projects need it: building first
 	else:
 		var have := _pile_or_store(i, fac, res)
 		amt = minf(amt, have)
@@ -2142,11 +2176,32 @@ func _mark_res(fac: int, r: Dictionary) -> void:   # this host's resource was ju
 	_served_res[fac][int(r.host)][str(r.res)] = int(_serve_n.get(fac, 0))
 
 
-func _pick_request(fac: int, cands: Array, turn: int) -> Dictionary:   # three of four by purpose, then the least recently served host;
-	var best := {}                                                      # the fourth by host turn alone (round robin, nobody starves)
-	var fair: bool = turn % (PRIORITY_TURNS + 1) == PRIORITY_TURNS
-	var bk := []
-	for r in cands:
+func _pick_first(fac: int, r: Dictionary, lack: Dictionary) -> int:   # 0: a project's materials · 1: surplus of a host about to fill up
+	if _req_class(r) == 0: return 0                                     # (its producers would stop) or what the projects wait for · -1: else
+	if str(r.dir) == "out" and (float(lack.get(str(r.res), 0.0)) > 0.0001 or _storage_tight(int(r.host))): return 1
+	return -1
+
+
+func _pick_request(fac: int, cands: Array, turn: int, lack := {}) -> Dictionary:   # building first: three of four assignments take a project's
+	var fair: bool = turn % (PRIORITY_TURNS + 1) == PRIORITY_TURNS                 # materials (where the trip back can relieve a host about to fill
+	var tight := {}                                                               # up first, then the oldest); the fourth keeps production going -
+	for r in cands:                                                               # the surplus of a host about to fill up, or what the projects
+		if str(r.dir) == "out" and _storage_tight(int(r.host)): tight[int(r.host)] = true   # wait for - when there is any. Supplies to
+	var best := {}; var bk := []                                                  # production never go before building. Among the projects a
+	var building := cands.any(func(r): return _req_class(r) == 0)                 # Bot station goes first (its workers carry for every other one),
+	for pass_n in 2:                                                              # then the one ordered first. With nothing to build, what the
+		var want := 1 if (fair or not building) == (pass_n == 0) else 0          # projects wait for comes first.
+		for r in cands:
+			if _pick_first(fac, r, lack) != want or (want == 1 and not building and float(lack.get(str(r.res), 0.0)) <= 0.0001): continue
+			var h := int(r.host)
+			var k := []
+			if want == 0:
+				var job := _job_for(h, str(r.purpose).trim_prefix("build:"))
+				k = [0 if str(job.get("kind", "")) == "bot" else 1, int(job.get("id", 0)), 0 if tight.has(h) else 1, int(r.id)]
+			else: k = [0 if tight.has(h) else 1, _served_at(fac, h), int(r.id)]
+			if best.is_empty() or k < bk: best = r; bk = k
+		if not best.is_empty(): return best
+	for r in cands:   # nothing to build: inputs before other surplus, hosts in turn; every fourth to the host served least recently
 		var h := int(r.host); var rs := _served_res_at(fac, h, str(r.res))   # (within a host, the resource moved longest ago)
 		var k := [_served_at(fac, h), rs, int(r.id)] if fair else [_req_class(r), _served_at(fac, h), rs, int(r.id)]
 		if best.is_empty() or k < bk: best = r; bk = k
@@ -2170,21 +2225,22 @@ func _tick_logistics() -> void:   # every step: free workers take the most usefu
 		_logi_dirty[fac] = false; _logi_next[fac] = _t + LOGI_EVERY
 		idle.sort(); joiners.sort()
 		var reqs := _open_requests(fac, hub)
-		for wid in joiners: _join(fac, hub, wid, reqs)
+		var owed := _build_owed(fac)
+		for wid in joiners: _join(fac, hub, wid, reqs, owed)
 		for wid in idle:
-			if not _assign(fac, hub, wid, reqs): break
+			if not _assign(fac, hub, wid, reqs, owed): break
 
 
-func _join(fac: int, hub: int, wid: int, reqs: Array) -> void:   # a new worker goes to the main node, with its host's surplus if any
+func _join(fac: int, hub: int, wid: int, reqs: Array, owed := {}) -> void:   # a new worker goes to the main node, with its host's surplus if any
 	var at := int(workers[wid].get("base", workers[wid].home))
 	if not _route_ok(fac, hub, at): return
 	var cands := []
 	for r in reqs:
 		if int(r.host) != at or str(r.dir) != "out": continue
-		var amt := _amount(fac, hub, r)
+		var amt := _amount(fac, hub, r, owed)
 		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
 	var cargo := {}
-	var outr := _pick_request(fac, cands, 0)
+	var outr := _pick_request(fac, cands, 0, _build_lack(fac, owed))
 	_mark_res(fac, outr)
 	if not outr.is_empty():
 		_take_from(at, fac, str(outr.res), float(outr.amt)); _reserve_incoming(fac, str(outr.res), float(outr.amt))
@@ -2196,20 +2252,21 @@ func _join(fac: int, hub: int, wid: int, reqs: Array) -> void:   # a new worker 
 	f.covered = float(hosts[at].get("cover_until", 0.0)) > _t
 
 
-func _assign(fac: int, hub: int, wid: int, reqs: Array) -> bool:   # one new trip for this worker, or false if nothing is feasible
+func _assign(fac: int, hub: int, wid: int, reqs: Array, owed := {}) -> bool:   # one new trip for this worker, or false if nothing is feasible
 	var cands := []
 	for r in reqs:
 		if not _route_ok(fac, hub, int(r.host)): continue
-		var amt := _amount(fac, hub, r)
+		var amt := _amount(fac, hub, r, owed)
 		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
 	if cands.is_empty(): return false
+	var lack := _build_lack(fac, owed)
 	var turn := int(_pool_turn.get(fac, 0))
-	var pick := _pick_request(fac, cands, turn)
+	var pick := _pick_request(fac, cands, turn, lack)
 	_pool_turn[fac] = turn + 1
 	var i := int(pick.host)
 	_mark_served(fac, i)
 	var other := "out" if str(pick.dir) == "in" else "in"   # the other leg carries something too when it can
-	var comp := _pick_request(fac, cands.filter(func(c): return int(c.host) == i and str(c.dir) == other and str(c.key) != str(pick.key)), 0)
+	var comp := _pick_request(fac, cands.filter(func(c): return int(c.host) == i and str(c.dir) == other and str(c.key) != str(pick.key)), 0, lack)
 	var inr: Dictionary = pick if str(pick.dir) == "in" else comp
 	var outr: Dictionary = pick if str(pick.dir) == "out" else comp
 	_mark_res(fac, inr); _mark_res(fac, outr)
@@ -2457,11 +2514,12 @@ func _courier_arrive(f: Dictionary) -> bool:   # true: the worker goes on (back 
 
 func _backhaul(fac: int, hub: int, f: Dictionary, i: int) -> void:   # an empty return leg takes the host's surplus if any may go
 	var cands := []
+	var owed := _build_owed(fac)
 	for r in _open_requests(fac, hub, i):
 		if str(r.dir) != "out": continue
-		var amt := _amount(fac, hub, r)
+		var amt := _amount(fac, hub, r, owed)
 		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
-	var r := _pick_request(fac, cands, 0)
+	var r := _pick_request(fac, cands, 0, _build_lack(fac, owed))
 	if r.is_empty(): return
 	_mark_res(fac, r)
 	_take_from(i, fac, str(r.res), float(r.amt)); _reserve_incoming(fac, str(r.res), float(r.amt))
