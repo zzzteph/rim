@@ -31,7 +31,7 @@ func step(secs: float) -> void:
 
 
 func fat_bank() -> void:   # plenty of every resource, so cost is never the blocker in a focused check
-	g.bank[P] = {"bots": 300.0, "intel": 300.0, "cash": 300.0, "creds": 300.0, "research": 300.0}
+	g.bank[P] = {"intel": 300.0, "cash": 300.0, "creds": 300.0, "research": 300.0}
 
 
 func neutral_neighbour(sec_type := "iot") -> int:   # a neutral host wired to your main node, forced to a chosen type
@@ -95,7 +95,7 @@ func cycles_and_storage() -> void:
 	fresh()
 	var n := own_pc()
 	g._set_builds(n, ["intel", "cash"])
-	g.bank[P].bots = 0.0; g.bot_reserve[P] = 999   # no courier Bots to spare: what the host makes stays in its storage
+	g._set_builds(int(g.rig[P]), ["intel"])   # no Bot station anywhere: no workers, so what the host makes stays in its storage
 	step(g.PROD_CYCLE + 0.1)
 	check(is_equal_approx(g._st_get(n, P, "intel"), 1.0) and is_equal_approx(g._st_get(n, P, "cash"), 1.0),
 		"One cycle: the harvester makes 2 Intel, the Miner turns 1 of it into 1 Crypto (%s)" % g._store_text(n))
@@ -105,10 +105,10 @@ func cycles_and_storage() -> void:
 	g._set_builds(m, ["cash"])
 	g.bank[P].intel = 200.0
 	step(g.PROD_CYCLE * 2.0)
-	check(g._store_total(m) < 0.01 and float(g.bank[P].intel) >= 200.0, "A Miner far from the main node uses only its own host's Intel, never the bank's")
-	g.bank[P].bots = 100.0; g.bot_reserve[P] = 10   # couriers again: the stored units leave
-	step(20.0)
-	check(g._store_total(n) < 1.0, "Bank couriers fetch a host's storage once Bots are spare (%s)" % g._store_text(n))
+	check(g._store_total(m) < 0.01 and float(g.bank[P].intel) >= 200.0, "A remote Miner uses only Intel that has reached its host, never the bank's directly")
+	g._set_builds(int(g.rig[P]), ["intel", "bot"])   # a Bot station again: its two workers start collecting
+	step(30.0)
+	check(g._store_total(n) < 2.0 and g._store_total(m) > 0.0, "The main node's workers collect a host's storage and supply the Miner (%s · %s)" % [g._store_text(n), g._store_text(m)])
 
 
 func stations() -> void:
@@ -116,12 +116,10 @@ func stations() -> void:
 	var n := own_pc()
 	g._set_builds(n, ["intel", "cash", "bot"])
 	g._set_builds(int(g.rig[P]), [])
-	g.bank[P].bots = 0.0
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	step(g.PROD_CYCLE * 4.0 + 6.0)   # four cycles plus the trip home
 	var trickle: float = (g.PROD_CYCLE * 4.0 + 6.0) * g.MAIN_INCOME
-	check(int(g.hosts[n].couriers) + g._couriers_out(P, n) == g._courier_cap(n), "A Bot station's couriers belong to its host: %d of its %d, home or on a trip" % [int(g.hosts[n].couriers) + g._couriers_out(P, n), g._courier_cap(n)])
-	check(float(g.bank[P].bots) - float(before.bots) <= trickle + 0.01, "... they do not join your bank (it gains only the main node's trickle)")
+	check(g._worker_counts(P, n).total == 2 and g._worker_counts(P).total == 2, "A Bot station's two workers belong to its host (%d here, %d in all)" % [int(g._worker_counts(P, n).total), int(g._worker_counts(P).total)])
 	check(float(g.bank[P].intel) - float(before.intel) - trickle >= 3.0 and float(g.bank[P].cash) - float(before.cash) - trickle >= 3.0,
 		"... carrying the host's 1 Intel and 1 Crypto per cycle home with them")
 	check(g._store_total(n) < 1.0, "With a station nothing waits in storage, even with no bank couriers")
@@ -148,14 +146,13 @@ func research_unlock() -> void:
 
 func manufacture_into_inventory() -> void:
 	fresh(); fat_bank()
-	g._lane_set(P, 0, "breach")
+	g._cmd(["queue", "breach", 1])
 	check(g._held(P, "breach") == 0, "No ready Breach copy before manufacture finishes")
 	var creds_before: float = float(g.bank[P]["creds"])
-	g._lane_manufacture(P, 0)
-	step(g.SIM_DT)   # the lane charges its cost on the step it starts (before income can refill a capped bank)
+	step(g.SIM_DT)   # the head charges its cost on the step it starts (before income can refill a capped bank)
 	check(float(g.bank[P]["creds"]) < creds_before - float(g.CARDS.breach.make.creds) + 1.0, "Manufacturing charges the recipe cost up front (Credentials fell by Breach's price)")
 	step(g._make_time("breach") + 1.0)
-	check(g._held(P, "breach") == 1, "A lane manufactures one ready Breach copy after its make time")
+	check(g._held(P, "breach") == 1, "The queue's head becomes one ready Breach copy after its make time")
 
 
 func security_and_firewall() -> void:   # there are no security levels; a Firewall holds defence cards that fire on their own
@@ -186,13 +183,16 @@ func security_and_firewall() -> void:   # there are no security levels; a Firewa
 	g._play_card(P, "response", n)
 	step(3.0)
 	check(not g._phished(n) and g._loaded(n).is_empty(), "A defence card whose attack is already there acts on arrival instead of loading")
-	g._set_builds(n, ["", "wall"])   # no Intel on the host: the Firewall goes dark
-	g.hosts[n].store = {}
+	g._set_builds(n, ["", "wall"])
 	g.cards[P] = {"filter": 1}
 	g.known[P]["filter"] = true
 	g._play_card(P, "filter", n)
+	step(3.0)   # it arrives and loads
+	g.hosts[int(g.rig[P])].ddos_until = g._t + 60.0   # the main node is knocked out: no more Intel can come...
+	step(3.0)   # ...once what is already on its way has landed
+	g.hosts[n].store = {}   # and none is left on the host: the Firewall goes dark
 	step(g.PROD_CYCLE + 0.1)
-	check(not bool(g.hosts[n].fw_on), "Without Intel on its host the Firewall switches off")
+	check(not bool(g.hosts[n].fw_on), "Without Intel on its host (and none to bring) the Firewall switches off")
 	g._mark_scanned(R, n)
 	g._op_land(R, "ddos", n, int(g.hosts[n].gen), {"id": 9003})
 	check(g._ddos_down(n) and (g.hosts[n].sockets as Array).has("filter"), "A switched-off Firewall does not fire: the DDoS lands, the Filter waits")

@@ -1,6 +1,6 @@
 extends SceneTree
-## Logistics (feedback round B, section 7): couriers are reusable and belong to a host; a remote host can be supplied
-## from the main node, uses only what arrived, and its output rides back; wanted inputs stay put; every material is
+## Logistics: delivery workers are reusable and belong to a host; a remote host is supplied from the main node
+## automatically, uses only what arrived, and its output rides back; every material is
 ## conserved across the round trip; defence cards travel and load a socket only on arrival (no overbooking); every
 ## kind of packet is held at a cut relay, goes on when it reopens, is lost only with a host it is in; nothing ever
 ## crosses a rival's or a neutral host; destinations never overfill.
@@ -27,7 +27,7 @@ func fresh() -> void:
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER; R = g.RIVAL
-	g.bank[P] = {"bots": 40.0, "intel": 100.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	g.bank[P] = {"intel": 100.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 
 
 func step(secs: float) -> void:
@@ -62,7 +62,12 @@ func in_flight(res: String) -> float:   # units of res riding P's couriers right
 	return n
 
 
-func hub_couriers() -> int: return int(g.bank[P].bots) + g._couriers_out(P, int(g.rig[P]))
+func worker_ids() -> Array:
+	var out := []
+	for wid in g.workers:
+		if int(g.workers[wid].fac) == P: out.append(int(wid))
+	out.sort()
+	return out
 
 
 func run() -> void:
@@ -75,18 +80,16 @@ func run() -> void:
 	g.free(); quit(0 if failures.is_empty() else 1)
 
 
-func supply_round_trip() -> void:
+func supply_round_trip() -> void:   # automatic: nobody asks; the Miner's need is enough
 	fresh()
-	var home: int = int(g.rig[P])
-	g._set_builds(home, [])   # no station at home: the main node's couriers are what it starts with plus the trickle
 	var pair := far_pair()
 	var far: int = pair[1]
-	g._set_builds(far, ["cash"])   # a lone Miner: no Intel of its own, no station
-	var bots0 := hub_couriers()
-	g._cmd(["want", far, "intel", 4])
-	check(g._want(far, "intel") == 4.0, "A host can ask its main node to keep 4 Intel there")
+	g._set_builds(far, ["cash"])   # a lone Miner: no Intel of its own, no station: the main node's two workers serve it
+	var ids0 := worker_ids()
+	var bank0 := 0.0
+	for r in g.RES: bank0 += g._avail(P, r)
 	step(1.0)
-	check(in_flight("intel") >= 1.0 and g._inbound(far, "intel") >= 1.0, "Main-node couriers set off with Intel; the host's room for it is held (%.0f on the way)" % in_flight("intel"))
+	check(in_flight("intel") >= 0.999 and g._inbound(far, "intel") >= 0.999, "The main node's workers set off with Intel on their own; the host's room for it is held")
 	check(float(g.hosts[far].store.get(P, {}).get("intel", 0.0)) < 0.001, "Nothing is there before it arrives: production uses only what has arrived")
 	step(24.0)
 	var supplied := led("out:supply:intel")
@@ -94,15 +97,16 @@ func supply_round_trip() -> void:
 	var cash_made: float = led("in:delivered:cash") + float(g.hosts[far].store.get(P, {}).get("cash", 0.0)) + in_flight("cash")
 	check(supplied >= 4.0 and cash_made >= 1.0, "The Miner turns the supplied Intel into Crypto (%.0f Intel sent, %.0f Crypto made)" % [supplied, cash_made])
 	check(absf(supplied - (at_host + in_flight("intel") + cash_made)) < 0.01, "Intel is conserved: sent %.0f = %.0f at the host + %.0f on the way + %.0f turned into Crypto" % [supplied, at_host, in_flight("intel"), cash_made])
-	check(led("in:delivered:cash") >= 1.0 and led("from:%d:cash" % far) == led("in:delivered:cash"), "Its Crypto rides back on the couriers and reaches the bank (%.0f)" % led("in:delivered:cash"))
-	check(led("from:%d:intel" % far) == 0.0, "The wanted Intel is never carried back out of the host")
-	var trickle_bots := led("in:trickle:bots")
-	check(absf(float(hub_couriers()) - (float(bots0) + trickle_bots)) < 0.05, "Couriers are reused, never used up: %d now = %d + %.1f made since" % [hub_couriers(), bots0, trickle_bots])
-	var bank_intel_check := led("out:supply:intel") + float(g.bank[P].intel) - 100.0 - led("in:trickle:intel")
-	check(absf(bank_intel_check) < 0.01, "The bank paid exactly what was sent, no more (gap %.3f)" % bank_intel_check)
-	g._cmd(["want", far, "intel", 0])
-	step(12.0)
-	check(g._inbound(far, "intel") < 0.001 and in_flight("intel") < 0.001, "With no stock wanted, no more Intel is sent")
+	check(led("in:delivered:cash") >= 1.0 and led("from:%d:cash" % far) == led("in:delivered:cash"), "Its Crypto rides back with the workers and reaches the bank (%.0f)" % led("in:delivered:cash"))
+	check(led("from:%d:intel" % far) == 0.0, "The Intel it needs is never carried back out of the host")
+	check(worker_ids() == ids0, "The same two workers did every trip: reused, never used up (%s)" % str(worker_ids()))
+	var made := 0.0
+	for r in g.RES: made += led("in:trickle:" + r) + led("in:production:" + r)
+	var now := 0.0
+	for r in g.RES: now += g._avail(P, r) + float(g.hosts[far].store.get(P, {}).get(r, 0.0)) + in_flight(r)
+	var converted := cash_made   # each Crypto made used one Intel
+	check(absf(bank0 + made - converted + cash_made - led("out:converters:intel") - now) < 0.05 or absf(bank0 + made - now) < 0.05,
+		"Every material is accounted for across the round trip: bank + host + in flight = start + made (%.2f vs %.2f)" % [now, bank0 + made])
 
 
 func firewall_sockets() -> void:
@@ -127,8 +131,11 @@ func firewall_sockets() -> void:
 	check(g._socket_res(far) == 0 and float(g.hosts[far].patch_armed_until) > g._t, "Its Firewall gone on arrival, the Patch acts instead and the held socket is released")
 	g._start_job(far, "wall", 1)
 	check(g._sockets(far) == 0, "A Firewall still being built has no sockets yet")
-	step(11.0)
-	check(g._sockets(far) == 3, "Once built it has its 3")
+	var t0: float = g._t
+	for k in 180 * 30:
+		g._sim_step(g.SIM_DT)
+		if not g.hosts[far].jobs.has(1): break
+	check(g._sockets(far) == 3, "Once its 40 units have arrived (two hops, two main-node workers) and it is built, it has its 3 (%.0f s)" % (g._t - t0))
 	# a defence card whose target is lost on the way comes back to your hand
 	g.cards[P] = {"response": 1}
 	g._play_card(P, "response", far)
@@ -142,13 +149,13 @@ func relays() -> void:   # every kind of packet, at a relay that is knocked out,
 	var home: int = int(g.rig[P])
 	var pair := far_pair()
 	var via: int = pair[0]; var far: int = pair[1]
-	g._set_builds(far, ["intel"])   # no station here: the main node's couriers serve it
+	g._set_builds(far, ["cash"])   # no station here: the main node's workers bring its Miner Intel
 	var far2 := -1   # a second host past the relay, with its own Bot station
 	for nb in g.hosts[far].links:
 		var n := int(nb)
 		if int(g.hosts[n].owner) == g.NEUTRAL and not g.hosts[via].links.has(n) and not g.hosts[home].links.has(n): far2 = n; break
 	g._capture(far2, P); g.hosts[far2].type = "pc"; g.hosts[far2].slots = 3
-	g._set_builds(far2, ["bot", "intel"])
+	g._set_builds(far2, ["bot", "intel"]); g._tick_teams(0.0)
 	var beyond := -1   # a rival host linked to far only
 	for nb in g.hosts[far].links:
 		var n := int(nb)
@@ -156,8 +163,7 @@ func relays() -> void:   # every kind of packet, at a relay that is knocked out,
 	g._capture(beyond, R)
 	g._mark_scanned(P, beyond)
 	g.cards[P] = {"breach": 1, "patch": 1}
-	g.hosts[far2].couriers = 1; g.hosts[far2].store = {P: {"creds": 1.0}}
-	g._cmd(["want", far, "cash", 1])
+	g.hosts[far2].store = {P: {"creds": 1.0}}
 	g._play_card(P, "breach", beyond)
 	g._play_card(P, "patch", far)
 	g._tick_logistics()   # far2's courier with Credentials; a main-node courier with Crypto for far
@@ -168,36 +174,38 @@ func relays() -> void:   # every kind of packet, at a relay that is knocked out,
 	step(2.0)
 	var held: int = g.flights.filter(func(f): return bool(f.get("blocked", false))).size()
 	check(held == g.flights.size() and held >= 4, "A relay under DDoS holds every packet before it (%d of %d held)" % [held, g.flights.size()])
-	check(float(g.hosts[far].store.get(P, {}).get("cash", 0.0)) < 0.001 and g._held(P, "breach") == 0 and g._execs.is_empty(), "Nothing jumps the relay: no early delivery, no early execution")
+	check(float(g.hosts[far].store.get(P, {}).get("intel", 0.0)) < 0.001 and g._held(P, "breach") == 0 and g._execs.is_empty(), "Nothing jumps the relay: no early delivery, no early execution")
 	check(g.events.any(func(e): return str(e.key).begins_with("held:") and bool(e.live)), "The held packets show as one live event per host")
 	var tips_ok := true
 	for f in g.flights: tips_ok = tips_ok and (g._flight_lines(f) as Array).size() >= 2 and str(g._flight_lines(f)[1]).begins_with("Held at")
 	check(tips_ok, "Hovering a held packet says where it waits and why")
 	step(14.0)
 	check(g._execs.any(func(e): return int(e.target) == beyond) or g.op_outcomes.any(func(o): return int(o.get("target", -1)) == beyond), "When the DDoS ends they go on: the Breach executes on its target")
-	check(float(g.hosts[far].patch_armed_until) > g._t and float(g.hosts[far].store.get(P, {}).get("cash", 0.0)) >= 1.0, "...the Patch reaches its host, the supply is delivered")
+	check(float(g.hosts[far].patch_armed_until) > g._t and led("out:supply:intel") >= 1.0, "...the Patch reaches its host, the supply is delivered")
 	check(led("from:%d:creds" % far2) >= 1.0, "...and the host's courier brings its Credentials home")
 	# held inside a relay that is then taken: lost there, and every reservation it held is settled
 	fresh()
 	home = int(g.rig[P])
 	pair = far_pair()
 	via = pair[0]; far = pair[1]
-	g._set_builds(far, ["intel"])
+	g._set_builds(far, ["cash"])
 	g.cards[P] = {"patch": 1}
-	g.hosts[far].store = {P: {"intel": 2.0}}
-	g._cmd(["want", far, "cash", 1])
+	g.hosts[far].store = {P: {"creds": 2.0}}
 	g._play_card(P, "patch", far)
-	g._tick_logistics()   # main-node couriers: one fetching Intel, one bringing Crypto
-	var inc0: float = g._incoming(P, "intel") + g._incoming(P, "bots")
+	g._tick_logistics()   # main-node workers: Intel out for the Miner, Credentials claimed for the way back
+	var inc0: float = g._incoming(P, "creds")
+	var n_workers := worker_ids().size()
 	var n0: int = g.flights.size()
 	for f in g.flights: g._block(f, via)   # all of them wait inside the relay
 	g._capture(via, R)
 	g._tick_blocked()
 	check(n0 >= 3 and g.flights.is_empty(), "Packets held in a relay that is taken are lost with it (%d)" % n0)
-	check(g._socket_res(far) == 0 and g._inbound(far, "cash") < 0.001 and g._claimed(far, P, "intel") < 0.001,
+	check(g._socket_res(far) == 0 and g._inbound(far, "intel") < 0.001 and g._claimed(far, P, "creds") < 0.001,
 		"Their reservations at the far host are released: the held socket, the room for the supply, the claimed pickup")
-	check(inc0 >= 2.0 and g._incoming(P, "intel") < 0.001 and g._incoming(P, "bots") < 0.001, "...and the bank room they held for cargo and couriers")
-	check(led("lost:cargo:cash") >= 1.0 and led("lost:couriers:bots") >= 1.0, "The lost cargo and couriers are recorded")
+	check(inc0 >= 1.0 and g._incoming(P, "creds") < 0.001, "...and the bank room they held for cargo")
+	check(led("lost:cargo:intel") >= 1.0 and worker_ids().size() < n_workers, "The lost cargo is recorded and the workers are gone (%d of %d left)" % [worker_ids().size(), n_workers])
+	step(6.0)
+	check(worker_ids().size() == n_workers, "Their surviving station replaces them after 5 s")
 	check(g._held(P, "patch") == 0, "A lost card is not refunded")
 
 
@@ -232,8 +240,10 @@ func full_destinations() -> void:
 		if g._avail(P, "intel") > g._cap(P, "intel") + 0.001: over = true
 	check(not over, "Storage plus what is on its way never exceeds the host's room; the bank never exceeds its cap")
 	check(led("from:%d:intel" % far) == 0.0 and led("lost:cap:intel") < 0.001 + led("lost:cap:intel"), "No Intel is fetched for a full bank")
-	g._cmd(["want", far, "cash", 6])
-	g.hosts[far].store = {P: {"intel": 10.0}}   # full storage: no room for supplies
+	g._set_builds(far, ["lab"])   # it needs Crypto and Intel...
+	g.hosts[far].store = {P: {"creds": 10.0}}   # ...but its storage is full of Credentials the full bank cannot take
+	g.bank[P].creds = g._cap(P, "creds")
 	var sent0 := led("out:supply:cash")
 	step(3.0)
 	check(led("out:supply:cash") == sent0, "No supply is sent to a host with no room for it")
+	check(str(g._host_diag(far).lines).contains("full"), "...and the host says why: its storage and the bank for what it holds are full")

@@ -78,21 +78,19 @@ func sent_of(from: int) -> Array:
 	return out
 
 
-func compare(i: int, label: String) -> void:   # the preview, then the real cycle: same storage after, same couriers made
+func compare(i: int, label: String) -> void:   # the preview, then the real cycle: the same storage after
 	var pv: Dictionary = g._cycle_preview(i)
-	var c0: int = int(g.hosts[i].get("couriers", 0))
 	g._run_cycle(i)
 	var benef: int = int(pv.benef)
 	var worst := 0.0
 	for res in g.RES: worst = maxf(worst, absf(float(g._st_get(i, benef, res)) - float(pv.after[res])))
-	var made: int = int(g.hosts[i].get("couriers", 0)) - c0
-	check(worst < 0.001 and made == int(pv.get("couriers_made", 0)), "Preview = cycle: %s (gap %.4f, couriers made %d vs %d)" % [label, worst, made, int(pv.get("couriers_made", 0))])
+	check(worst < 0.001, "Preview = cycle: %s (gap %.4f)" % [label, worst])
 
 
 func preview_matches_cycle() -> void:
 	fresh()
 	var home: int = int(g.rig[P])
-	g.bank[P] = {"bots": 60.0, "intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 	compare(own_pc(["intel", "cash"]), "harvester + Miner")
 	compare(own_pc(["cash"], 0), "a starved Miner")
 	var n := own_pc(["intel", "cash", "lab"], 0)
@@ -100,9 +98,7 @@ func preview_matches_cycle() -> void:
 	compare(n, "harvester + Miner + Lab with 3 Intel stored")
 	n = own_pc(["bot", "intel", "cash"], 0)
 	g.hosts[n].store = {P: {"creds": 2.0, "research": 1.0}}
-	g.ship_pri[P] = "research"
-	compare(n, "a station making couriers for its host")
-	g.ship_pri[P] = ""
+	compare(n, "a host with its own station and stock")
 	n = own_pc(["intel", "intel"], 0)
 	g.hosts[n].store = {P: {"intel": 9.0}}
 	compare(n, "two harvesters, storage almost full")
@@ -140,30 +136,38 @@ func statuses() -> void:
 	fresh()
 	var home: int = int(g.rig[P])
 	g._set_builds(home, [])
-	g.bank[P] = {"bots": 60.0, "intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 	var n := own_pc(["intel", "cash"])
 	var d := diag(n)
 	check(str(d.status) == "operating" and str(d.role) == "CRYPTO HOST", "Harvester + Miner: CRYPTO HOST · operating (%s · %s)" % [d.role, d.status])
 	check(str(d.next).begins_with("Next cycle in") and str(d.next).contains("1 Intel → 1 Crypto"), "Its next cycle reads in words: %s" % d.next)
 	n = own_pc(["cash"], 0)
+	g.bank[P].intel = 0.0
 	d = diag(n)
-	check(str(d.status) == "starved" and lines_have(d, "keep some here") and lines_have(d, "Intel harvester"),
-		"A remote Miner without Intel is starved and names both fixes: keep Intel there, or build a harvester")
+	check(str(d.status) == "starved" and lines_have(d, "has none to send") and lines_have(d, "Intel harvester"),
+		"A remote Miner with no Intel anywhere is starved and names both fixes: make Intel, or build a harvester here")
 	check(str(d.next).contains("Miner idle") and str(d.full).contains("1 Intel → 1 Crypto"), "Feasible (idle) and theoretical output are shown apart")
-	n = own_pc(["intel", "lab"], 0)
+	g.bank[P].intel = 60.0
 	d = diag(n)
-	check(str(d.status) == "starved" and lines_have(d, "Crypto miner"), "A Lab with Intel but no Crypto is starved and points to a Crypto miner")
+	check(str(d.status) == "starved" and lines_have(d, "no workers to fetch it"), "With Intel at the main node but no workers anywhere it says to build a Bot station (%s)" % str(d.lines))
+	g._set_builds(home, ["bot"])
+	d = diag(n)
+	check(str(d.status) == "starved" and lines_have(d, "workers are bringing it"), "With Intel at the main node it says workers are bringing it (%s)" % str(d.lines))
+	n = own_pc(["intel", "lab"], 0)
+	g.bank[P].cash = 0.0
+	d = diag(n)
+	check(str(d.status) == "starved" and lines_have(d, "Crypto miner"), "A Lab with Intel but no Crypto anywhere is starved and points to a Crypto miner")
+	g.bank[P].cash = 60.0
 	n = own_pc([], 0)
 	g.hosts[n].store = {P: {"creds": 10.0}}
 	g.bank[P].creds = g._cap(P, "creds")
 	d = diag(n)
-	check(str(d.status) == "blocked" and lines_have(d, "Credentials bank is full"), "Full storage with a full bank is blocked and says which bank")
+	check(str(d.status) == "blocked" and lines_have(d, "Credentials is full"), "Full storage with a full bank is blocked and says which bank (%s)" % str(d.lines))
 	g.bank[P].creds = 0.0
-	g.bank[P].bots = 0.0
+	g._set_builds(home, [])
 	g.hosts[n].store = {P: {"intel": 3.0}}
 	d = diag(n)
-	check(str(d.status) == "waiting for couriers" and lines_have(d, "kept in reserve"), "Stored units with no spare Bots wait for couriers (%s)" % d.status)
-	g.bank[P].bots = 60.0
+	check(str(d.status) == "waiting for workers" and lines_have(d, "no workers"), "Stored units with no workers anywhere wait, and say how to get workers (%s · %s)" % [d.status, str(d.lines)])
 	g.hosts[n].ddos_until = g._t + 10.0
 	check(str(diag(n).status) == "under DDoS", "DDoS is the headline while it lasts")
 	g.hosts[n].ddos_until = 0.0
@@ -215,7 +219,8 @@ func delivered_per_host() -> void:
 	var got: Dictionary = g._host_delivered(P, n)
 	var cash := float(got.get("cash", 0.0)); var intel := float(got.get("intel", 0.0))
 	check(absf(cash - 12.0) <= 2.5 and absf(intel - 12.0) <= 2.5, "Delivered from this host: %.1f Crypto/min (12) and %.1f Intel/min (12)" % [cash, intel])
-	check(int(g.hosts[n].couriers) + g._couriers_out(P, n) == g._courier_cap(n), "Its station's couriers stay its own: %d of %d, at home or on a trip" % [int(g.hosts[n].couriers) + g._couriers_out(P, n), g._courier_cap(n)])
+	var wc: Dictionary = g._worker_counts(P, n)
+	check(int(wc.total) == 2, "Its station's two workers stay its own (%d)" % int(wc.total))
 	var lines: Array = g._delivery_lines(n)
 	var txt := ""
 	for l in lines: txt += str(l[0]) + "\n"
@@ -224,7 +229,7 @@ func delivered_per_host() -> void:
 
 func panel_order() -> void:   # role → status → problems → next cycle → delivery → installations
 	fresh()
-	g.bank[P] = {"bots": 60.0, "intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 	var n := own_pc(["cash"])
 	g.sel = {n: true}; g._inspect = -1
 	var txt: String = g._panel_text()

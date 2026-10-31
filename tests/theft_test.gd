@@ -24,10 +24,11 @@ func fresh() -> void:
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER; R = g.RIVAL
-	for fac in [P, R]:   # only the main nodes' built-in income: every other gain is the theft being measured
+	for fac in [P, R]:   # only the main nodes' built-in income (and their two workers): every other gain is the theft being measured
 		for i in g.hosts.size():
-			if int(g.hosts[i].owner) == fac: g._set_builds(i, [])
-		g.bank[fac] = {"bots": 150.0, "intel": 0.0, "cash": 0.0, "creds": 0.0, "research": 0.0}
+			if int(g.hosts[i].owner) == fac: g._set_builds(i, (["bot", "bot", "bot"] if fac == P else ["bot"]) if i == int(g.rig[fac]) else [])   # your six workers carry the loot
+		g.bank[fac] = {"intel": 0.0, "cash": 0.0, "creds": 0.0, "research": 0.0}
+	g._tick_teams(0.0)
 
 
 func step(secs: float) -> void:
@@ -85,11 +86,11 @@ func phishing() -> void:
 	g.cards[P] = {"phish": 1}
 	check(g._can_play(P, "phish", v) == "", "phishing: playable on the rival outpost (%s)" % g._can_play(P, "phish", v))
 	g._play_card(P, "phish", v)
-	var secs: float = float(g.CARDS.phish.dur) + 25.0   # travel there, the theft itself, the last couriers home
+	var secs: float = float(g.CARDS.phish.dur) + 60.0   # travel there (9 hops), the theft itself, the last workers home
 	step(secs)
 	var stolen: float = float(g.bank[P].intel) - secs * float(g.MAIN_INCOME)   # less your own main node's trickle
 	var promised: float = 2.0 * float(g.CARDS.phish.dur) / g.PROD_CYCLE   # the outpost makes 2 Intel a cycle
-	check(stolen >= promised * 0.6, "phishing: its output reaches you (%.0f of ~%.0f Intel)" % [stolen, promised])
+	check(stolen >= promised * 0.5, "phishing: its output reaches you (%.0f of ~%.0f Intel; 9 hops away, what is not collected when it ends goes back)" % [stolen, promised])
 
 
 func siphon() -> void:
@@ -97,21 +98,21 @@ func siphon() -> void:
 	var v := rival_outpost(); reach(v)
 	g.cards[P] = {"siphon": 1}
 	check(g._can_play(P, "siphon", v) == "", "siphon: playable on the rival outpost (%s)" % g._can_play(P, "siphon", v))
-	var bots_before: float = float(g.bank[P].bots)
+	var mine0: int = int(g._worker_counts(P).total); var theirs0: int = int(g._worker_counts(R).total)
 	g._play_card(P, "siphon", v, "intel")
-	var secs: float = float(g.CARDS.siphon.dur) + 25.0
+	var secs: float = float(g.CARDS.siphon.dur) + 60.0
 	step(secs)
 	var stolen: float = float(g.bank[P].intel) - secs * float(g.MAIN_INCOME)
 	var promised: float = minf(float(g.CARDS.siphon.cargo), 2.0 * float(g.CARDS.siphon.dur) / g.PROD_CYCLE)
 	check(stolen >= promised * 0.6, "siphon: diverted cargo reaches you (%.0f of ~%.0f Intel)" % [stolen, promised])
-	check(float(g.bank[P].bots) + float(g._couriers_out(P, g._hub(P))) >= bots_before + secs * float(g.MAIN_INCOME) - 1.0, "siphon: it takes their cargo, not their couriers; your couriers fetch it and come back")
+	check(int(g._worker_counts(P).total) == mine0 and int(g._worker_counts(R).total) == theirs0, "siphon: it takes their cargo, not their workers; your workers fetch it and come back (%d, %d)" % [mine0, theirs0])
 
 
 func vault() -> void:   # Vault raid empties the storage of the target and its 2 nearest linked hosts of that owner
 	fresh()
 	var v := rival_outpost(); reach(v)
 	g._set_builds(v, [])
-	g.bot_reserve[R] = 999   # their couriers stay home, so what is stored stays put until the raid
+	g._set_builds(int(g.rig[R]), []); g._tick_teams(0.0)   # no rival workers, so what is stored stays put until the raid
 	var chain: Array = g._chain_hosts(v, int(g.CARDS.vault.reach), R)
 	var put := 0
 	for h in chain:
@@ -122,7 +123,7 @@ func vault() -> void:   # Vault raid empties the storage of the target and its 2
 	check(g._can_play(P, "vault", v) == "", "vault: playable on a rival host that is not a main node (%s)" % g._can_play(P, "vault", v))
 	check(put >= 9, "vault: there is storage to raid (%d units on %d hosts)" % [put, chain.size()])
 	g._play_card(P, "vault", v)
-	var secs := 50.0
+	var secs := 80.0   # 9 hops each way: six workers bring six units per 22-s round trip
 	step(secs)
 	var stolen: float = float(g.bank[P].intel) + float(g.bank[P].cash) - 2.0 * secs * float(g.MAIN_INCOME)
 	var promised := mini(put, int(g.CARDS.vault.cargo))

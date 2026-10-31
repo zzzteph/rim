@@ -25,9 +25,9 @@ func topup() -> void:   # keep resources ample so the test never stalls on affor
 	for res in g.RES: g.bank[P][res] = maxf(float(g.bank[P][res]), 150.0)
 
 
-func lane_make(recipe: String) -> void:
+func make(recipe: String) -> void:   # + Queue, through the command path
 	if not g._known(P, recipe): return
-	g._cmd(["lane_set", 0, recipe]); g._cmd(["lane_make", 0])
+	g._enqueue(g._card_key(recipe, "linked"))
 
 
 func build(host: int, kind: String) -> void:
@@ -49,18 +49,18 @@ func do_action(ch: int, st: int) -> void:
 	topup()
 	match key:
 		"0:0": if once(key): g.sel = {g._camp_home: true}; g._inspect = -1
-		"0:1": if once(key): lane_make("breach")
+		"0:1": if once(key): make("breach")
 		"0:2": play_when_held("recon", g._camp_relay)
 		"0:3": play_when_held("breach", g._camp_relay)
 		"1:0": if once(key): build(g._camp_relay, "intel")
 		"1:1": if once(key): build(g._camp_relay, "bot")
-		"1:2": pass   # wait for the courier to arrive
+		"1:2": pass   # wait for a worker to arrive
 		"2:0": if once(key): g._cmd(["research", "exploit"])
-		"2:1": if g._known(P, "exploit") and g._held(P, "exploit") == 0 and g._lane_of(P, "exploit") < 0: lane_make("exploit")
+		"2:1": if g._known(P, "exploit") and g._held(P, "exploit") == 0 and g._mq_count(P, "exploit") == 0: make("exploit")
 		"2:2": play_when_held("recon", g._camp_gateway)
 		"2:3": play_when_held("exploit", g._camp_gateway)
 		"2:4": if once(key): build(g._camp_gateway, "cash")
-		"2:5": if once(key): g._cmd(["want", g._camp_gateway, "intel", 2])
+		"2:5": pass   # workers supply the Miner by themselves
 		"3:0": play_when_held("recon", g._camp_practice)
 		"3:1": play_when_held("phish", g._camp_practice)
 		"3:2": play_when_held("response", g._camp_relay)

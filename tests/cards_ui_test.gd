@@ -1,5 +1,5 @@
 extends SceneTree
-## The cards area (feedback round B, section 5): a compact strip (manufacturing lanes, ready cards at a fixed size, the cards button),
+## The cards area: a compact strip (the four-place manufacturing queue, ready cards at a fixed size, the cards button),
 ## a drawer that keeps ready cards apart from recipes, a Research button beside Economy and Menu, an unmistakable
 ## blueprint selection, and the active research's name, progress and paused / stalled state.
 ## godot --headless --path . --script tests/cards_ui_test.gd
@@ -28,7 +28,7 @@ func fresh() -> void:
 	root.add_child(g); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER
-	g.bank[P] = {"bots": 40.0, "intel": 300.0, "cash": 300.0, "creds": 300.0, "research": 300.0}
+	g.bank[P] = {"intel": 300.0, "cash": 300.0, "creds": 300.0, "research": 300.0}
 
 
 func step(secs: float) -> void:
@@ -49,7 +49,7 @@ func run() -> void:
 	await crowded_inventory()
 	await select_and_launch()
 	await research_states()
-	await lanes()
+	await queue_strip()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -146,20 +146,32 @@ func research_states() -> void:
 	check(g._research_sel == "express" and str(st_run.state) == "stalled" and str(st_sel.state) == "open", "Selection and the running research are different nodes with different looks")
 
 
-func lanes() -> void:
+func chip(k: int):
+	return g.lane_strip.get_child(k)
+
+
+func queue_strip() -> void:
 	fresh(); await frames()
-	g._cmd(["card_action", "recon"])
+	g.bank[P] = {"intel": 100.0, "cash": 100.0, "creds": 100.0, "research": 100.0}
+	var chips: Array = g.lane_strip.get_children().filter(func(c): return c.has_method("state"))
+	check(chips.size() == g.QUEUE_SIZE, "The strip shows the queue's %d places (%d)" % [g.QUEUE_SIZE, chips.size()])
+	check(str(chip(0).state().kind) == "empty" and str(chip(0).state().text) == "+ Queue a card", "An empty queue invites: %s" % str(chip(0).state().text))
+	g._enqueue(g._card_key("recon", "linked")); g._enqueue(g._card_key("recon", "linked"))
 	step(1.0)
-	var chip = g.lane_strip.get_child(0)
-	check(str(chip.state().kind) == "making" and float(chip.state().progress) > 0.0, "A lane shows what it makes and how far (%s)" % str(chip.state().text))
-	g._cmd(["lane_pause", 0])
-	check(str(chip.state().kind) == "paused", "Paused from the strip: %s" % str(chip.state().text))
-	g._cmd(["lane_pause", 0])
-	step(float(g.CARDS.recon.make_time))
-	check(str(chip.state().kind) == "done" and g._held(P, "recon") == 1, "Finished: it shows done, and the copy is ready")
+	check(str(chip(0).state().kind) == "making" and float(chip(0).state().progress) > 0.0 and str(chip(1).state().kind) == "queued",
+		"The head shows what it makes and how far (%s); the next one waits (%s)" % [str(chip(0).state().text), str(chip(1).state().text)])
+	var st: Dictionary = g._card_research_state(g._card_key("recon", "linked"))
+	check(int(st.n) == 2, "The recipe knows how many copies are queued (%d)" % int(st.n))
+	g.queue_pause.pressed.emit(); g._update_card_banks()
+	check(str(chip(0).state().kind) == "paused" and g.queue_pause.text == "Resume", "Pause is its own control: %s, button '%s'" % [str(chip(0).state().text), g.queue_pause.text])
+	g.queue_pause.pressed.emit(); g._update_card_banks()
+	check(g.queue_pause.text == "Pause", "...and resumes")
+	step(float(g.CARDS.recon.make_time) * 2.0 + 0.2)
+	check(str(chip(0).state().kind) == "done" and g._held(P, "recon") == 2, "Finished: it shows done, and both copies are ready")
 	for r in g.RES: g.bank[P][r] = 0.0
-	g._cmd(["card_action", "recon"])
+	g._enqueue(g._card_key("recon", "linked"))
 	step(0.5)
-	check(str(chip.state().kind) == "starved" and str(chip.state().text).begins_with("Needs"), "A copy that cannot start says what it needs: %s" % str(chip.state().text))
-	g._cmd(["lane_cancel", 0])
-	check(str(chip.state().kind) in ["idle", "done"], "Cancelled from the strip")
+	check(str(chip(0).state().kind) == "waiting" and str(chip(0).state().text).begins_with("Needs"), "A head that cannot start says what it needs: %s" % str(chip(0).state().text))
+	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true; ev.position = Vector2(chip(0).size.x - 8.0, 10.0)
+	chip(0)._gui_input(ev)
+	check(str(chip(0).state().kind) in ["empty", "done"] and g._mq(P).is_empty(), "x on the chip removes it")
