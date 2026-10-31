@@ -78,6 +78,7 @@ func run() -> void:
 	await no_launch_controls()
 	await no_stale_controls()
 	await local_supplies()
+	await inspector()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -205,3 +206,30 @@ func local_supplies() -> void:   # supplies are automatic: no Keep-here stepper 
 	for it in panel_items():
 		if str(it).begins_with("L:") and (str(it).contains("needs") or str(it).contains("waits")): probs += 1
 	check(probs <= 2, "At most two problem lines; the rest are for the Economy view and Help (%d)" % probs)
+
+
+func inspector() -> void:   # compact at 1280×720; workers by number; Refill supplies is a one-time ticket you can cancel
+	fresh()
+	await frames()
+	check(g.PANEL_W >= 360.0 and g.PANEL_W <= 400.0, "The inspector is %d px wide at 1280×720" % int(g.PANEL_W))
+	var home: int = int(g.rig[P])
+	g.sel = {home: true}; g._inspect = -1
+	var items := panel_items()
+	var lines := items.filter(func(s): return str(s).begins_with("L:#"))
+	check(lines.size() == 2, "The main node lists its two workers by number (%s)" % str(lines))
+	var n := neighbour(g.NEUTRAL)
+	g._capture(n, P); g._set_builds(n, ["lab"])
+	g.bank[P].intel = 0.0; g.bank[P].cash = 0.0
+	g.sel = {n: true}; g._inspect = -1
+	items = panel_items()
+	var m: float = g._tmult(n, "research")
+	var use := {"intel": float(g.BUILD_KINDS.lab.use.intel) * m, "cash": float(g.BUILD_KINDS.lab.use.cash) * m}   # the host type scales a Lab's inputs
+	var want := "Refill brings %s Intel + %s Crypto" % [g._amt(use.intel), g._amt(use.cash)]
+	check(items.has("B:Refill supplies") and items.any(func(s): return str(s).contains(want)), "Refill previews its exact quantities: one cycle's gross inputs (%s)" % str(items.filter(func(s): return str(s).contains("Refill"))))
+	g._refill_click(n)
+	items = panel_items()
+	check(items.has("B:Cancel refill") and items.any(func(s): return str(s).contains("waiting: your main node has no Intel")), "A requested refill says honestly why it waits")
+	g._refill_click(n)
+	check((g.hosts[n].refill as Dictionary) == {"intel": float(use.intel), "cash": float(use.cash)}, "Asking again does not add a second ticket (%s)" % str(g.hosts[n].refill))
+	g._refill_cancel_click(n)
+	check((g.hosts[n].refill as Dictionary).is_empty() and panel_items().has("B:Refill supplies"), "Cancel removes it")

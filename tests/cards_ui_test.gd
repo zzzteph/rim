@@ -50,6 +50,8 @@ func run() -> void:
 	await select_and_launch()
 	await research_states()
 	await queue_strip()
+	await research_bar()
+	await recipe_actions()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -175,3 +177,39 @@ func queue_strip() -> void:
 	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true; ev.position = Vector2(chip(0).size.x - 8.0, 10.0)
 	chip(0)._gui_input(ev)
 	check(str(chip(0).state().kind) in ["empty", "done"] and g._mq(P).is_empty(), "x on the chip removes it")
+
+
+func research_bar() -> void:   # always on screen, outside the drawer: name, track, %, state, work left; idle says so
+	fresh(); await frames()
+	var bar: Control = g.research_bar
+	check(bar.visible and not g._deck_open, "The research bar is on screen with the drawer closed")
+	check(str(g._research_bar_state().state) == "idle" and str(bar._get_tooltip(Vector2.ZERO)).begins_with("Nothing is being researched"), "Idle: it says nothing is being researched and how to start")
+	var hud_end: float = g.hud.get_global_rect().end.y
+	check(bar.get_global_rect().position.y >= hud_end - 0.5 and not bar.get_global_rect().intersects(g.panel.get_global_rect()), "It sits under the HUD and clear of the inspector")
+	g._cmd(["research", "ddos"]); step(2.0)
+	var st: Dictionary = g._research_bar_state()
+	check(str(st.state) == "active" and str(st.name) == "DDoS" and str(st.track) == "Attack" and float(st.frac) > 0.0 and float(st.left) > 0.0,
+		"Active: name, track, progress and work left (%s)" % str(st))
+	g.research_job[P].paused = true
+	check(str(g._research_bar_state().state) == "paused", "Paused reads paused")
+	g.research_job[P].paused = false
+	for r in ["intel", "cash", "research"]: g.bank[P][r] = 0.0
+	check(str(g._research_bar_state().state) == "stalled" and str(g._research_bar_state().why).contains("no"), "Stalled names what is missing: %s" % str(g._research_bar_state().why))
+	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true
+	bar._gui_input(ev); await frames()
+	check(g._deck_open and g._card_bank == "research", "Clicking it opens Research")
+
+
+func recipe_actions() -> void:   # explicit actions: + Queue on a known recipe, Research on a locked one; the tile body does not queue
+	fresh(); await frames()
+	g._open_drawer("attack"); await frames()
+	var tiles: Array = g.hand_bar.get_children().filter(func(c): return (c as Control).visible)
+	var recon_tile = tiles.filter(func(t): return g._card_of(str(t.key)) == "recon")[0]
+	await frames()
+	check(str(recon_tile.queue_button.text) == "+ Queue" and not recon_tile.queue_button.disabled, "A known recipe has its own + Queue button")
+	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true; ev.position = Vector2(30, 30)
+	recon_tile._gui_input(ev); var up := ev.duplicate(); up.pressed = false; recon_tile._gui_input(up)
+	check(g._mq(P).is_empty(), "Clicking the tile's body explains; it does not queue a copy")
+	recon_tile.queue_button.pressed.emit(); recon_tile.queue_button.pressed.emit()
+	check(g._mq_count(P, "recon") == 2 and g._recipe_hint(g._card_key("recon", "linked")) == "2 queued · 0 ready", "+ Queue adds copies; the tile reads '%s'" % g._recipe_hint(g._card_key("recon", "linked")))
+	check(tiles.all(func(t): return g._known(P, g._card_of(str(t.key)))), "Recipes lists only learned blueprints; the rest are researched from the Research tree")

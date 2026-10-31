@@ -227,12 +227,28 @@ func delivered_per_host() -> void:
 	check(txt.contains("Delivered recently: ") and txt.contains("Crypto") and txt.contains("Route home: 1 hop"), "The delivery block reads route, carriers, storage and what arrived")
 
 
-func panel_order() -> void:   # role → status → problems → next cycle → delivery → installations
+func dfs_text(n: Node) -> String:
+	var out := ""
+	if n is Label: out += str((n as Label).text) + "\n"
+	elif n is Button: out += "[%s]\n" % str((n as Button).text)
+	for c in n.get_children(): out += dfs_text(c)
+	return out
+
+
+func panel_order() -> void:   # role → status → problems → next cycle → local stock → workers (route) → installations → build
 	fresh()
 	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 	var n := own_pc(["cash"])
 	g.sel = {n: true}; g._inspect = -1
-	var txt: String = g._panel_text()
-	var a := txt.find("CRYPTO HOST · starved"); var b := txt.find("needs Intel here"); var c := txt.find("Next cycle in")
-	var d := txt.find("Route home:"); var e := txt.find("Installations")
-	check(a >= 0 and a < b and b < c and c < d and d < e, "Host panel order: role · status, problem, next cycle, delivery, installations (%d %d %d %d %d)" % [a, b, c, d, e])
+	g._refresh_panel()
+	var txt := dfs_text(g.panel_box)   # in reading order (the probe's _panel_text is breadth-first)
+	var at := []
+	for needle in ["CRYPTO HOST · starved", "needs Intel here", "Next cycle in", "LOCAL STOCK", "WORKERS", "Route home:", "INSTALLATIONS", "BUILD"]: at.append(txt.find(needle))
+	var ordered := true
+	for k in at.size(): ordered = ordered and int(at[k]) >= 0 and (k == 0 or int(at[k]) > int(at[k - 1]))
+	check(ordered, "Host panel order: status, problem, next cycle, local stock, workers and route, installations, build (%s)" % str(at))
+	check(txt.contains("Needed now") and txt.contains("On the way") and txt.contains("[Refill supplies]"), "Local stock reads Material / Here / On the way / Needed now, with Refill supplies")
+	g._cmd(["build", n, 1, "intel"])
+	g._refresh_panel()
+	txt = dfs_text(g.panel_box)
+	check(txt.contains("CONSTRUCTION") and txt.contains("To send") and txt.contains("waiting for materials"), "An order shows its materials: here, on the way, to send")

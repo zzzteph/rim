@@ -225,7 +225,7 @@ func controls_inside(root_node: Node, clip: Rect2, what: String) -> void:
 				check((n as Label).get_minimum_size().x <= r.size.x + 0.5, "%s: label '%s' is cut" % [what, _txt(n)])
 			if n is Button and (n as Button).clip_text and (n as Button).text != "":
 				var need := w((n as Button).text, (n as Button).get_theme_font_size("font_size")) + 12.0
-				check(need <= r.size.x + 0.5, "%s: button '%s' is cut" % [what, _txt(n)])
+				check(need <= r.size.x + 0.5, "%s: button '%s' is cut (%.0f > %.0f)" % [what, _txt(n), need, r.size.x])
 
 
 func _txt(n: Node) -> String:

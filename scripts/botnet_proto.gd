@@ -98,7 +98,7 @@ const HOLD_SECS := CfgTuning.HOLD_SECS
 const AI_CADENCE := CfgTuning.AI_CADENCE
 const LINK_INTEL_DRAIN := CfgTown.LINK_INTEL
 
-const PANEL_W := 620.0
+const PANEL_W := 384.0   # the inspector: compact, so the map stays the main view at 1280×720
 const LEADERBOARD_W := 280.0
 const CARD_DOCK_HEIGHT := 264.0
 const CARD_DOCK_GAP := 12.0
@@ -296,6 +296,7 @@ var research_info: Control       # the drawer's RESEARCH view: the selected blue
 var research_status: Label       # in the drawer's header on the RESEARCH view: what is being researched and how it goes
 var drawer_close: Button
 var research_button: Button      # top-right, beside Economy and Menu
+var research_bar: Control        # under the HUD, always on: the active research's name, track, progress, state and work left
 var _armed := ""                 # the ready card you selected: click a host to launch it there (Esc or right-click cancels)
 var _research_sel := ""          # the blueprint selected in the RESEARCH view
 var queue_pause: Button         # the strip's queue pause / resume control (recipe clicks always mean enqueue)
@@ -364,6 +365,7 @@ func _ready() -> void:
 	var sz := get_viewport_rect().size
 	hud = HudBar.new(); hud.game = self; hud.position = Vector2(24, 10)
 	hud.size = Vector2(sz.x - PANEL_W - 60.0, 32); add_child(hud)
+	research_bar = ResearchBar.new(); research_bar.game = self; research_bar.name = "ResearchBar"; add_child(research_bar)
 	panel = Panel.new(); panel.size = Vector2(PANEL_W, sz.y - 70.0)
 	panel.position = Vector2(sz.x - PANEL_W - 16.0, 56.0); add_child(panel)   # a clear gap below the top dashboard
 	var sc := ScrollContainer.new(); panel_scroll = sc
@@ -2516,18 +2518,6 @@ func _fire_socket(i: int, recipe: String, what: String) -> bool:   # a loaded ca
 	return true
 
 
-func _job_cost_left(job: Dictionary) -> Dictionary:
-	var out := {}
-	for r in (job.get("cost_left", {}) as Dictionary): out[str(r)] = float(job.cost_left[r])
-	return out
-
-
-func _job_cost_total(job: Dictionary) -> Dictionary:
-	var out := {}
-	for r in (job.get("cost_total", {}) as Dictionary): out[str(r)] = float(job.cost_total[r])
-	return out
-
-
 # ---- construction: an order is supplied before it is built ----
 # Ordering costs nothing yet: the project waits at its site with its exact bill. What the host has spare goes into the
 # project's escrow at once (at the main node: unclaimed bank stock); the rest is brought by workers, one unit per leg,
@@ -2613,6 +2603,7 @@ func _build_take(i: int, key: String, res: String, q: float) -> bool:   # delive
 
 func _fill_escrow(i: int, job: Dictionary) -> void:   # what is already at the site goes in first (after its own production's needs)
 	var fac := int(hosts[i].owner)
+	var needs := {} if i == _hub(fac) else _cycle_needs(i)   # one cycle's inputs stay in storage: inputs come before construction
 	for res in RES:
 		var need := maxf(0.0, float(job.bill.get(res, 0.0)) - float((job.escrow as Dictionary).get(res, 0.0)))
 		if need <= 0.0001: continue
@@ -2620,7 +2611,7 @@ func _fill_escrow(i: int, job: Dictionary) -> void:   # what is already at the s
 		if i == _hub(fac): have = _free(fac, res)
 		else:
 			var plan: Dictionary = _plan_cache.get(i, {})
-			var keep := float((plan.get("reserve", {}) as Dictionary).get(res, 0.0))
+			var keep := maxf(float((plan.get("reserve", {}) as Dictionary).get(res, 0.0)), float(needs.get(res, 0.0)) + _earmark(i, res))
 			have = _loot(i, fac, res) + maxf(0.0, float(_store_of(i, fac).get(res, 0.0)) - _claimed(i, fac, res) - keep)
 		var q := minf(need, have)
 		if q <= 0.0001: continue
@@ -3047,7 +3038,9 @@ func _capture(t: int, fac: int) -> void:
 	hosts[t].jobs = {}; hosts[t].store = {}; hosts[t].producer_paused = {}; hosts[t].sockets = []
 	hosts[t].teams = {}; hosts[t].claim = {}; hosts[t].inbound = {}; hosts[t].fetch = {}; hosts[t].refill = {}; hosts[t].earmark = {}   # its orders go with it
 	hosts[t].plan_frac = {}; hosts[t].plan_rr = 0; hosts[t].plan_limited = false
-	if prev == PLAYER: _event("lostworkers:%d:%d" % [t, int(hosts[t].gen)], EV_ACT, "%s lost — %d station worker%s destroyed." % [nm, dead, "" if dead == 1 else "s"], t)
+	if prev == PLAYER:
+		var what := "%s lost to %s — %d station worker%s destroyed." % [nm, fname(fac), dead, "" if dead == 1 else "s"] if dead > 0 else "%s lost to %s." % [nm, fname(fac)]
+		_event("lostworkers:%d:%d" % [t, int(hosts[t].gen)], EV_CRIT if dead > 0 else EV_ACT, what, t)
 	if _route_memo != null: _route_memo = {}   # routes through it change at once
 	_clear_effects(t)
 	if bool(hosts[t].get("rig", false)) and prev != NEUTRAL: hosts[t].rig = false   # a captured main node is an ordinary host
@@ -4453,6 +4446,32 @@ func _research_label() -> String:   # the Research button and tab: "Research 45%
 	return "Research +%d" % open if open > 0 else "Research"
 
 
+const RESEARCH_BAR_W := 520.0
+const RESEARCH_BAR_H := 28.0
+
+
+func _research_bar_y() -> float: return (64.0 + _camp_banner_h() + 6.0) if _tut else 62.0
+
+
+func _research_bar_state() -> Dictionary:   # {state: idle | active | paused | stalled, name, track, frac, left, why}
+	var job: Dictionary = research_job.get(PLAYER, {})
+	if job.is_empty():
+		var open := 0
+		for r in RESEARCH:
+			if _can_research(PLAYER, str(r)) == "": open += 1
+		return {"state": "idle", "name": "", "track": "", "frac": 0.0, "left": 0.0, "open": open, "why": ""}
+	var recipe := str(job.key)
+	var frac := clampf(float(job.progress) / maxf(0.001, _research_time(recipe)), 0.0, 1.0)
+	var st := "active"
+	var why := ""
+	if bool(job.get("paused", false)): st = "paused"
+	else:
+		var stall := _research_stall(PLAYER)
+		if stall != "": st = "stalled"; why = stall.trim_prefix("Research of %s stopped: " % str(CARDS[recipe].name)).trim_suffix(".")
+	return {"state": st, "name": str(CARDS[recipe].name), "track": "Defence" if str(CARDS[recipe].bank) == "defense" else "Attack",
+		"frac": frac, "left": maxf(0.0, _research_time(recipe) - float(job.progress)), "why": why}
+
+
 func _research_status_line() -> Array:   # [text, colour]: the active research, by name, with its progress and state
 	var job: Dictionary = research_job.get(PLAYER, {})
 	if job.is_empty(): return ["No research running. Select a blueprint, then Research.", C_DIM]
@@ -4737,7 +4756,35 @@ func _enqueue(key: String) -> void:   # the explicit + Queue action
 	_cmd(["queue", _card_of(key), _cid_next])
 
 
-func _card_research_click(key: String) -> void: _enqueue(key)   # a recipe tile: click = + Queue
+func _card_research_click(key: String) -> void: _recipe_act(key)   # a recipe tile's action: + Queue, or Research when locked
+
+
+func _recipe_action(key: String) -> Array:   # [label, enabled, tooltip] for a recipe tile's one button
+	var recipe := _card_of(key)
+	if not _known(PLAYER, recipe):
+		var why := _can_research(PLAYER, recipe)
+		if str(research_job.get(PLAYER, {}).get("key", "")) == recipe: return ["Research", true, "Being researched: open Research to pause or follow it."]
+		return ["Research", true, "Learn the blueprint first: opens Research with it selected." + ("" if why == "" else " (%s)" % why)]
+	if _mq(PLAYER).size() >= QUEUE_SIZE: return ["+ Queue", false, "The queue is full: %d copies, the one being made included." % QUEUE_SIZE]
+	return ["+ Queue", true, "Add one copy to the back of the manufacturing queue. It pays when it starts: %s." % _res_list(_recipe_cost(recipe))]
+
+
+func _recipe_act(key: String) -> void:
+	var recipe := _card_of(key)
+	if not _known(PLAYER, recipe):
+		_open_drawer("research"); _research_node_click(recipe)
+		return
+	_enqueue(key)
+
+
+func _recipe_hint(key: String) -> String:   # "2 queued · 1 ready"
+	var recipe := _card_of(key)
+	if not _known(PLAYER, recipe): return "Blueprint not learned"
+	var parts := []
+	var n := _mq_count(PLAYER, recipe)
+	if n > 0: parts.append("%d queued" % n)
+	parts.append("%d ready" % _held(PLAYER, recipe))
+	return " · ".join(parts)
 
 
 func _card_research_cancel(key: String) -> void:   # remove the newest queued copy of this recipe
@@ -5000,8 +5047,20 @@ func _plabel(txt: String, sz := 14, col := C_TEXT) -> void:
 	_lbl(panel_box, txt, sz, col, _panel_width() - 64.0)
 
 
+var _compact_font: FontVariation   # the UI face without the symbol fallback, whose tall metrics would make every line 29 px
+func _compact(txt: String) -> Font:   # null when the text needs a glyph only the symbol fallback has
+	if _compact_font == null:
+		_compact_font = FontVariation.new(); _compact_font.base_font = load("res://assets/fonts/JetBrainsMono-Regular.ttf")
+	for k in txt.length():
+		var c := txt.unicode_at(k)
+		if c > 127 and not _compact_font.has_char(c): return null
+	return _compact_font
+
+
 func _lbl(parent: Control, txt: String, sz: int, col: Color, minw: float) -> Label:
 	var l := Label.new(); l.text = txt
+	var cf := _compact(txt)
+	if cf != null: l.add_theme_font_override("font", cf)
 	l.add_theme_font_size_override("font_size", maxi(14, sz)); l.add_theme_color_override("font_color", col)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; l.custom_minimum_size = Vector2(minw, 0)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -6572,6 +6631,10 @@ func _layout_ui() -> void:
 	hud.position = Vector2(24, 8); hud.size = Vector2(maxf(200.0, top_tabs.position.x - 16.0 - 24.0), 46)   # never under the buttons
 	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
 	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _tut else 64)
+	if research_bar != null:
+		research_bar.position = Vector2(24, _research_bar_y())
+		research_bar.size = Vector2(clampf(sz.x - _panel_width() - 96.0, 240.0, RESEARCH_BAR_W), RESEARCH_BAR_H)
+		research_bar.visible = not menu_open
 	var panel_bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	panel.size = Vector2(_panel_width(), maxf(180, panel_bottom - panel.position.y))
 	if not _panel_has_context(): panel.size.y = minf(panel.size.y, 94 + botnets.size() * 60)
@@ -6593,7 +6656,7 @@ func _layout_ui() -> void:
 func _map_rect() -> Rect2:
 	var sz := get_viewport_rect().size
 	var right := sz.x - _panel_width() - 48 if _panel_shown() else sz.x - 24
-	var top := (_camp_banner_h() + 74) if _tut else 100.0
+	var top := _research_bar_y() + RESEARCH_BAR_H + 10.0
 	# Reserve the deck (pushed down or pulled up) while fitting a new town behind the menu too.
 	var bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	return Rect2(24, top, maxf(200, right - 24), maxf(100, bottom - top))
@@ -6772,10 +6835,11 @@ func _wrapped_tooltip(text: String) -> Control:   # a hover note that wraps at a
 func _panel_enemy_slots(i: int) -> void:
 	var scanned := _scanned(PLAYER, i)
 	_plabel("Installations · %d slots" % int(hosts[i].slots) if scanned else "%d slots · Recon to see inside and for full odds" % int(hosts[i].slots), 14, C_DIM)
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER; row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := GridContainer.new(); row.columns = PANEL_COLS
+	row.add_theme_constant_override("h_separation", PALETTE_GAP); row.add_theme_constant_override("v_separation", 6)
 	for sl in int(hosts[i].slots):
 		var ps := PeekSlot.new(); ps.game = self; ps.host = i; ps.slot = sl
+		ps.custom_minimum_size.x = _palette_card_w()
 		row.add_child(ps)
 	panel_box.add_child(row)
 
@@ -6830,24 +6894,26 @@ func _effects_line(i: int) -> String:
 
 func _panel_build(i: int) -> void:
 	var h: Dictionary = hosts[i]
-	_plabel("Installations", 16, C_TEXT)
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 4)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var w := _palette_card_w()
+	_psection("INSTALLATIONS", "%d/%d slots" % [_standing(i), int(h.slots)])
+	var grid := GridContainer.new(); grid.columns = PANEL_COLS
+	grid.add_theme_constant_override("h_separation", PALETTE_GAP); grid.add_theme_constant_override("v_separation", 6)
 	for slot in int(h.slots):
 		var col := VBoxContainer.new(); col.add_theme_constant_override("separation", 3)
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
-		box.custom_minimum_size = Vector2(112, 140); col.add_child(box)
+		box.custom_minimum_size = Vector2(w, 140); col.add_child(box)
 		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 socket positions right under it
 			var sl := SocketList.new(); sl.game = self; sl.host = i; sl.first = FIREWALL_SOCKETS * _wall_seat(i, slot)
+			sl.custom_minimum_size.x = w
 			col.add_child(sl)
-		row.add_child(col)
-	panel_box.add_child(row)
-	_plabel("Build · %d s each" % int(BUILD_TIME), 16, C_TEXT)
-	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", PALETTE_GAP)
-	palette.alignment = BoxContainer.ALIGNMENT_CENTER
+		grid.add_child(col)
+	panel_box.add_child(grid)
+	_psection("BUILD", "%d s of work, once supplied" % int(BUILD_TIME))
+	var palette := GridContainer.new(); palette.columns = PANEL_COLS
+	palette.add_theme_constant_override("h_separation", PALETTE_GAP); palette.add_theme_constant_override("v_separation", PALETTE_GAP)
 	for kind in BUILD_KINDS:
 		var card := BuildCard.new(); card.game = self; card.kind = kind
-		card.custom_minimum_size = Vector2(_palette_card_w(), 140); palette.add_child(card)
+		card.custom_minimum_size = Vector2(w, 140); palette.add_child(card)
 	panel_box.add_child(palette)
 
 
@@ -7030,7 +7096,8 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 			elif _free(owner, lim) < 0.999: probs.append(["starved", C_WARN, "%s needs %s here; your main node has none to send. Make %s, or build %s here." % [nm, RES_NAME[lim], RES_NAME[lim], _MAKER_OF.get(lim, "its input")]])
 			elif not _route_ok(owner, _hub(owner), i): probs.append(["starved", C_WARN, "%s needs %s here, and no worker can reach this host." % [nm, RES_NAME[lim]]])
 			elif int(_worker_counts(owner, _pool_of(owner, _hub(owner), i)).total) == 0: probs.append(["starved", C_WARN, "%s needs %s here, but you have no workers to fetch it. Build a Bot station here or at your main node." % [nm, RES_NAME[lim]]])
-			else: probs.append(["starved", C_WARN, "%s needs %s here: workers are bringing it from your main node." % [nm, RES_NAME[lim]]])
+			elif _has_team(i): probs.append(["starved", C_WARN, "%s needs %s here: this host's workers are bringing it from your main node." % [nm, RES_NAME[lim]]])
+			else: probs.append(["starved", C_WARN, "%s needs %s here: your main node's workers are bringing it as they come free." % [nm, RES_NAME[lim]]])
 		else: probs.append(["starved", C_WARN, "%s gets no %s: the converters before it use it all. Add %s here, or pause one." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "more input")]])
 	if pv.has("fw") and not bool(pv.fw.on):
 		probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here and none is left. Build an Intel harvester here." % _amt(float(pv.fw.need))])
@@ -7052,8 +7119,17 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 	if paused > 0: probs.append(["paused" if paused == producers else "", C_DIM, "%d producer%s paused by you." % [paused, "" if paused == 1 else "s"]])
 	for slot_key in (hosts[i].jobs as Dictionary):
 		var job: Dictionary = hosts[i].jobs[slot_key]
-		var what := str(BUILD_KINDS[str(job.kind)].name)
-		probs.append(["building" if producers == 0 else "", C_DIM, ("Building %s: %d s left." if str(job.phase) == "build" else "Clearing a slot for %s: %d s left.") % [what, int(ceil(float(job.left)))]])
+		var what := str(BUILD_KINDS[str(job.kind)].name) if str(job.kind) != "" else "nothing"
+		var line := ""
+		match _job_state(job):
+			"paused": line = "%s is paused: no work and no new deliveries." % what
+			"demolishing": line = "Clearing a slot for %s: %d s left." % [what, int(ceil(float(job.left)))]
+			"waiting":
+				var bill := 0.0; var here := 0.0
+				for r in (job.bill as Dictionary): bill += float(job.bill[r]); here += minf(float(job.bill[r]), float((job.escrow as Dictionary).get(r, 0.0)))
+				line = "%s waits for its materials: %d of %d here; workers bring the rest." % [what, int(here + 0.0001), int(bill + 0.0001)]
+			_: line = "Building %s: %d s left." % [what, int(ceil(float(job.left)))]
+		probs.append(["building" if producers == 0 else "", C_DIM, line])
 	if producers == 0 and _count_all(i, "wall") == 0 and (hosts[i].jobs as Dictionary).is_empty():
 		probs.append(["idle", C_DIM, "Nothing installed: drag a building onto an empty slot."])
 	var status := "operating"; var col := C_GOOD
@@ -7146,21 +7222,19 @@ func _cut_off(i: int) -> Array:   # your hosts that, with i, have no route to yo
 	return out
 
 
-func _panel_host_econ(i: int) -> void:   # role and status, its first two problems, the next cycle, then couriers, storage and stock
+func _panel_host_econ(i: int) -> void:   # what is wrong, why, and what to do (its first two problems), then the next cycle
 	var d := _host_diag(i)
 	_plabel("%s · %s" % [str(d.role), str(d.status)], 15, d.col)
 	for line in (d.lines as Array).slice(0, 2): _plabel(str(line[0]), 12, line[1])   # the rest: Economy view, Help
 	if str(d.next) != "": _plabel(str(d.next), 12, C_TEXT)
-	if i == int(rig.get(int(hosts[i].owner), -1)): return
-	for line in _delivery_lines(i): _plabel(str(line[0]), 12, line[1])
 
 
 const PALETTE_GAP := 4
+const PANEL_COLS := 3   # slots and building cards per row in the inspector
 
 
-func _palette_card_w() -> float:   # every building kind side by side within the sidebar's content width, never under its scrollbar
-	var n := BUILD_KINDS.size()
-	return floorf((PANEL_W - 44.0 - PALETTE_GAP * (n - 1)) / float(n))
+func _palette_card_w() -> float:   # three building cards (or slots) side by side within the inspector, never under its scrollbar
+	return floorf((PANEL_W - 44.0 - PALETTE_GAP * (PANEL_COLS - 1)) / float(PANEL_COLS))
 
 
 func _panel_selecting() -> void:
@@ -7169,11 +7243,247 @@ func _panel_selecting() -> void:
 		return
 	var source := int(sel.keys()[0])
 	_plabel(str(hosts[source].name), 20, C_TEXT)
-	_plabel(_stage_line(source), 14, C_TEXT)
+	_plabel(_stage_line(source), 14, C_DIM)
 	var fx := _effects_line(source)
 	if fx != "": _plabel(fx, 13, C_WARN)
-	if _mine(source): _panel_host_econ(source)
+	if _mine(source):
+		_panel_host_econ(source)
+		_panel_local_stock(source)
+		_panel_workers(source)
+		_panel_construction(source)
 	_panel_build(source)
+
+
+# ---- inspector sections: local stock, workers, construction ----
+func _psection(title: String, note := "", note_col := C_DIM) -> void:   # a section heading with a short note on its right
+	_gap(6.0)
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var a := _tcell(row, title, 0.0, Color(0.62, 0.74, 0.9)); a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if note != "": _tcell(row, note, 0.0, note_col, HORIZONTAL_ALIGNMENT_RIGHT)
+	panel_box.add_child(row)
+	var rule := ColorRect.new(); rule.color = Color(0.25, 0.32, 0.42, 0.7); rule.custom_minimum_size = Vector2(0, 1)
+	panel_box.add_child(rule)
+
+
+func _tcell(parent: Control, txt: String, w: float, col: Color, align := HORIZONTAL_ALIGNMENT_LEFT, fs := 14) -> Label:
+	var l := Label.new(); l.text = txt
+	var cf := _compact(txt)
+	if cf != null: l.add_theme_font_override("font", cf)
+	l.add_theme_font_size_override("font_size", fs); l.add_theme_color_override("font_color", col)
+	l.horizontal_alignment = align; l.custom_minimum_size = Vector2(w, 0)
+	l.clip_text = true; l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	parent.add_child(l)
+	return l
+
+
+const STOCK_COLS := [96.0, 54.0, 96.0, 90.0]   # Material · Here · On the way · Needed now (= the inspector's 340 px)
+
+
+func _ptable(head: Array, rows: Array, tips := []) -> GridContainer:   # rows: [[text, colour], ...] per row; numbers right-aligned
+	var g := GridContainer.new(); g.columns = head.size()
+	g.add_theme_constant_override("h_separation", 0); g.add_theme_constant_override("v_separation", 1)
+	for k in head.size():
+		var h := _tcell(g, str(head[k]), float(STOCK_COLS[k]), C_DIM, HORIZONTAL_ALIGNMENT_LEFT if k == 0 else HORIZONTAL_ALIGNMENT_RIGHT, 13)
+		if k < tips.size(): h.tooltip_text = str(tips[k]); h.mouse_filter = Control.MOUSE_FILTER_PASS
+	for row in rows:
+		for k in (row as Array).size():
+			_tcell(g, str(row[k][0]), float(STOCK_COLS[k]), row[k][1], HORIZONTAL_ALIGNMENT_LEFT if k == 0 else HORIZONTAL_ALIGNMENT_RIGHT)
+	panel_box.add_child(g)
+	return g
+
+
+func _cycle_needs(i: int) -> Dictionary:   # {res: units} one full cycle uses from this host's storage, after what the host makes itself
+	var gross := {}; var made := {}
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0: gross.intel = float(BUILD_KINDS.wall.use.intel) * walls
+	made.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
+	for k in (hosts[i].builds as Array).size():
+		var kind := str(hosts[i].builds[k])
+		if not (kind in CONVERT_ORDER) or not _producer_active(i, k): continue
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var m := _tmult(i, str(spec.out))
+		for r in (spec.use as Dictionary): gross[str(r)] = float(gross.get(str(r), 0.0)) + float(spec.use[r]) * m
+		made[str(spec.out)] = float(made.get(str(spec.out), 0.0)) + float(spec.rate) * m
+	var out := {}
+	for r in gross:
+		var v := float(gross[r]) - float(made.get(r, 0.0))
+		if v > 0.0001: out[r] = v
+	return out
+
+
+func _stock_rows(i: int) -> Array:   # [res, here, on the way, needed now] for what this host holds, uses, makes or awaits
+	var fac := int(hosts[i].owner)
+	var need := _cycle_needs(i)
+	var touches := {}
+	for k in (hosts[i].builds as Array).size():
+		var kind := str(hosts[i].builds[k])
+		if kind == "" or kind == "bot": continue
+		if kind == "wall": touches["intel"] = true; continue
+		touches[str(BUILD_KINDS[kind].out)] = true
+		for r in (BUILD_KINDS[kind].get("use", {}) as Dictionary): touches[str(r)] = true
+	var out := []
+	for res in RES:
+		var here := float(_store_of(i, fac).get(res, 0.0))
+		var way := _inbound(i, res) + _fetch_held(i, res)
+		var nd := float(need.get(res, 0.0))
+		if here < 0.05 and way < 0.05 and nd < 0.05 and not touches.has(res): continue
+		out.append([res, here, way, nd])
+	return out
+
+
+func _panel_local_stock(i: int) -> void:
+	var fac := int(hosts[i].owner)
+	if i == _hub(fac):   # the main node's stock is the bank; say what of it is spoken for
+		var held := []
+		for res in RES:
+			if _rig_claimed(fac, res) > 0.05: held.append("%s %s" % [_amt(_rig_claimed(fac, res)), RES_NAME[res]])
+		_psection("LOCAL STOCK", "your banks (top bar)")
+		_plabel(("Reserved for workers' pickups: %s." % ", ".join(held)) if not held.is_empty() else "Nothing reserved: all of your bank can be spent.", 12, C_DIM)
+		return
+	var full := _store_total(i) >= STORE_CAP - 0.5
+	_psection("LOCAL STOCK", "Storage %s/%d" % [_amt(_store_total(i)), int(STORE_CAP)], C_WARN if full else C_DIM)
+	var rows := []
+	for r in _stock_rows(i):
+		var res := str(r[0])
+		var short := float(r[3]) > float(r[1]) + float(r[2]) + 0.05
+		rows.append([[str(RES_NAME[res]), _res_col(res)], [_amt(float(r[1])), C_TEXT], [_amt(float(r[2])) if float(r[2]) >= 0.05 else "—", C_TEXT if float(r[2]) >= 0.05 else C_DIM],
+			[_amt(float(r[3])) if float(r[3]) >= 0.05 else "—", C_WARN if short else (C_TEXT if float(r[3]) >= 0.05 else C_DIM)]])
+	if rows.is_empty(): _plabel("Nothing stored, used or made here yet.", 12, C_DIM)
+	else: _ptable(["Material", "Here", "On the way", "Needed now"], rows,
+		["", "In this host's storage now.", "Carried here by workers right now.", "What one production cycle here uses, after what this host makes itself. Workers bring it automatically."])
+	var keep := {}; var pile := {}
+	for res in RES:
+		if _earmark(i, res) > 0.05: keep[res] = _earmark(i, res)
+		if _loot(i, fac, res) > 0.05: pile[res] = _loot(i, fac, res)
+	if not keep.is_empty(): _plabel("Kept for this host's next use: %s." % _res_list(keep), 12, C_DIM)
+	if not pile.is_empty(): _plabel("Salvage here: %s. Workers take it home." % _res_list(pile), 12, C_WARN)
+	var ticket: Dictionary = hosts[i].get("refill", {})
+	if ticket.is_empty():
+		var pv := _refill_preview(i)
+		if pv.is_empty():
+			_btn("Refill supplies", _refill_click.bind(i), false, null, "Nothing to bring: what is here and on its way covers one full cycle.", 30.0)
+		else:
+			_plabel("Refill brings %s once (one cycle's inputs), kept for this host." % _res_list(pv), 12, C_DIM)
+			_btn("Refill supplies", _refill_click.bind(i), true, null, "A one-time delivery of one full cycle's inputs: %s. Workers bring it and it is kept for this host's next use." % _res_list(pv), 30.0)
+	else:
+		var why := "on its way"
+		if _refill_state(i) == "requested":
+			why = "waiting for a free worker"
+			for res in ticket:
+				if _free(fac, str(res)) < 0.999: why = "waiting: your main node has no %s" % RES_NAME[str(res)]; break
+		_plabel("Refill: %s still to come · %s." % [_res_list(ticket), why], 12, C_WARN if why.begins_with("waiting:") else C_TEXT)
+		_btn("Cancel refill", _refill_cancel_click.bind(i), true, null, "Stops the rest of this refill. What workers already carry still arrives.", 30.0)
+
+
+func _refill_click(i: int) -> void: _cmd(["refill", i])
+func _refill_cancel_click(i: int) -> void: _cmd(["refill_cancel", i])
+
+
+func _worker_ids(fac: int, home: int) -> Array:   # this host's workers by their stable number
+	var out := []
+	for wid in workers:
+		if int(workers[wid].fac) == fac and int(workers[wid].home) == home: out.append(int(wid))
+	out.sort()
+	return out
+
+
+func _worker_line(wid: int) -> Array:   # [text, colour]: one worker, by number, and what it is doing
+	var w: Dictionary = workers[wid]
+	var f := _flight_of(wid)
+	var st := _worker_state(wid)
+	var txt := "available at %s" % str(hosts[int(w.home)].name)
+	var col := C_DIM
+	match st:
+		"blocked":
+			txt = "blocked at %s: the way on is cut" % str(hosts[int(f.get("at", w.home))].name); col = C_WARN
+		"collecting":
+			var job: Dictionary = f.get("job", {})
+			col = C_TEXT
+			if job.has("src"): txt = "collecting %s %s at %s" % [_amt(float(job.amt)), RES_NAME[str(job.res)], str(hosts[int(job.src)].name)]
+			elif job.has("dest"): txt = "fetching %s %s from your main node" % [_amt(float(job.amt)), RES_NAME[str(job.res)]]
+			else: txt = "returning to %s" % str(hosts[int(w.home)].name); col = C_DIM
+		"carrying":
+			var to := int(f.dest) if str(f.trip) == "out" else int(f.origin)
+			txt = "carrying %s → %s" % [_res_list(f.cargo), str(hosts[to].name)]; col = C_TEXT
+	if str(w.state) == "retiring": txt = "retiring after this leg · " + txt
+	return ["#%d  %s" % [wid, txt], col]
+
+
+func _worker_touches(wid: int, i: int) -> bool:   # is this worker's current trip for host i?
+	var f := _flight_of(wid)
+	if f.is_empty(): return false
+	var job: Dictionary = f.get("job", {})
+	return int(f.dest) == i or int(job.get("src", -1)) == i or int(job.get("dest", -1)) == i
+
+
+func _panel_workers(i: int) -> void:
+	var fac := int(hosts[i].owner)
+	var own := _worker_ids(fac, i)
+	var stations := _teams(i).size()
+	var waiting := 0.0
+	for slot in _teams(i):
+		for k in (_teams(i)[slot].w as Array).size():
+			if int(_teams(i)[slot].w[k]) < 0: waiting = maxf(waiting, float(_teams(i)[slot].re[k]))
+	if stations > 0 or not own.is_empty():
+		_psection("WORKERS", "%d from %s" % [own.size(), "its station" if stations == 1 else "%d stations" % stations])
+		for wid in own:
+			var ln := _worker_line(wid)
+			_plabel(str(ln[0]), 12, ln[1])
+		if waiting > 0.0: _plabel("A replacement worker starts in %d s." % ceili(waiting), 12, C_WARN)
+	else:
+		var hub := _hub(fac)
+		var pool := _pool_of(fac, hub, i)
+		var helping := []
+		for wid in _worker_ids(fac, pool):
+			if _worker_touches(wid, i): helping.append(wid)
+		_psection("WORKERS", "none stationed here")
+		if _worker_ids(fac, pool).is_empty(): _plabel("No workers at your main node: build a Bot station there, or here.", 12, C_WARN)
+		else: _plabel("Your main node's workers serve this host%s." % (": %d on it now" % helping.size() if not helping.is_empty() else ""), 12, C_DIM)
+		for wid in helping:
+			var ln := _worker_line(wid)
+			_plabel(str(ln[0]), 12, ln[1])
+	if i != _hub(fac):
+		var route := _route_home_line(i)
+		_plabel(route, 12, C_BAD if route.ends_with("none") else C_DIM)
+
+
+func _panel_construction(i: int) -> void:
+	var jobs: Dictionary = hosts[i].jobs
+	if jobs.is_empty(): return
+	_psection("CONSTRUCTION", "%d project%s" % [jobs.size(), "" if jobs.size() == 1 else "s"])
+	var slots := jobs.keys(); slots.sort()
+	for slot in slots:
+		var job: Dictionary = jobs[slot]
+		var what := str(BUILD_KINDS[str(job.kind)].name) if str(job.kind) != "" else "Demolition"
+		var st := _job_state(job)
+		var head := "%s · slot %d · " % [what, int(slot) + 1]
+		match st:
+			"paused": head += "paused"
+			"demolishing": head += "clearing the slot: %d s" % ceili(float(job.left))
+			"waiting": head += "waiting for materials"
+			_: head += "building: %d s left" % ceili(float(job.left))
+		_plabel(head, 13, C_WARN if st in ["paused", "waiting"] else C_TEXT)
+		var bill: Dictionary = job.get("bill", {})
+		if not bill.is_empty():
+			var rows := []
+			for res in RES:
+				if not bill.has(res): continue
+				var here := float((job.escrow as Dictionary).get(res, 0.0))
+				var way := float((job.inbound as Dictionary).get(res, 0.0)) + float((job.fetch as Dictionary).get(res, 0.0))
+				var left := _job_short(job, res)
+				rows.append([[str(RES_NAME[res]), _res_col(res)], ["%s/%s" % [_amt(here), _amt(float(bill[res]))], C_GOOD if here >= float(bill[res]) - 0.05 else C_TEXT],
+					[_amt(way) if way >= 0.05 else "—", C_TEXT if way >= 0.05 else C_DIM], [_amt(left) if left >= 0.05 else "—", C_WARN if left >= 0.05 else C_DIM]])
+			_ptable(["Material", "Here", "On the way", "To send"], rows,
+				["", "Delivered into the project / its whole bill.", "Carried here by workers right now.", "Still at your main node: workers take it as they come free."])
+		if str(job.kind) != "":
+			if str(job.phase) == "build" and _job_funded(job):
+				_plabel("Work %d/%d s." % [int(float(job.total) - float(job.left)), int(float(job.total))], 12, C_TEXT)
+			elif str(job.phase) == "build": _plabel("The %d s of work starts when every material is here." % int(BUILD_TIME), 12, C_DIM)
+			else: _plabel("Then %d s of work, once every material is here." % int(BUILD_TIME), 12, C_DIM)
+		_btn_row([["Resume" if bool(job.get("paused", false)) else "Pause", _toggle_job.bind(i, int(slot)), true, "Pause stops work and new deliveries; loaded workers still arrive."],
+			["Cancel", _cancel_job.bind(i, int(slot)), true, "What was delivered stays here as salvage, less what the work used; workers take it home."]])
+
 
 func _fixed_button_style(button: Button, red := false) -> void:
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
@@ -7405,9 +7715,24 @@ func _econ_lines(res: String) -> Array:   # one bank's forecast and history in w
 	return out
 
 
+func _where_is(fac: int, res: String) -> Dictionary:   # {hosts, transit, reserved}: the resource away from the bank, or spoken for in it
+	var at_hosts := 0.0; var transit := 0.0
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac or i == _hub(fac): continue
+		at_hosts += float(_store_of(i, fac).get(res, 0.0)) + _loot(i, fac, res)
+		for slot in (hosts[i].jobs as Dictionary): at_hosts += float((hosts[i].jobs[slot].get("escrow", {}) as Dictionary).get(res, 0.0))
+	for f in flights:
+		if str(f.kind) == "courier" and int(f.owner) == fac: transit += float((f.cargo as Dictionary).get(res, 0.0))
+	return {"hosts": at_hosts, "transit": transit, "reserved": _rig_claimed(fac, res)}
+
+
 func _econ_tooltip(res: String) -> String:
 	var head := "DELIVERY WORKERS" if res == "workers" else "%s  %d / %d at your main node" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]
-	return "%s\n%s\n\nClick for the Economy overview." % [head, "\n".join(PackedStringArray(_econ_lines(res)))]
+	var where := ""
+	if res != "workers":
+		var w := _where_is(PLAYER, res)
+		where = "\nStored at hosts: %s · In transit: %s · Reserved at main node: %s" % [_amt(float(w.hosts)), _amt(float(w.transit)), _amt(float(w.reserved))]
+	return "%s%s\n%s\n\nClick for the Economy overview." % [head, where, "\n".join(PackedStringArray(_econ_lines(res)))]
 
 
 func _objective_tooltip() -> String:
@@ -7627,7 +7952,7 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, roads, wires
 func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jumps (they pass UNDER the buildings)
 	var sight: Dictionary = cx.sight; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
-	for fl in flights:   # yours: a courier is a dot in its cargo's colour (a ring when it travels empty) with an arrow; a rival's is a square
+	for fl in flights:   # yours: a worker is a dot in its cargo's colour (a ring when it travels empty) with an arrow; a rival's is a square
 		if not _flight_seen(fl, sight): continue
 		if str(fl.kind) == "op":   # a card: its remaining path dashed in its family's colour (the card is drawn above the buildings)
 			if int(fl.owner) == PLAYER and not bool(fl.get("blocked", false)): _paint_card_path(fl, vt)
@@ -7646,11 +7971,13 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 			continue
 		var res := _cargo_res(fl)
 		var col := _res_col(res) if res != "" else COURIER_COL
-		if res != "": _cv.draw_circle(pp, 3.8, Color(col, ba))
-		else: _cv.draw_arc(pp, 3.2, 0.0, TAU, 12, Color(col, 0.85 * ba), 1.4, true)
 		var dir := _flight_dir(fl, vt)
+		var perp := Vector2(-dir.y, dir.x)
+		pp += perp * (3.5 + 3.5 * float(int(fl.get("wid", 0)) % 2))   # each direction on its own side; two workers side by side, never one dot
+		if res != "":   # loaded: a filled dot in its cargo's colour
+			_cv.draw_circle(pp, 4.0, Color(col, ba)); _cv.draw_arc(pp, 4.0, 0.0, TAU, 12, Color(0.02, 0.03, 0.05, 0.8 * ba), 1.0, true)
+		else: _cv.draw_arc(pp, 3.2, 0.0, TAU, 12, Color(col, 0.85 * ba), 1.4, true)   # empty: a hollow ring
 		if dir != Vector2.ZERO:   # which way it is going
-			var perp := Vector2(-dir.y, dir.x)
 			_cv.draw_colored_polygon(PackedVector2Array([pp + dir * 9.0, pp + dir * 5.0 + perp * 3.0, pp + dir * 5.0 - perp * 3.0]), Color(col, 0.9 * ba))
 	for w in _worms:   # a worm's jumps: a bold trail, a pulse racing to the newly-infected building, a ring on it
 		if not (sight.has(int(w.a)) or sight.has(int(w.b))): continue
@@ -7856,8 +8183,8 @@ func _flight_seen(fl: Dictionary, sight: Dictionary) -> bool:   # _flight_visibl
 	return sight.has(seg.x) or sight.has(seg.y)
 
 
-const COURIER_COL := Color(0.5, 1.0, 0.7)   # an empty courier of yours
-func _cargo_res(fl: Dictionary) -> String:   # what a courier carries ("" when it travels empty)
+const COURIER_COL := Color(0.5, 1.0, 0.7)   # an empty worker of yours
+func _cargo_res(fl: Dictionary) -> String:   # what a worker carries ("" when it travels empty)
 	var cg: Dictionary = fl.get("cargo", {})
 	return "" if cg.is_empty() else str(cg.keys()[0])
 
@@ -8671,10 +8998,11 @@ class HudBar extends Control:   # the HUD: each bank's stock and its recent net 
 
 
 
-class CardTile extends Control:
+class CardTile extends Control:   # a recipe: what it does, copies ready and queued; + Queue (or Research for a locked one)
 	var game
 	var key := "phishworm:linked"
 	var stop_button: Button
+	var queue_button: Button
 	var stock_material: ShaderMaterial
 	var press_position := Vector2.ZERO
 	func _init() -> void:
@@ -8687,26 +9015,31 @@ class CardTile extends Control:
 		stock_material = ShaderMaterial.new(); stock_material.shader = shader; material = stock_material
 		var frame := CardFrame.new(); frame.tile = self   # its own material: the red / blue edge never turns gray
 		frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); add_child(frame)
-		stop_button = Button.new(); stop_button.text = "Cancel"; stop_button.name = "CancelResearch"   # a quiet link in the status row
+		stop_button = Button.new(); stop_button.text = "Remove"; stop_button.name = "CancelResearch"   # a quiet link: the newest queued copy goes
 		stop_button.focus_mode = Control.FOCUS_NONE
 		game._link_button_style(stop_button)
+		stop_button.tooltip_text = "Remove the newest queued copy of this card (a copy being made refunds its unworked share)."
 		stop_button.pressed.connect(game._card_research_cancel.bind(key)); add_child(stop_button)
+		queue_button = Button.new(); queue_button.name = "Queue"; queue_button.focus_mode = Control.FOCUS_NONE
+		queue_button.add_theme_font_size_override("font_size", 13)
+		game._fixed_button_style(queue_button)
+		queue_button.pressed.connect(_act); add_child(queue_button)
 		tooltip_text = game._card_tooltip(key)   # the full lead + rules (the face shows whole sentences that fit)
 	func _make_custom_tooltip(for_text: String) -> Object:
 		return game._wrapped_tooltip(for_text)
 	func _process(_dt: float) -> void:
 		var state: Dictionary = game._card_research_state(key)
 		stock_material.set_shader_parameter("saturation", 0.0 if int(state.count) == 0 else 1.0)
-		stop_button.visible = bool(state.queued)
+		stop_button.visible = int(state.n) > 0
 		stop_button.size = Vector2(70, 22); stop_button.position = Vector2(size.x - 14 - 70, size.y - 56)
+		var act: Array = game._recipe_action(key)
+		queue_button.text = str(act[0]); queue_button.disabled = not bool(act[1]); queue_button.tooltip_text = str(act[2])
+		queue_button.size = Vector2(96, 26); queue_button.position = Vector2(size.x - 14 - 96, size.y - 30)
 		queue_redraw(); (get_child(0) as CanvasItem).queue_redraw()
-	func _gui_input(event: InputEvent) -> void:   # a recipe: click to make a copy (or pause / resume the one being made)
-		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-			if event.pressed: press_position = event.position
-			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
-				game._card_research_click(key); accept_event()
-		elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER:
-			game._card_research_click(key); accept_event()
+	func _act() -> void: game._recipe_act(key)
+	func _gui_input(event: InputEvent) -> void:   # the body only explains; + Queue (or Research) is the action. Enter = the action
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER:
+			_act(); accept_event()
 	func _draw() -> void:
 		var font := get_theme_default_font()
 		var card: Dictionary = game.CARDS[game._card_of(key)]
@@ -8733,13 +9066,11 @@ class CardTile extends Control:
 			(blurb[3] as TextParagraph).draw(get_canvas_item(), Vector2(14, game.CARD_TEXT_TOP + lead.get_size().y + game.CARD_TEXT_GAP), game.C_DIM)
 		# (the research price is drawn as resource icons by CardFrame, in colour)
 		var status_colour: Color = Color.WHITE if working else (game.C_WARN if str(state.status) in ["Waiting", "Paused"] else game.C_TEXT)
-		var status := "%s · %d%%" % [str(state.status), int(float(state.progress) * 100)] if bool(state.queued) else str(state.status)
+		var status := "%s · %d%%" % [str(state.status), int(float(state.progress) * 100)] if str(state.status) in ["Making", "Paused", "Researching"] else str(state.status)
 		game._text(self, font, Vector2(14, size.y - 41), status, 13, status_colour, size.x - 110, HORIZONTAL_ALIGNMENT_LEFT)
-		draw_rect(Rect2(14, size.y - 30, size.x - 28, 8), Color(0.17, 0.20, 0.26))
-		draw_rect(Rect2(14, size.y - 30, (size.x - 28) * float(state.progress), 8), status_colour)
-		var hint := "Click to resume" if str(state.status) == "Paused" else ("Click to pause" if bool(state.queued) else "Click to make a copy")
-		if int(state.count) > 0: hint += " · use it from Ready"
-		game._text(self, font, Vector2(14, size.y - 8), hint, 10, game.C_DIM, size.x - 28, HORIZONTAL_ALIGNMENT_LEFT)
+		draw_rect(Rect2(14, size.y - 34, size.x - 28 - 104, 6), Color(0.17, 0.20, 0.26))
+		draw_rect(Rect2(14, size.y - 34, (size.x - 28 - 104) * float(state.progress), 6), status_colour)
+		game._text(self, font, Vector2(14, size.y - 12), game._recipe_hint(key), 12, game.C_DIM, size.x - 28 - 104, HORIZONTAL_ALIGNMENT_LEFT)
 
 
 class CardDragPreview extends Control:
@@ -8774,6 +9105,46 @@ class CardFrame extends Control:   # a big card's red / blue edge, drawn outside
 		game._draw_cost_row(self, game._card_cost(tile.key), game._card_time(tile.key), Vector2(14, size.y - 66))   # in colour, outside the shader
 
 
+class ResearchBar extends Control:   # always on screen: what is being researched, on which track, how far, and whether it moves
+	var game
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _get_tooltip(_at: Vector2) -> String:
+		var st: Dictionary = game._research_bar_state()
+		match str(st.state):
+			"idle": return "Nothing is being researched. Open Research (R), select a blueprint, then Research. Research costs Intel, Crypto and Research while it runs."
+			"paused": return "%s is paused at %d%%. Open Research (R) and resume it." % [str(st.name), int(float(st.frac) * 100)]
+			"stalled": return "%s has stopped at %d%%: %s. It continues by itself once your bank has it." % [str(st.name), int(float(st.frac) * 100), str(st.why)]
+		return "Researching %s (%s track): %d%%, %d s of work left. It pays as it goes. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
+	func _process(_dt: float) -> void: queue_redraw()
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			game._toggle_research(); accept_event()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var st: Dictionary = game._research_bar_state()
+		var state := str(st.state)
+		var col: Color = {"active": Color(0.72, 0.55, 1.0), "paused": game.C_WARN, "stalled": game.C_BAD}.get(state, game.C_DIM)
+		var hot := Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.07, 0.1, 0.92).lightened(0.05 if hot else 0.0))
+		if state != "idle": draw_rect(Rect2(1, 1, (size.x - 2) * float(st.frac), size.y - 2), Color(col, 0.22))
+		draw_rect(Rect2(0.5, 0.5, size.x - 1, size.y - 1), Color(col, 0.85), false, 1.0)
+		game._draw_kind_icon(self, "lab", Vector2(15, size.y * 0.5), 15.0, col, f)
+		var head := "RESEARCH"
+		game._text(self, f, Vector2(28, size.y * 0.5 + 5), head, 12, col)
+		var x: float = 28.0 + game._text_w(f, head, 12) + 10.0
+		var txt := ""
+		match state:
+			"idle": txt = "idle · %d blueprint%s open · press R" % [int(st.open), "" if int(st.open) == 1 else "s"] if int(st.open) > 0 else "idle · nothing open to research"
+			"active": txt = "%s · %s · %d%% · %d s left" % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
+			"paused": txt = "%s · %s · %d%% · paused" % [str(st.name), str(st.track), int(float(st.frac) * 100)]
+			"stalled": txt = "%s · %d%% · stalled: %s" % [str(st.name), int(float(st.frac) * 100), str(st.why)]
+		game._text(self, f, Vector2(x, size.y * 0.5 + 5), txt, 13, game.C_TEXT if state == "active" else col, size.x - x - 8.0, HORIZONTAL_ALIGNMENT_LEFT)
+
+
 class QueueChip extends Control:   # one of the queue's four positions: the head (made now, or waiting and why) or a waiting copy; x removes it
 	var game
 	var pos := 0
@@ -8799,7 +9170,7 @@ class QueueChip extends Control:   # one of the queue's four positions: the head
 				out.text = ("Paused %d%%" if str(out.kind) == "paused" else "Making %d%%") % int(float(out.progress) * 100)
 			else:
 				out.kind = "waiting"; out.text = game._mq_head_why_short(game.PLAYER)
-				if str(out.text) == "": out.text = "Starting"
+				if str(out.text) == "": out.kind = "making"; out.text = "Starting"   # it can pay: it starts on the next step
 		return out
 	func _get_tooltip(_at: Vector2) -> String:
 		var st := state()
@@ -9079,7 +9450,7 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 # A building card (palette and slots share it), in fixed bands so nothing overlaps at 112 x 140:
 # title 4-28 · icon 32-72 · two effect lines (88, 101) · bottom band 108-136: the price as icons (palette) or a status (slots).
 const BUILD_EFFECT := {   # per 5-s cycle (the host panel says "Every 5 s")
-	"bot": ["+2 couriers", "1 unit a trip"], "intel": ["+2 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
+	"bot": ["2 workers", "1 unit a leg"], "intel": ["+2 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
 	"cred": ["+1 Cred", "uses 1 Intel"], "lab": ["+1 Research", "Intel+Crypto"], "wall": ["3 sockets", "uses 1 Intel"],
 }
 func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:
@@ -9186,6 +9557,11 @@ class SlotBox extends Control:
 			game._text(self, font, Vector2(46, 76), "+", 28, game.C_DIM)
 			return
 		var footer := "" if game._slot_active(host, slot) else "Inactive"
+		if kind == "bot" and job.is_empty():   # a station: how many of its two workers are there
+			var team: Dictionary = game._teams(host).get(slot, {})
+			var alive := 0
+			for wid in (team.get("w", []) as Array): if int(wid) >= 0: alive += 1
+			footer = "%d of %d workers" % [alive, game.WORKERS_PER_STATION] if not team.is_empty() else "Off: no workers"
 		if kind in ["cash", "cred", "lab"]:
 			if game._producer_paused(host, slot): footer = "Paused · click"
 			elif game._slot_active(host, slot):
@@ -9195,21 +9571,20 @@ class SlotBox extends Control:
 		elif kind == "wall":
 			var a: int = game.FIREWALL_SOCKETS * game._wall_seat(host, slot)
 			footer = "%d/%d loaded" % [game._loaded_of((h.sockets as Array).slice(a, a + game.FIREWALL_SOCKETS)).size(), game.FIREWALL_SOCKETS] if bool(h.get("fw_on", true)) else "OFF: no Intel"
+		var waiting: bool = not job.is_empty() and str(job.phase) == "build" and not game._job_funded(job)
 		if not job.is_empty():
 			footer = ""
-			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else "■  %.0fs" % float(job.left)
+			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else ("■  Supplying" if waiting else "■  %.0fs" % float(job.left))
 		game._draw_building_card(self, kind, footer, not job.is_empty())
 		if not job.is_empty():
-			var total: float = game.DEMOLISH_TIME if str(job.phase) == "demolish" else game.BUILD_TIME
-			draw_rect(Rect2(6, 106, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
-			var short := str(job.get("short", ""))
-			if str(job.phase) == "build" and not bool(job.get("paused", false)) and short != "":   # construction waits for a resource
-				var price: float = float(game._job_cost_total(job).get(short, 0.0))
-				var paid: float = price - float(game._job_cost_left(job).get(short, 0.0))
-				var res_name: String = "Crypto" if short == "cash" else "Intel"
+			var total: float = maxf(0.001, float(job.total))
+			if not waiting: draw_rect(Rect2(6, 106, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
+			else:   # construction waits for its materials: how much of the bill is here
+				var bill := 0.0; var here := 0.0
+				for r in (job.bill as Dictionary): bill += float(job.bill[r]); here += minf(float(job.bill[r]), float((job.escrow as Dictionary).get(r, 0.0)))
 				draw_rect(Rect2(4, 77, size.x - 8, 28), Color(0.12, 0.07, 0.03))
-				game._fit_text(self, "Needs %s" % res_name, Rect2(6, 89, size.x - 12, 0), 12, game.C_WARN)
-				game._fit_text(self, "%d / %d paid" % [int(paid), int(price)], Rect2(6, 102, size.x - 12, 0), 11, game.C_TEXT)
+				game._fit_text(self, "Materials", Rect2(6, 89, size.x - 12, 0), 12, game.C_WARN)
+				game._fit_text(self, "%d / %d here" % [int(here + 0.0001), int(bill + 0.0001)], Rect2(6, 102, size.x - 12, 0), 11, game.C_TEXT)
 
 
 
