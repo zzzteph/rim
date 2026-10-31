@@ -156,7 +156,7 @@ func other_cards() -> void:
 	g._capture(t, R)
 	g.cards[P] = {"siphon": 1, "recon": 1, "patch": 1}
 	check(text(g._target_preview(P, "siphon", t, "", true)).contains("A drag takes Crypto"), "A Siphon dragged says it takes Crypto and where to choose another")
-	check(text(g._target_preview(P, "siphon", t, "research")).contains("Research couriers"), "A Siphon from the panel names the chosen resource")
+	check(text(g._target_preview(P, "siphon", t, "research")).contains("Research carried by workers"), "A Siphon from the panel names the chosen resource")
 	check(text(g._target_preview(P, "recon", t)).contains("fresh for 45 s"), "Recon says how long its snapshot stays fresh")
 	var mine := int(g.rig[P])
 	g._set_builds(mine, ["wall"])

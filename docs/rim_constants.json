@@ -22,15 +22,15 @@
         "card": "Bot station",
         "short": "B",
         "col": "#73f299",
-        "out": "bots",
-        "rate": 2.0,
+        "out": "",
+        "rate": 0.0,
         "use": {},
         "cost": {
           "intel": 12.0,
           "cash": 4.0
         },
-        "cap": 50.0,
-        "desc": "Makes 2 couriers every 5 s. A host keeps 4 per station; at your main node they join your Bots."
+        "cap": 0.0,
+        "desc": "Provides 2 reusable delivery workers. Each carries 1 resource unit per trip leg."
       },
       "cash": {
         "name": "Crypto miner",
@@ -103,7 +103,6 @@
     },
     "PRODUCER_KINDS": [
       "intel",
-      "bot",
       "cash",
       "cred",
       "lab"
@@ -150,7 +149,6 @@
         "known": true,
         "dur": 45.0,
         "make": {
-          "bots": 0,
           "intel": 8,
           "cash": 0,
           "creds": 0,
@@ -170,7 +168,6 @@
         "exec": 15.0,
         "exec_rig": 30.0,
         "make": {
-          "bots": 0,
           "intel": 12,
           "cash": 0,
           "creds": 12,
@@ -190,7 +187,6 @@
         "exec": 9.0,
         "exec_rig": 20.0,
         "make": {
-          "bots": 0,
           "intel": 14,
           "cash": 0,
           "creds": 0,
@@ -209,7 +205,6 @@
         "known": true,
         "dur": 60.0,
         "make": {
-          "bots": 0,
           "intel": 18,
           "cash": 6,
           "creds": 8,
@@ -217,7 +212,7 @@
         },
         "make_time": 12.0,
         "lead": "Divert new output for 60 s.",
-        "rules": "What a rival host makes is kept there for you, and your couriers collect it. They keep the host and its couriers but get nothing from it. Incident response ends it."
+        "rules": "What a rival host makes is kept there for you, and your workers collect it. They keep the host and its workers but get nothing from it. Incident response ends it."
       },
       "siphon": {
         "name": "Packet siphon",
@@ -229,15 +224,14 @@
         "dur": 30.0,
         "cargo": 30,
         "make": {
-          "bots": 0,
           "intel": 20,
           "cash": 6,
           "creds": 6,
           "research": 5
         },
         "make_time": 12.0,
-        "lead": "Hijack couriers crossing a host.",
-        "rules": "Pick a resource. For 30 s, their couriers carrying it that leave or pass this host drop it there for your couriers, up to 30. Best on a host their deliveries cross. Courier cover protects cargo."
+        "lead": "Hijack cargo crossing a host.",
+        "rules": "Pick a resource. For 30 s, their workers carrying it that leave or pass this host drop it there for your workers, up to 30. Best on a host their deliveries cross. Cargo cover protects cargo."
       },
       "vault": {
         "name": "Vault raid",
@@ -250,7 +244,6 @@
         "cargo": 30,
         "reach": 3,
         "make": {
-          "bots": 0,
           "intel": 24,
           "cash": 0,
           "creds": 10,
@@ -258,7 +251,7 @@
         },
         "make_time": 16.0,
         "lead": "Empty the storage of 3 linked hosts.",
-        "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your couriers collect it from there. A Patch stops it."
+        "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your workers collect it from there. A Patch stops it."
       },
       "ddos": {
         "name": "DDoS",
@@ -270,7 +263,6 @@
         "dur": 45.0,
         "reach": 3,
         "make": {
-          "bots": 0,
           "intel": 34,
           "cash": 14,
           "creds": 0,
@@ -278,7 +270,7 @@
         },
         "make_time": 14.0,
         "lead": "Halt 3 hosts' output for 45 s.",
-        "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing couriers; incoming cargo still arrives. Traffic filter clears it."
+        "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing deliveries; incoming cargo still arrives. Traffic filter clears it."
       },
       "zeroday": {
         "name": "0day",
@@ -290,7 +282,6 @@
         "exec": 5.0,
         "exec_rig": 12.0,
         "make": {
-          "bots": 0,
           "intel": 16,
           "cash": 12,
           "creds": 12,
@@ -311,7 +302,6 @@
         "exec_rig": 24.0,
         "reach": 2,
         "make": {
-          "bots": 0,
           "intel": 24,
           "cash": 0,
           "creds": 0,
@@ -331,7 +321,6 @@
         "dur": 60.0,
         "reach": 3,
         "make": {
-          "bots": 0,
           "intel": 36,
           "cash": 12,
           "creds": 8,
@@ -350,7 +339,6 @@
         "known": true,
         "dur": 30.0,
         "make": {
-          "bots": 0,
           "intel": 12,
           "cash": 4,
           "creds": 0,
@@ -368,7 +356,6 @@
         "effect": "response",
         "known": true,
         "make": {
-          "bots": 0,
           "intel": 12,
           "cash": 3,
           "creds": 3,
@@ -387,7 +374,6 @@
         "known": false,
         "dur": 30.0,
         "make": {
-          "bots": 0,
           "intel": 14,
           "cash": 4,
           "creds": 0,
@@ -398,7 +384,7 @@
         "rules": "In a Firewall socket it waits and blocks the next DDoS as it lands. It does not boost production or stop capture."
       },
       "cover": {
-        "name": "Courier cover",
+        "name": "Cargo cover",
         "short": "Cover",
         "fam": "cover",
         "bank": "defense",
@@ -406,7 +392,6 @@
         "known": false,
         "dur": 30.0,
         "make": {
-          "bots": 0,
           "intel": 12,
           "cash": 4,
           "creds": 0,
@@ -414,7 +399,7 @@
         },
         "make_time": 8.0,
         "lead": "Shield this host's cargo for 30 s.",
-        "rules": "Its couriers are safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs one, and saves that courier."
+        "rules": "Its workers' cargo is safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs some, and saves it."
       },
       "express": {
         "name": "Express route",
@@ -425,7 +410,6 @@
         "known": false,
         "dur": 45.0,
         "make": {
-          "bots": 0,
           "intel": 14,
           "cash": 4,
           "creds": 0,
@@ -551,7 +535,7 @@
       "patch",
       "response"
     ],
-    "MANUFACTURE_LANES": 3,
+    "QUEUE_SIZE": 4,
     "READY_SLOTS": 12,
     "BANK_NAME": {
       "attack": "ATTACK",
@@ -577,7 +561,7 @@
       "patch": "patches",
       "response": "incident response",
       "filter": "traffic filters",
-      "cover": "courier cover",
+      "cover": "cargo cover",
       "express": "express routes"
     },
     "FAMILY_ART": {
@@ -725,28 +709,24 @@
   },
   "tuning": {
     "RES": [
-      "bots",
       "intel",
       "cash",
       "creds",
       "research"
     ],
     "RES_NAME": {
-      "bots": "Bots",
       "intel": "Intel",
       "cash": "Crypto",
       "creds": "Credentials",
       "research": "Research"
     },
     "START": {
-      "bots": 20.0,
       "intel": 40.0,
       "cash": 20.0,
       "creds": 15.0,
       "research": 10.0
     },
     "BASE_CAP": {
-      "bots": 200.0,
       "intel": 150.0,
       "cash": 300.0,
       "creds": 150.0,
@@ -756,16 +736,10 @@
     "PROD_CYCLE": 5.0,
     "STORE_CAP": 10.0,
     "MAIN_INCOME": 0.2,
-    "BOT_RESERVE_CHOICES": [
-      0,
-      5,
-      10,
-      20,
-      40
-    ],
-    "BOT_RESERVE_DEFAULT": 10,
-    "SHIP_PRIORITY_TURNS": 2,
-    "COURIERS_PER_STATION": 4,
+    "WORKERS_PER_STATION": 2,
+    "WORKER_CARRY": 1.0,
+    "WORKER_REPLACE": 5.0,
+    "PRIORITY_TURNS": 3,
     "CARD_GIVE_UP": 20.0,
     "LINK_TIME": 1.0,
     "NODE_ROUTE_DELAY": 0.25,
@@ -901,13 +875,13 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.0",
+    "GAME_VERSION": "0.6.1",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",
       "response": "Phishing, Packet siphon or sabotage lands here",
       "filter": "a DDoS lands here",
-      "cover": "a Packet siphon grabs a courier from here"
+      "cover": "a Packet siphon grabs cargo from here"
     },
     "CONVERT_ORDER": [
       "cash",

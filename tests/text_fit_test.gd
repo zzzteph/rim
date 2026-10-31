@@ -93,7 +93,7 @@ func cards(res: Vector2i) -> void:
 
 
 # ---- mini cards in the pushed-down strip: the count is never cut ----
-func chips(res: Vector2i) -> void:   # the strip: three lanes, ready cards at a fixed size (never shrunk), "+n", the cards button
+func chips(res: Vector2i) -> void:   # the strip: the four-place queue, ready cards at a fixed size (never shrunk), "+n", the cards button
 	var was_known: Dictionary = (game.known[game.PLAYER] as Dictionary).duplicate()
 	var was_cards: Dictionary = (game.cards[game.PLAYER] as Dictionary).duplicate()
 	for r in game.CARD_ORDER:
@@ -112,10 +112,13 @@ func chips(res: Vector2i) -> void:   # the strip: three lanes, ready cards at a 
 		check(w(title, 12) <= r.size.x - 40.0, "ready chip name '%s' fits @%s" % [title, res])
 		check(w("×12 · Crypto", 11) <= r.size.x - 40.0 or game._card_of(chip.key) != "siphon", "siphon chip line fits @%s" % res)
 	check(shown >= 3 and game.ready_more.visible and game.ready_more.text == "+%d" % (game.CARD_ORDER.size() - shown), "%d ready chips fit, the rest behind '%s' @%s" % [shown, game.ready_more.text, res])
-	for lane in game.lane_strip.get_children():
-		check((lane as Control).get_global_rect().end.x <= game.ready_strip.get_global_rect().position.x, "lanes stay left of the ready cards @%s" % res)
-	for label in ["Making 100%", "Paused 100%", "Hand full (12)", "Needs 120 Research", "Done: 1 ready"]:
-		check(w(label, 11) <= game.LANE_CHIP_W - 34.0 - 24.0, "lane line '%s' fits @%s" % [label, res])
+	for q in game.lane_strip.get_children():
+		check((q as Control).get_global_rect().end.x <= game.ready_strip.get_global_rect().position.x, "queue stays left of the ready cards @%s" % res)
+	for label in ["Making 100%", "Paused 100%", "Ready full", "Done: 1 ready", "4 · waiting"]:
+		check(w(label, 11) <= game.QUEUE_CHIP_W - 30.0 - 22.0, "queue chip line '%s' fits @%s" % [label, res])
+	var worst_short: float = game._draw_cost_row(game, {"intel": 120, "creds": 120}, -1.0, Vector2.ZERO, 11, 11.0, false)
+	check(worst_short <= game.QUEUE_CHIP_W - 30.0 - 22.0, "a waiting head's shortage icons fit (%.0f px) @%s" % [worst_short, res])
+	check(w("+ Queue a card", 12) <= game.QUEUE_CHIP_W - 16.0, "empty queue chip invitation fits @%s" % res)
 	game.known[game.PLAYER] = was_known; game.cards[game.PLAYER] = was_cards
 	game._layout_deck()
 
@@ -152,16 +155,16 @@ func research_tab(res: Vector2i) -> void:
 	game._card_bank = "attack"; game._set_deck_open(false)
 
 
-# ---- HUD: the couriers' column and four banks inside the bar; even a 4-digit bank stays in its column ----
+# ---- HUD: the workers' column and four banks inside the bar; even a 4-digit bank stays in its column ----
 func hud(res: Vector2i) -> void:
 	var items: Array = game._hud_items()
 	var total := 0.0
 	for it in items: total += float(it[3])
 	check(total <= game.hud.size.x + 0.5, "HUD columns (%.0f px) fit the bar (%.0f px) @%s" % [total, game.hud.size.x, res])
-	for it in items:   # a bank: "1250/1250" over "+1250/min"; the couriers: "250 home · 250 out" over "250 spare · need 120"
+	for it in items:   # a bank: "1250/1250" over "+1250/min"; the workers: "Workers 48" over "24 busy · 24 blocked"
 		var room: float = float(it[3]) - 22.0 - float(game.HUD_GAP)
-		var worst := "250 home · 250 out" if str(it[4]) == "bots" else "1250/1250"
-		var second := "250 spare · need 120" if str(it[4]) == "bots" else "+1250/min"
+		var worst := "Workers 48" if str(it[4]) == "workers" else "1250/1250"
+		var second := "24 busy · 24 blocked" if str(it[4]) == "workers" else "+1250/min"
 		var fs: int = game._hud_fs(font, worst, float(it[3]) - 22.0)
 		check(fs >= 12 and w(worst, fs) <= room, "HUD worst case '%s' fits at %d px @%s" % [worst, fs, res])
 		check(w(second, 12) <= room, "HUD second line '%s' fits @%s" % [second, res])
@@ -222,7 +225,7 @@ func controls_inside(root_node: Node, clip: Rect2, what: String) -> void:
 				check((n as Label).get_minimum_size().x <= r.size.x + 0.5, "%s: label '%s' is cut" % [what, _txt(n)])
 			if n is Button and (n as Button).clip_text and (n as Button).text != "":
 				var need := w((n as Button).text, (n as Button).get_theme_font_size("font_size")) + 12.0
-				check(need <= r.size.x + 0.5, "%s: button '%s' is cut" % [what, _txt(n)])
+				check(need <= r.size.x + 0.5, "%s: button '%s' is cut (%.0f > %.0f)" % [what, _txt(n), need, r.size.x])
 
 
 func _txt(n: Node) -> String:

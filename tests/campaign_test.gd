@@ -25,9 +25,9 @@ func topup() -> void:   # keep resources ample so the test never stalls on affor
 	for res in g.RES: g.bank[P][res] = maxf(float(g.bank[P][res]), 150.0)
 
 
-func lane_make(recipe: String) -> void:
+func make(recipe: String) -> void:   # + Queue, through the command path
 	if not g._known(P, recipe): return
-	g._cmd(["lane_set", 0, recipe]); g._cmd(["lane_make", 0])
+	g._enqueue(g._card_key(recipe, "linked"))
 
 
 func build(host: int, kind: String) -> void:
@@ -49,21 +49,45 @@ func do_action(ch: int, st: int) -> void:
 	topup()
 	match key:
 		"0:0": if once(key): g.sel = {g._camp_home: true}; g._inspect = -1
-		"0:1": if once(key): lane_make("breach")
-		"0:2": play_when_held("recon", g._camp_relay)
+		"0:1": play_when_held("recon", g._camp_relay)
+		"0:2": if once(key): make("breach")
 		"0:3": play_when_held("breach", g._camp_relay)
-		"1:0": if once(key): build(g._camp_relay, "intel")
-		"1:1": if once(key): build(g._camp_relay, "bot")
-		"1:2": pass   # wait for the courier to arrive
+		"1:0": if once(key): build(g._camp_relay, "bot")
+		"1:1":
+			if once(key + "i"): build(g._camp_relay, "intel")
+			if once(key + "c"): build(g._camp_relay, "cash")
+		"1:2": pass   # its workers carry the surplus home
 		"2:0": if once(key): g._cmd(["research", "exploit"])
-		"2:1": if g._known(P, "exploit") and g._held(P, "exploit") == 0 and g._lane_of(P, "exploit") < 0: lane_make("exploit")
+		"2:1": if g._known(P, "exploit") and g._held(P, "exploit") + g._mq_count(P, "exploit") < 2: make("exploit")
 		"2:2": play_when_held("recon", g._camp_gateway)
 		"2:3": play_when_held("exploit", g._camp_gateway)
-		"2:4": if once(key): build(g._camp_gateway, "cash")
-		"2:5": if once(key): g._cmd(["want", g._camp_gateway, "intel", 2])
+		"2:4":
+			if once(key + "c"): build(g._camp_gateway, "cash")
+			if once(key + "b"): build(g._camp_gateway, "bot")
+		"2:5", "2:6": pass   # its workers fetch the Intel; the Local stock step needs no click
 		"3:0": play_when_held("recon", g._camp_practice)
 		"3:1": play_when_held("phish", g._camp_practice)
 		"3:2": play_when_held("response", g._camp_relay)
+		"3:3": if once(key): build(g._camp_home, "bot")
+
+
+var cue_checks := {}   # what the cues did once an action was accepted
+
+
+func watch_cues() -> void:
+	var key := "%d:%d" % [g._camp_chapter, g._tut_stage]
+	if key == "0:3" and g._camp_op_active("breach", g._camp_relay) and not cue_checks.has("launch"):
+		g.cards[P]["breach"] = g._held(P, "breach") + 1   # a spare copy in hand must not keep blinking
+		g._update_card_banks()
+		cue_checks["launch"] = g._camp_ui_targets().is_empty() and str(g._camp_status()).contains("Credential breach")
+	if key == "0:3" and g._held(P, "breach") == 0 and g._mq_count(P, "breach") > 0 and not cue_checks.has("making"):
+		cue_checks["making"] = g._camp_ui_targets().is_empty() and str(g._camp_status()).contains("underway")
+	if key == "1:0" and g._camp_ordered(g._camp_relay, "bot") and g._count_all(g._camp_relay, "bot") == 0 and not cue_checks.has("build"):
+		cue_checks["build"] = g._camp_ui_targets().is_empty() and str(g._camp_status()).contains("materials")
+	if g._camp_relay >= 0 and g._mine(g._camp_relay) and g._count_all(g._camp_relay, "bot") >= 1 and not cue_checks.has("workers"):
+		cue_checks["workers"] = g._worker_ids(P, g._camp_relay).size() == 2
+	if key == "3:3" and not cue_checks.has("lost"):
+		cue_checks["lost"] = g.events.any(func(e): return str(e.text).contains("Outpost lost") and str(e.text).contains("2 station workers destroyed"))
 
 
 func run() -> void:
@@ -85,8 +109,8 @@ func run() -> void:
 	while g._camp_chapter < g.CAMP_OPEN and guard < 900:
 		guard += 1
 		var before := "%d:%d" % [g._camp_chapter, g._tut_stage]
-		do_action(g._camp_chapter, g._tut_stage)
-		g._camp_set_pause(false)
+		do_action(g._camp_chapter, g._tut_stage)   # no helper unpauses: only your commands end a lesson's pause
+		watch_cues()
 		pump(1.0)
 		if not is_same(g.hosts, board) or g._t + 0.001 < last_t: resets += 1
 		last_t = g._t
@@ -104,6 +128,21 @@ func run() -> void:
 	check(waits == 0, "No forced waits: a done step hands over at once (%d waits)" % waits)
 	check(relay_builds_at_l2.has("intel") and relay_builds_at_l2.has("bot"), "What you built in lesson 2 is still there in lesson 3 (%s)" % str(relay_builds_at_l2))
 	check(not g._ai_paused, "The open lesson wakes the rival")
+	check(bool(cue_checks.get("making", false)), "A queued copy stops the + Queue cue while it is made, and says so")
+	check(bool(cue_checks.get("launch", false)), "An accepted launch stops the card cue at once, even with a spare copy ready; the status follows it")
+	check(bool(cue_checks.get("build", false)), "An accepted building order stops the recipe cue during delivery; the status shows its materials")
+	check(bool(cue_checks.get("workers", false)), "The relay's finished Bot station has exactly 2 workers")
+	check(bool(cue_checks.get("lost", false)), "The lost Outpost is explained: 2 station workers destroyed")
+	var t0: float = g._t
+	pump(2.0)
+	check(g._camp_chapter == g.CAMP_OPEN and not g._camp_paused and not g.paused and g._t > t0 + 1.5, "Free play runs without Space (%.1f s passed)" % (g._t - t0))
+	var space := InputEventKey.new(); space.keycode = KEY_SPACE; space.pressed = true
+	g._input(space)
+	t0 = g._t; pump(2.0)
+	check(g.paused and absf(g._t - t0) < 0.001, "Your own pause still works in Learn (Space)")
+	g._input(space)
+	t0 = g._t; pump(1.0)
+	check(not g.paused and g._t > t0, "...and Space resumes it")
 	var no_why := true
 	for ch in g.CAMP_CHAPTERS:
 		for st in g._camp_steps(ch): no_why = no_why and not (st as Dictionary).has("w")

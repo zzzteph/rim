@@ -30,7 +30,13 @@ func fresh() -> void:
 	root.add_child(g); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER; R = g.RIVAL
-	g.bank[P] = {"bots": 40.0, "intel": 200.0, "cash": 200.0, "creds": 100.0, "research": 100.0}
+	g.bank[P] = {"intel": 200.0, "cash": 200.0, "creds": 100.0, "research": 100.0}
+
+
+func until_built(n: int, limit := 180.0) -> void:   # construction waits for its materials: run until the host's projects are done
+	var t := 0.0
+	while t < limit and not (g.hosts[n].jobs as Dictionary).is_empty():
+		step(0.5); t += 0.5
 
 
 func step(secs: float) -> void:
@@ -71,7 +77,8 @@ func run() -> void:
 	await sockets_render()
 	await no_launch_controls()
 	await no_stale_controls()
-	await keep_here()
+	await local_supplies()
+	await inspector()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -93,7 +100,7 @@ func sockets_stay_seated() -> void:
 	step(float(g.DEMOLISH_TIME) + 0.5)
 	check(g.hosts[n].sockets == ["response"] and g._wall_seat(n, 2) == 0, "When it is gone the right Firewall is the first one, with its card")
 	g._start_job(n, "wall", 0)
-	step(float(g.BUILD_TIME) + 0.5)
+	until_built(n)
 	check(g._sockets(n) == 6 and g.hosts[n].sockets == ["", "", "", "response"] and g._wall_seat(n, 2) == 1,
 		"A new Firewall built to its left gets 3 empty positions; the Response stays in its own Firewall")
 	g._start_job(n, "intel", 2)   # replacing the right Firewall with a harvester
@@ -131,7 +138,7 @@ func sockets_render() -> void:
 	g._start_job(n, "wall", 0)
 	ls = lists()
 	check(ls.size() == 1, "A Firewall still being built has no sockets yet")
-	step(float(g.BUILD_TIME) + 0.5)
+	until_built(n)
 	ls = lists()
 	check(ls.size() == 2, "...and gets its list as soon as it is finished")
 
@@ -179,27 +186,51 @@ func no_stale_controls() -> void:   # explore a host, change selection, clear it
 	check(stale.is_empty(), "Every step shows only its own context, one panel body, no Launch (%s)" % str(stale))
 
 
-func keep_here() -> void:
+func local_supplies() -> void:   # supplies are automatic: no Keep-here stepper anywhere, and only two problem lines
 	fresh()
 	var n := neighbour(g.NEUTRAL)
 	g._capture(n, P); g._set_builds(n, ["cash"])
 	g.sel = {n: true}; g._inspect = -1
+	await frames()
 	var items := panel_items()
-	check(items.has("L:Keep here") and items.has("L:0 Intel"), "A Miner host offers a compact Keep-here stepper for the Intel it uses")
-	var plus: Button = null
+	check(not items.any(func(s): return str(s).contains("Keep here")), "No Keep-here control: a Miner host is supplied automatically")
+	var plus := false
 	var stack := [g.panel]
 	while not stack.is_empty():
 		var node: Node = stack.pop_back()
-		if node is Button and (node as Button).text == "+": plus = node
+		if node is Button and (node as Button).visible and (node as Button).text == "+": plus = true
 		for c in node.get_children(): stack.append(c)
-	plus.pressed.emit()
-	check(g._want(n, "intel") == 1.0 and panel_items().has("L:1 Intel"), "Pressing + asks for one more (the command goes through the lockstep command path)")
+	check(not plus, "No +/- stock stepper")
 	var probs := 0
 	g._set_builds(n, ["cash", "lab", "cred"]); g.hosts[n].slots = 3
 	for it in panel_items():
 		if str(it).begins_with("L:") and (str(it).contains("needs") or str(it).contains("waits")): probs += 1
 	check(probs <= 2, "At most two problem lines; the rest are for the Economy view and Help (%d)" % probs)
-	var e := neighbour(g.NEUTRAL)
-	g._capture(e, P); g._set_builds(e, ["intel", "bot"])
-	g.sel = {e: true}
-	check(not panel_items().has("L:Keep here"), "A host whose installations use nothing has no stepper")
+
+
+func inspector() -> void:   # compact at 1280×720; workers by number; Refill supplies is a one-time ticket you can cancel
+	fresh()
+	await frames()
+	check(g.PANEL_W >= 360.0 and g.PANEL_W <= 400.0, "The inspector is %d px wide at 1280×720" % int(g.PANEL_W))
+	var home: int = int(g.rig[P])
+	g.sel = {home: true}; g._inspect = -1
+	var items := panel_items()
+	var lines := items.filter(func(s): return str(s).begins_with("L:#"))
+	check(lines.size() == 2, "The main node lists its two workers by number (%s)" % str(lines))
+	var n := neighbour(g.NEUTRAL)
+	g._capture(n, P); g._set_builds(n, ["lab"])
+	g.bank[P].intel = 0.0; g.bank[P].cash = 0.0
+	g.sel = {n: true}; g._inspect = -1
+	items = panel_items()
+	var m: float = g._tmult(n, "research")
+	var use := {"intel": float(g.BUILD_KINDS.lab.use.intel) * m, "cash": float(g.BUILD_KINDS.lab.use.cash) * m}   # the host type scales a Lab's inputs
+	var want := "Refill brings %s Intel + %s Crypto" % [g._amt(use.intel), g._amt(use.cash)]
+	check(items.has("B:Refill supplies") and items.any(func(s): return str(s).contains(want)), "Refill previews its exact quantities: one cycle's gross inputs (%s)" % str(items.filter(func(s): return str(s).contains("Refill"))))
+	check(items.any(func(s): return str(s).begins_with("L:Still uncovered:") and str(s).contains("your main node has no Intel")), "The uncovered shortage is shown apart from what is needed, with why it is not coming")
+	g._refill_click(n)
+	items = panel_items()
+	check(items.has("B:Cancel refill") and items.any(func(s): return str(s).contains("waiting: your main node has no Intel")), "A requested refill says honestly why it waits")
+	g._refill_click(n)
+	check((g.hosts[n].refill as Dictionary) == {"intel": float(use.intel), "cash": float(use.cash)}, "Asking again does not add a second ticket (%s)" % str(g.hosts[n].refill))
+	g._refill_cancel_click(n)
+	check((g.hosts[n].refill as Dictionary).is_empty() and panel_items().has("B:Refill supplies"), "Cancel removes it")

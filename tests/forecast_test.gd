@@ -1,8 +1,8 @@
 extends SceneTree
 ## The HUD's income forecast (feedback round B, section 3): what will reach the main node's bank per minute with the
 ## network as it stands, worked out from the network rather than extrapolated from early ledger events. It is checked
-## against a long controlled simulation, and against the conditions that cut income: no spare couriers, a cut route,
-## a starved converter (and its supply), a paused producer, a full bank. Bots show courier capacity, not an income.
+## against a long controlled simulation, and against the conditions that cut income: no free workers, a cut route,
+## a starved converter (and its supply), a paused producer, a full bank. Workers show activity, not an income.
 ## godot --headless --path . --script tests/forecast_test.gd
 var g
 var P := 1
@@ -25,7 +25,7 @@ func fresh() -> void:
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER
-	g.bank[P] = {"bots": 40.0, "intel": 60.0, "cash": 30.0, "creds": 30.0, "research": 30.0}
+	g.bank[P] = {"intel": 60.0, "cash": 30.0, "creds": 30.0, "research": 30.0}
 
 
 func step(secs: float) -> void:
@@ -35,7 +35,7 @@ func step(secs: float) -> void:
 func rate(res: String) -> float: return float(g._forecast(P).rate[res])
 
 
-func measured(res: String, secs: float) -> float:   # what actually reached the bank per minute over secs of play (refunds and returning couriers aside)
+func measured(res: String, secs: float) -> float:   # what actually reached the bank per minute over secs of play (refunds aside)
 	var before := received(res)
 	step(secs)
 	return (received(res) - before) * 60.0 / secs
@@ -80,7 +80,7 @@ func far_host(via: int) -> int:   # a neutral host linked to via but not to the 
 
 func run() -> void:
 	sustained()
-	no_couriers()
+	no_workers()
 	cut_route()
 	starved_and_supplied()
 	paused()
@@ -90,7 +90,7 @@ func run() -> void:
 	g.free(); quit(0 if failures.is_empty() else 1)
 
 
-func network() -> Dictionary:   # a main node with a harvester and a station, a near host with its own couriers, a far one served from home
+func network() -> Dictionary:   # a main node with a harvester and a station, a near host with its own workers, a far one served from home
 	fresh()
 	var home: int = int(g.rig[P])
 	g._set_builds(home, ["intel", "bot"])
@@ -105,7 +105,7 @@ func network() -> Dictionary:   # a main node with a harvester and a station, a 
 
 func sustained() -> void:
 	var n := network()
-	step(30.0)   # past the start: storages and couriers settle
+	step(30.0)   # past the start: storages and workers settle
 	var fc := {}
 	for res in g.RES: fc[res] = rate(res)
 	var got := track(120.0)
@@ -122,17 +122,18 @@ func sustained() -> void:
 	check(absf(rate("cash") - before) < 0.01, "A steady network shows a steady forecast (%.1f, then %.1f)" % [before, rate("cash")])
 
 
-func no_couriers() -> void:
+func no_workers() -> void:
 	var n := network()
-	g._set_builds(n.home, ["intel"])   # no station at home: the fleet stays as it is
 	step(20.0)
 	var with: float = rate("creds")
-	g._cmd(["reserve", 40])
-	g.bank[P].bots = 10.0
+	g._set_builds(n.home, ["intel"])   # the main node's station goes: its workers retire, and the far host has none of its own
+	g._fc_gen += 1
 	var fc: Dictionary = g._forecast(P)
-	check(with > 12.5 and rate("creds") <= 12.5 + 0.01 and (fc.limits as Dictionary).get("creds", []).has("not enough couriers"),
-		"No spare couriers: the far host's Credentials leave the forecast at once (%.0f → %.0f), and it says why" % [with, rate("creds")])
-	check(str(g._hud_rate("bots")[0]).contains("0 spare"), "The Bots column shows courier capacity, not income: '%s'" % str(g._hud_rate("bots")[0]))
+	check(with > 12.5 and rate("creds") <= 12.5 + 0.01 and (fc.limits as Dictionary).get("creds", []).has("not enough workers"),
+		"No workers for it: the far host's Credentials leave the forecast at once (%.0f → %.0f), and it says why" % [with, rate("creds")])
+	var hud := str(g._hud_rate("workers")[0])
+	check(hud.contains("busy") and not hud.contains("/min"), "The Workers column shows what workers do, not an income: '%s'" % hud)
+	step(10.0)   # the retiring workers finish their legs
 	var got := track(60.0)
 	check(float(got.creds) <= 12.0 + 2.5, "...and none arrive (%.1f/min: the trickle only)" % float(got.creds))
 
@@ -155,8 +156,8 @@ func starved_and_supplied() -> void:
 	g._capture(h, P); g._set_builds(h, ["cash"])   # a lone Miner: no Intel of its own
 	step(10.0)
 	check(rate("cash") <= 12.0 + 0.01, "A starved Miner adds nothing to the Crypto forecast (%.0f: the trickle)" % rate("cash"))
-	g._cmd(["want", h, "intel", 2])
-	check(rate("cash") >= 24.0 - 0.01 and rate("intel") <= 12.0 + 0.01, "Kept supplied with Intel it adds 12 Crypto/min; the supplied Intel is not income (%.0f, %.0f)" % [rate("cash"), rate("intel")])
+	g._set_builds(home, ["bot"]); g._fc_gen += 1   # workers at the main node supply it automatically
+	check(rate("cash") >= 24.0 - 0.01 and rate("intel") <= 12.0 + 0.01, "Supplied with Intel by workers it adds 12 Crypto/min; the supplied Intel is not income (%.0f, %.0f)" % [rate("cash"), rate("intel")])
 	step(20.0)
 	var got := track(90.0)
 	check(absf(float(got.cash) - rate("cash")) <= 3.0, "...which the simulation delivers (%.1f/min vs %.0f)" % [float(got.cash), rate("cash")])

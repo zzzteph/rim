@@ -1,12 +1,13 @@
-## Numbers for the RIM redesign — five banks, main-node income, couriers, routes, Recon odds, the win.
+## Numbers for the RIM redesign — four materials, main-node income, delivery workers, routes, Recon odds, the win.
 ## Edit the numbers here; scripts/botnet_proto.gd reads them through aliases and never defines them itself.
 ## A changed value needs the scene restarted (constants are read when the script loads).
 
-# ── the five resources. RES[k] is the order used by banks, hud and the state hash ──
-const RES := ["bots", "intel", "cash", "creds", "research"]
-const RES_NAME := {"bots": "Bots", "intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}
-const START := {"bots": 20.0, "intel": 40.0, "cash": 20.0, "creds": 15.0, "research": 10.0}   # a producer or two and a first Breach
-const BASE_CAP := {"bots": 200.0, "intel": 150.0, "cash": 300.0, "creds": 150.0, "research": 150.0}
+# ── the four materials. RES[k] is the order used by banks, hud and the state hash. Bots are not a material: they are
+#    delivery workers, two per Bot station (WORKERS_PER_STATION), counted as a population, never banked or spent ──
+const RES := ["intel", "cash", "creds", "research"]
+const RES_NAME := {"intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}
+const START := {"intel": 40.0, "cash": 20.0, "creds": 15.0, "research": 10.0}   # a producer or two and a first Breach
+const BASE_CAP := {"intel": 150.0, "cash": 300.0, "creds": 150.0, "research": 150.0}
 const CAP_PER_PRODUCER := 50.0     # each installed producer adds this to its own output resource's cap
 
 # ── production: every host runs one cycle each PROD_CYCLE seconds ──
@@ -16,11 +17,12 @@ const STORE_CAP := 10.0            # what a remote host can hold before its prod
 # ── the main node (rig). While operational it makes one of EACH resource per cycle, delivered locally. ──
 const MAIN_INCOME := 0.2           # per resource per second (one of each every 5 s): a trickle that keeps a stalled player alive; producers are the economy
 
-# ── couriers and delivery ──
-const BOT_RESERVE_CHOICES := [0, 5, 10, 20, 40]
-const BOT_RESERVE_DEFAULT := 10    # Bots kept available for operations; shipping and raid collection keep this
-const SHIP_PRIORITY_TURNS := 2     # weighted round robin: the chosen resource gets this many turns, others one
-const COURIERS_PER_STATION := 4    # a remote host's own couriers (made by its Bot stations, reusable): this many per station
+# ── delivery workers ──
+const WORKERS_PER_STATION := 2     # every operational Bot station has exactly this many reusable workers (any host type)
+const WORKER_CARRY := 1.0          # one resource unit of one type per trip leg (a valid final fraction may be less)
+const WORKER_REPLACE := 5.0        # a worker lost on the road is replaced at its surviving, operational station after this
+const PRIORITY_TURNS := 3          # of every PRIORITY_TURNS + 1 new assignments in a pool, this many go by purpose
+                                   # (production inputs, then construction, then collection); the next to the oldest request
 const CARD_GIVE_UP := 20.0         # a card held this long on its way heads back to its main node; the copy returns to your hand
 
 # ── routes (unchanged baseline) ──

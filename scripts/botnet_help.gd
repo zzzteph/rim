@@ -76,19 +76,19 @@ func _draw() -> void:
 # Each page's words, kept as data so tests/text_fit_test.gd measures exactly what is drawn:
 # every lead line fits on one line with room to spare, every caption fits in two lines.
 const LEADS := {
-	"research": ["Research a blueprint (top right) to unlock its recipe.", "Make copies from its recipe, then use a ready card."],
-	"deliver": ["A resource made outside your main node waits in its host's storage.", "Couriers carry it home, then come back. None are used up."],
-	"produce": ["Every 5 s a harvester makes 2 Intel; a converter uses 1.", "A Lab needs 1 Intel and 1 Crypto on the same host."],
-	"build": ["One research slot and three manufacturing lanes.", "Pause, resume or cancel a lane in the strip at the bottom."],
-	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Vault raid empties storage. Unscouted attacks work half the time."],
+	"research": ["Research unlocks a blueprint; manufacture makes a card copy.", "Launching uses that copy. The bar under the top bar shows research."],
+	"deliver": ["Each Bot station provides two reusable workers.", "Each carries one unit per leg and returns for another job."],
+	"produce": ["Installations use the materials they need here first.", "Workers take the surplus to your main node."],
+	"build": ["Queue up to four copies, including the one being made.", "They are made in order, one at a time; finished copies go to Ready."],
+	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Send Recon to inspect a host; unscouted attacks work half the time."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {
-	"research": "Research unlocks a recipe — it gives no free card. Manufacturing pays once; launching spends the copy.",
-	"deliver": "A host's Bot stations keep up to 4 couriers there; other hosts are served by your main node's couriers. Keep here sends a host the inputs it uses.",
-	"produce": "Converters use only what is on their host (the bank at the main node): made there, or sent by Keep here. Full storage (10) stops it.",
-	"build": "A paused lane leaves the others running. Each producing copy reserves one of 12 ready slots.",
-	"attack": "Stolen resources help only when your couriers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
+	"research": "Only materials at your main node fund cards and research. Research gives no free card; a copy pays when it starts.",
+	"deliver": "Missing inputs are fetched from your main node; its workers serve hosts with no station. Losing a host destroys its stations' workers.",
+	"produce": "Workers bring what a host needs automatically. Refill supplies asks once for one cycle of inputs; clicking again adds nothing. Full storage (10) stops it.",
+	"build": "A building's materials must reach its site before its 10 s of work start. The 12-card Ready inventory is separate from the queue.",
+	"attack": "Stolen resources help only when your workers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
 	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",
 }
 const LEAD_FS := 14
@@ -121,7 +121,7 @@ func _caption(value: String) -> void:   # wraps to a second line instead of shri
 
 
 func _p_research() -> void:
-	_text("LOCKED  →  RESEARCH  →  KNOWN  →  LANE  →  READY  →  LAUNCH", Rect2(16, CY - 12, 588, 24), 15, BLUE, false)
+	_text("LOCKED  →  RESEARCH  →  KNOWN  →  QUEUE  →  READY  →  LAUNCH", Rect2(16, CY - 12, 588, 24), 15, BLUE, false)
 
 
 func _p_deliver() -> void:
@@ -131,7 +131,7 @@ func _p_deliver() -> void:
 
 
 func _p_produce() -> void:
-	var makes := {"intel": "Intel", "bot": "Bots", "cash": "Crypto", "cred": "Creds", "lab": "Research"}
+	var makes := {"intel": "Intel", "bot": "2 workers", "cash": "Crypto", "cred": "Creds", "lab": "Research"}
 	var x := 70.0
 	for kind in makes:
 		_kind(kind, Vector2(x, CY - 8))
@@ -139,11 +139,17 @@ func _p_produce() -> void:
 		x += 117.5
 
 
-func _p_build() -> void:
-	for k in 3:
-		draw_rect(Rect2(40 + k * 190, CY - 42, 170, 84), INK)
-		draw_rect(Rect2(40 + k * 190, CY - 42, 170, 84), BLUE, false, 1.5)
-		_text("LANE %d" % (k + 1), Rect2(40 + k * 190, CY - 11, 170, 22), 14, TEXT)
+func _p_build() -> void:   # the queue's four places (the first one making) and the separate Ready inventory
+	var names := ["1 MAKING", "2", "3", "4"]
+	for k in 4:
+		var r := Rect2(24 + k * 110, CY - 36, 100, 72)
+		draw_rect(r, INK)
+		draw_rect(r, GOLD if k == 0 else BLUE, false, 2.0 if k == 0 else 1.5)
+		_text(str(names[k]), Rect2(r.position.x, CY - 11, r.size.x, 22), 14, TEXT)
+	_arrow(Vector2(462, CY), Vector2(500, CY), GOLD)
+	var ready := Rect2(506, CY - 36, 98, 72)
+	draw_rect(ready, INK); draw_rect(ready, GREEN, false, 2.0)
+	_text("READY", Rect2(ready.position.x, CY - 11, ready.size.x, 22), 14, GREEN)
 
 
 func _p_attack() -> void:

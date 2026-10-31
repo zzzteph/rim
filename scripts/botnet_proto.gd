@@ -62,7 +62,7 @@ const CARD_ORDER := CfgCards.CARD_ORDER
 const ATTACK_ORDER := CfgCards.ATTACK_ORDER
 const DEFENSE_ORDER := CfgCards.DEFENSE_ORDER
 const KNOWN_START := CfgCards.KNOWN_START
-const MANUFACTURE_LANES := CfgCards.MANUFACTURE_LANES
+const QUEUE_SIZE := CfgCards.QUEUE_SIZE
 const READY_SLOTS := CfgCards.READY_SLOTS
 const FAMILY_NAME := CfgCards.FAMILY_NAME
 const FAMILY_COL := CfgCards.FAMILY_COL
@@ -81,16 +81,16 @@ const MAIN_INCOME := CfgTuning.MAIN_INCOME
 const PROD_CYCLE := CfgTuning.PROD_CYCLE
 const STORE_CAP := CfgTuning.STORE_CAP
 const FIREWALL_SOCKETS := CfgTuning.FIREWALL_SOCKETS
-const BOT_RESERVE_CHOICES := CfgTuning.BOT_RESERVE_CHOICES
-const BOT_RESERVE_DEFAULT := CfgTuning.BOT_RESERVE_DEFAULT
-const SHIP_PRIORITY_TURNS := CfgTuning.SHIP_PRIORITY_TURNS
 const LINK_TIME := CfgTuning.LINK_TIME
 const NODE_ROUTE_DELAY := CfgTuning.NODE_ROUTE_DELAY
 const LINK_CAP := CfgTuning.LINK_CAP
 const MAX_QUEUE := CfgTuning.MAX_QUEUE
 const EXPRESS_MULT := CfgTuning.EXPRESS_MULT
 const UNSCOUTED_CHANCE := CfgTuning.UNSCOUTED_CHANCE
-const COURIERS_PER_STATION := CfgTuning.COURIERS_PER_STATION
+const WORKERS_PER_STATION := CfgTuning.WORKERS_PER_STATION
+const WORKER_CARRY := CfgTuning.WORKER_CARRY
+const WORKER_REPLACE := CfgTuning.WORKER_REPLACE
+const PRIORITY_TURNS := CfgTuning.PRIORITY_TURNS
 const CARD_GIVE_UP := CfgTuning.CARD_GIVE_UP
 const RESEARCH_SLOTS := CfgTuning.RESEARCH_SLOTS
 const HOLD_FRACTION := CfgTuning.HOLD_FRACTION
@@ -98,7 +98,7 @@ const HOLD_SECS := CfgTuning.HOLD_SECS
 const AI_CADENCE := CfgTuning.AI_CADENCE
 const LINK_INTEL_DRAIN := CfgTown.LINK_INTEL
 
-const PANEL_W := 620.0
+const PANEL_W := 384.0   # the inspector: compact, so the map stays the main view at 1280×720
 const LEADERBOARD_W := 280.0
 const CARD_DOCK_HEIGHT := 264.0
 const CARD_DOCK_GAP := 12.0
@@ -108,15 +108,15 @@ const DECK_GAP := 8.0           # between the strip and the pulled-up cards
 const DECK_TAB_W := 164.0       # each of the drawer's four tabs: Ready, Attack recipes, Defence recipes, Research
 const DRAWER_TABS := ["ready", "attack", "defense", "research"]
 const DRAWER_TAB_NAME := {"ready": "Ready", "attack": "Attack recipes", "defense": "Defence recipes", "research": "Research"}
-const LANE_CHIP_W := 186.0      # one manufacturing lane in the strip
+const QUEUE_CHIP_W := 138.0     # one of the manufacturing queue's four positions in the strip
 const READY_CHIP_W := 124.0     # one ready card in the strip: a fixed size, never shrunk to make room
 const READY_TILE := Vector2(236.0, 124.0)   # one ready card in the drawer
 const RESEARCH_INFO_H := 50.0   # the RESEARCH view's row over the tree: the selected blueprint and its action
-const LANE_DONE_SECS := 3.0     # how long the strip shows a finished copy as done
+const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as done
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.0"   # round B: no security levels, Recon odds, reusable couriers and supply, travelling defence cards (lobbies match exact versions)
+const GAME_VERSION := "0.6.1"   # workers (2 per station), automatic supply, funded construction, four-place queue, fog (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -193,12 +193,13 @@ var _roads := {}       # faction -> {"a_b": Vector2i(a, b)}: links it has used �
 # ── per-faction economy (all spendable only at the main node) ──
 var bank := {}         # faction -> {res: available amount}, res in RES
 var incoming := {}     # faction -> {res: reserved destination room for in-flight shipments}
-var bot_reserve := {}  # faction -> Bots kept available for operations (BOT_RESERVE_CHOICES)
-var ship_pri := {}     # faction -> "" (balanced) or a resource the round robin favours
-var ship_cursor := {}  # faction -> persisted weighted-round-robin cursor
+var ship_cursor := {}  # faction -> which host plans first this step (the hosts share a short main node in turn)
 var known := {}        # faction -> {recipe: true}: learned blueprints
 var research_job := {} # faction -> {} or {key, progress, paused}
-var lanes := {}        # faction -> [MANUFACTURE_LANES x {recipe, progress, paused, repeat, paid}]
+var mq := {}           # faction -> the manufacturing queue: [{id, recipe, paid, progress}] (at most QUEUE_SIZE; the head is made)
+var mq_paused := {}    # faction -> true while the player has paused the queue (a paid head keeps its payment and progress)
+var _mq_next := 0
+var _mq_cids := {}     # faction -> {command id: true}: a replayed enqueue command makes no second copy
 var cards := {}        # faction -> {recipe: ready copy count}
 var recon := {}        # faction -> {host: {at, builds, buf}}: a dated Recon snapshot
 var _hold := {}        # faction -> seconds it has continuously held the majority
@@ -295,9 +296,10 @@ var research_info: Control       # the drawer's RESEARCH view: the selected blue
 var research_status: Label       # in the drawer's header on the RESEARCH view: what is being researched and how it goes
 var drawer_close: Button
 var research_button: Button      # top-right, beside Economy and Menu
+var research_bar: Control        # under the HUD, always on: the active research's name, track, progress, state and work left
 var _armed := ""                 # the ready card you selected: click a host to launch it there (Esc or right-click cancels)
 var _research_sel := ""          # the blueprint selected in the RESEARCH view
-var _lane_done := {}             # lane -> _t its last copy finished (the strip shows "done" for a moment; presentation only)
+var queue_pause: Button         # the strip's queue pause / resume control (recipe clicks always mean enqueue)
 var _ready_sig := ""
 var _deck_drag_restore := false  # the deck was pushed down for a card drag; pull it back up when the drag ends
 var _bank_alert := {}            # bank -> Time.get_ticks_msec() until which its tab blinks (a card became ready)
@@ -363,6 +365,7 @@ func _ready() -> void:
 	var sz := get_viewport_rect().size
 	hud = HudBar.new(); hud.game = self; hud.position = Vector2(24, 10)
 	hud.size = Vector2(sz.x - PANEL_W - 60.0, 32); add_child(hud)
+	research_bar = ResearchBar.new(); research_bar.game = self; research_bar.name = "ResearchBar"; add_child(research_bar)
 	panel = Panel.new(); panel.size = Vector2(PANEL_W, sz.y - 70.0)
 	panel.position = Vector2(sz.x - PANEL_W - 16.0, 56.0); add_child(panel)   # a clear gap below the top dashboard
 	var sc := ScrollContainer.new(); panel_scroll = sc
@@ -428,11 +431,16 @@ func _ready() -> void:
 	shut.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); drawer_close.add_child(shut)
 	drawer_close.pressed.connect(func(): _set_deck_open(false))
 	add_child(drawer_close)
-	lane_strip = HBoxContainer.new(); lane_strip.name = "LaneStrip"; lane_strip.add_theme_constant_override("separation", 6)
+	lane_strip = HBoxContainer.new(); lane_strip.name = "QueueStrip"; lane_strip.add_theme_constant_override("separation", 6)
 	add_child(lane_strip)
-	for lane in MANUFACTURE_LANES:
-		var chip := LaneChip.new(); chip.game = self; chip.lane = lane; chip.name = "Lane%d" % (lane + 1)
-		chip.custom_minimum_size = Vector2(LANE_CHIP_W, DECK_BAR_HEIGHT); lane_strip.add_child(chip)
+	for pos in QUEUE_SIZE:
+		var chip := QueueChip.new(); chip.game = self; chip.pos = pos; chip.name = "Queue%d" % (pos + 1)
+		chip.custom_minimum_size = Vector2(QUEUE_CHIP_W, DECK_BAR_HEIGHT); lane_strip.add_child(chip)
+	queue_pause = Button.new(); queue_pause.name = "QueuePause"; queue_pause.focus_mode = Control.FOCUS_NONE
+	queue_pause.custom_minimum_size = Vector2(76, DECK_BAR_HEIGHT); queue_pause.add_theme_font_size_override("font_size", 13)
+	queue_pause.tooltip_text = "Pause or resume the manufacturing queue. The copy being made keeps its payment and progress."
+	_fixed_button_style(queue_pause); queue_pause.pressed.connect(func(): _cmd(["queue_pause"]))
+	lane_strip.add_child(queue_pause)
 	ready_strip = HBoxContainer.new(); ready_strip.name = "ReadyStrip"; ready_strip.add_theme_constant_override("separation", 6)
 	add_child(ready_strip)
 	for card in CARD_ORDER:
@@ -541,19 +549,19 @@ func _gen() -> void:
 	sim_rng.seed = hash("rim-sim:%d" % town_seed)   # every screen of a match rolls the same dice in the same order
 	var sz := get_viewport_rect().size
 	hosts = []; hub = -1; rig = {}; _cell = {}; _terr = {}; _highways = {}; _roads = {}; flights = []; _execs = []; _res = {}; _flight_id = 0
-	bank = {}; incoming = {}; _delivered = {}; bot_reserve = {}; ship_pri = {}; ship_cursor = {}; known = {}; research_job = {}; lanes = {}; cards = {}; recon = {}
+	bank = {}; incoming = {}; _delivered = {}; ship_cursor = {}; known = {}; research_job = {}; mq = {}; mq_paused = {}; _mq_next = 0; _mq_cids = {}; cards = {}; recon = {}
+	workers = {}; _wid_next = 0; _inst_gen = 0; rig_claim = {}; _reqs = {}; _req_next = 0; _pool_turn = {}; _plan_cache = {}; _job_next = 0
+	_logi_dirty = {}; _logi_next = {}
 	_ai = {}; _fx = []; _worms = []; _hold = {}; card_plays = {}
 	_ledger = {}; op_outcomes = []; intrusions_resolved = 0; events = []; _ev_next_poll = 0.0; _ev_dirty = true   # per-match records
 	for fac in botnets:
 		bank[fac] = {}
 		for res in RES: bank[fac][res] = float(START[res])
-		incoming[fac] = {}; bot_reserve[fac] = BOT_RESERVE_DEFAULT; ship_pri[fac] = ""; ship_cursor[fac] = 0
+		incoming[fac] = {}; ship_cursor[fac] = 0
 		known[fac] = {}
 		for recipe in KNOWN_START: known[fac][recipe] = true
 		research_job[fac] = {}; cards[fac] = {}; recon[fac] = {}; card_plays[fac] = 0; _hold[fac] = 0.0
-		var L := []
-		for lane in MANUFACTURE_LANES: L.append({"recipe": "", "progress": 0.0, "paused": false, "repeat": false, "paid": {}, "pending": false})
-		lanes[fac] = L
+		mq[fac] = []; mq_paused[fac] = false
 	for fac in ais: _ai[fac] = {"timer": AI_CADENCE * (0.4 + 0.3 * float(fac)), "dead": false}
 	_seen = {}     # and a fresh fog memory (filled once the town exists)
 	# fixed WORLD spacing between cells → the map never crowds; the view is fit around it afterwards (_fit_view)
@@ -618,6 +626,7 @@ func _gen() -> void:
 	for fac in botnets:   # each botnet claims its corner rig + a second building
 		_claim(int(home[fac][0]), fac, true, "YOUR RIG" if fac == PLAYER else "%s RIG" % fname(fac))
 		_claim(int(home[fac][1]), fac, false, "")
+	_tick_teams(0.0)   # the main node's starting Bot station has its two workers from the first moment
 
 
 func _is_home(home: Dictionary, i: int) -> bool:
@@ -632,13 +641,13 @@ func _add_host(p: Vector2, c: Vector2i, is_hub: bool, value: int, ntype: String)
 	if is_hub: hub = hosts.size()
 	# A neutral host has no installations and a type-derived security class; it is captured, not fought.
 	hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
-		"name": "HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
+		"name": "HUB" if is_hub else "Host %d" % (hosts.size() + 1), "type": ntype,   # a public name says nothing about what it is
 		"links": [], "owner": NEUTRAL, "gen": 0, "value": value, "slots": slots,
 		"builds": _slot_array([], slots), "jobs": {}, "store": {}, "producer_paused": {}, "junction": false,
 		"cyc": PROD_CYCLE * (0.2 + 0.8 * fposmod(float(hosts.size()) * 0.618034, 1.0)), "fw_on": true, "sockets": [], "ship_rr": 0,
 		"ddos_until": 0.0, "filter_until": 0.0, "sabot_until": 0.0, "steal_by": -1, "steal_until": 0.0,
 		"siphon": {}, "patch_armed_until": 0.0, "patch_recover_until": 0.0, "cover_until": 0.0, "express_until": 0.0,
-		"couriers": 0, "want": {}, "claim": {}, "inbound": {}, "loot": {},
+		"teams": {}, "claim": {}, "inbound": {}, "fetch": {}, "refill": {}, "earmark": {}, "loot": {},
 		"hit_t": -100.0, "card_result": ""})
 	return hosts.size() - 1
 
@@ -816,7 +825,7 @@ func _claim(i: int, fac: int, is_rig: bool, nm: String) -> void:   # every botne
 		hosts[i].rig = true; rig[fac] = i; hosts[i].builds = _slot_array(["intel", "bot"], int(hosts[i].slots))
 	else:
 		hosts[i].builds = _slot_array([], int(hosts[i].slots))
-		hosts[i].name = "PC %d" % (i + 1)
+		hosts[i].name = "Host %d" % (i + 1)
 	if nm != "": hosts[i].name = nm
 
 
@@ -897,6 +906,7 @@ func _set_builds(i: int, kinds: Array) -> void:   # scripts/probes: place these 
 	hosts[i].slots = maxi(int(hosts[i].slots), kinds.size())
 	hosts[i].builds = _slot_array(kinds, int(hosts[i].slots))
 	_trim_sockets(i)
+	_sync_teams(i)
 
 
 func _built_kinds(i: int) -> Array:   # kinds present, in slot order (empties skipped)
@@ -940,8 +950,22 @@ func _benef(i: int) -> int:   # who the new output here belongs to right now: th
 func _is_botnet(fac: int) -> bool: return fac != NEUTRAL
 
 
-func _r(i: int) -> float:   # drawn radius grows with the building's slots
+func _r(i: int) -> float:   # drawn radius grows with the building's slots (one size for a host you know nothing about)
+	if not _known_host(PLAYER, i): return R_UNKNOWN
 	return 11.0 + 2.5 * float(hosts[i].slots)
+
+
+const R_UNKNOWN := 18.5
+func _known_host(fac: int, i: int) -> bool:   # fac knows its type, slots and contents: its own, or under a fresh Recon
+	return int(hosts[i].owner) == fac or _recon_fresh(fac, i)
+
+
+func _public_type(i: int) -> String: return str(hosts[i].get("type", "pc")) if _known_host(PLAYER, i) else "unknown"
+
+
+func _recon_expired(fac: int, t: int) -> bool:   # a Recon of this host (same owner) has gone stale
+	var rec: Dictionary = (recon.get(fac, {}) as Dictionary).get(t, {})
+	return not rec.is_empty() and int(rec.get("gen", -1)) == int(hosts[t].gen) and not _recon_fresh(fac, t)
 
 
 # route packets travel: BFS over same-faction buildings from src to one bordering t, then the final hop
@@ -1194,8 +1218,7 @@ func _room(fac: int, res: String) -> float:   # destination room for a new shipm
 
 func _add_bank(fac: int, res: String, amt: float, cause := "other") -> float:   # credit, clamped to cap; returns what actually fit
 	if not bank.has(fac): return 0.0
-	var held := _incoming(fac, "bots") if res == "bots" else 0.0   # new Bots leave room for the couriers out on trips
-	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res) - held))
+	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res)))
 	bank[fac][res] = _avail(fac, res) + fit
 	if fit > 0.0: _ledger_add(fac, "in", cause, res, fit)
 	if amt - fit > 0.000001: _ledger_add(fac, "lost", "cap", res, amt - fit)
@@ -1296,7 +1319,7 @@ func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}
 	var supplied := {}   # inputs that keep coming: a remote host's Keep-here stock (from the bank's budget); at the main node, a bank with a buffer
 	for res in RES:
 		if at_main: supplied[res] = _avail(fac, res) >= 5.0
-		else: supplied[res] = int(hosts[i].owner) == fac and _want(i, res) >= 1.0 and float(budget.get(res, 0.0)) > 0.0001
+		else: supplied[res] = int(hosts[i].owner) == fac and float(budget.get(res, 0.0)) > 0.0001   # supplies are automatic
 	out.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
 	var made := out.duplicate()   # at the main node every output is income; what converters and Firewalls use is spending
 	var walls := _count_all(i, "wall") - _walls_building(i)
@@ -1328,9 +1351,6 @@ func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}
 		out[str(spec.out)] = float(out[str(spec.out)]) + float(spec.rate) * m * k * frac
 		made[str(spec.out)] = float(made.get(str(spec.out), 0.0)) + float(spec.rate) * m * k * frac
 	if at_main: out = made
-	var bots := 0
-	for k in _count(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
-	out.bots = float(bots) if at_main else 0.0   # a remote host's stations make couriers for that host, not Bots for the bank
 	return {"out": out, "used": used}
 
 
@@ -1340,7 +1360,7 @@ func _forecast_now(fac: int) -> Dictionary:
 	for res in RES: d.rate[res] = 0.0
 	var hub := _hub(fac)
 	if hub < 0 or _eliminated.has(fac): return d
-	# what the bank can keep sending per cycle to hosts' Keep-here stocks: plenty while it holds a buffer, else what the
+	# what the bank can keep sending per cycle to hosts' supplies: plenty while it holds a buffer, else what the
 	# main node itself brings in (its trickle and its Intel harvesters), shared by the hosts in turn
 	var budget := {}
 	for res in RES:
@@ -1361,7 +1381,7 @@ func _forecast_now(fac: int) -> Dictionary:
 		var cyc := _fc_cycle(i, fac, false, {}, budget)
 		var ship := {}; var sum := 0.0
 		for res in RES:
-			if res != "bots" and float(cyc.out[res]) > 0.0001: ship[res] = float(cyc.out[res]); sum += float(cyc.out[res])
+			if float(cyc.out[res]) > 0.0001: ship[res] = float(cyc.out[res]); sum += float(cyc.out[res])
 		var sup := 0.0
 		for r in (cyc.used as Dictionary): sup += float(cyc.used[r])
 		if sum <= 0.0001: continue
@@ -1369,16 +1389,16 @@ func _forecast_now(fac: int) -> Dictionary:
 		if rt.size() < 2:
 			for res in ship: _fc_limit(d, res, "no route home from %s" % str(hosts[i].name))
 			continue
-		var own := owner == fac and _courier_cap(i) > 0
+		var own: bool = owner == fac and _has_team(i)
 		remote.append([i, ship, sup, own, 2.0 * _travel_time(rt, float(hosts[i].get("express_until", 0.0)) > _t)])
-	# couriers: a host's own carry its output; the main node's share its spare fleet among the rest
-	var fleet := int(_avail(fac, "bots")) + _couriers_out(fac, hub)
-	var spare := maxf(0.0, float(fleet) - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))
+	# workers: a host's own carry its output; the main node's share their time among the rest
+	var fleet: int = int(_worker_counts(fac, hub).total)
+	var spare := float(fleet)
 	var need := 0.0
 	for row in remote:
 		var units := 0.0
 		for res in (row[1] as Dictionary): units += float(row[1][res])
-		if not bool(row[3]): need += maxf(units, float(row[2])) * float(row[4]) / PROD_CYCLE   # couriers busy keeping up with it
+		if not bool(row[3]): need += maxf(units, float(row[2])) * float(row[4]) / PROD_CYCLE   # workers busy keeping up with it
 	var share := 1.0 if need <= spare + 0.0001 else spare / maxf(0.0001, need)
 	d.need = need; d.spare = spare; d.fleet = fleet
 	var inflow := {}
@@ -1388,11 +1408,11 @@ func _forecast_now(fac: int) -> Dictionary:
 		for res in (row[1] as Dictionary): units += float(row[1][res])
 		var trips := maxf(units, float(row[2]))
 		var cap_units := trips
-		if bool(row[3]): cap_units = float(_courier_cap(i)) * PROD_CYCLE / maxf(0.5, float(row[4]))   # its own couriers' round trips per cycle
+		if bool(row[3]): cap_units = float(_worker_slots(i)) * PROD_CYCLE / maxf(0.5, float(row[4]))   # its own workers' round trips per cycle
 		else: cap_units = trips * share
 		var f := clampf(cap_units / maxf(0.0001, trips), 0.0, 1.0)
 		if f < 0.999:
-			for res in (row[1] as Dictionary): _fc_limit(d, str(res), "not enough couriers" if not bool(row[3]) else "%s's couriers are all busy" % str(hosts[i].name))
+			for res in (row[1] as Dictionary): _fc_limit(d, str(res), "not enough workers" if not bool(row[3]) else "%s's workers are all busy" % str(hosts[i].name))
 		for res in (row[1] as Dictionary):
 			if _room(fac, str(res)) < 1.0 and _avail(fac, str(res)) >= _cap(fac, str(res)) - 0.5: continue   # a full bank takes nothing
 			var v := float(row[1][res]) * f * per
@@ -1408,7 +1428,7 @@ func _forecast_now(fac: int) -> Dictionary:
 	else: for res in RES: _fc_limit(d, res, "your main node is under DDoS")
 	# a full bank takes nothing more
 	for res in RES:
-		if res != "bots" and _avail(fac, res) >= _cap(fac, res) - 0.5 and float(d.rate[res]) > 0.0:
+		if _avail(fac, res) >= _cap(fac, res) - 0.5 and float(d.rate[res]) > 0.0:
 			d.rate[res] = 0.0; d.from[res] = {}; _fc_limit(d, res, "your bank is full")
 	return d
 
@@ -1418,7 +1438,7 @@ func _incoming_eta(fac: int, res: String) -> Dictionary:   # cargo on the road f
 	var hub := _hub(fac)
 	for f in flights:
 		if int(f.owner) != fac or str(f.kind) != "courier" or int(f.get("dest", -1)) != hub: continue
-		if not ((f.cargo as Dictionary).has(res) or (res == "bots" and int(f.origin) == hub)): continue
+		if not (f.cargo as Dictionary).has(res): continue
 		n += 1
 		if bool(f.get("blocked", false)): risk += 1   # held on the way: a route broke under it
 		else: next = minf(next, float(f.arrive_t) - _t)
@@ -1511,6 +1531,7 @@ func _cycle_kinds(i: int, kind: String) -> int: return _count(i, kind)   # activ
 
 func _run_cycle(i: int) -> void:
 	var owner := int(hosts[i].owner)
+	_logi_poke()   # new output and new needs: every pool looks again
 	var benef := _benef(i)
 	if not botnets.has(benef) or _eliminated.has(benef): benef = owner
 	# a) Intel harvesters: no input
@@ -1527,23 +1548,35 @@ func _run_cycle(i: int) -> void:
 			var own := minf(need, _st_get(i, owner, "intel"))
 			_st_take(i, owner, "intel", own, "upkeep")
 			if need - own > 0.0001: _st_take(i, benef, "intel", need - own, "upkeep")
-	# c) converters, from this host's own storage (the bank at the main node)
+	# c) converters, from this host's own storage (the bank at the main node); a remote host runs the plan its
+	#    deliveries were requested for (_host_plan), so an earlier converter never eats a later one's supplies
+	var use_plan: bool = not _st_local(i, owner) and benef == owner
+	var planned := {}
+	if use_plan:   # the plan for this very cycle, from what is here and what can still come (never stale)
+		var budget := {}
+		for res in RES: budget[res] = _free(owner, res)
+		var pl := _host_plan(i, owner, budget)
+		planned = pl.frac; hosts[i].plan_limited = bool(pl.limited)
+	var before := {}
+	for res in RES: before[res] = float(_store_of(i, owner).get(res, 0.0))
 	for kind in CONVERT_ORDER:
 		var spec: Dictionary = BUILD_KINDS[kind]
 		var out := str(spec.out)
 		var m := _tmult(i, out)
-		for k in _cycle_kinds(i, kind):
-			var frac := 1.0
+		for slot in (hosts[i].builds as Array).size():
+			if str(hosts[i].builds[slot]) != kind or not _producer_active(i, slot): continue
+			var frac := float(planned.get(slot, 0.0)) if use_plan else 1.0
 			for r in (spec.use as Dictionary):
 				frac = minf(frac, _st_get(i, benef, str(r)) / maxf(0.000001, float(spec.use[r]) * m))
 			if _st_local(i, benef): frac = minf(frac, _room_now(benef, out) / maxf(0.000001, float(spec.rate) * m))
-			if frac <= 0.0001: break
+			if frac <= 0.0001: continue
 			for r in (spec.use as Dictionary): _st_take(i, benef, str(r), float(spec.use[r]) * m * frac)
 			_st_add(i, benef, out, float(spec.rate) * m * frac)
-	# d) Bot stations: new couriers for the owner (the main node's join its bank; a host's wait there for _tick_logistics)
-	var bots := 0
-	for k in _cycle_kinds(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
-	if bots > 0: _station_send(i, owner, bots)   # couriers always belong to the host's owner (a thief gets the output, not the Bots)
+	if bool(hosts[i].get("plan_limited", false)): hosts[i].plan_rr = int(hosts[i].get("plan_rr", 0)) + 1   # the next cycle funds the next ones first
+	if not _st_local(i, owner):   # delivered refill inputs are used first: what was consumed comes off the earmark
+		for res in RES:
+			var used := float(before[res]) - float(_store_of(i, owner).get(res, 0.0))
+			if used > 0.0 and _earmark(i, res) > 0.0: _hadd(i, "earmark", res, -used)
 
 
 func _walls_building(i: int) -> int:   # installed Firewalls a job is taking down (no upkeep, no sockets): a new one counts only when finished
@@ -1555,14 +1588,6 @@ func _walls_building(i: int) -> int:   # installed Firewalls a job is taking dow
 
 
 func _room_now(fac: int, res: String) -> float: return maxf(0.0, _cap(fac, res) - _avail(fac, res))
-
-
-func _station_send(i: int, fac: int, bots: int) -> void:   # Bot stations make couriers: the main node's join its bank, a host's wait there
-	if _st_local(i, fac):
-		_add_bank(fac, "bots", float(bots), "production")
-		return
-	var room := _courier_cap(i) - int(hosts[i].get("couriers", 0)) - _couriers_out(fac, i)
-	if room > 0: hosts[i].couriers = int(hosts[i].get("couriers", 0)) + mini(bots, room)
 
 
 func _attack_route_none(fac: int, src: int) -> bool:   # true if src has no route to fac's main node
@@ -1577,14 +1602,23 @@ func _home_route(fac: int, src: int) -> Array:   # how fac's couriers travel fro
 	return _travel_route(fac, src, home)
 
 
-# ============================================================ LOGISTICS
-# Couriers are reusable Bots that belong to a host. A main node's couriers are the Bots in its bank; a remote host's
-# are made by its own Bot stations and wait there (hosts[i].couriers). A trip goes origin -> destination -> origin,
-# one unit each way, and the courier is free again only when it is back home. Supplies go out to a host that keeps a
-# desired stock (hosts[i].want); its output comes back. Every packet - courier or card - moves hop by hop through
-# its owner's hosts only (_advance_flights): a relay that is taken or knocked out stops it at the last good host,
-# where it waits, visibly, and goes on when a route opens again (_tick_blocked). Nothing is teleported.
-# (An interpretation of the feedback: courier lifetime and ownership were not fully specified.)
+# ============================================================ LOGISTICS (delivery workers)
+# Bots are delivery WORKERS, not a material. Every operational Bot station has exactly two worker slots
+# (WORKERS_PER_STATION); a completed station fills them with two workers that have stable identities and are never
+# used up. A main node's stations make its shared pool; a remote host's stations serve that host only. Trips run
+# host <-> main node and carry at most one unit of one material per leg (WORKER_CARRY; a final fraction may be less).
+#   · a host's own workers take its surplus to the main node and bring back what it is short of (one trip, both legs);
+#   · the main node's workers serve every host that has no station of its own, and collect theft and salvage piles.
+# Nobody configures shipping: each host's needs come from its own work (_host_plan: the next production cycle's
+# inputs after what it makes itself, its Firewall's upkeep, its construction bills, a one-time refill ticket) and
+# whatever it holds beyond that is surplus to collect. Requests keep their age; each pool serves them by purpose on
+# three of every four new assignments and by age on the fourth (_pick_request), so nothing waits forever.
+# Every packet - worker or card - moves hop by hop through its owner's hosts only (_advance_flights): a relay that is
+# taken or knocked out stops it at the last good host, where it waits, visibly, and goes on when a route opens.
+# Losing a host destroys the workers of its stations wherever they are (_kill_home_workers); a worker lost on the
+# road is replaced at its surviving station after WORKER_REPLACE s of operation; a demolished station's workers
+# finish the leg they are on and retire. Materials are always in exactly one place: a bank, a host's storage, a
+# worker's cargo, a construction escrow or a theft / salvage pile. Reservations only point at them.
 func _travel_route(fac: int, a: int, b: int) -> Array:   # a ... b with every host in between fac's and up; the ends may be anyone's
 	if a < 0 or b < 0: return []
 	if a == b: return [a]
@@ -1617,23 +1651,160 @@ func _hub(fac: int) -> int:   # fac's main node while fac holds it, else -1
 	return h if h >= 0 and int(hosts[h].owner) == fac else -1
 
 
-func _courier_cap(i: int) -> int: return COURIERS_PER_STATION * (_count_all(i, "bot") - _jobs_of(i, "bot"))
+# ---- workers: two per operational Bot station, each with a stable identity ----
+var workers := {}        # wid -> {fac, home, slot, gen, k, state: "idle" | "trip" | "retiring", fid}
+var _wid_next := 0
+var _inst_gen := 0       # each completed station gets a new generation: its worker slots belong to that installation
+var rig_claim := {}      # fac -> {res: amount at the main node held for a host's worker on its way to collect it}
+var _reqs := {}          # fac -> {key: {id, since}}: open delivery requests keep their age while they last
+var _req_next := 0
+var _pool_turn := {}     # "fac:home" -> new assignments made by that pool (the fourth goes to the oldest request)
+var _plan_cache := {}    # host -> its plan for this step (rebuilt every step)
+var _logi_dirty := {}    # fac -> true: something that can create work happened (an arrival, a cycle, a command...): plan this step
+var _logi_next := {}     # fac -> when it plans again anyway (time-based changes: a trickle, a route reopening)
+const LOGI_EVERY := 0.25
 
 
-func _jobs_of(i: int, kind: String) -> int:   # installations of this kind still being built (not working yet)
-	var n := 0
-	for slot_key in (hosts[i].jobs as Dictionary):
-		if str(hosts[i].builds[int(hosts[i].jobs[slot_key].slot)]) == kind and str(hosts[i].jobs[slot_key].phase) == "build": n += 1
-	return n
+func _logi_poke(fac := -1) -> void:   # plan at the next step (fac -1: everyone)
+	if fac < 0:
+		for f in botnets: _logi_dirty[f] = true
+	else: _logi_dirty[fac] = true
 
 
-func _couriers_out(fac: int, origin: int) -> int:   # fac's couriers from this origin that are on a trip
-	var n := 0
+func _station_live(i: int, slot: int) -> bool:   # a finished Bot station no job is working on
+	return int(hosts[i].owner) != NEUTRAL and slot < (hosts[i].builds as Array).size() and str(hosts[i].builds[slot]) == "bot" and not _slot_busy(i, slot)
+
+
+func _station_ok(i: int, slot: int) -> bool:   # ... and working: a vacant slot's replacement only advances then
+	return _station_live(i, slot) and not _prod_down(i) and not _sabotaged(i)
+
+
+func _teams(i: int) -> Dictionary:
+	if not hosts[i].has("teams"): hosts[i].teams = {}
+	return hosts[i].teams
+
+
+func _has_team(i: int) -> bool: return not _teams(i).is_empty()
+func _worker_slots(i: int) -> int: return WORKERS_PER_STATION * _teams(i).size()
+
+
+func _new_worker(i: int, slot: int, gen: int, k: int) -> int:
+	_wid_next += 1
+	workers[_wid_next] = {"fac": int(hosts[i].owner), "home": i, "slot": slot, "gen": gen, "k": k, "state": "idle", "fid": -1}
+	return _wid_next
+
+
+func _sync_teams(i: int) -> void:   # a team for every finished station; a station that is gone or being replaced retires its own
+	var teams := _teams(i)
+	for slot in teams.keys():
+		if not _station_live(i, int(slot)): _team_remove(i, int(slot))
+	if int(hosts[i].owner) == NEUTRAL: return
+	for slot in (hosts[i].builds as Array).size():
+		if teams.has(slot) or not _station_live(i, slot): continue
+		_inst_gen += 1
+		var w := []; var re := []
+		for k in WORKERS_PER_STATION:
+			w.append(_new_worker(i, slot, _inst_gen, k)); re.append(-1.0)
+		teams[slot] = {"gen": _inst_gen, "w": w, "re": re}
+		_logi_poke(int(hosts[i].owner))
+
+
+func _team_remove(i: int, slot: int) -> void:   # the station went (demolished, replaced): idle workers leave, travelling ones retire
+	var teams := _teams(i)
+	if not teams.has(slot): return
+	for wid in (teams[slot].w as Array):
+		if int(wid) >= 0 and workers.has(int(wid)): _retire_worker(int(wid))
+	teams.erase(slot)
+
+
+func _retire_worker(wid: int) -> void:   # no new job: it finishes the leg it is on (cargo and all), then it is gone
+	var w: Dictionary = workers[wid]
+	var f := _flight_of(wid)
+	if f.is_empty(): workers.erase(wid); return
+	w.state = "retiring"
+	_drop_job(f)   # what it was to pick up is released; what it carries it delivers
+
+
+func _flight_of(wid: int) -> Dictionary:
+	var fid := int((workers.get(wid, {}) as Dictionary).get("fid", -1))
+	if fid < 0: return {}
 	for f in flights:
-		if str(f.kind) == "courier" and int(f.owner) == fac and int(f.origin) == origin: n += 1
-	return n
+		if int(f.id) == fid: return f
+	return {}
 
 
+func _worker_lost(wid: int) -> void:   # lost on the road (not with its own host): the slot waits WORKER_REPLACE s of operation
+	if not workers.has(wid): return
+	var w: Dictionary = workers[wid]
+	workers.erase(wid)
+	var i := int(w.home)
+	var teams := _teams(i)
+	if str(w.state) == "retiring" or not teams.has(int(w.slot)) or int(teams[int(w.slot)].gen) != int(w.gen): return
+	var t: Dictionary = teams[int(w.slot)]
+	var k := (t.w as Array).find(wid)
+	if k < 0: return
+	t.w[k] = -1; t.re[k] = WORKER_REPLACE
+
+
+func _kill_home_workers(i: int, by: int) -> int:   # the host is lost: every worker of its stations dies, wherever it is
+	var dead := 0
+	for wid in workers.keys():
+		var w: Dictionary = workers[wid]
+		if int(w.home) != i: continue
+		var f := _flight_of(int(wid))
+		if not f.is_empty(): _settle_lost(f, i, "captured")
+		workers.erase(wid)
+		dead += 1
+	flights = flights.filter(func(x): return not bool(x.get("dead", false)))
+	hosts[i].teams = {}
+	return dead
+
+
+func _tick_teams(dt: float) -> void:   # teams follow the stations; a vacant slot is refilled after WORKER_REPLACE s of operation
+	for i in hosts.size():
+		if int(hosts[i].owner) == NEUTRAL:
+			if not _teams(i).is_empty(): hosts[i].teams = {}
+			continue
+		_sync_teams(i)
+		for slot in _teams(i):
+			var t: Dictionary = _teams(i)[slot]
+			for k in (t.w as Array).size():
+				if int(t.w[k]) >= 0 or float(t.re[k]) < 0.0 or not _station_ok(i, int(slot)): continue
+				t.re[k] = float(t.re[k]) - dt
+				if float(t.re[k]) <= 0.0: t.w[k] = _new_worker(i, int(slot), int(t.gen), k); t.re[k] = -1.0; _logi_poke(int(hosts[i].owner))
+
+
+func _pool_idle(fac: int, home: int) -> Array:   # this pool's workers that are at home and free, in identity order
+	var out := []
+	for wid in workers:
+		var w: Dictionary = workers[wid]
+		if int(w.fac) == fac and int(w.home) == home and str(w.state) == "idle": out.append(int(wid))
+	out.sort()
+	return out
+
+
+func _worker_counts(fac: int, home := -2) -> Dictionary:   # {total, idle, collecting, carrying, blocked, retiring} for a pool, or (-2) all of fac's
+	var out := {"total": 0, "idle": 0, "collecting": 0, "carrying": 0, "blocked": 0, "retiring": 0}
+	for wid in workers:
+		var w: Dictionary = workers[wid]
+		if int(w.fac) != fac or (home != -2 and int(w.home) != home): continue
+		if str(w.state) == "retiring": out.retiring = int(out.retiring) + 1; continue
+		out.total = int(out.total) + 1
+		var st := _worker_state(int(wid))
+		out[st] = int(out[st]) + 1
+	return out
+
+
+func _worker_state(wid: int) -> String:   # idle · collecting (travelling empty to fetch) · carrying · blocked
+	var w: Dictionary = workers.get(wid, {})
+	if w.is_empty() or str(w.state) == "idle": return "idle"
+	var f := _flight_of(wid)
+	if f.is_empty(): return "idle"
+	if bool(f.get("blocked", false)): return "blocked"
+	return "carrying" if not (f.cargo as Dictionary).is_empty() else "collecting"
+
+
+# ---- where materials are: storage, piles, claims (reservations point at materials, they are never materials) ----
 func _hfield(i: int, field: String) -> Dictionary:   # a host's per-faction ledger field ("claim", "loot"), created on first use
 	if not hosts[i].has(field): hosts[i][field] = {}
 	return hosts[i][field]
@@ -1642,7 +1813,8 @@ func _hfield(i: int, field: String) -> Dictionary:   # a host's per-faction ledg
 func _claimed(i: int, fac: int, res: String) -> float: return float(((hosts[i].get("claim", {}) as Dictionary).get(fac, {}) as Dictionary).get(res, 0.0))
 func _loot(i: int, fac: int, res: String) -> float: return float(((hosts[i].get("loot", {}) as Dictionary).get(fac, {}) as Dictionary).get(res, 0.0))
 func _inbound(i: int, res: String) -> float: return float((hosts[i].get("inbound", {}) as Dictionary).get(res, 0.0))
-func _want(i: int, res: String) -> float: return float((hosts[i].get("want", {}) as Dictionary).get(res, 0.0))
+func _fetch_held(i: int, res: String) -> float: return float((hosts[i].get("fetch", {}) as Dictionary).get(res, 0.0))
+func _earmark(i: int, res: String) -> float: return float((hosts[i].get("earmark", {}) as Dictionary).get(res, 0.0))
 
 
 func _add_to(i: int, field: String, fac: int, res: String, d: float) -> void:   # claim / loot bookkeeping, never below zero
@@ -1654,131 +1826,309 @@ func _add_to(i: int, field: String, fac: int, res: String, d: float) -> void:   
 	if (all[fac] as Dictionary).is_empty(): all.erase(fac)
 
 
-func _inbound_add(i: int, res: String, d: float) -> void:
-	if not hosts[i].has("inbound"): hosts[i].inbound = {}
-	var v := maxf(0.0, _inbound(i, res) + d)
-	if v < 0.0001: (hosts[i].inbound as Dictionary).erase(res)
-	else: hosts[i].inbound[res] = v
+func _hadd(i: int, field: String, res: String, d: float) -> void:   # a host-wide {res: amount} field ("inbound", "fetch", "earmark")
+	if not hosts[i].has(field): hosts[i][field] = {}
+	var v := maxf(0.0, float((hosts[i][field] as Dictionary).get(res, 0.0)) + d)
+	if v < 0.0001: (hosts[i][field] as Dictionary).erase(res)
+	else: hosts[i][field][res] = v
 
 
-func _inbound_total(i: int) -> float:
+func _inbound_add(i: int, res: String, d: float) -> void: _hadd(i, "inbound", res, d)
+
+
+func _field_total(i: int, field: String) -> float:
 	var s := 0.0
-	for r in (hosts[i].get("inbound", {}) as Dictionary): s += float(hosts[i].inbound[r])
+	for r in (hosts[i].get(field, {}) as Dictionary): s += float(hosts[i][field][r])
 	return s
 
 
-func _store_room(i: int) -> float: return STORE_CAP - _store_total(i) - _inbound_total(i)   # supplies on their way already hold their room
+func _inbound_total(i: int) -> float: return _field_total(i, "inbound") + _field_total(i, "fetch")
+func _store_room(i: int) -> float: return STORE_CAP - _store_total(i) - _inbound_total(i)   # what is on its way already holds its room
 
 
-func _surplus(i: int, fac: int, res: String) -> float:   # whole units fac's couriers may carry away from host i now
-	if res == "bots" or i == _hub(fac): return 0.0
-	var have := _loot(i, fac, res) + float(_store_of(i, fac).get(res, 0.0))
-	var keep := _want(i, res) if int(hosts[i].owner) == fac else 0.0   # the owner's wanted inputs stay for its installations
-	return floorf(maxf(0.0, have - keep - _claimed(i, fac, res)) + 0.0001)
+func _rig_claimed(fac: int, res: String) -> float: return float((rig_claim.get(fac, {}) as Dictionary).get(res, 0.0))
+func _rig_claim_add(fac: int, res: String, d: float) -> void:
+	if not rig_claim.has(fac): rig_claim[fac] = {}
+	var v := maxf(0.0, _rig_claimed(fac, res) + d)
+	if v < 0.0001: (rig_claim[fac] as Dictionary).erase(res)
+	else: rig_claim[fac][res] = v
 
 
-func _deficit(i: int, res: String) -> float:   # supply the owner has yet to send to reach the host's desired stock
-	var owner := int(hosts[i].owner)
-	if owner == NEUTRAL or res == "bots": return 0.0
-	return floorf(maxf(0.0, _want(i, res) - float(_store_of(i, owner).get(res, 0.0)) - _inbound(i, res)) + 0.0001)
+func _free(fac: int, res: String) -> float:   # main-node stock nobody has claimed: what research, cards, construction and supplies may use
+	return maxf(0.0, _avail(fac, res) - _rig_claimed(fac, res))
 
 
-func _pick_pickup(i: int, fac: int) -> String:   # what to carry from i to fac's main node next: shipping priority first, then in turn
-	var pri := str(ship_pri.get(fac, ""))
-	if pri != "" and _surplus(i, fac, pri) >= 1.0 and _room(fac, pri) >= 1.0: return pri
-	var start := int(hosts[i].get("ship_rr", 0))
-	for k in RES.size():
-		var res: String = RES[(start + k) % RES.size()]
-		if _surplus(i, fac, res) >= 1.0 and _room(fac, res) >= 1.0:
-			hosts[i].ship_rr = (start + k + 1) % RES.size()
-			return res
-	return ""
-
-
-func _pick_supply(i: int, fac: int) -> String:   # what fac's bank should send to its host i next
-	if int(hosts[i].owner) != fac or _store_room(i) < 1.0: return ""
+# ---- what a host needs: its next production cycle, after what it makes itself ----
+# One cycle ahead, never an open-ended stock target: Intel harvesters first, then the Firewall's upkeep, then the
+# converters in CONVERT_ORDER (a Miner's Crypto can feed the Lab in the same cycle). A converter is funded only as far
+# as its WHOLE bundle can be had - here, already on its way, or from the main node's unclaimed stock (shared by the
+# hosts in turn through `budget`) - so no input is sequestered for a recipe whose other input cannot come. If the
+# shortfalls would not fit the host's free storage, the converters take turns (plan_rr) instead of waiting for all.
+func _host_plan(i: int, fac: int, budget: Dictionary) -> Dictionary:   # {frac: {slot: f}, short: {res}, reserve: {res}, export: {res}, limited}
+	var out := {"frac": {}, "short": {}, "reserve": {}, "export": {}, "limited": false, "wall": true}
+	var stock := {}; var pool := {}; var made := {}; var local_used := {}
 	for res in RES:
-		if _deficit(i, res) >= 1.0 and _avail(fac, res) >= 1.0: return res
-	return ""
+		stock[res] = maxf(0.0, float(_store_of(i, fac).get(res, 0.0)) - _claimed(i, fac, res))
+		made[res] = 0.0; local_used[res] = 0.0; out.short[res] = 0.0
+	made.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
+	for res in RES: pool[res] = float(stock[res]) + float(made[res]) + _inbound(i, res) + _fetch_held(i, res)
+	var room := maxf(0.0, _store_room(i))
+	var take := func(res: String, amt: float) -> void:   # amt from the local pool first, the rest asked of the main node
+		var l := minf(amt, float(pool[res])); pool[res] = float(pool[res]) - l; local_used[res] = float(local_used[res]) + l
+		if amt - l > 0.0001:
+			out.short[res] = float(out.short[res]) + amt - l; budget[res] = maxf(0.0, float(budget.get(res, 0.0)) - (amt - l))
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0:
+		var need := float(BUILD_KINDS.wall.use.intel) * walls
+		var can := float(pool.intel) + minf(float(budget.get("intel", 0.0)), room)
+		if can >= need - 0.0001:
+			var ext := maxf(0.0, need - float(pool.intel)); room -= ext
+			take.call("intel", need)
+		else: out.wall = false
+	var inst := []   # the active converters in cycle order: [kind, slot]
+	for kind in CONVERT_ORDER:
+		for k in (hosts[i].builds as Array).size():
+			if str(hosts[i].builds[k]) == kind and _producer_active(i, k): inst.append([kind, k])
+	var n := inst.size()
+	var rr := int(hosts[i].get("plan_rr", 0))
+	for idx in n:
+		var it: Array = inst[(idx + rr) % n] if n > 0 else []
+		var spec: Dictionary = BUILD_KINDS[str(it[0])]
+		var m := _tmult(i, str(spec.out))
+		var f := 1.0; var ext_sum := 0.0
+		for r in (spec.use as Dictionary):
+			var u := float(spec.use[r]) * m
+			var have := float(pool[str(r)]) + float(budget.get(str(r), 0.0))
+			f = minf(f, have / maxf(0.000001, u))
+		for r in (spec.use as Dictionary): ext_sum += maxf(0.0, float(spec.use[r]) * m * f - float(pool[str(r)]))
+		if ext_sum > room + 0.0001:   # not enough free storage for its supplies this cycle: what is here only, and it waits its turn
+			out.limited = true
+			var fl := 1.0
+			for r in (spec.use as Dictionary): fl = minf(fl, float(pool[str(r)]) / maxf(0.000001, float(spec.use[r]) * m))
+			f = minf(f, fl); ext_sum = 0.0
+		if f <= 0.0001: continue
+		room -= ext_sum
+		for r in (spec.use as Dictionary): take.call(str(r), float(spec.use[r]) * m * f)
+		var o := float(spec.rate) * m * f
+		pool[str(spec.out)] = float(pool[str(spec.out)]) + o; made[str(spec.out)] = float(made[str(spec.out)]) + o
+		out.frac[int(it[1])] = f
+	for res in RES:   # what this cycle takes from the current stock (beyond what it makes and what is coming) stays; the rest may go
+		var from_stock := clampf(float(local_used[res]) - float(made[res]) - _inbound(i, res) - _fetch_held(i, res), 0.0, float(stock[res]))
+		out.reserve[res] = maxf(from_stock, minf(float(stock[res]), _earmark(i, res)))
+		out.export[res] = maxf(0.0, float(stock[res]) - float(out.reserve[res]))
+	return out
 
 
-func _take_unit(i: int, fac: int, res: String) -> bool:   # one unit of fac's out of host i: its loot pile first, then its storage
-	if _loot(i, fac, res) >= 1.0 - 0.0001:
-		_add_to(i, "loot", fac, res, -1.0); return true
-	if float(_store_of(i, fac).get(res, 0.0)) >= 1.0 - 0.0001:
-		_store_take(i, fac, res, 1.0); return true
-	return false
+# ---- requests: what each host needs brought in and has to send out, keeping their age ----
+const REQ_CLASS := {"input": 0, "build": 1, "export": 2, "loot": 2, "refill": 2}   # purpose order on three of four assignments
 
 
-func _fetching(i: int, fac: int) -> int:   # i's own couriers on their way to the main node to fetch supplies
-	var n := 0
-	for f in flights:
-		if str(f.kind) == "courier" and int(f.owner) == fac and int(f.origin) == i and bool(f.get("fetch", false)) and str(f.trip) == "out": n += 1
-	return n
+func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, since, host, purpose, res, qty, dir}] in a stable order
+	var want := {}   # key -> [host, purpose, res, qty, dir]
+	var budget := {}
+	for res in RES: budget[res] = _free(fac, res)
+	var n := hosts.size()
+	var start := posmod(int(ship_cursor.get(fac, 0)), maxi(1, n))   # the hosts share a short main node in turn
+	for k in n:
+		var i := (start + k) % n
+		if i == hub or (only >= 0 and i != only): continue
+		var own := int(hosts[i].owner) == fac
+		if own:
+			var plan := _host_plan(i, fac, budget)
+			_plan_cache[i] = plan; hosts[i].plan_frac = plan.frac; hosts[i].plan_limited = bool(plan.limited)
+			for res in RES:
+				if float(plan.short[res]) > 0.0001: want["%d:input:%s" % [i, res]] = [i, "input", res, float(plan.short[res]), "in"]
+				if float(plan.export[res]) >= 0.999: want["%d:export:%s" % [i, res]] = [i, "export", res, floorf(float(plan.export[res]) + 0.0001), "out"]
+			for res in (hosts[i].get("refill", {}) as Dictionary):
+				var left := float(hosts[i].refill[res])
+				if left > 0.0001: want["%d:refill:%s" % [i, res]] = [i, "refill", str(res), left, "in"]
+			for b in _build_requests(i, fac): want["%d:build:%s:%s" % [i, str(b[0]), str(b[1])]] = [i, "build:" + str(b[0]), str(b[1]), float(b[2]), "in"]
+		var pile: Dictionary = (hosts[i].get("loot", {}) as Dictionary).get(fac, {})   # theft and salvage piles; a rival's host's output stored for you
+		for res in pile:
+			var q := float(pile[res]) - 0.0   # piles are collected as they are, a final fraction included
+			if q > 0.0001: want["%d:loot:%s" % [i, res]] = [i, "loot", str(res), q, "out"]
+		if not own:
+			for res in _store_of(i, fac):
+				var q2 := float(_store_of(i, fac)[res]) - _claimed(i, fac, str(res))
+				if q2 >= 0.999: want["%d:loot:%s" % [i, res]] = [i, "loot", str(res), floorf(q2 + 0.0001), "out"]
+	var keep: Dictionary = _reqs.get(fac, {})
+	var now := {}
+	for key in want:
+		if keep.has(key): now[key] = keep[key]
+		else:
+			_req_next += 1
+			now[key] = {"id": _req_next, "since": _t}
+	if only < 0:   # a full pass: requests that ended are dropped; the next pass starts with the next host
+		_reqs[fac] = now
+		ship_cursor[fac] = (start + 1) % maxi(1, n)
+	else:
+		for key in now: keep[key] = now[key]
+		_reqs[fac] = keep
+	var out := []
+	for key in now:
+		var w: Array = want[key]
+		out.append({"key": key, "id": int(now[key].id), "since": float(now[key].since), "host": int(w[0]), "purpose": str(w[1]), "res": str(w[2]), "qty": float(w[3]), "dir": str(w[4])})
+	out.sort_custom(func(a, b): return int(a.id) < int(b.id))
+	return out
 
 
-func _supply_short(i: int, fac: int) -> bool:   # i wants something the bank has, and nobody is already fetching it
-	if _pick_supply(i, fac) == "": return false
-	var short := 0.0
-	for res in RES: short += _deficit(i, res)
-	return short - float(_fetching(i, fac)) >= 1.0
+func _req_class(r: Dictionary) -> int: return int(REQ_CLASS.get(str(r.purpose).split(":")[0], 2))
 
 
-func _tick_logistics() -> void:   # every step: send the couriers that have something to carry
+func _pool_of(fac: int, hub: int, i: int) -> int:   # which pool serves host i: its own team, else the main node's workers
+	if i != hub and int(hosts[i].owner) == fac and _has_team(i): return i
+	return hub
+
+
+func _amount(fac: int, hub: int, r: Dictionary) -> float:   # what one worker could carry for request r right now (0: not feasible)
+	var res := str(r.res); var i := int(r.host)
+	var amt := minf(WORKER_CARRY, float(r.qty))
+	if str(r.dir) == "in":
+		if _free(fac, res) < amt - 0.0001: return 0.0                    # the main node does not have it
+		if str(r.purpose).begins_with("build:"):
+			if not _build_room(i, str(r.purpose).trim_prefix("build:"), res, amt): return 0.0
+		elif _store_room(i) < amt - 0.0001: return 0.0                     # no room at the host for it
+	else:
+		var have := _pile_or_store(i, fac, res)
+		amt = minf(amt, have)
+		if amt <= 0.0001 or (str(r.purpose) == "export" and amt < 0.999): return 0.0
+		if _room(fac, res) < amt - 0.0001: return 0.0                       # a full bank takes nothing more
+	return amt
+
+
+func _pile_or_store(i: int, fac: int, res: String) -> float:   # what fac's workers may take from host i: its pile, then what is stored for it
+	return _loot(i, fac, res) + maxf(0.0, float(_store_of(i, fac).get(res, 0.0)) - _claimed(i, fac, res))
+
+
+func _route_ok(fac: int, hub: int, i: int) -> bool:   # a worker can make the trip between the main node and host i
+	if i == hub: return true
+	if _routing_down(hub) or _routing_down(i): return false
+	return _travel_route(fac, hub, i).size() >= 2 and _travel_route(fac, i, hub).size() >= 2
+
+
+func _pick_request(cands: Array, turn: int) -> Dictionary:   # three of four by purpose (then age), the fourth by age alone
+	var best := {}
+	for r in cands:
+		if best.is_empty(): best = r; continue
+		var by_age: bool = turn % (PRIORITY_TURNS + 1) == PRIORITY_TURNS
+		var a := [_req_class(r), float(r.since), int(r.id)] if not by_age else [float(r.since), int(r.id)]
+		var b := [_req_class(best), float(best.since), int(best.id)] if not by_age else [float(best.since), int(best.id)]
+		if a < b: best = r
+	return best
+
+
+func _tick_logistics() -> void:   # every step: free workers take the most useful feasible job (nothing waits for a planning pulse)
+	_plan_cache = {}
 	for fac in botnets:
 		if _eliminated.has(fac): continue
 		var hub := _hub(fac)
 		if hub < 0: continue
-		var n := hosts.size()
-		var start := posmod(int(ship_cursor.get(fac, 0)), maxi(1, n))
-		for k in n:
-			var i := (start + k) % n
-			if i == hub: continue
-			if int(hosts[i].owner) == fac and _courier_cap(i) > 0: _dispatch_local(fac, hub, i)
-			else: _dispatch_hub(fac, hub, i)
-		ship_cursor[fac] = (start + 1) % maxi(1, n)
+		var homes := []   # the pools with a free worker (nobody free: nothing to plan this step)
+		for wid in workers:
+			var w: Dictionary = workers[wid]
+			if int(w.fac) == fac and str(w.state) == "idle" and not homes.has(int(w.home)) and not _routing_down(int(w.home)): homes.append(int(w.home))
+		if homes.is_empty(): continue
+		if not bool(_logi_dirty.get(fac, true)) and _t < float(_logi_next.get(fac, 0.0)): continue   # nothing new since the last look
+		_logi_dirty[fac] = false; _logi_next[fac] = _t + LOGI_EVERY
+		homes.sort()
+		var reqs := _open_requests(fac, hub)
+		for home in homes:
+			var idle := _pool_idle(fac, home)
+			if idle.is_empty(): continue
+			var mine := reqs.filter(func(r): return _pool_of(fac, hub, int(r.host)) == home)
+			for wid in idle:
+				if not _assign(fac, hub, home, int(wid), mine): break
 
 
-func _dispatch_local(fac: int, hub: int, i: int) -> void:   # i's own couriers: its surplus to the main node, or a run to fetch its supplies
-	if int(hosts[i].get("couriers", 0)) <= 0 or _routing_down(i): return
-	var rt := _travel_route(fac, i, hub)
-	if rt.size() < 2: return
-	while int(hosts[i].couriers) > 0:
-		var res := _pick_pickup(i, fac)
-		var fetch := res == "" and _supply_short(i, fac)
-		if res == "" and not fetch: return
-		hosts[i].couriers = int(hosts[i].couriers) - 1
-		var cargo := {}
-		if res != "":
-			_take_unit(i, fac, res); _reserve_incoming(fac, res, 1.0); cargo = {res: 1.0}
-		flights.append(_courier(fac, i, hub, cargo, "", rt, fetch))
+func _assign(fac: int, hub: int, home: int, wid: int, reqs: Array) -> bool:   # one new trip for this worker, or false if nothing is feasible
+	var cands := []
+	for r in reqs:
+		if not _route_ok(fac, hub, int(r.host)): continue
+		var amt := _amount(fac, hub, r)
+		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
+	if cands.is_empty(): return false
+	var key := "%d:%d" % [fac, home]
+	var turn := int(_pool_turn.get(key, 0))
+	var pick := _pick_request(cands, turn)
+	_pool_turn[key] = turn + 1
+	var i := int(pick.host)
+	var other := "out" if str(pick.dir) == "in" else "in"   # the other leg carries something too when it can
+	var comp := _pick_request(cands.filter(func(c): return int(c.host) == i and str(c.dir) == other and str(c.key) != str(pick.key)), 0)
+	var inr: Dictionary = pick if str(pick.dir) == "in" else comp
+	var outr: Dictionary = pick if str(pick.dir) == "out" else comp
+	if home == hub: _send_from_hub(fac, hub, wid, i, inr, outr)
+	else: _send_from_host(fac, hub, wid, home, inr, outr)
+	for r in [inr, outr]:   # what this trip took is no longer open for the next worker in the same step
+		if r.is_empty(): continue
+		for q in reqs:
+			if str(q.key) == str(r.key): q.qty = float(q.qty) - float(r.amt)
+	return true
 
 
-func _dispatch_hub(fac: int, hub: int, i: int) -> void:   # main-node couriers: fetch what i holds for fac, bring i its supplies
-	if _routing_down(hub): return
-	var reserve := float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT))
-	if _avail(fac, "bots") - reserve < 1.0: return
-	var pick := _pick_pickup(i, fac)
-	var sup := _pick_supply(i, fac)
-	if pick == "" and sup == "": return
-	var rt := _travel_route(fac, hub, i)
-	if rt.size() < 2: return
-	var guard := 0
-	while guard < 64 and (pick != "" or sup != "") and _avail(fac, "bots") - reserve >= 1.0:
-		guard += 1
-		if pick != "": _add_to(i, "claim", fac, pick, 1.0); _reserve_incoming(fac, pick, 1.0)
-		var cargo := {}
-		if sup != "": _spend(fac, sup, 1.0, "supply"); _inbound_add(i, sup, 1.0); cargo = {sup: 1.0}
-		_spend(fac, "bots", 1.0, "dispatched"); _reserve_incoming(fac, "bots", 1.0)   # its place at home stays held while it is away
-		flights.append(_courier(fac, hub, i, cargo, pick, rt))
-		pick = _pick_pickup(i, fac); sup = _pick_supply(i, fac)
+func _send_from_host(fac: int, hub: int, wid: int, home: int, inr: Dictionary, outr: Dictionary) -> void:   # host -> main node -> host
+	var cargo := {}
+	if not outr.is_empty():   # its surplus rides to the main node now
+		_take_from(home, fac, str(outr.res), float(outr.amt)); _reserve_incoming(fac, str(outr.res), float(outr.amt))
+		cargo[str(outr.res)] = float(outr.amt)
+	var job := {}
+	if not inr.is_empty():   # what it brings back is held for it at the main node
+		_rig_claim_add(fac, str(inr.res), float(inr.amt)); _hold_dest(home, str(inr.purpose), str(inr.res), float(inr.amt), "fetch")
+		job = {"purpose": str(inr.purpose), "res": str(inr.res), "amt": float(inr.amt), "dest": home}
+	_launch(fac, wid, home, hub, cargo, home, job, _travel_route(fac, home, hub))
 
 
-func _courier(fac: int, origin: int, dest: int, cargo: Dictionary, claim: String, rt: Array, fetch := false) -> Dictionary:
-	var express := float(hosts[origin].get("express_until", 0.0)) > _t
-	var covered := float(hosts[origin].get("cover_until", 0.0)) > _t
-	return _schedule(rt, _t, fac, "courier", express, {"origin": origin, "dest": dest, "trip": "out", "cargo": cargo, "claim": claim,
-		"covered": covered, "fetch": fetch, "src": origin, "dest_own": _owns(fac, dest)})
+func _send_from_hub(fac: int, hub: int, wid: int, i: int, inr: Dictionary, outr: Dictionary) -> void:   # main node -> host -> main node
+	var cargo := {}; var purpose := ""
+	if not inr.is_empty():   # the supply leaves the bank with the worker
+		_spend(fac, str(inr.res), float(inr.amt), "supply")
+		_hold_dest(i, str(inr.purpose), str(inr.res), float(inr.amt), "inbound")
+		cargo[str(inr.res)] = float(inr.amt); purpose = str(inr.purpose)
+	var job := {}
+	if not outr.is_empty():   # what it collects there is claimed for it now
+		_claim_at(i, fac, str(outr.res), float(outr.amt)); _reserve_incoming(fac, str(outr.res), float(outr.amt))
+		job = {"purpose": str(outr.purpose), "res": str(outr.res), "amt": float(outr.amt), "src": i}
+	var f := _launch(fac, wid, hub, i, cargo, hub, job, _travel_route(fac, hub, i))
+	f.purpose = purpose
+
+
+func _launch(fac: int, wid: int, home: int, dest: int, cargo: Dictionary, src: int, job: Dictionary, rt: Array) -> Dictionary:
+	var express := float(hosts[home].get("express_until", 0.0)) > _t
+	var covered := float(hosts[home].get("cover_until", 0.0)) > _t
+	var f := _schedule(rt, _t, fac, "courier", express, {"wid": wid, "origin": home, "dest": dest, "trip": "out", "cargo": cargo,
+		"src": src, "job": job, "purpose": "", "covered": covered, "dest_own": _owns(fac, dest)})
+	flights.append(f)
+	workers[wid].state = "trip"; workers[wid].fid = int(f.id)
+	return f
+
+
+func _take_from(i: int, fac: int, res: String, amt: float) -> void:   # out of host i for fac: its pile first, then its storage
+	var l := minf(amt, _loot(i, fac, res))
+	if l > 0.0: _add_to(i, "loot", fac, res, -l)
+	if amt - l > 0.0001: _store_take(i, fac, res, amt - l)
+
+
+func _claim_at(i: int, fac: int, res: String, amt: float) -> void: _add_to(i, "claim", fac, res, amt)
+
+
+func _hold_dest(i: int, purpose: String, res: String, amt: float, field: String) -> void:   # room held at the destination for what is coming
+	if purpose.begins_with("build:"): _build_hold(i, purpose.trim_prefix("build:"), res, amt, field); return
+	_hadd(i, field, res, amt)
+
+
+func _release_dest(i: int, purpose: String, res: String, amt: float, field: String) -> void:
+	if purpose.begins_with("build:"): _build_hold(i, purpose.trim_prefix("build:"), res, -amt, field); return
+	_hadd(i, field, res, -amt)
+
+
+func _drop_job(f: Dictionary) -> void:   # the pickup this worker was going to make is released (its cargo stays with it)
+	var job: Dictionary = f.get("job", {})
+	if job.is_empty() or str(f.trip) != "out": return
+	var fac := int(f.owner)
+	if job.has("dest"):   # a host's worker going to the main node to fetch
+		_rig_claim_add(fac, str(job.res), -float(job.amt)); _release_dest(int(job.dest), str(job.purpose), str(job.res), float(job.amt), "fetch")
+	elif job.has("src"):   # a main-node worker going to collect
+		_add_to(int(job.src), "claim", fac, str(job.res), -float(job.amt)); _release_incoming(fac, str(job.res), float(job.amt))
+	f.job = {}
 
 
 func _end_ok(f: Dictionary, d: int) -> bool:   # may this packet enter its destination d right now?
@@ -1828,7 +2178,7 @@ func _tick_blocked() -> void:   # held packets: on when a route opens; turned ba
 	for f in flights:
 		if not bool(f.get("blocked", false)) or bool(f.get("dead", false)): continue
 		var fac := int(f.owner); var at := int(f.at)
-		var foreign_end := str(f.kind) == "courier" and not bool(f.get("dest_own", true)) and at == int(f.get("src", -1))   # a pickup at a rival's host
+		var foreign_end := str(f.kind) == "courier" and not bool(f.get("dest_own", true)) and at == int(f.get("dest", -1))   # collecting at a rival's host
 		if int(hosts[at].owner) != fac and not foreign_end: _lose(f, at, "taken"); continue   # the host it waits in was taken
 		if _routing_down(at): continue
 		var dest := int(f.get("dest", -1))
@@ -1838,27 +2188,18 @@ func _tick_blocked() -> void:   # held packets: on when a route opens; turned ba
 			dest = int(f.dest)
 		elif str(f.kind) == "courier":
 			if str(f.trip) == "out" and not _end_ok(f, dest): _courier_turn_home(f)
-			if not _owns(fac, int(f.origin)): _courier_rehome(f)
 			dest = int(f.dest)
 		if dest < 0: _lose(f, at, "stranded"); continue
 		if dest == at:   # already where it has to be (it was held at its own end)
-			if str(f.kind) == "courier": _courier_arrive(f)
-			elif bool(f.get("returning", false)): _card_back(f)
-			f.dead = true
+			if str(f.kind) == "courier":
+				if not _courier_arrive(f): f.dead = true
+			else:
+				if bool(f.get("returning", false)): _card_back(f)
+				f.dead = true
 			continue
 		var rt := _travel_route(fac, at, dest)
 		if rt.size() >= 2 and _end_ok(f, dest): _reroute(f, rt)
 	flights = flights.filter(func(x): return not bool(x.get("dead", false)))
-
-
-func _courier_rehome(f: Dictionary) -> void:   # its home host was taken: the main node takes the courier (and what it carries) in
-	var fac := int(f.owner); var hub := _hub(fac)
-	for res in (f.cargo as Dictionary):
-		if int(f.dest) != hub: _inbound_add(int(f.dest), str(res), -1.0); _reserve_incoming(fac, str(res), 1.0)
-	if str(f.get("claim", "")) != "" and str(f.trip) == "out":
-		_add_to(int(f.dest), "claim", fac, str(f.claim), -1.0); _release_incoming(fac, str(f.claim), 1.0); f.claim = ""
-	f.origin = hub; f.dest = hub; f.trip = "back"
-	_reserve_incoming(fac, "bots", 1.0)   # it will take a place among the main node's couriers
 
 
 func _card_back(f: Dictionary) -> void:   # a card that turned home is a ready copy again
@@ -1874,103 +2215,197 @@ func _card_turn_home(f: Dictionary) -> void:   # a card that cannot go on heads 
 	if bool(f.get("load", false)): _release_socket(int(f.get("target", -1)), str(f.get("sock", ""))); f.load = false
 
 
-func _courier_turn_home(f: Dictionary) -> void:   # its destination is gone: back to where it came from, cargo and all
+func _courier_turn_home(f: Dictionary) -> void:   # its destination is gone: back home with what it carries; its pickup is released
 	var fac := int(f.owner)
-	if str(f.get("claim", "")) != "":
-		_add_to(int(f.dest), "claim", fac, str(f.claim), -1.0); _release_incoming(fac, str(f.claim), 1.0); f.claim = ""
+	_drop_job(f)
 	var home := int(f.origin)
-	for res in (f.cargo as Dictionary):   # supply that cannot be delivered: it heads home again with the courier
-		_inbound_add(int(f.dest), str(res), -1.0)
-		if home == _hub(fac): _reserve_incoming(fac, str(res), 1.0)
-		else: _inbound_add(home, str(res), 1.0)
-	f.trip = "back"; f.dest = home
+	var hub := _hub(fac)
+	for res in (f.cargo as Dictionary):   # cargo for the lost destination: its room there is released, room at home is held
+		var q := float(f.cargo[res])
+		if int(f.dest) == hub: _release_incoming(fac, str(res), q)
+		else: _release_dest(int(f.dest), str(f.get("purpose", "")), str(res), q, "inbound")
+		if home == hub: _reserve_incoming(fac, str(res), q)
+		else: _hadd(home, "inbound", str(res), q)
+	f.purpose = "input"; f.trip = "back"; f.dest = home
+
+
+func _settle_lost(f: Dictionary, at: int, why: String) -> void:   # the worker and its cargo are gone: every reservation it held is released once
+	var fac := int(f.owner)
+	f.dead = true
+	_drop_job(f)
+	var hub := _hub(fac)
+	for res in (f.cargo as Dictionary):   # cargo for the main node held bank room; cargo for a host held storage (or escrow) room
+		var q := float(f.cargo[res])
+		if int(f.get("dest", -1)) == hub and hub >= 0: _release_incoming(fac, str(res), q)
+		else: _release_dest(int(f.dest), str(f.get("purpose", "")), str(res), q, "inbound")
+		_ledger_add(fac, "lost", "cargo", str(res), q)
+	f.cargo = {}
+	if fac == PLAYER and why != "captured": _event("lostworker", EV_ACT, "A worker was lost at %s: the host was %s." % [str(hosts[at].name), why], at)
 
 
 func _lose(f: Dictionary, at: int, why: String) -> void:   # the packet is gone: settle every reservation it held
 	var fac := int(f.owner)
-	f.dead = true
 	if str(f.kind) == "courier":
-		var hub := _hub(fac)
-		var to_hub := int(f.get("dest", -1)) == hub
-		for res in (f.cargo as Dictionary):   # cargo for the main node held bank room; cargo for a host held storage room
-			if to_hub: _release_incoming(fac, str(res), 1.0)
-			else: _inbound_add(int(f.dest), str(res), -1.0)
-			_ledger_add(fac, "lost", "cargo", str(res), 1.0)
-		if str(f.get("claim", "")) != "" and str(f.trip) == "out":
-			_add_to(int(f.dest), "claim", fac, str(f.claim), -1.0); _release_incoming(fac, str(f.claim), 1.0)
-		if int(f.origin) == hub and hub >= 0:
-			_release_incoming(fac, "bots", 1.0); _ledger_add(fac, "lost", "couriers", "bots", 1.0)
-		if fac == PLAYER: _event("lostcourier", EV_ACT, "Couriers lost at %s: the host was %s." % [str(hosts[at].name), why], at)
-	elif str(f.kind) == "op":
+		_settle_lost(f, at, why)
+		_worker_lost(int(f.get("wid", -1)))
+		return
+	f.dead = true
+	if str(f.kind) == "op":
 		if bool(f.get("load", false)): _release_socket(int(f.get("target", -1)), str(f.get("sock", "")))
 		if fac == PLAYER: _event("lostcard:%d" % int(f.id), EV_ACT, "Your %s was lost at %s: the host was %s." % [str(CARDS[_card_of(str(f.card))].name), str(hosts[at].name), why], at)
 
 
-func _siphon_grab(f: Dictionary, here: int) -> void:   # a Packet siphon on this host takes the matching unit off a courier leaving it
+func _siphon_grab(f: Dictionary, here: int) -> void:   # a Packet siphon on this host takes the matching cargo off a worker leaving it
 	var sp: Dictionary = hosts[here].get("siphon", {})
 	if sp.is_empty() or float(sp.get("until", 0.0)) <= _t or int(sp.get("left", 0)) <= 0: return
 	var thief := int(sp.by); var res := str(sp.res)
 	if str(f.kind) != "courier" or int(f.owner) == thief or bool(f.get("covered", false)) or not (f.cargo as Dictionary).has(res): return
 	var victim := int(f.owner); var o := int(f.origin)
-	if _owns(victim, o) and _fire_socket(o, "cover", "Packet siphon"):   # a loaded Cover saves this courier and its host's next ones
+	if _owns(victim, o) and _fire_socket(o, "cover", "Packet siphon"):   # a loaded Cover saves this worker and its host's next ones
 		_apply_cover(o); return
+	var q := float(f.cargo[res])
 	(f.cargo as Dictionary).erase(res)
-	if int(f.dest) == _hub(victim): _release_incoming(victim, res, 1.0)
-	else: _inbound_add(int(f.dest), res, -1.0)
-	_ledger_add(victim, "lost", "siphoned", res, 1.0)
-	_add_to(here, "loot", thief, res, 1.0)   # it waits here for the thief's couriers
+	if int(f.dest) == _hub(victim): _release_incoming(victim, res, q)
+	else: _release_dest(int(f.dest), str(f.get("purpose", "")), res, q, "inbound")
+	_ledger_add(victim, "lost", "siphoned", res, q)
+	_add_to(here, "loot", thief, res, q)   # it waits here for the thief's workers; the worker itself goes on
 	sp.left = int(sp.left) - 1
 	if int(sp.left) == 0 and thief == PLAYER: _flash("Packet siphon on %s: full haul taken" % str(hosts[here].name), 0)
 
 
-func _courier_arrive(f: Dictionary) -> bool:   # true: the courier goes on (its way back)
+func _courier_arrive(f: Dictionary) -> bool:   # true: the worker goes on (back home); false: it is home (free) or retired
 	var fac := int(f.owner); var at := int(f.route[f.route.size() - 1])
 	var hub := _hub(fac)
-	for res in (f.cargo as Dictionary): _drop_unit(fac, at, str(res), f)
+	var wid := int(f.get("wid", -1))
+	for res in (f.cargo as Dictionary): _drop_unit(fac, at, str(res), float(f.cargo[res]), f)
 	f.cargo = {}
+	var retiring := str((workers.get(wid, {}) as Dictionary).get("state", "")) == "retiring"
+	if retiring or not workers.has(wid):   # a retiring worker's last leg ends here
+		_drop_job(f); workers.erase(wid); return false
 	if str(f.trip) == "out":
-		var o := int(f.origin)
-		if at == hub and o != hub:   # a host's own courier at the main node: its host's supply goes back with it
-			var sup := _pick_supply(o, fac)
-			if sup != "": _spend(fac, sup, 1.0, "supply"); _inbound_add(o, sup, 1.0); f.cargo = {sup: 1.0}
-		elif o == hub:   # a main-node courier at a host: what it came for, else anything that may leave
-			var pick := str(f.get("claim", ""))
-			if pick != "":
-				_add_to(at, "claim", fac, pick, -1.0)
-				if not _take_unit(at, fac, pick): _release_incoming(fac, pick, 1.0); pick = ""
-			if pick == "":
-				pick = _pick_pickup(at, fac)
-				if pick != "": _take_unit(at, fac, pick); _reserve_incoming(fac, pick, 1.0)
-			if pick != "": f.cargo = {pick: 1.0}; f.src = at
-		f.claim = ""; f.trip = "back"; f.dest = o; f.fetch = false
-		var rt := _travel_route(fac, at, o)
-		if rt.size() >= 2 and _end_ok(f, o): _reroute(f, rt)
+		var home := int(f.origin)
+		var job: Dictionary = f.get("job", {})
+		f.job = {}; f.purpose = ""
+		if at == hub and home != hub:   # a host's worker at the main node: what it came for, else anything its host needs
+			if not job.is_empty():
+				_rig_claim_add(fac, str(job.res), -float(job.amt)); _release_dest(home, str(job.purpose), str(job.res), float(job.amt), "fetch")
+				var got := minf(float(job.amt), _free(fac, str(job.res)))
+				if got > 0.0001:
+					_spend(fac, str(job.res), got, "supply"); _hold_dest(home, str(job.purpose), str(job.res), got, "inbound")
+					f.cargo = {str(job.res): got}; f.purpose = str(job.purpose)
+			else: _backhaul(fac, hub, f, home, "in")
+		elif home == hub:   # a main-node worker at a host: what it came for, else anything that may go
+			if not job.is_empty():
+				_add_to(at, "claim", fac, str(job.res), -float(job.amt))
+				var got := minf(float(job.amt), _pile_or_store(at, fac, str(job.res)))
+				if got > 0.0001: _take_from(at, fac, str(job.res), got); f.cargo = {str(job.res): got}; f.src = at
+				if float(job.amt) - got > 0.0001: _release_incoming(fac, str(job.res), float(job.amt) - got)
+			else: _backhaul(fac, hub, f, at, "out")
+		f.trip = "back"; f.dest = home
+		var rt := _travel_route(fac, at, home)
+		if rt.size() >= 2 and _end_ok(f, home): _reroute(f, rt)
 		else: _block(f, at)
 		return true
-	# home again: the courier is free
-	if at == hub: _release_incoming(fac, "bots", 1.0); _bank_put(fac, "bots", 1.0, "returned")
-	else: hosts[at].couriers = int(hosts[at].get("couriers", 0)) + 1
+	# home again: free for the next job at once (the same step's dispatch sees it)
+	workers[wid].state = "idle"; workers[wid].fid = -1
+	_logi_poke(fac)
 	return false
 
 
-func _drop_unit(fac: int, at: int, res: String, f: Dictionary) -> void:   # a carried unit lands: the bank at the main node, storage elsewhere
+func _backhaul(fac: int, hub: int, f: Dictionary, i: int, dir: String) -> void:   # an empty return leg takes a useful load if one is open
+	var pool := _pool_of(fac, hub, i)
+	var reqs: Array = _open_requests(fac, hub, i).filter(func(r): return str(r.dir) == dir and _pool_of(fac, hub, int(r.host)) == pool)
+	var cands := []
+	for r in reqs:
+		var amt := _amount(fac, hub, r)
+		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
+	var r := _pick_request(cands, 0)
+	if r.is_empty(): return
+	if dir == "in":   # a host's worker at the main node takes a supply home
+		_spend(fac, str(r.res), float(r.amt), "supply"); _hold_dest(i, str(r.purpose), str(r.res), float(r.amt), "inbound")
+		f.cargo = {str(r.res): float(r.amt)}; f.purpose = str(r.purpose)
+	else:   # a main-node worker at a host takes its surplus home
+		_take_from(i, fac, str(r.res), float(r.amt)); _reserve_incoming(fac, str(r.res), float(r.amt))
+		f.cargo = {str(r.res): float(r.amt)}; f.src = i
+
+
+func _drop_unit(fac: int, at: int, res: String, q: float, f: Dictionary) -> void:   # carried cargo lands: the bank at the main node, a host's storage or escrow elsewhere
 	if at == _hub(fac):
-		_release_incoming(fac, res, 1.0)
+		_release_incoming(fac, res, q)
 		var src := int(f.get("src", -1))
 		var stolen := src >= 0 and src != at and int(hosts[src].owner) != fac
-		_add_bank(fac, res, 1.0, "stolen" if stolen else ("returned" if str(f.trip) == "back" and src == at else "delivered"))
-		if src >= 0 and src != at: _ledger_add(fac, "from", str(src), res, 1.0)
+		_bank_put(fac, res, q, "stolen" if stolen else ("returned" if src == at else "delivered"))
+		if src >= 0 and src != at: _ledger_add(fac, "from", str(src), res, q)
 		_delivered[fac] = int(_delivered.get(fac, 0)) + 1
-	else:
-		_inbound_add(at, res, -1.0)
-		if not (hosts[at].store as Dictionary).has(fac): hosts[at].store[fac] = {}
-		hosts[at].store[fac][res] = float((hosts[at].store[fac] as Dictionary).get(res, 0.0)) + 1.0   # its room was held on the way
+		return
+	var purpose := str(f.get("purpose", ""))
+	_release_dest(at, purpose, res, q, "inbound")
+	if purpose.begins_with("build:") and _build_take(at, purpose.trim_prefix("build:"), res, q): return
+	if not (hosts[at].store as Dictionary).has(fac): hosts[at].store[fac] = {}
+	hosts[at].store[fac][res] = float((hosts[at].store[fac] as Dictionary).get(res, 0.0)) + q   # its room was held on the way
+	if purpose == "refill": _refill_arrived(at, res, q)
 
 
-func _bank_put(fac: int, res: String, amt: float, cause: String) -> void:   # credit without the production cap (a returning courier's place was held)
+func _bank_put(fac: int, res: String, amt: float, cause: String) -> void:   # credit what was carried in (its room was held on the way)
 	if not bank.has(fac): return
 	bank[fac][res] = _avail(fac, res) + amt
 	_ledger_add(fac, "in", cause, res, amt)
+
+
+# ---- the one-time refill: one working cycle of a host's inputs, brought by real workers (not a standing order) ----
+func _refill_preview(i: int) -> Dictionary:   # {res: amount still to request}: one cycle's gross inputs, minus what is here or coming
+	var fac := int(hosts[i].owner)
+	var gross := {}
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0: gross.intel = float(BUILD_KINDS.wall.use.intel) * walls
+	for k in (hosts[i].builds as Array).size():
+		var kind := str(hosts[i].builds[k])
+		if not (kind in CONVERT_ORDER) or _slot_busy(i, k) or _producer_paused(i, k): continue
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var m := _tmult(i, str(spec.out))
+		for r in (spec.use as Dictionary): gross[str(r)] = float(gross.get(str(r), 0.0)) + float(spec.use[r]) * m
+	var out := {}; var room := maxf(0.0, _store_room(i))
+	for res in RES:
+		if not gross.has(res): continue
+		var covered := float(_store_of(i, fac).get(res, 0.0)) + _inbound(i, res) + _fetch_held(i, res) + float((hosts[i].get("refill", {}) as Dictionary).get(res, 0.0))
+		var q := minf(maxf(0.0, float(gross[res]) - covered), room)
+		if q > 0.0001: out[res] = q; room -= q
+	return out
+
+
+func _do_refill(fac: int, i: int) -> void:   # the command: one refill ticket per host; asking again while it runs adds nothing
+	if not _owns(fac, i) or i == _hub(fac) or not (hosts[i].get("refill", {}) as Dictionary).is_empty(): return
+	var want := _refill_preview(i)
+	if want.is_empty(): return
+	hosts[i].refill = want
+	if fac == PLAYER: _flash("Refill requested at %s: %s" % [str(hosts[i].name), _res_list(want)], 0)
+
+
+func _cancel_refill(fac: int, i: int) -> void:   # what has not been collected is released; what is on its way still arrives
+	if not _owns(fac, i): return
+	hosts[i].refill = {}
+
+
+func _refill_arrived(i: int, res: String, q: float) -> void:   # delivered refill inputs are kept for this host's next use
+	_hadd(i, "earmark", res, q)
+	var left := float((hosts[i].get("refill", {}) as Dictionary).get(res, 0.0)) - q
+	if left > 0.0001: hosts[i].refill[res] = left
+	else: (hosts[i].get("refill", {}) as Dictionary).erase(res)
+
+
+func _refill_state(i: int) -> String:   # "", "requested", "delivering": the ticket's state for the panel
+	var t: Dictionary = hosts[i].get("refill", {})
+	if t.is_empty(): return ""
+	for res in t:
+		if _inbound(i, str(res)) > 0.0001 or _fetch_held(i, str(res)) > 0.0001: return "delivering"
+	return "requested"
+
+
+func _res_list(d: Dictionary) -> String:   # "1 Intel + 0.5 Crypto"
+	var parts := []
+	for res in RES:
+		if float(d.get(res, 0.0)) > 0.0001: parts.append("%s %s" % [_amt(float(d[res])), RES_NAME[res]])
+	return " + ".join(parts)
 
 
 # ---- construction (producers / Firewall) ----
@@ -1994,7 +2429,7 @@ func _build_cost_text(kind: String) -> String:
 
 # ---- the Firewall: FIREWALL_SOCKETS defence cards per Firewall, each firing itself when its attack hits this host ----
 const SOCKET_TRIGGER := {"patch": "a capture, Worm or Vault raid starts here", "response": "Phishing, Packet siphon or sabotage lands here",
-	"filter": "a DDoS lands here", "cover": "a Packet siphon grabs a courier from here"}
+	"filter": "a DDoS lands here", "cover": "a Packet siphon grabs cargo from here"}
 
 
 func _sockets(i: int) -> int: return FIREWALL_SOCKETS * maxi(0, _count_all(i, "wall") - _walls_building(i))
@@ -2097,16 +2532,14 @@ func _fire_socket(i: int, recipe: String, what: String) -> bool:   # a loaded ca
 	return true
 
 
-func _job_cost_left(job: Dictionary) -> Dictionary:
-	var out := {}
-	for r in (job.get("cost_left", {}) as Dictionary): out[str(r)] = float(job.cost_left[r])
-	return out
-
-
-func _job_cost_total(job: Dictionary) -> Dictionary:
-	var out := {}
-	for r in (job.get("cost_total", {}) as Dictionary): out[str(r)] = float(job.cost_total[r])
-	return out
+# ---- construction: an order is supplied before it is built ----
+# Ordering costs nothing yet: the project waits at its site with its exact bill. What the host has spare goes into the
+# project's escrow at once (at the main node: unclaimed bank stock); the rest is brought by workers, one unit per leg,
+# straight into that escrow (it is not ordinary storage, so a 16-unit bill fits a 10-unit host). Only when the whole
+# bill is there does the BUILD_TIME of work run. Replacing an installation stops it at once and demolishes it first
+# (DEMOLISH_TIME) while the materials are being delivered. Pausing stops work and new deliveries; cancelling leaves
+# what was delivered (less what the work has used) at the site as a salvage pile, never back in the bank by magic.
+var _job_next := 0
 
 
 func _start_job(i: int, kind: String, slot := -1) -> bool:
@@ -2115,25 +2548,118 @@ func _start_job(i: int, kind: String, slot := -1) -> bool:
 	if slot < 0 or slot >= (hosts[i].builds as Array).size() or _slot_busy(i, slot): return false
 	var cur := str(hosts[i].builds[slot])
 	if cur == kind: return false
-	var fac := int(hosts[i].owner)
-	if not _can_afford_build(fac, kind): return false
-	for r in _build_cost(kind): _spend(fac, r, float(_build_cost(kind)[r]), "buildings")   # paid in full when the job starts
 	(hosts[i].get("producer_paused", {}) as Dictionary).erase(slot)
-	var price := _build_cost(kind)
 	if cur == "wall": _seat_out(i, slot)   # replaced: it stops working now
-	if cur == "": hosts[i].jobs[slot] = {"kind": kind, "slot": slot, "phase": "build", "left": BUILD_TIME, "total": BUILD_TIME, "cost_left": price.duplicate(), "cost_total": price.duplicate()}
-	else: hosts[i].jobs[slot] = {"kind": kind, "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME, "total": DEMOLISH_TIME, "cost_left": price.duplicate(), "cost_total": price.duplicate()}
+	_job_next += 1
+	hosts[i].jobs[slot] = {"id": _job_next, "kind": kind, "slot": slot, "phase": "build" if cur == "" else "demolish",
+		"left": BUILD_TIME if cur == "" else DEMOLISH_TIME, "total": BUILD_TIME if cur == "" else DEMOLISH_TIME,
+		"bill": _build_cost(kind), "escrow": {}, "inbound": {}, "fetch": {}, "paused": false}
+	if cur == "bot": _sync_teams(i)   # a replaced station's workers retire now
 	return true
+
+
+func _job_funded(job: Dictionary) -> bool:
+	for r in (job.get("bill", {}) as Dictionary):
+		if float((job.escrow as Dictionary).get(r, 0.0)) < float(job.bill[r]) - 0.0001: return false
+	return true
+
+
+func _job_short(job: Dictionary, res: String) -> float:   # bill not yet here or on its way
+	return maxf(0.0, float((job.get("bill", {}) as Dictionary).get(res, 0.0)) - float((job.escrow as Dictionary).get(res, 0.0)) - float((job.inbound as Dictionary).get(res, 0.0)) - float((job.fetch as Dictionary).get(res, 0.0)))
+
+
+func _build_purpose(job: Dictionary) -> String: return "%d:%d" % [int(job.slot), int(job.id)]
+
+
+func _job_for(i: int, key: String) -> Dictionary:   # the job a "slot:id" purpose names, or {} if it is gone
+	var p := key.split(":")
+	if p.size() != 2: return {}
+	var job: Dictionary = (hosts[i].jobs as Dictionary).get(int(p[0]), {})
+	if job.is_empty() or int(job.get("id", -1)) != int(p[1]): return {}
+	return job
+
+
+func _build_requests(i: int, fac: int) -> Array:   # [[slot:id, res, amount]] still to bring for this host's projects
+	var out := []
+	if i == _hub(fac): return out
+	for slot in (hosts[i].jobs as Dictionary):
+		var job: Dictionary = hosts[i].jobs[slot]
+		if bool(job.get("paused", false)) or str(job.get("kind", "")) == "": continue
+		for res in RES:
+			var s := _job_short(job, res)
+			if s > 0.0001: out.append([_build_purpose(job), res, s])
+	return out
+
+
+func _build_room(i: int, key: String, res: String, amt: float) -> bool:
+	var job := _job_for(i, key)
+	return not job.is_empty() and not bool(job.get("paused", false)) and _job_short(job, res) >= amt - 0.0001
+
+
+func _build_hold(i: int, key: String, res: String, d: float, field: String) -> void:
+	var job := _job_for(i, key)
+	if job.is_empty(): return
+	var v := maxf(0.0, float((job[field] as Dictionary).get(res, 0.0)) + d)
+	if v < 0.0001: (job[field] as Dictionary).erase(res)
+	else: job[field][res] = v
+
+
+func _build_take(i: int, key: String, res: String, q: float) -> bool:   # delivered building material: into its escrow, the rest to the site's pile
+	var job := _job_for(i, key)
+	var fac := int(hosts[i].owner)
+	var fit := 0.0
+	if not job.is_empty():
+		fit = minf(q, maxf(0.0, float(job.bill.get(res, 0.0)) - float((job.escrow as Dictionary).get(res, 0.0))))
+		if fit > 0.0: job.escrow[res] = float((job.escrow as Dictionary).get(res, 0.0)) + fit
+	if q - fit > 0.0001: _add_to(i, "loot", fac, res, q - fit)   # a cancelled project's delivery: salvage at the site
+	return true
+
+
+func _fill_escrow(i: int, job: Dictionary) -> void:   # what is already at the site goes in first (after its own production's needs)
+	var fac := int(hosts[i].owner)
+	var needs := {} if i == _hub(fac) else _cycle_needs(i)   # one cycle's inputs stay in storage: inputs come before construction
+	for res in RES:
+		var need := maxf(0.0, float(job.bill.get(res, 0.0)) - float((job.escrow as Dictionary).get(res, 0.0)))
+		if need <= 0.0001: continue
+		var have := 0.0
+		if i == _hub(fac): have = _free(fac, res)
+		else:
+			var plan: Dictionary = _plan_cache.get(i, {})
+			var keep := maxf(float((plan.get("reserve", {}) as Dictionary).get(res, 0.0)), float(needs.get(res, 0.0)) + _earmark(i, res))
+			have = _loot(i, fac, res) + maxf(0.0, float(_store_of(i, fac).get(res, 0.0)) - _claimed(i, fac, res) - keep)
+		var q := minf(need, have)
+		if q <= 0.0001: continue
+		_logi_poke(fac)
+		if i == _hub(fac): _spend(fac, res, q, "buildings")
+		else: _take_from(i, fac, res, q)
+		job.escrow[res] = float((job.escrow as Dictionary).get(res, 0.0)) + q
+
+
+func _release_job_claims(i: int, job: Dictionary) -> void:   # workers still on their way to fetch for this project collect nothing
+	var key := "build:" + _build_purpose(job)
+	for f in flights:
+		if str(f.kind) != "courier" or str(f.trip) != "out": continue
+		var j: Dictionary = f.get("job", {})
+		if not j.is_empty() and str(j.get("purpose", "")) == key and int(j.get("dest", -1)) == i: _drop_job(f)
+
+
+func _job_salvage(i: int, job: Dictionary, frac: float) -> void:   # the unused share of the escrow stays at the site as a pile
+	var fac := int(hosts[i].owner)
+	for res in (job.escrow as Dictionary):
+		var q := float(job.escrow[res]) * frac
+		if q <= 0.0001: continue
+		if i == _hub(fac): _bank_put(fac, str(res), q, "refunds")   # at the main node the site is the bank
+		else: _add_to(i, "loot", fac, str(res), q)
+	job.escrow = {}
 
 
 func _can_drop(i: int, slot: int, kind: String) -> bool:
 	return _can_build(PLAYER, i, slot, kind)
 
 
-func _can_build(fac: int, i: int, slot: int, kind: String) -> bool:
+func _can_build(fac: int, i: int, slot: int, kind: String) -> bool:   # ownership and a free slot; the materials come after the order
 	if not _owns(fac, i) or not BUILD_KINDS.has(kind): return false
-	if slot < 0 or slot >= (hosts[i].builds as Array).size() or _slot_busy(i, slot): return false
-	return _can_afford_build(fac, kind)
+	return slot >= 0 and slot < (hosts[i].builds as Array).size() and not _slot_busy(i, slot) and str(hosts[i].builds[slot]) != kind
 
 
 func _drop_build(i: int, slot: int, kind: String) -> void: _cmd(["build", i, slot, kind])
@@ -2141,10 +2667,9 @@ func _drop_build(i: int, slot: int, kind: String) -> void: _cmd(["build", i, slo
 
 func _do_build(fac: int, i: int, slot: int, kind: String) -> void:
 	if not _owns(fac, i) or not BUILD_KINDS.has(kind): return   # a malformed command from the wire does nothing
-	if not _can_afford_build(fac, kind):
-		if fac == PLAYER: _flash("Need %s" % _build_cost_text(kind))
-		return
-	if _start_job(i, kind, slot) and fac == PLAYER: _refresh_panel(); queue_redraw()
+	if _start_job(i, kind, slot) and fac == PLAYER:
+		_flash("%s ordered at %s: its %s are on their way" % [str(BUILD_KINDS[kind].name), str(hosts[i].name), _build_cost_text(kind)] if i != _hub(fac) else "%s ordered: %s" % [str(BUILD_KINDS[kind].name), _build_cost_text(kind)], 0)
+		_refresh_panel(); queue_redraw()
 
 
 func _card_click(kind: String) -> void:
@@ -2164,9 +2689,11 @@ func _player_build(i: int, kind: String) -> void:
 func _toggle_job(i: int, slot: int) -> void: _cmd(["job", i, slot])
 
 
-func _do_toggle_job(fac: int, i: int, slot: int) -> void:
+func _do_toggle_job(fac: int, i: int, slot: int) -> void:   # pause: no work and no new deliveries; loaded ones still land in its escrow
 	if not _owns(fac, i) or not (hosts[i].jobs as Dictionary).has(slot): return
-	hosts[i].jobs[slot].paused = not bool(hosts[i].jobs[slot].get("paused", false))
+	var job: Dictionary = hosts[i].jobs[slot]
+	job.paused = not bool(job.get("paused", false))
+	if bool(job.paused): _release_job_claims(i, job)
 	if fac == PLAYER: _refresh_panel()
 
 
@@ -2176,9 +2703,9 @@ func _cancel_job(i: int, slot: int) -> void: _cmd(["cancel", i, slot])
 func _do_cancel_job(fac: int, i: int, slot: int) -> void:
 	if not _owns(fac, i) or not (hosts[i].jobs as Dictionary).has(slot): return
 	var job: Dictionary = hosts[i].jobs[slot]
-	if str(job.phase) == "build":   # refund the unworked fraction of a funded build, clamped to receiving room
-		var frac := clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0)
-		for r in _job_cost_total(job): _add_bank(fac, r, float(_job_cost_total(job)[r]) * frac, "refunds")
+	_release_job_claims(i, job)
+	var started := str(job.phase) == "build" and _job_funded(job) and float(job.left) < float(job.total) - 0.0001
+	_job_salvage(i, job, clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0) if started else 1.0)   # the worked share is used up
 	(hosts[i].jobs as Dictionary).erase(slot)
 	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
@@ -2190,7 +2717,10 @@ func _do_demolish(fac: int, i: int, slot: int) -> void:
 	if not _owns(fac, i) or slot < 0 or slot >= (hosts[i].builds as Array).size(): return
 	if str(hosts[i].builds[slot]) == "" or _slot_busy(i, slot): return
 	if str(hosts[i].builds[slot]) == "wall": _seat_out(i, slot)
-	hosts[i].jobs[slot] = {"kind": "", "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME, "total": DEMOLISH_TIME, "cost_left": {}, "cost_total": {}}
+	_job_next += 1
+	hosts[i].jobs[slot] = {"id": _job_next, "kind": "", "slot": slot, "phase": "demolish", "left": DEMOLISH_TIME, "total": DEMOLISH_TIME,
+		"bill": {}, "escrow": {}, "inbound": {}, "fetch": {}, "paused": false}
+	if str(hosts[i].builds[slot]) == "bot": _sync_teams(i)   # its workers retire now
 	if fac == PLAYER: _refresh_panel()
 
 
@@ -2202,7 +2732,9 @@ func _tick_jobs(dt: float) -> void:
 		for slot_key in jobs.keys():
 			var job: Dictionary = jobs[slot_key]
 			if bool(job.get("paused", false)): continue
-			job.left = maxf(0.0, float(job.left) - dt)   # paid in full at start: work proceeds without further ingredients
+			if str(job.kind) != "": _fill_escrow(i, job)
+			if str(job.phase) == "build" and not _job_funded(job): continue   # building work waits for its materials
+			job.left = maxf(0.0, float(job.left) - dt)
 			if float(job.left) > 0.00001: continue
 			var slot := int(job.slot)
 			if str(job.phase) == "demolish":
@@ -2214,9 +2746,17 @@ func _tick_jobs(dt: float) -> void:
 			else:
 				hosts[i].builds[slot] = str(job.kind)
 				if str(job.kind) == "wall": hosts[i].fw_on = true
+				job.escrow = {}   # the materials are now the building
 			jobs.erase(slot_key)
 			if str(hosts[i].builds[slot]) == "wall": _seat_in(i, slot)
+			if str(hosts[i].builds[slot]) == "bot": _sync_teams(i)   # its two workers start at once
 			if fac == PLAYER: _flash("%s · slot %d ready" % [str(hosts[i].name), slot + 1], 0)
+
+
+func _job_state(job: Dictionary) -> String:   # paused · demolishing · waiting for materials · building
+	if bool(job.get("paused", false)): return "paused"
+	if str(job.phase) == "demolish": return "demolishing"
+	return "building" if _job_funded(job) else "waiting"
 
 
 # ---- rig loss / elimination / victory ----
@@ -2234,7 +2774,7 @@ func _eliminate(fac: int) -> void:
 		_out = true; _flash("Your main node was captured — you are out of the match.", 3)
 	if _ai.has(fac): _ai[fac].dead = true
 	research_job[fac] = {}
-	for L in (lanes.get(fac, []) as Array): L.recipe = ""; L.paid = {}; L.progress = 0.0
+	mq[fac] = []
 	# accounting: incoming reservations, banks and inventory are all cleared; its claims and piles elsewhere go too
 	incoming[fac] = {}; cards[fac] = {}
 	for h in hosts:
@@ -2245,9 +2785,12 @@ func _eliminate(fac: int) -> void:
 		hosts[i].owner = NEUTRAL; hosts[i].gen = int(hosts[i].get("gen", 0)) + 1
 		hosts[i].builds = _slot_array([], int(hosts[i].slots)); hosts[i].jobs = {}; hosts[i].store = {}; hosts[i].sockets = []
 		hosts[i].producer_paused = {}; hosts[i].rig = false
-		hosts[i].couriers = 0; hosts[i].claim = {}; hosts[i].inbound = {}; hosts[i].want = {}
+		hosts[i].teams = {}; hosts[i].claim = {}; hosts[i].inbound = {}; hosts[i].fetch = {}; hosts[i].refill = {}; hosts[i].earmark = {}
 		_clear_effects(i)
 	flights = flights.filter(func(f): return int(f.owner) != fac)
+	for wid in workers.keys():
+		if int(workers[wid].fac) == fac: workers.erase(wid)   # its workers go with it
+	rig_claim.erase(fac); _reqs.erase(fac)
 	_execs = _execs.filter(func(e): return int(e.fac) != fac)
 	if fac != PLAYER: _flash("%s eliminated · its remaining hosts are neutral" % fname(fac), 0)
 
@@ -2400,10 +2943,11 @@ func _sim_step(dt: float) -> void:   # one fixed step of the whole simulation (L
 	if not won and not lost: _deliver_due()      # 1) settle due arrivals (may capture / eliminate)
 	_tick_jobs(dt)                                #    construction completions
 	_tick_research(dt)                            #    blueprint research
-	_tick_manufacture(dt)                         # 3) manufacturing lanes (manual, then repeat inside)
+	_tick_manufacture(dt)                         # 3) the manufacturing queue: its head is made, one copy at a time
 	if not won and not lost: _tick_execs()        # 4) capture / raid / worm resolutions, after accepted defenses
 	_tick_production(dt)                          # 5) income, local credit, buffers
-	_tick_logistics()                             # 6) couriers leave with what there is to carry (siphons act as they leave hosts)
+	_tick_teams(dt)                               # 6) station teams follow the stations; lost workers are replaced in time
+	_tick_logistics()                             #    free workers take the most useful feasible job (siphons act as they leave hosts)
 	if _t >= _blocked_next: _blocked_next = _t + 0.5; _tick_blocked()   #    held packets look for a way on
 	_tick_effects(dt)                             #    phishing diversion expiry reverts undispatched output
 	_route_memo = null
@@ -2498,10 +3042,19 @@ func _support_arrive(f: Dictionary) -> void:   # a defence card reached your hos
 func _capture(t: int, fac: int) -> void:
 	var prev := int(hosts[t].owner)
 	var nm := str(hosts[t].name)
+	var dead := _kill_home_workers(t, fac) if prev != NEUTRAL else 0   # its stations' workers die wherever they are, first
+	_logi_poke()
+	if prev != NEUTRAL:
+		for slot in (hosts[t].jobs as Dictionary):   # the former owner's site materials are destroyed with it
+			for res in (hosts[t].jobs[slot].get("escrow", {}) as Dictionary): _ledger_add(prev, "lost", "site", str(res), float(hosts[t].jobs[slot].escrow[res]))
 	hosts[t].owner = fac; hosts[t].gen = int(hosts[t].get("gen", 0)) + 1
 	hosts[t].builds = _slot_array([], int(hosts[t].slots))   # cleared: no salvage, the new owner develops empty slots
 	hosts[t].jobs = {}; hosts[t].store = {}; hosts[t].producer_paused = {}; hosts[t].sockets = []
-	hosts[t].couriers = 0; hosts[t].claim = {}; hosts[t].inbound = {}; hosts[t].want = {}   # its couriers and orders go with it
+	hosts[t].teams = {}; hosts[t].claim = {}; hosts[t].inbound = {}; hosts[t].fetch = {}; hosts[t].refill = {}; hosts[t].earmark = {}   # its orders go with it
+	hosts[t].plan_frac = {}; hosts[t].plan_rr = 0; hosts[t].plan_limited = false
+	if prev == PLAYER:
+		var what := "%s lost to %s — %d station worker%s destroyed." % [nm, fname(fac), dead, "" if dead == 1 else "s"] if dead > 0 else "%s lost to %s." % [nm, fname(fac)]
+		_event("lostworkers:%d:%d" % [t, int(hosts[t].gen)], EV_CRIT if dead > 0 else EV_ACT, what, t)
 	if _route_memo != null: _route_memo = {}   # routes through it change at once
 	_clear_effects(t)
 	if bool(hosts[t].get("rig", false)) and prev != NEUTRAL: hosts[t].rig = false   # a captured main node is an ordinary host
@@ -2533,11 +3086,13 @@ func _held(fac: int, key: String) -> int: return int((cards.get(fac, {}) as Dict
 func _known(fac: int, recipe: String) -> bool: return bool((known.get(fac, {}) as Dictionary).get(recipe, false))
 
 
-func _ready_total(fac: int) -> int:   # ready copies + active manufacturing jobs (the 12-slot budget)
+func _ready_total(fac: int) -> int:   # the READY_SLOTS budget: ready copies, the copy being made, and cards in flight that may come back
 	var n := 0
 	for r in (cards.get(fac, {}) as Dictionary).values(): n += int(r)
-	for L in (lanes.get(fac, []) as Array):
-		if str(L.recipe) != "" and not (L.paid as Dictionary).is_empty(): n += 1
+	var q: Array = mq.get(fac, [])
+	if not q.is_empty() and not (q[0].paid as Dictionary).is_empty(): n += 1
+	for f in flights:
+		if str(f.kind) == "op" and int(f.owner) == fac: n += 1   # held for it: a card that cannot arrive returns to the hand
 	return n
 
 
@@ -2599,9 +3154,9 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 			var nxt := _worm_next(fac, t, int(hosts[t].owner), [t])
 			lines.append(["Next if it captures: %s." % (str(hosts[nxt].name) if nxt >= 0 else "no eligible host in sight"), C_DIM])
 		"vault":
-			lines.append(["Then executes for %d s and empties up to %d units from this host and its owner's linked hosts; your spare Bots carry them home." % [int(ex), int(card.cargo)], C_TEXT])
+			lines.append(["Then executes for %d s and empties up to %d units from this host and its owner's linked hosts; your main node's workers carry them home." % [int(ex), int(card.cargo)], C_TEXT])
 			lines.append(["Would raid, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
-			lines.append(["Spare Bots to carry loot right now: %d." % int(floor(maxf(0.0, _avail(fac, "bots") - float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT))))), C_DIM])
+			lines.append(["Your main node's workers to collect it: %d." % int(_worker_counts(fac, _hub(fac)).total), C_DIM])
 		"phish":
 			lines.append(["On arrival, what this host makes goes to you for %d s. Incident response ends it." % int(card.dur), C_TEXT])
 			lines.append([_recon_production(fac, t), C_DIM])
@@ -2613,7 +3168,7 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 			lines.append(["Would hit, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
 		"siphon":
 			var res := siphon_res if RES.has(siphon_res) and siphon_res != "bots" else "cash"
-			lines.append(["On arrival, for %d s, %s couriers leaving or passing this host drop it there for yours (up to %d)." % [int(card.dur), RES_NAME[res], int(card.cargo)], C_TEXT])
+			lines.append(["On arrival, for %d s, %s carried by workers leaving or passing this host is dropped there for yours (up to %d)." % [int(card.dur), RES_NAME[res], int(card.cargo)], C_TEXT])
 			if by_drag: lines.append(["A drag takes Crypto; choose another resource in the host's panel.", C_DIM])
 		"recon": lines.append(["On arrival, shows its installations, storage and Firewall cards; the snapshot is fresh for %d s." % int(card.dur), C_TEXT])
 	lines.append_array(_known_defences(fac, t, eff, arrive + ex))
@@ -3004,12 +3559,9 @@ func _tick_events() -> void:   # every EV_POLL s of play: post, update and end t
 		var key := "held:%d" % int(i)
 		live[key] = true
 		_event(key, EV_ACT, "%d of your packets wait at %s: the way on is cut." % [int(held[i]), str(hosts[int(i)].name)], int(i), true, "Your packets move on from %s." % str(hosts[int(i)].name))
-	var waiting := 0
-	for i in hosts.size():   # output that only your main node's couriers can fetch
-		if int(hosts[i].owner) == PLAYER and i != home and _courier_cap(i) == 0: waiting += int(floor(_store_total(i)))
-	if waiting > 0 and _avail(PLAYER, "bots") - float(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)) < 1.0:
-		live["couriers"] = true
-		_event("couriers", EV_ACT, "Couriers held: your Bots are at the reserve (%d); %d units wait in storage." % [int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)), waiting], home, true, "Couriers are moving again.")
+	if home >= 0 and int(_worker_counts(PLAYER, -2).total) == 0:   # no workers at all: nothing moves until a station is built
+		live["noworkers"] = true
+		_event("noworkers", EV_CRIT, "You have no delivery workers: build a Bot station at your main node.", home, true, "Your workers are back at work.")
 	var stall := _research_stall(PLAYER)
 	if stall != "":
 		live["research"] = true
@@ -3213,12 +3765,28 @@ func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the targ
 				var n := mini(have, left)
 				if n <= 0: continue
 				_store_take(int(h), int(owner_key), res, float(n))
-				_add_to(t, "loot", fac, res, float(n))   # it waits at the target for the raider's couriers (outside its storage)
+				_add_to(t, "loot", fac, res, float(n))   # it waits at the target for the raider's workers (outside its storage)
 				left -= n; took += n
+		for res in RES:   # the victim's salvage piles there are storage too
+			var n2 := mini(int(floor(_loot(int(h), victim, res) + 0.0001)), left)
+			if n2 <= 0: continue
+			_add_to(int(h), "loot", victim, res, -float(n2)); _add_to(t, "loot", fac, res, float(n2))
+			left -= n2; took += n2
+		for slot in (hosts[int(h)].jobs as Dictionary):   # and so is construction material not yet built in (the worked share is the building)
+			var job: Dictionary = hosts[int(h)].jobs[slot]
+			var unused := 1.0
+			if str(job.phase) == "build" and _job_funded(job): unused = clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0)
+			for res in RES:
+				var n3 := mini(int(floor(float((job.get("escrow", {}) as Dictionary).get(res, 0.0)) * unused + 0.0001)), left)
+				if n3 <= 0: continue
+				job.escrow[res] = float(job.escrow[res]) - float(n3)   # the project lacks it again: its work stops until it is replaced
+				_add_to(t, "loot", fac, res, float(n3))
+				_ledger_add(victim, "lost", "stolen", res, float(n3))
+				left -= n3; took += n3
 	if took <= 0:
 		if fac == PLAYER: _flash("Vault raid on %s found nothing to carry" % str(hosts[t].name), 1)
 		return
-	if fac == PLAYER: _flash("Vault raid on %s: %d units wait there for your couriers" % [str(hosts[t].name), took], 0)
+	if fac == PLAYER: _flash("Vault raid on %s: %d units wait there for your workers" % [str(hosts[t].name), took], 0)
 	elif victim == PLAYER: _flash("%s emptied your storage near %s: %d units taken" % [fname(fac), str(hosts[t].name), took], 2)
 
 
@@ -3252,7 +3820,7 @@ func _apply_response(t: int) -> void:   # Incident response: theft and sabotage 
 func _apply_filter(t: int) -> void: hosts[t].ddos_until = 0.0; hosts[t].filter_until = _t + float(CARDS.filter.dur)
 
 
-func _apply_cover(t: int) -> void:   # Courier cover: this host's couriers in flight and new ones are safe from siphons
+func _apply_cover(t: int) -> void:   # Cargo cover: this host's workers in flight and new ones are safe from siphons
 	hosts[t].cover_until = _t + float(CARDS.cover.dur)
 	for f in flights:
 		if str(f.kind) == "courier" and int(f.origin) == t and int(f.owner) == int(hosts[t].owner): f.covered = true
@@ -3333,57 +3901,102 @@ func _tick_research(dt: float) -> void:
 				_event("bp:" + recipe, EV_INFO, "Blueprint learned: %s. Make copies from its tab." % str(CARDS[recipe].name))
 
 
-# ---- manufacture (three independent lanes; manual, then Repeat) ----
-func _lane_set(fac: int, lane: int, recipe: String) -> void:
-	var L: Array = lanes.get(fac, [])
-	if lane < 0 or lane >= L.size(): return
-	if recipe != "" and not _known(fac, recipe): return
-	if not (L[lane].paid as Dictionary).is_empty(): return   # an active lane must be cancelled before changing its recipe
-	L[lane].recipe = recipe; L[lane].progress = 0.0; L[lane].pending = false
-	if fac == PLAYER: _refresh_panel(); _refresh_hand()
+# ---- manufacture: ONE first-in-first-out queue of at most QUEUE_SIZE copies, the one being made included ----
+# Only the head is made. It pays its price once, from unclaimed main-node stock, when it starts (and needs a free
+# ready slot); later entries never overtake it. A recipe click always appends one copy ("queue" command); pausing is
+# a separate control for the whole queue; removing a waiting entry costs nothing, cancelling a paid head refunds
+# the unworked share. Finished copies move to the ready inventory and leave the queue.
+func _mq(fac: int) -> Array:
+	if not mq.has(fac): mq[fac] = []
+	return mq[fac]
 
 
-func _lane_manufacture(fac: int, lane: int) -> void:
-	var L: Array = lanes.get(fac, [])
-	if lane < 0 or lane >= L.size() or str(L[lane].recipe) == "": return
-	if not (L[lane].paid as Dictionary).is_empty(): return
-	L[lane].pending = true   # charged only when it actually starts (in _tick_manufacture)
-	if fac == PLAYER: _refresh_panel(); _refresh_hand()
+func _mq_add(fac: int, recipe: String, cid := -1) -> bool:   # one more copy at the back of the queue, if there is room
+	if not CARDS.has(recipe) or not _known(fac, recipe): return false
+	if cid >= 0:
+		if not _mq_cids.has(fac): _mq_cids[fac] = {}
+		if (_mq_cids[fac] as Dictionary).has(cid): return false   # the same command again: no second copy
+		_mq_cids[fac][cid] = true
+	var q := _mq(fac)
+	if q.size() >= QUEUE_SIZE:
+		if fac == PLAYER: _flash("Queue full: %d of %d, the one being made included" % [q.size(), QUEUE_SIZE])
+		return false
+	_mq_next += 1
+	q.append({"id": _mq_next, "recipe": recipe, "paid": {}, "progress": 0.0})
+	if fac == PLAYER: _refresh_hand()
+	return true
 
 
-func _lane_repeat(fac: int, lane: int) -> void:
-	var L: Array = lanes.get(fac, [])
-	if lane < 0 or lane >= L.size(): return
-	L[lane].repeat = not bool(L[lane].repeat)
-	if bool(L[lane].repeat): L[lane].pending = true
-	if fac == PLAYER: _refresh_panel()
+func _mq_remove(fac: int, jid: int) -> void:   # a waiting entry goes for nothing; a paid head refunds its unworked share
+	var q := _mq(fac)
+	for k in q.size():
+		if int(q[k].id) != jid: continue
+		var paid: Dictionary = q[k].paid
+		if not paid.is_empty():
+			var frac := clampf(1.0 - float(q[k].progress) / maxf(0.001, _make_time(str(q[k].recipe))), 0.0, 1.0)
+			for r in paid: _add_bank(fac, str(r), float(paid[r]) * frac, "refunds")
+			if fac == PLAYER: _flash("Cancelled %s: %s refunded" % [str(CARDS[str(q[k].recipe)].name), _res_list(_scaled(paid, frac))], 0)
+		q.remove_at(k)
+		break
+	if fac == PLAYER: _refresh_hand()
 
 
-func _lane_pause(fac: int, lane: int) -> void:   # an active copy stops making progress (its price stays paid) / goes on
-	var L: Array = lanes.get(fac, [])
-	if lane < 0 or lane >= L.size() or (L[lane].paid as Dictionary).is_empty(): return
-	L[lane].paused = not bool(L[lane].paused)
-	if fac == PLAYER: _refresh_panel()
+func _scaled(d: Dictionary, f: float) -> Dictionary:
+	var out := {}
+	for k in d: out[k] = float(d[k]) * f
+	return out
 
 
-func _lane_cancel(fac: int, lane: int) -> void:
-	var L: Array = lanes.get(fac, [])
-	if lane < 0 or lane >= L.size(): return
-	var paid: Dictionary = L[lane].paid
-	if not paid.is_empty():   # refund the unworked fraction
-		var frac := clampf(1.0 - float(L[lane].progress) / maxf(0.001, _make_time(str(L[lane].recipe))), 0.0, 1.0)
-		for r in paid: _add_bank(fac, r, float(paid[r]) * frac, "refunds")
-	L[lane].paid = {}; L[lane].progress = 0.0; L[lane].pending = false; L[lane].paused = false; L[lane].repeat = false
-	if fac == PLAYER: _refresh_panel(); _refresh_hand()
+func _mq_toggle_pause(fac: int) -> void: mq_paused[fac] = not bool(mq_paused.get(fac, false))
 
 
-func _can_start_recipe(fac: int, recipe: String, allow_reserve: bool) -> bool:
+func _mq_head_short(fac: int) -> Dictionary:   # what the waiting head still needs at the main node ({} if it can start)
+	var q := _mq(fac)
+	if q.is_empty() or not (q[0].paid as Dictionary).is_empty(): return {}
+	var out := {}
+	var cost := _recipe_cost(str(q[0].recipe))
+	for r in cost:
+		var need := float(cost[r]) - _free(fac, str(r))
+		if need > 0.0001: out[r] = need
+	return out
+
+
+func _mq_head_why(fac: int) -> String:   # "" while it is made or can start; else why the head waits
+	var q := _mq(fac)
+	if q.is_empty() or not (q[0].paid as Dictionary).is_empty(): return ""
+	if _ready_total(fac) >= READY_SLOTS: return "Ready inventory full — use a card"
+	var short := _mq_head_short(fac)
+	if short.is_empty(): return ""
+	var parts := []
+	for r in RES:
+		if not short.has(r): continue
+		var coming := _incoming(fac, r)
+		parts.append("%d %s%s" % [ceili(float(short[r]) - 0.0001), RES_NAME[r], (" · %s on the way" % _amt(coming)) if coming > 0.05 else ""])
+	return "Needs " + ", ".join(parts) + " at Main rig"
+
+
+func _mq_head_short_whole(fac: int) -> Dictionary:   # the head's shortage in whole units, for the strip's icons
+	var out := {}
+	var short := _mq_head_short(fac)
+	for r in short: out[r] = ceili(float(short[r]) - 0.0001)
+	return out
+
+
+func _mq_head_why_short(fac: int) -> String:   # the strip's chip: the first thing the waiting head lacks, in a few words
+	var q := _mq(fac)
+	if q.is_empty() or not (q[0].paid as Dictionary).is_empty(): return ""
+	if _ready_total(fac) >= READY_SLOTS: return "Ready full"
+	var short := _mq_head_short(fac)
+	for r in RES:
+		if short.has(r): return "Needs %d %s%s" % [ceili(float(short[r]) - 0.0001), RES_NAME[r], "…" if short.size() > 1 else ""]
+	return ""
+
+
+func _can_start_recipe(fac: int, recipe: String) -> bool:
 	if _ready_total(fac) >= READY_SLOTS: return false
 	var cost := _recipe_cost(recipe)
 	for r in cost:
-		var have := _avail(fac, r)
-		if r == "bots" and not allow_reserve: have -= float(bot_reserve.get(fac, BOT_RESERVE_DEFAULT))
-		if have < float(cost[r]) - 0.0001: return false
+		if _free(fac, r) < float(cost[r]) - 0.0001: return false   # stock held for a worker's pickup is not spent
 	return true
 
 
@@ -3395,37 +4008,31 @@ func _start_recipe(fac: int, recipe: String) -> Dictionary:
 
 func _tick_manufacture(dt: float) -> void:
 	for fac in botnets:
-		var L: Array = lanes.get(fac, [])
-		# advance active jobs
-		for lane in L.size():
-			var job: Dictionary = L[lane]
-			if (job.paid as Dictionary).is_empty() or bool(job.paused): continue
-			job.progress = float(job.progress) + dt
-			if float(job.progress) >= _make_time(str(job.recipe)) - 0.00001:
-				if _ready_total(fac) - 1 < READY_SLOTS:   # it already reserves its slot as an active job
-					cards[fac][str(job.recipe)] = _held(fac, str(job.recipe)) + 1
-					if fac == PLAYER:
-						_lane_done[lane] = _t
-						_flash("Ready: %s" % str(CARDS[str(job.recipe)].name), 0)
-						_event("mf:" + str(job.recipe), EV_INFO, "Copy ready: %s (%d held)." % [str(CARDS[str(job.recipe)].name), _held(fac, str(job.recipe))])
-						_bank_alert["ready"] = Time.get_ticks_msec() + 3000
-				job.paid = {}; job.progress = 0.0
-				if bool(job.repeat): job.pending = true
-		# start pending manual requests (may spend the Bot reserve), rotating which lane goes first
-		var order := range(L.size())
-		var rot := int(ship_cursor.get(fac, 0)) % maxi(1, L.size())
-		for idx in L.size():
-			var lane := int(order[(idx + rot) % L.size()])
-			var job: Dictionary = L[lane]
-			if not (job.paid as Dictionary).is_empty() or str(job.recipe) == "" or not bool(job.pending): continue
-			var manual := not bool(job.repeat)
-			if _can_start_recipe(fac, str(job.recipe), manual):
-				job.paid = _start_recipe(fac, str(job.recipe)); job.progress = 0.0; job.pending = bool(job.repeat)
+		var q := _mq(fac)
+		if bool(mq_paused.get(fac, false)): continue
+		var left := dt
+		while left > 0.000001 and not q.is_empty():
+			var job: Dictionary = q[0]
+			if (job.paid as Dictionary).is_empty():
+				if not _can_start_recipe(fac, str(job.recipe)): break   # the head waits; nothing overtakes it
+				job.paid = _start_recipe(fac, str(job.recipe)); job.progress = 0.0
+			var need := _make_time(str(job.recipe)) - float(job.progress)
+			var used := minf(left, need)
+			job.progress = float(job.progress) + used; left -= used
+			if float(job.progress) < _make_time(str(job.recipe)) - 0.00001: break
+			cards[fac][str(job.recipe)] = _held(fac, str(job.recipe)) + 1   # its ready slot was held while it was made
+			q.remove_at(0)
+			if fac == PLAYER:
+				_mq_done_t = _t
+				_flash("Ready: %s" % str(CARDS[str(job.recipe)].name), 0)
+				_event("mf:" + str(job.recipe), EV_INFO, "Copy ready: %s (%d held)." % [str(CARDS[str(job.recipe)].name), _held(fac, str(job.recipe))])
+				_bank_alert["ready"] = Time.get_ticks_msec() + 3000
+				_refresh_hand()
 
 
-func _tick_repeat() -> void: pass   # repeat handled inside _tick_manufacture
+var _mq_done_t := -100.0   # when the player's last copy finished (the strip shows it done for a moment; presentation only)
 # ============================================================ AI BOTNETS
-# One economic AI. It obeys the same income, delivery, research, prices, lane/reserve/room limits and fog as a
+# One economic AI. It obeys the same income, workers, delivery, research, prices, four-place queue, room limits and fog as a
 # person: it develops producers, learns blueprints, manufactures known cards and uses them to capture, steal and
 # defend. It reads only what it can observe (public owners/types, and dated Recon snapshots).
 func _ai_tick(dt: float) -> void:
@@ -3474,14 +4081,14 @@ func _ai_develop(fac: int, mine: Array) -> void:   # every host gets a layout th
 func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host i should hold
 	var n := int(hosts[i].slots)
 	if i == int(rig[fac]): return ["intel", "bot", _ai_conv(fac, true), "lab", "cred"].slice(0, n)   # converters here use the bank
-	if n == 1: return ["bot"]   # a lone slot: Bots that walk home on their own
+	if n == 1: return ["bot"]   # a lone slot: a station whose 2 workers serve the network
 	var conv := _ai_conv(fac)
-	var plan := ["bot", "intel", conv, conv, "intel"].slice(0, n)   # the station first (its Bots carry everything), then Intel and its converters
+	var plan := ["bot", "intel", conv, conv, "intel"].slice(0, n)   # the station first (its 2 workers fetch and carry), then Intel and its converters
 	var b: Array = hosts[i].builds
 	var near := _ai_capture_targets(fac)
 	var wants_research := held >= 3 or (not near.is_empty() and int(hosts[int(near[0])].owner) != NEUTRAL)   # faster captures against a rival run on Research
 	if n == 3 and wants_research and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
-		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; a bank courier fetches it)
+		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; main-node workers carry it)
 	if n >= 4 and not _ai_has_lab_host(fac, i): plan[2] = "cash"; plan[3] = "lab"   # a Miner beside the Lab feeds it Crypto
 	elif n >= 4 and held >= 6 and not _ai_has_firewall(fac): plan[3] = "wall"   # one guarded host once the network is worth guarding
 	return plan
@@ -3599,7 +4206,6 @@ func _ai_scout_first(fac: int, t: int, recipe: String) -> bool:   # true: this a
 
 func _ai_manufacture(fac: int) -> void:
 	# demand-driven: make only cards we can use, throttled by how many we already hold, so inventory never clogs
-	var L: Array = lanes.get(fac, [])
 	var plan := []
 	var targets := _ai_capture_targets(fac)
 	if not targets.is_empty():
@@ -3614,24 +4220,23 @@ func _ai_manufacture(fac: int) -> void:
 		if _known(fac, recipe) and _held(fac, recipe) < 1 and _ai_free_socket(fac): plan.append(recipe); break
 	for press in ["ddos", "phish"]:   # pressure only with somewhere to apply it: an idle copy is resources thrown away
 		if _known(fac, press) and _held(fac, press) < 1 and _ai_press_target(fac, press) >= 0: plan.append(press); break
-	var li := 0
-	for lane in L.size():
-		if not (L[lane].paid as Dictionary).is_empty(): continue   # busy this tick
-		if li < plan.size():
-			L[lane].recipe = str(plan[li]); L[lane].repeat = false; L[lane].pending = true; L[lane].progress = 0.0
-			li += 1
-		else:
-			L[lane].recipe = ""; L[lane].pending = false   # nothing useful to make: idle the lane
+	var q := _mq(fac)   # the same one queue as a player's: top it up in plan order, never past QUEUE_SIZE
+	for recipe in plan:
+		if q.size() >= QUEUE_SIZE: break
+		if _mq_count(fac, str(recipe)) == 0: _mq_add(fac, str(recipe))
 
 
-func _ai_press_target(fac: int, recipe: String) -> int:   # the reachable rival host with the most producers, else -1
+func _ai_press_target(fac: int, recipe: String) -> int:   # the reachable rival host with the most producers its Recon saw, else -1
 	var best := -1; var most := 0
 	for t in hosts.size():
 		var owner := int(hosts[t].owner)
 		if owner == fac or owner == NEUTRAL or not _op_reachable(fac, t): continue
 		if (recipe == "phish" and _phished(t)) or (recipe == "ddos" and _ddos_down(t)): continue
-		var n := 0
-		for k in hosts[t].builds: if str(k) in PRODUCER_KINDS: n += 1
+		var rec: Dictionary = (recon.get(fac, {}) as Dictionary).get(t, {})   # the same fog as a person: only what a Recon saw
+		var n := 1   # never scouted: worth a look (it scouts first)
+		if not rec.is_empty() and int(rec.get("gen", -1)) == int(hosts[t].gen):
+			n = 0
+			for k in (rec.get("builds", []) as Array): if str(k) in PRODUCER_KINDS: n += 1
 		if n > most: most = n; best = t
 	return best
 
@@ -3689,9 +4294,10 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled(); return
 	if menu_open or won or lost: return
 	if event.keycode == KEY_SPACE:
-		if _camp_paused: _camp_set_pause(false); get_viewport().set_input_as_handled(); return   # resume reading pause
-		if _mp_on or _camp: return   # a shared match never pauses; the campaign uses its reading pause
-		paused = not paused; _refresh_panel(); queue_redraw()
+		if _camp_paused: _camp_set_pause(false); get_viewport().set_input_as_handled(); return   # resume the lesson's reading pause
+		if _mp_on: return   # a shared match never pauses
+		paused = not paused; _refresh_panel(); queue_redraw()   # your own pause (in Learn too): separate from the lesson's
+		if _camp: _show_tut()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_0: _reset_view()
 	elif event.keycode == KEY_C: _set_deck_open(not _deck_open); get_viewport().set_input_as_handled()
@@ -3833,6 +4439,7 @@ func _update_card_banks(chips := true) -> void:   # tab text and look, pager, re
 	if research_button != null:
 		research_button.text = _research_label()
 		research_button.tooltip_text = "The development tree (R). " + str(_research_status_line()[0])
+	if queue_pause != null: queue_pause.text = "Resume" if bool(mq_paused.get(PLAYER, false)) else "Pause"
 	if chips:
 		for c in lane_strip.get_children(): c.queue_redraw()
 		for c in ready_strip.get_children(): c.queue_redraw()
@@ -3855,6 +4462,32 @@ func _research_label() -> String:   # the Research button and tab: "Research 45%
 	for r in RESEARCH:
 		if _can_research(PLAYER, str(r)) == "": open += 1
 	return "Research +%d" % open if open > 0 else "Research"
+
+
+const RESEARCH_BAR_W := 520.0
+const RESEARCH_BAR_H := 28.0
+
+
+func _research_bar_y() -> float: return (64.0 + _camp_banner_h() + 6.0) if _tut else 62.0
+
+
+func _research_bar_state() -> Dictionary:   # {state: idle | active | paused | stalled, name, track, frac, left, why}
+	var job: Dictionary = research_job.get(PLAYER, {})
+	if job.is_empty():
+		var open := 0
+		for r in RESEARCH:
+			if _can_research(PLAYER, str(r)) == "": open += 1
+		return {"state": "idle", "name": "", "track": "", "frac": 0.0, "left": 0.0, "open": open, "why": ""}
+	var recipe := str(job.key)
+	var frac := clampf(float(job.progress) / maxf(0.001, _research_time(recipe)), 0.0, 1.0)
+	var st := "active"
+	var why := ""
+	if bool(job.get("paused", false)): st = "paused"
+	else:
+		var stall := _research_stall(PLAYER)
+		if stall != "": st = "stalled"; why = stall.trim_prefix("Research of %s stopped: " % str(CARDS[recipe].name)).trim_suffix(".")
+	return {"state": st, "name": str(CARDS[recipe].name), "track": "Defence" if str(CARDS[recipe].bank) == "defense" else "Attack",
+		"frac": frac, "left": maxf(0.0, _research_time(recipe) - float(job.progress)), "why": why}
 
 
 func _research_status_line() -> Array:   # [text, colour]: the active research, by name, with its progress and state
@@ -4024,15 +4657,6 @@ const SELECT_COL := Color(0.45, 0.85, 1.0)   # a selected blueprint or ready car
 const SIPHON_RES := ["intel", "cash", "creds", "research"]
 
 
-func _lane_short(recipe: String) -> String:   # why a requested copy has not started: the hand is full, or what the bank lacks
-	if _ready_total(PLAYER) >= READY_SLOTS: return "Hand full (%d)" % READY_SLOTS
-	var cost := _recipe_cost(recipe)
-	for r in RES:
-		var need := float(cost.get(r, 0.0)) - _avail(PLAYER, r)
-		if need > 0.0001: return "Needs %d %s" % [ceili(need), RES_NAME[r]]
-	return "Starting"
-
-
 func _draw_ready_face(c: Control, key: String, big: bool) -> void:   # a ready card in the strip (small) or the drawer (big)
 	var f := c.get_theme_default_font()
 	var recipe := _card_of(key)
@@ -4132,73 +4756,78 @@ func _hand_signature() -> String:
 	return "%s|%s|%s" % [str(get_viewport_rect().size.x), str(won), str(lost)]
 
 
-# Deck widget bridge: a mini card click learns the blueprint (if locked) or queues a copy into a free lane;
-# the research state it shows merges "ready copies", "manufacturing" and "researching the blueprint".
-func _lane_of(fac: int, recipe: String) -> int:
-	var L: Array = lanes.get(fac, [])
-	for lane in L.size():
-		if str(L[lane].recipe) == recipe: return lane
-	return -1
+# Card widget bridge: a recipe's "+ Queue" appends one copy (never pauses one); the queue and the ready inventory are
+# shown apart. _mq_count is how many copies of a recipe are queued (the head included).
+var _cid_next := 0
 
 
-func _free_lane(fac: int) -> int:
-	var L: Array = lanes.get(fac, [])
-	for lane in L.size():
-		if str(L[lane].recipe) == "" or (L[lane].paid as Dictionary).is_empty() and not bool(L[lane].pending): return lane
-	return -1
+func _mq_count(fac: int, recipe: String) -> int:
+	var n := 0
+	for j in _mq(fac):
+		if str(j.recipe) == recipe: n += 1
+	return n
 
 
-func _card_queue_index(key: String) -> int:
-	return _lane_of(PLAYER, _card_of(key))
-
-
-func _card_research_click(key: String) -> void:
+func _enqueue(key: String) -> void:   # the explicit + Queue action
 	if menu_open or won or lost: return
-	_cmd(["card_action", _card_of(key)])
+	_cid_next += 1
+	_cmd(["queue", _card_of(key), _cid_next])
 
 
-func _do_card_action(fac: int, recipe: String) -> void:
-	if not CARDS.has(recipe): return
-	if not _known(fac, recipe):
-		_do_research(fac, recipe); return
-	var lane := _lane_of(fac, recipe)
-	if lane >= 0 and not (lanes[fac][lane].paid as Dictionary).is_empty():   # its copy is being made: a click pauses / resumes it
-		_lane_pause(fac, lane); return
-	if lane < 0: lane = _free_lane(fac)
-	if lane < 0:
-		if fac == PLAYER: _flash("All manufacturing lanes are busy")
+func _card_research_click(key: String) -> void: _recipe_act(key)   # a recipe tile's action: + Queue, or Research when locked
+
+
+func _recipe_action(key: String) -> Array:   # [label, enabled, tooltip] for a recipe tile's one button
+	var recipe := _card_of(key)
+	if not _known(PLAYER, recipe):
+		var why := _can_research(PLAYER, recipe)
+		if str(research_job.get(PLAYER, {}).get("key", "")) == recipe: return ["Research", true, "Being researched: open Research to pause or follow it."]
+		return ["Research", true, "Learn the blueprint first: opens Research with it selected." + ("" if why == "" else " (%s)" % why)]
+	if _mq(PLAYER).size() >= QUEUE_SIZE: return ["+ Queue", false, "The queue is full: %d copies, the one being made included." % QUEUE_SIZE]
+	return ["+ Queue", true, "Add one copy to the back of the manufacturing queue. It pays when it starts: %s." % _res_list(_recipe_cost(recipe))]
+
+
+func _recipe_act(key: String) -> void:
+	var recipe := _card_of(key)
+	if not _known(PLAYER, recipe):
+		_open_drawer("research"); _research_node_click(recipe)
 		return
-	if str((lanes[fac][lane] as Dictionary).recipe) != recipe: _lane_set(fac, lane, recipe)
-	_lane_manufacture(fac, lane)
+	_enqueue(key)
 
 
-func _card_research_cancel(key: String) -> void:
-	var lane := _lane_of(PLAYER, _card_of(key))
-	if lane >= 0 and not menu_open and not won and not lost: _cmd(["lane_cancel", lane])
+func _recipe_hint(key: String) -> String:   # "2 queued · 1 ready"
+	var recipe := _card_of(key)
+	if not _known(PLAYER, recipe): return "Blueprint not learned"
+	var parts := []
+	var n := _mq_count(PLAYER, recipe)
+	if n > 0: parts.append("%d queued" % n)
+	parts.append("%d ready" % _held(PLAYER, recipe))
+	return " · ".join(parts)
 
 
-func _card_research_state(key: String) -> Dictionary:   # the deck widget's view of one recipe
+func _card_research_cancel(key: String) -> void:   # remove the newest queued copy of this recipe
+	var q := _mq(PLAYER)
+	for k in range(q.size() - 1, -1, -1):
+		if str(q[k].recipe) == _card_of(key): _cmd(["unqueue", int(q[k].id)]); return
+
+
+func _card_research_state(key: String) -> Dictionary:   # a recipe's view: copies ready, queued, and its place in the queue
 	var recipe := _card_of(key)
 	var count := _held(PLAYER, recipe)
-	var result := {"count": count, "status": "Ready" if count > 0 else "Idle", "progress": 0.0, "queued": false}
+	var result := {"count": count, "status": "Ready" if count > 0 else "Idle", "progress": 0.0, "queued": false, "n": _mq_count(PLAYER, recipe)}
 	if not _known(PLAYER, recipe):
 		var job: Dictionary = research_job.get(PLAYER, {})
-		if str(job.get("key", "")) == recipe:
-			result.status = "Paused" if bool(job.paused) else "Researching"
-			result.progress = clampf(float(job.progress) / maxf(0.001, _research_time(recipe)), 0.0, 1.0)
-			result.queued = true
-		else:
-			result.status = "Locked"
+		result.status = ("Paused" if bool(job.paused) else "Researching") if str(job.get("key", "")) == recipe else "Locked"
+		if str(job.get("key", "")) == recipe: result.progress = clampf(float(job.progress) / maxf(0.001, _research_time(recipe)), 0.0, 1.0)
 		return result
-	var lane := _lane_of(PLAYER, recipe)
-	if lane >= 0:
-		var L: Dictionary = lanes[PLAYER][lane]
-		if not (L.paid as Dictionary).is_empty():
-			result.queued = true
-			result.progress = clampf(float(L.progress) / maxf(0.001, _make_time(recipe)), 0.0, 1.0)
-			result.status = "Paused" if bool(L.paused) else "Making"
-		elif bool(L.pending):
-			result.queued = true; result.status = "Waiting"
+	var q := _mq(PLAYER)
+	if not q.is_empty() and str(q[0].recipe) == recipe:
+		result.queued = true
+		if not (q[0].paid as Dictionary).is_empty():
+			result.progress = clampf(float(q[0].progress) / maxf(0.001, _make_time(recipe)), 0.0, 1.0)
+			result.status = "Paused" if bool(mq_paused.get(PLAYER, false)) else "Making"
+		else: result.status = "Waiting"
+	elif int(result.n) > 0: result.queued = true; result.status = "Queued"
 	return result
 
 
@@ -4345,20 +4974,6 @@ func _play(t: int, recipe := "") -> void:   # launch the selected (or named) att
 
 
 
-func _set_reserve(fac_choice: int) -> void: _cmd(["reserve", fac_choice])
-func _set_priority(res: String) -> void: _cmd(["priority", res])
-
-
-func _do_set_reserve(fac: int, choice: int) -> void:
-	if choice in BOT_RESERVE_CHOICES: bot_reserve[fac] = choice
-	if fac == PLAYER: _refresh_panel()
-
-
-func _do_set_priority(fac: int, res: String) -> void:
-	ship_pri[fac] = res if (res == "" or RES.has(res)) else ""
-	if fac == PLAYER: _refresh_panel()
-
-
 func _owned_feeders(_node: int) -> Array: return []   # legacy: no wired feeders in this model
 
 
@@ -4375,6 +4990,7 @@ func _cmd(c: Array) -> void:
 func _apply_cmd(fac: int, c: Array) -> void:
 	if c.is_empty() or not botnets.has(fac) or _eliminated.has(fac): return
 	_fc_gen += 1
+	_logi_poke()
 	var n := c.size()
 	match str(c[0]):
 		"build": if n == 4: _do_build(fac, _int(c[1]), _int(c[2]), str(c[3]))
@@ -4384,31 +5000,12 @@ func _apply_cmd(fac: int, c: Array) -> void:
 		"produce": if n == 3: _do_produce(fac, _int(c[1]), _int(c[2]))
 		"research": if n == 2: _do_research(fac, str(c[1]))
 		"cancel_research": if n == 1: _cancel_research(fac)
-		"card_action": if n == 2: _do_card_action(fac, str(c[1]))
-		"lane_set": if n == 3: _lane_set(fac, _int(c[1]), str(c[2]))
-		"lane_make": if n == 2: _lane_manufacture(fac, _int(c[1]))
-		"lane_repeat": if n == 2: _lane_repeat(fac, _int(c[1]))
-		"lane_cancel": if n == 2: _lane_cancel(fac, _int(c[1]))
-		"lane_pause": if n == 2: _lane_pause(fac, _int(c[1]))
-		"reserve": if n == 2: _do_set_reserve(fac, _int(c[1]))
-		"priority": if n == 2: _do_set_priority(fac, str(c[1]))
-		"want": if n == 4: _do_set_want(fac, _int(c[1]), str(c[2]), _int(c[3]))
+		"queue": if n >= 2: _mq_add(fac, str(c[1]), _int(c[2]) if n >= 3 else -1)
+		"unqueue": if n == 2: _mq_remove(fac, _int(c[1]))
+		"queue_pause": if n == 1: _mq_toggle_pause(fac)
+		"refill": if n == 2: _do_refill(fac, _int(c[1]))
+		"refill_cancel": if n == 2: _cancel_refill(fac, _int(c[1]))
 		"card": if n >= 3 and _host_ok(_int(c[2])) and str(c[1]) != "": _play_card(fac, str(c[1]), _int(c[2]), str(c[3]) if n >= 4 else "")
-
-
-const WANT_MAX := 6   # the most of one input a host may ask its main node to keep there
-
-
-func _set_want(i: int, res: String, n: int) -> void: _cmd(["want", i, res, n])
-
-
-func _do_set_want(fac: int, i: int, res: String, n: int) -> void:   # how much of an input this host keeps; the main node supplies the rest
-	if not _owns(fac, i) or i == _hub(fac) or not RES.has(res) or res == "bots": return
-	var v := clampi(n, 0, WANT_MAX)
-	if not hosts[i].has("want"): hosts[i].want = {}
-	if v == 0: (hosts[i].want as Dictionary).erase(res)
-	else: hosts[i].want[res] = float(v)
-	if fac == PLAYER: _refresh_panel()
 
 
 func _int(v: Variant) -> int:   # a JSON number (or anything else) as a building / slot index; garbage becomes -1
@@ -4468,8 +5065,20 @@ func _plabel(txt: String, sz := 14, col := C_TEXT) -> void:
 	_lbl(panel_box, txt, sz, col, _panel_width() - 64.0)
 
 
+var _compact_font: FontVariation   # the UI face without the symbol fallback, whose tall metrics would make every line 29 px
+func _compact(txt: String) -> Font:   # null when the text needs a glyph only the symbol fallback has
+	if _compact_font == null:
+		_compact_font = FontVariation.new(); _compact_font.base_font = load("res://assets/fonts/JetBrainsMono-Regular.ttf")
+	for k in txt.length():
+		var c := txt.unicode_at(k)
+		if c > 127 and not _compact_font.has_char(c): return null
+	return _compact_font
+
+
 func _lbl(parent: Control, txt: String, sz: int, col: Color, minw: float) -> Label:
 	var l := Label.new(); l.text = txt
+	var cf := _compact(txt)
+	if cf != null: l.add_theme_font_override("font", cf)
 	l.add_theme_font_size_override("font_size", maxi(14, sz)); l.add_theme_color_override("font_color", col)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; l.custom_minimum_size = Vector2(minw, 0)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4783,15 +5392,19 @@ func _mp_end_turn() -> void:
 
 func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch screens that drifted apart
 	var parts := PackedStringArray([str(roundi(_t * 30.0)), str(flights.size()), str(_execs.size())])
-	for f in flights: parts.append("%d:%d:%d:%s" % [int(f.id), int(f.get("hop_i", 0)), int(f.get("dest", -1)), JSON.stringify(f.get("cargo", {}))])
+	for f in flights: parts.append("%d:%d:%d:%d:%s:%s:%s" % [int(f.id), int(f.get("hop_i", 0)), int(f.get("dest", -1)), int(f.get("wid", -1)), str(f.get("trip", "")), JSON.stringify(f.get("cargo", {})), JSON.stringify(f.get("job", {}))])
+	var wids := workers.keys(); wids.sort()
+	for wid in wids: parts.append("w%d:%d:%d:%s:%d" % [int(wid), int(workers[wid].home), int(workers[wid].gen), str(workers[wid].state), int(workers[wid].fid)])
+	var turns := _pool_turn.keys(); turns.sort()
+	for k in turns: parts.append("t%s=%d" % [str(k), int(_pool_turn[k])])
 	for h in hosts:
 		parts.append("%d,%d,%s,%s,%s,%s,%d,%d" % [int(h.owner), int(h.gen), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.store), ",".join(PackedStringArray(h.sockets)), int(h.fw_on), int(round(float(h.cyc) * 30.0))])
 		parts.append("%d,%d,%d,%d,%d" % [roundi(float(h.get("ddos_until", 0.0)) * 100.0), roundi(float(h.get("sabot_until", 0.0)) * 100.0), int(h.get("steal_by", -1)), roundi(float(h.get("steal_until", 0.0)) * 100.0), roundi(float(h.get("express_until", 0.0)) * 100.0)])
-		parts.append("%d|%s|%s|%s|%s|%d" % [int(h.get("couriers", 0)), JSON.stringify(h.get("want", {})), JSON.stringify(h.get("claim", {})), JSON.stringify(h.get("inbound", {})), JSON.stringify(h.get("loot", {})), 0])
+		parts.append("%s|%s|%s|%s|%s|%s|%s|%d" % [JSON.stringify(h.get("teams", {})), JSON.stringify(h.get("claim", {})), JSON.stringify(h.get("inbound", {})), JSON.stringify(h.get("fetch", {})), JSON.stringify(h.get("loot", {})), JSON.stringify(h.get("refill", {})), JSON.stringify(h.get("earmark", {})), int(h.get("plan_rr", 0))])
 	for fac in botnets:
 		for res in RES: parts.append(str(roundi(_avail(fac, res) * 1000.0)))
-		parts.append("%d" % int(bot_reserve.get(fac, BOT_RESERVE_DEFAULT)))
-		parts.append(JSON.stringify(incoming.get(fac, {})) + JSON.stringify(cards[fac]) + JSON.stringify(known.get(fac, {})) + JSON.stringify(research_job.get(fac, {})) + JSON.stringify(lanes.get(fac, [])))
+		parts.append(JSON.stringify(rig_claim.get(fac, {})) + JSON.stringify(_reqs.get(fac, {})))
+		parts.append(JSON.stringify(incoming.get(fac, {})) + JSON.stringify(cards[fac]) + JSON.stringify(known.get(fac, {})) + JSON.stringify(research_job.get(fac, {})) + JSON.stringify(mq.get(fac, [])) + str(mq_paused.get(fac, false)))
 		var rec: Dictionary = recon.get(fac, {})
 		for t in rec: parts.append("r%d:%d:%d" % [int(t), roundi(float(rec[t].get("at", 0.0)) * 30.0), int(rec[t].get("gen", 0))])
 	parts.append(str(sim_rng.state))   # the dice: two screens that rolled differently have drifted
@@ -5232,8 +5845,8 @@ func _submit_feedback() -> void:
 # ---------------------------------------------------------------- TUTORIAL
 func _tut_stages() -> Array:
 	return [
-		{"title": "Your main node", "text": "Your main node makes one of each resource every 5 seconds. What other hosts make waits in their storage until a Bot carries it home."},
-		{"title": "Manufacture", "text": "Click a known card in the deck to manufacture a copy, then drag it from the deck onto a target to launch it."},
+		{"title": "Your main node", "text": "Your main node makes one of each resource every 5 seconds. What other hosts make is used there first; workers carry the surplus home."},
+		{"title": "Manufacture", "text": "Open the recipes (C) and click + Queue to make a copy, then drag the ready card onto a target to launch it."},
 		{"title": "Win", "text": "Hold at least 51% of the hosts for 51 seconds, or be the last network with its main node."},
 	]
 
@@ -5253,7 +5866,7 @@ const RICH_TERMS := {
 	"Recon": "card:recon", "Credential breach": "card:breach", "Known exploit": "card:exploit", "Phishing": "card:phish",
 	"Packet siphon": "card:siphon", "Vault raid": "card:vault", "DDoS": "card:ddos", "0day": "card:zeroday",
 	"Worm": "card:worm", "Supply-chain sabotage": "card:sabotage", "Patch": "card:patch", "Incident response": "card:response",
-	"Traffic filter": "card:filter", "Courier cover": "card:cover", "Express route": "card:express",
+	"Traffic filter": "card:filter", "Cargo cover": "card:cover", "Express route": "card:express",
 	"ATTACK": "bank:attack", "DEFENCE": "bank:defense",
 	# panel buttons: the button's colour (+ its glyph where one exists)
 	"Scan": "act:Scan", "Launch": "act:Attack", "Stop": "act:Stop",
@@ -5421,37 +6034,41 @@ func _tut_finish() -> void:
 # the step within a chapter reuses _tut_stage. Advancement is gated on real game-state outcomes. A reading pause
 # (_camp_paused) freezes the WHOLE simulation; the player resumes with Space or by taking the action.
 func _camp_chapters() -> Array:
-	return ["Prepare an operation", "Production is not delivery", "Research and manufacture", "Steal and protect", "Run the network"]
+	return ["Scout and capture", "Build and deliver", "Research and manufacture", "Steal, protect, recover", "Run the network"]
 
 
-func _camp_steps(chapter: int) -> Array:   # t title · a the instruction · r what it did · pause: the game waits only where the action is available at once
+# t title · a the instruction · r what it did · pause: the game waits only where the action is available at once ·
+# ui: the control(s) to cue · card: an operation the step launches (cue stops on the accepted launch; the step ends on the result)
+func _camp_steps(chapter: int) -> Array:
 	match chapter:
 		0: return [
-			{"t": "Your main node", "r": "Your main node makes one of every resource every 5 s, already spendable.", "a": "Select YOUR MAIN NODE to read its five banks.", "role": "home", "pause": true},
-			{"t": "Manufacture a card", "r": "A Credential breach copy is being made.", "a": "Press C, open Attack recipes and click Credential breach.", "role": "", "ui": "card:breach", "pause": true},
-			{"t": "Scout", "r": "The relay is scouted: your attacks on it have full odds for 45 s.", "a": "Drag Recon onto the Neighborhood Relay. Unscouted attacks work half the time.", "role": "relay", "ui": "card:recon", "card": "recon", "pause": true},
-			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When it is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
+			{"t": "Your main node", "r": "Your main node's stock is what pays for cards and research; its Bot station's 2 workers carry for it.", "a": "Select YOUR MAIN NODE: its stock is the top bar, and its Bot station gives it 2 workers.", "role": "home", "pause": true},
+			{"t": "Scout", "r": "Recon revealed the relay: what it is, its slots and its storage.", "a": "Drag Recon onto the Neighborhood Relay. Until you scout it, it shows only its name.", "role": "relay", "ui": "card:recon", "card": "recon", "pause": true},
+			{"t": "Manufacture a card", "r": "A Credential breach copy is in the queue.", "a": "Press C, open Attack recipes and click + Queue on Credential breach.", "role": "", "ui": "card:breach", "pause": true},
+			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When the copy is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
 		1: return [
-			{"t": "Make Intel", "r": "The Intel harvester makes 2 Intel every 5 s, kept on the relay.", "a": "Select the relay and build an Intel harvester in a slot.", "role": "relay", "ui": "build:intel", "pause": true},
-			{"t": "Bot station", "r": "The relay now has couriers of its own: they carry its output home and come back.", "a": "Build a Bot station in another slot of the relay.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Delivery", "r": "Intel from the relay reached your main node.", "a": "Wait for a courier to carry Intel home along the green route.", "role": "home", "pause": false},
+			{"t": "A building far from home", "r": "The relay's Bot station is built: 2 workers of its own.", "a": "Drag a Bot station onto a free relay slot: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "Local use first", "r": "The Miner uses the relay's own Intel first.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
+			{"t": "Surplus goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: the relay's workers carry its spare Intel and Crypto to your main node.", "role": "relay", "pause": false},
 		]
 		2: return [
-			{"t": "Research a blueprint", "r": "Known exploit is being researched.", "a": "Click Research (top right or R), select Known exploit, then Research.", "role": "", "ui": "card:exploit", "pause": true},
-			{"t": "Manufacture it", "r": "A Known exploit copy is ready.", "a": "Once it is learned, make a Known exploit copy in Attack recipes.", "role": "", "ui": "card:exploit", "pause": false},
+			{"t": "Research a blueprint", "r": "Known exploit is learned.", "a": "Open Research (R), select Known exploit, then Research; the bar at the top shows progress.", "role": "", "ui": "card:exploit", "pause": true},
+			{"t": "Queue two copies", "r": "Copies are made one at a time, in order.", "a": "In Attack recipes, click + Queue on Known exploit twice.", "role": "", "ui": "card:exploit", "copies": 2, "pause": false},
 			{"t": "Scout the gateway", "r": "The gateway is scouted.", "a": "Drag Recon onto the Corporate Gateway.", "role": "gateway", "ui": "card:recon", "card": "recon", "pause": false},
-			{"t": "Use it", "r": "The Corporate Gateway is yours.", "a": "Launch Known exploit at the Corporate Gateway: it executes in 9 s.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
-			{"t": "A Miner far from Intel", "r": "The Miner needs Intel on the gateway, and none is made there.", "a": "Select the Corporate Gateway and build a Crypto miner.", "role": "gateway", "ui": "build:cash", "pause": true},
-			{"t": "Supply it", "r": "Couriers bring Intel there; the Miner uses what arrives, and Crypto rides back.", "a": "In the gateway's panel, set Keep here to 2 Intel.", "role": "gateway", "ui": "want:intel", "pause": true},
+			{"t": "Launch the ready copy", "r": "The Corporate Gateway is yours.", "a": "Launch the ready Known exploit at the Corporate Gateway.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
+			{"t": "A Miner far from Intel", "r": "The gateway has a Miner and its own 2 workers.", "a": "Build a Crypto miner and a Bot station on the gateway. No Intel is made there.", "role": "gateway", "ui": ["build:cash", "build:bot"], "pause": true},
+			{"t": "Missing inputs are fetched", "r": "Crypto from the gateway reached your main node.", "a": "Watch: the gateway's workers fetch Intel from your main node, and its Crypto comes home.", "role": "gateway", "pause": false},
+			{"t": "Local stock and Refill", "r": "Supply is automatic; Refill only adds one cycle's inputs once.", "a": "Read the gateway's LOCAL STOCK. Refill supplies is optional: one cycle's inputs, once.", "role": "gateway", "ui": "refill", "secs": 14.0, "pause": false},
 		]
 		3: return [
 			{"t": "Scout the target", "r": "The Practice host is scouted.", "a": "Drag Recon onto the Practice host.", "role": "practice", "ui": "card:recon", "card": "recon", "pause": true},
 			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Launch Phishing on the Practice host.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
 			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "Send Incident response to the Neighborhood Relay: it acts when it arrives.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
+			{"t": "Losses", "r": "A new Bot station is on order: its 2 workers start when it is built.", "a": "NYX took your Outpost: its 2 workers died with it. Order a Bot station on a host of yours.", "role": "", "ui": "build:bot", "fire": "ch4_outpost", "pause": true},
 		]
 		_: return [
-			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "role": "", "pause": true},
+			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "role": "", "pause": false},
 		]
 
 
@@ -5461,7 +6078,7 @@ func _camp_role_host(role: String) -> int:
 		"relay", "income": return _camp_relay
 		"gateway", "frontier": return _camp_gateway
 		"practice": return _camp_practice
-		"practice2": return _camp_practice2
+		"practice2", "outpost": return _camp_practice2
 		"support": return _camp_support
 	return -1
 
@@ -5490,7 +6107,7 @@ func _camp_from() -> int: return -1   # no manual wiring to guide any more
 func _camp_fill(s: String) -> String: return s
 
 
-func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck card or a build card), re-found each frame
+func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck card, a build card, a button), re-found each frame
 	var st := _camp_step()
 	if st.is_empty() or menu_open or won or lost: return []
 	var specs = st.get("ui", [])
@@ -5498,33 +6115,110 @@ func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck c
 	var out := []
 	for spec in specs:
 		var p := str(spec).split(":", true, 1)
-		if p.size() != 2: continue
 		match p[0]:
-			"card": out.append_array(_camp_card_ctrls(p[1]))
-			"build": out.append_array(_camp_build_ctrls(p[1]))
-			"want": out.append_array(_panel_find(func(c): return c is Button and str(c.text) == "+"))   # the Keep-here stepper
+			"card": if p.size() == 2: out.append_array(_camp_card_ctrls(p[1]))
+			"build":
+				if p.size() == 2:
+					var c := _camp_build_ctrls(p[1])
+					out.append_array(c)
+					if not c.is_empty(): break   # one building at a time
+			"refill":
+				var h := _camp_target()
+				if h >= 0 and (hosts[h].get("refill", {}) as Dictionary).is_empty(): out.append_array(_panel_find(func(c): return c is Button and str(c.text) == "Refill supplies"))
 	return out
 
 
+func _camp_op_active(recipe: String, t: int) -> bool:   # your matching operation is on its way to t, or executing there
+	for f in flights:
+		if str(f.kind) == "op" and int(f.owner) == PLAYER and str(f.get("card", "")) == recipe and not bool(f.get("returning", false)) and int(f.get("target", f.get("dest", -1))) == t: return true
+	for e in _execs:
+		if int(e.fac) == PLAYER and str(e.card) == recipe and int(e.target) == t: return true
+	return false
+
+
 func _camp_card_ctrls(recipe: String) -> Array:   # where the step's card is: its research node, its recipe, or the ready copy to use
+	var st := _camp_step()
+	var launch := str(st.get("card", "")) == recipe   # this step launches it (else it makes or learns it)
 	if not _known(PLAYER, recipe):   # still to research: the Research button, then its node in the tree and the action
+		if str((research_job.get(PLAYER, {}) as Dictionary).get("key", "")) == recipe: return []   # accepted: the research bar shows it
 		if not _deck_open or _card_bank != "research": return [research_button]
 		if _research_sel != recipe: return research_tree.get_children().filter(func(c): return str(c.get("recipe")) == recipe)
 		return [research_info]
-	if _held(PLAYER, recipe) > 0:   # a copy is ready: its chip in the strip (drag it, or click it then the target)
+	if launch and _camp_op_active(recipe, _camp_target()): return []   # accepted launch: it travels or executes; no second copy is asked for
+	if not launch:   # a making step: its copies are queued or ready, so nothing more to click
+		if _held(PLAYER, recipe) + _mq_count(PLAYER, recipe) >= int(st.get("copies", 1)): return []
+	elif _held(PLAYER, recipe) == 0 and _mq_count(PLAYER, recipe) > 0: return []   # being made: it waits for the copy, not for another order
+	if launch and _held(PLAYER, recipe) > 0:   # a copy is ready: its chip in the strip (drag it, or click it then the target)
 		var chips := ready_strip.get_children().filter(func(c): return c != ready_more and _card_of(str(c.key)) == recipe and c.visible)
 		return chips if not chips.is_empty() else [ready_more]
 	var bank := _bank_of(recipe)   # nothing ready: make one from its recipe
 	if not _deck_open: return [deck_handle]
 	if bank != _card_bank: return [card_banks.get_child(DRAWER_TABS.find(bank))]
 	if _deck_page_of(recipe) != _deck_page: return [deck_pager]   # the recipe is on another page: cue the pager
-	return hand_bar.get_children().filter(func(c): return _card_of(str(c.key)) == recipe and c.visible)
+	var tiles := hand_bar.get_children().filter(func(c): return _card_of(str(c.key)) == recipe and c.visible)
+	return tiles.map(func(t): return t.queue_button if t.queue_button != null else t)   # its + Queue button
 
 
-func _camp_build_ctrls(kind: String) -> Array:
-	var h := int(sel.keys()[0]) if sel.size() == 1 else _inspect
-	if h < 0 or not _mine(h) or _count_all(h, kind) > 0: return []
+func _camp_build_ctrls(kind: String) -> Array:   # the build card, until the order is accepted at the step's host
+	var h := _camp_target()
+	if h < 0: h = int(sel.keys()[0]) if sel.size() == 1 else _inspect
+	if h < 0 or not _mine(h) or _camp_ordered(h, kind): return []
+	var shown := int(sel.keys()[0]) if sel.size() == 1 else _inspect
+	if shown != h: return []   # the map frames the host to select first
 	return _panel_find(func(c): return c is BuildCard and c.kind == kind)
+
+
+func _camp_ordered(i: int, kind: String) -> bool:   # installed, or a project for it at this host (waiting, paused or in work)
+	if i < 0: return false
+	if _count_all(i, kind) > 0: return true
+	for slot in (hosts[i].jobs as Dictionary):
+		if str(hosts[i].jobs[slot].get("kind", "")) == kind: return true
+	return false
+
+
+func _camp_status() -> String:   # what the game is still resolving for this step after your action was accepted ("" = nothing)
+	var st := _camp_step()
+	if st.is_empty(): return ""
+	var tgt := _camp_target()
+	var need := str(st.get("card", ""))
+	if need != "" and tgt >= 0:
+		var nm := str(CARDS[need].name)
+		for e in _execs:
+			if int(e.fac) == PLAYER and str(e.card) == need and int(e.target) == tgt: return "%s executing on %s: %d s left." % [nm, str(hosts[tgt].name), ceili(float(e.ends) - _t)]
+		for f in flights:
+			if str(f.kind) == "op" and int(f.owner) == PLAYER and str(f.get("card", "")) == need and not bool(f.get("returning", false)) and int(f.get("target", f.get("dest", -1))) == tgt:
+				return "%s travelling to %s: arrives in %d s." % [nm, str(hosts[tgt].name), ceili(maxf(0.0, float(f.arrive_t) - _t))]
+	var specs = st.get("ui", [])
+	if specs is String: specs = [specs]
+	for spec in specs:
+		var p := str(spec).split(":", true, 1)
+		if p.size() != 2: continue
+		if p[0] == "card":
+			var r := p[1]
+			var job: Dictionary = research_job.get(PLAYER, {})
+			if str(job.get("key", "")) == r:
+				var rb := _research_bar_state()
+				return "Researching %s: %d%%%s." % [str(CARDS[r].name), int(float(rb.frac) * 100), "" if str(rb.state) == "active" else " (%s)" % str(rb.state)]
+			if _known(PLAYER, r) and _held(PLAYER, r) == 0 and _mq_count(PLAYER, r) > 0:
+				var q := _mq(PLAYER)
+				var why := _mq_head_why(PLAYER)
+				if not q.is_empty() and str(q[0].recipe) == r and not (q[0].paid as Dictionary).is_empty():
+					return "Your order is underway: %s being made, %d%%." % [str(CARDS[r].name), int(100.0 * float(q[0].progress) / maxf(0.001, _make_time(r)))]
+				return "%s is queued%s." % [str(CARDS[r].name), (": " + why) if why != "" else ""]
+		elif p[0] == "build" and tgt >= 0:
+			for slot in (hosts[tgt].jobs as Dictionary):
+				var jb: Dictionary = hosts[tgt].jobs[slot]
+				if str(jb.get("kind", "")) != p[1]: continue
+				var what := str(BUILD_KINDS[p[1]].name)
+				match _job_state(jb):
+					"paused": return "%s is paused: resume it in the host's CONSTRUCTION section." % what
+					"demolishing": return "Your order is underway: clearing the slot for %s." % what
+					"waiting":
+						var bill := 0.0; var here := 0.0
+						for r2 in (jb.bill as Dictionary): bill += float(jb.bill[r2]); here += minf(float(jb.bill[r2]), float((jb.escrow as Dictionary).get(r2, 0.0)))
+						return "Your order is underway: %s materials %d of %d here; workers bring the rest, then %d s of work." % [what, int(here + 0.0001), int(bill + 0.0001), int(BUILD_TIME)]
+					_: return "Your order is underway: building %s, %d s left." % [what, ceili(float(jb.left))]
+	return ""
 
 
 func _panel_find(ok: Callable) -> Array:
@@ -5593,7 +6287,7 @@ func _camp_own(i: int) -> void:
 
 
 func _camp_grant(b: float, intel: float, c: float, k: float, r: float) -> void:
-	for pair in [["bots", b], ["intel", intel], ["cash", c], ["creds", k], ["research", r]]:
+	for pair in [["intel", intel], ["cash", c], ["creds", k], ["research", r]]:   # (b: Bots are workers now; the stations make them)
 		bank[PLAYER][str(pair[0])] = maxf(_avail(PLAYER, str(pair[0])), minf(float(pair[1]), _cap(PLAYER, str(pair[0]))))
 
 
@@ -5619,10 +6313,12 @@ func _camp_slots(i: int, n: int) -> void:   # a lesson's host gets n slots (its 
 
 func _camp_ensure_builds(i: int, kinds: Array) -> void:   # catch-up only: put these kinds in free slots unless already there
 	if i < 0: return
+	_camp_slots(i, maxi(int(hosts[i].slots), kinds.size()))
 	for kind in kinds:
 		if _count_all(i, str(kind)) > 0: continue
 		var slot := _free_slot(i)
 		if slot >= 0: hosts[i].builds[slot] = str(kind)
+	_sync_teams(i)
 
 
 # Learn is ONE session on one board. A lesson's entry brings in what it is about, on top of whatever you have built;
@@ -5649,10 +6345,14 @@ func _camp_enter(chapter: int, announce := true) -> void:
 				var p := _camp_practice
 				hosts[p].owner = RIVAL; hosts[p].gen += 1; _camp_slots(p, 3); _set_builds(p, ["intel", "cash"]); hosts[p].name = "Practice host"
 				if announce: _flash("NYX runs a Practice host with an Intel harvester and a Miner.", 3)
+			if _camp_practice2 >= 0 and int(hosts[_camp_practice2].owner) == NEUTRAL:   # lesson fixture: an outpost of yours with a staffed station
+				var o := _camp_practice2
+				_camp_own(o); _camp_slots(o, 3); _set_builds(o, ["bot"]); hosts[o].name = "Outpost"
 			_camp_grant(30, 80, 40, 40, 40)
 			for recipe in ["phish", "response"]: _camp_supply(recipe)
 		CAMP_OPEN:
 			_ai_paused = false
+			_camp_paused = false   # free play runs: only the lesson's own pause is cleared; a pause you chose stays yours
 			_camp_grant(40, 80, 50, 40, 40)
 	_refresh_sight()
 
@@ -5660,12 +6360,13 @@ func _camp_enter(chapter: int, announce := true) -> void:
 func _camp_catch_up(chapter: int) -> void:
 	match chapter:
 		0: _camp_own(_camp_relay)
-		1: _camp_own(_camp_relay); _camp_ensure_builds(_camp_relay, ["intel", "bot"])
+		1: _camp_own(_camp_relay); _camp_ensure_builds(_camp_relay, ["bot", "intel", "cash"])
 		2:
 			if not known.has(PLAYER): known[PLAYER] = {}
 			known[PLAYER]["exploit"] = true
-			_camp_own(_camp_gateway); _camp_ensure_builds(_camp_gateway, ["cash"])
-			if hosts[_camp_gateway].has("want"): hosts[_camp_gateway].want["intel"] = 2.0
+			_camp_own(_camp_gateway); _camp_ensure_builds(_camp_gateway, ["cash", "bot"])
+		3:
+			if _camp_practice2 >= 0 and _mine(_camp_practice2): _capture(_camp_practice2, RIVAL)   # the Outpost was lost
 
 
 func _camp_own_path(a: int, b: int, avoid := -1) -> void:
@@ -5714,7 +6415,8 @@ func _start_campaign(chapter: int, replay := false) -> void:
 	_msg_t = 0.0; _msg_priority = 0
 	_camp = true; _tut = true; _tut_stage = 0; _camp_replay = replay
 	var steps := _camp_steps(_camp_chapter)
-	_camp_paused = bool(steps[0].get("pause", false))
+	_camp_paused = bool(steps[0].get("pause", false)); _camp_step_t = _camp_clock
+	if str(steps[0].get("fire", "")) != "": _camp_fire(str(steps[0].fire))
 	_open_menu(false); _show_tut(); _fit_view()
 	if not replay: _camp_save()
 
@@ -5802,6 +6504,27 @@ func _camp_fire(name: String) -> void:
 			if _camp_relay >= 0:
 				hosts[_camp_relay].steal_by = RIVAL; hosts[_camp_relay].steal_until = _t + 24.0
 			_flash("A rival is phishing your relay — clear it with Incident response.", 3)
+		"ch4_outpost":   # a scripted loss: the rival takes your Outpost, and its station's workers die with it
+			var o := _camp_practice2
+			if o >= 0 and _mine(o): _capture(o, RIVAL)
+			_camp_station_base = _camp_stations()
+
+
+func _camp_delivered(i: int, res: String) -> float:   # what host i delivered of res to your main node, recently
+	return float(_ledger_sums(PLAYER).get("from:%d:%s" % [i, res], 0.0)) if i >= 0 else 0.0
+
+
+func _camp_stations() -> int:   # your Bot stations, built or ordered
+	var n := 0
+	for i in hosts.size():
+		if not _mine(i): continue
+		n += _count_all(i, "bot")
+		for slot in (hosts[i].jobs as Dictionary): if str(hosts[i].jobs[slot].get("kind", "")) == "bot": n += 1
+	return n
+
+
+var _camp_step_t := 0.0            # _camp_clock when the current step began (a reading step lasts its "secs")
+var _camp_station_base := 0        # Ch4: your stations right after the Outpost fell
 
 
 func _camp_step_done(chapter: int, step: int) -> bool:
@@ -5809,27 +6532,29 @@ func _camp_step_done(chapter: int, step: int) -> bool:
 		0:
 			match step:
 				0: return _inspect == _camp_home or sel.has(_camp_home)
-				1: return _held(PLAYER, "breach") > 0 or _lane_of(PLAYER, "breach") >= 0 or _mine(_camp_relay)
-				2: return _recon_fresh(PLAYER, _camp_relay) or _mine(_camp_relay)
+				1: return _recon_fresh(PLAYER, _camp_relay) or _mine(_camp_relay)
+				2: return _held(PLAYER, "breach") > 0 or _mq_count(PLAYER, "breach") > 0 or _mine(_camp_relay)
 				3: return _mine(_camp_relay)
 		1:
 			match step:
-				0: return _count_all(_camp_relay, "intel") >= 1
-				1: return _count_all(_camp_relay, "bot") >= 1
-				2: return int(_delivered.get(PLAYER, 0)) > 0
+				0: return _count_all(_camp_relay, "bot") >= 1 and _worker_ids(PLAYER, _camp_relay).size() >= WORKERS_PER_STATION
+				1: return _count_all(_camp_relay, "intel") >= 1 and _count_all(_camp_relay, "cash") >= 1
+				2: return _camp_delivered(_camp_relay, "cash") > 0.0
 		2:
 			match step:
 				0: return _known(PLAYER, "exploit")
-				1: return _held(PLAYER, "exploit") > 0 or _mine(_camp_gateway)
+				1: return (_held(PLAYER, "exploit") >= 1 and _held(PLAYER, "exploit") + _mq_count(PLAYER, "exploit") >= 2) or _mine(_camp_gateway)
 				2: return _recon_fresh(PLAYER, _camp_gateway) or _mine(_camp_gateway)
 				3: return _mine(_camp_gateway)
-				4: return _count_all(_camp_gateway, "cash") >= 1
-				5: return _want(_camp_gateway, "intel") >= 1.0
+				4: return _count_all(_camp_gateway, "cash") >= 1 and _count_all(_camp_gateway, "bot") >= 1
+				5: return _camp_delivered(_camp_gateway, "cash") > 0.0
+				6: return not (hosts[_camp_gateway].get("refill", {}) as Dictionary).is_empty() or _camp_clock - _camp_step_t >= float(_camp_step().get("secs", 0.0))
 		3:
 			match step:
 				0: return _camp_practice >= 0 and (_recon_fresh(PLAYER, _camp_practice) or int(hosts[_camp_practice].get("steal_by", -1)) == PLAYER)
 				1: return _camp_practice >= 0 and int(hosts[_camp_practice].get("steal_by", -1)) == PLAYER
 				2: return bool(_camp_events.get("ch4_phish", false)) and int(hosts[_camp_relay].get("steal_by", -1)) < 0
+				3: return bool(_camp_events.get("ch4_outpost", false)) and _camp_stations() > _camp_station_base
 		CAMP_OPEN:
 			return won
 	return false
@@ -5848,12 +6573,16 @@ func _camp_card_in_flight(recipe: String) -> bool:
 	return false
 
 
+var _camp_status_shown := ""   # the banner's status line as last drawn (it is redrawn when the status changes)
+
+
 func _camp_tick() -> void:
 	if not _camp: return
+	if _camp_status() != _camp_status_shown: _show_tut()
 	var step := _camp_step()
 	var need := str(step.get("card", ""))
 	if need != "" and not _camp_step_done(_camp_chapter, _tut_stage) and _held(PLAYER, need) <= 0 \
-			and not _camp_card_in_flight(need) and _lane_of(PLAYER, need) < 0 and not _camp_exec_running(need):
+			and not _camp_card_in_flight(need) and _mq_count(PLAYER, need) == 0 and not _camp_exec_running(need):
 		_camp_supply(need, true); _refresh_hand()   # every time it is needed: a missed attack never stalls a lesson
 	var guard := 0   # a step already done when it begins (you got ahead) hands straight on to the next
 	while _camp and guard < 8 and _camp_step_done(_camp_chapter, _tut_stage):
@@ -5881,9 +6610,10 @@ func _camp_next() -> void:   # the next step, or the next lesson on the same boa
 			_camp_finish(); return
 		_camp_chapter += 1; _tut_stage = 0
 		_camp_enter(_camp_chapter)
+	_camp_step_t = _camp_clock
 	var step := _camp_step()
 	if str(step.get("fire", "")) != "": _camp_fire(str(step.fire))
-	if bool(step.get("pause", false)) and not _camp_step_done(_camp_chapter, _tut_stage): _camp_paused = true
+	_camp_paused = bool(step.get("pause", false)) and not _camp_step_done(_camp_chapter, _tut_stage)   # the lesson's own pause only
 	var tgt := _camp_target()
 	if tgt >= 0 and _mine(tgt): sel = {tgt: true}; _inspect = -1
 	elif tgt >= 0: sel = {}; _inspect = tgt
@@ -5909,10 +6639,10 @@ func _camp_show() -> void:   # one short instruction, the last result while it i
 	var head := "LEARN  %d/%d  %s" % [_camp_chapter + 1, CAMP_CHAPTERS, _camp_chapters()[_camp_chapter]]
 	if _camp_chapter < CAMP_OPEN: head += "  ·  step %d of %d" % [_tut_stage + 1, _camp_steps(_camp_chapter).size()]
 	_lbl(row, head, 15, C_DIM, 0).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if _camp_paused:   # the game waits for you: a bundled vector pause mark and plain words, never a font fallback
+	if _camp_paused or paused:   # the game waits: a bundled vector pause mark and plain words, never a font fallback
 		var mark := TextureRect.new(); mark.texture = UiIcons.texture("pause", 18); mark.modulate = C_WARN
 		mark.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED; mark.custom_minimum_size = Vector2(20, 20)
-		row.add_child(mark); _lbl(row, "Paused until you act (Space resumes)", 15, C_WARN, 0)
+		row.add_child(mark); _lbl(row, "Paused until you act (Space resumes)" if _camp_paused else "Paused by you (Space resumes)", 15, C_WARN, 0)
 	var body := RichTextLabel.new(); body.bbcode_enabled = true; body.fit_content = true; body.scroll_active = false
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # the card art is shrunk to a 16 px inline icon
@@ -5920,7 +6650,10 @@ func _camp_show() -> void:   # one short instruction, the last result while it i
 	body.add_theme_font_size_override("bold_font_size", 19)
 	var seen := {}   # each icon only on its first mention in this banner
 	var txt := "[b]%s[/b]" % _tut_rich(_camp_fill(str(step.a)), seen)
-	if _camp_result != "": txt += "\n[color=#%s]Done: %s[/color]" % [C_GOOD.to_html(false), _tut_rich(_camp_result, seen)]
+	var status := _camp_status()
+	_camp_status_shown = status
+	if status != "": txt += "\n[color=#%s]%s[/color]" % [C_DIM.lightened(0.25).to_html(false), _tut_rich(status, seen)]
+	elif _camp_result != "": txt += "\n[color=#%s]Done: %s[/color]" % [C_GOOD.to_html(false), _tut_rich(_camp_result, seen)]
 	body.text = txt; tut_box.add_child(body)
 	body.custom_minimum_size.x = maxf(200, get_viewport_rect().size.x - 80)
 	tut_box.reset_size.call_deferred()   # a rebuilt box keeps the tall width-0 transient of its wrapped text unless shrunk back once laid out
@@ -6038,6 +6771,10 @@ func _layout_ui() -> void:
 	hud.position = Vector2(24, 8); hud.size = Vector2(maxf(200.0, top_tabs.position.x - 16.0 - 24.0), 46)   # never under the buttons
 	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
 	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _tut else 64)
+	if research_bar != null:
+		research_bar.position = Vector2(24, _research_bar_y())
+		research_bar.size = Vector2(clampf(sz.x - _panel_width() - 96.0, 240.0, RESEARCH_BAR_W), RESEARCH_BAR_H)
+		research_bar.visible = not menu_open
 	var panel_bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	panel.size = Vector2(_panel_width(), maxf(180, panel_bottom - panel.position.y))
 	if not _panel_has_context(): panel.size.y = minf(panel.size.y, 94 + botnets.size() * 60)
@@ -6059,7 +6796,7 @@ func _layout_ui() -> void:
 func _map_rect() -> Rect2:
 	var sz := get_viewport_rect().size
 	var right := sz.x - _panel_width() - 48 if _panel_shown() else sz.x - 24
-	var top := (_camp_banner_h() + 74) if _tut else 100.0
+	var top := _research_bar_y() + RESEARCH_BAR_H + 10.0
 	# Reserve the deck (pushed down or pulled up) while fitting a new town behind the menu too.
 	var bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	return Rect2(24, top, maxf(200, right - 24), maxf(100, bottom - top))
@@ -6238,10 +6975,11 @@ func _wrapped_tooltip(text: String) -> Control:   # a hover note that wraps at a
 func _panel_enemy_slots(i: int) -> void:
 	var scanned := _scanned(PLAYER, i)
 	_plabel("Installations · %d slots" % int(hosts[i].slots) if scanned else "%d slots · Recon to see inside and for full odds" % int(hosts[i].slots), 14, C_DIM)
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER; row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := GridContainer.new(); row.columns = PANEL_COLS
+	row.add_theme_constant_override("h_separation", PALETTE_GAP); row.add_theme_constant_override("v_separation", 6)
 	for sl in int(hosts[i].slots):
 		var ps := PeekSlot.new(); ps.game = self; ps.host = i; ps.slot = sl
+		ps.custom_minimum_size.x = _palette_card_w()
 		row.add_child(ps)
 	panel_box.add_child(row)
 
@@ -6260,25 +6998,36 @@ func _panel_result() -> void:
 func _type_line(i: int) -> String:
 	var tp: Dictionary = NODE_TYPES[str(hosts[i].get("type", "pc"))]
 	var mults := ""
-	for what in ["bot", "intel", "cash", "cred", "research"]:
-		if float(tp.get(what, 1.0)) != 1.0: mults += " · %s ×%.1f" % [{"bot": "Bots", "intel": "Intel", "cash": "Crypto", "cred": "Creds", "research": "Research"}[what], float(tp[what])]
+	for what in ["intel", "cash", "cred", "research"]:   # (a station has 2 workers on any host type)
+		if float(tp.get(what, 1.0)) != 1.0: mults += " · %s ×%.1f" % [{"intel": "Intel", "cash": "Crypto", "cred": "Creds", "research": "Research"}[what], float(tp[what])]
 	return "%s · %d slots%s" % [str(tp.name), int(tp.slots), mults]
 
 
 func _stage_line(i: int) -> String:
 	var h: Dictionary = hosts[i]
+	if not _known_host(PLAYER, i):   # an unknown host: who holds it (public) and nothing else
+		var who := "Neutral" if int(h.owner) == NEUTRAL else fname(int(h.owner))
+		if bool(h.get("rig", false)) and int(h.owner) != NEUTRAL: who += " · main node"
+		return who + (" · Recon expired" if _recon_expired(PLAYER, i) else " · unknown")
 	var tname := str(NODE_TYPES[str(h.get("type", "pc"))].name)
 	if bool(h.get("junction", false)): tname += " · junction (×%d streets)" % JUNCTION_CAP_MULT
 	if bool(h.get("rig", false)) and int(h.owner) != NEUTRAL: tname = "Main node · " + tname
-	var scout := "scouted" if _recon_fresh(PLAYER, i) else "unscouted"
-	if int(h.owner) == NEUTRAL: return "Neutral · %s · %s" % [tname, scout]
+	if int(h.owner) == NEUTRAL: return "Neutral · scouted"   # what it is: the line under it (_type_line)
 	if not _mine(i):
-		return "%s · %s · %s" % [fname(int(h.owner)), tname, scout]
+		return "%s%s · scouted" % [fname(int(h.owner)), " · main node" if bool(h.get("rig", false)) else ""]
 	return "%d/%d slots · %s" % [_standing(i), int(h.slots), tname]
 
 
 func _effects_line(i: int) -> String:
 	var e := []
+	if not _known_host(PLAYER, i):   # an unknown host shows only what you did to it, and a DDoS (its routing visibly stops)
+		if _ddos_down(i): e.append("DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t)))
+		if _phished(i) and int(hosts[i].get("steal_by", -1)) == PLAYER: e.append("Phished %ds" % int(ceil(float(hosts[i].steal_until) - _t)))
+		var sp0: Dictionary = hosts[i].get("siphon", {})
+		if not sp0.is_empty() and int(sp0.get("by", -1)) == PLAYER and float(sp0.get("until", 0.0)) > _t: e.append("Siphon %ds" % int(ceil(float(sp0.until) - _t)))
+		for e0 in _execs:
+			if int(e0.target) == i and int(e0.fac) == PLAYER: e.append("%s executing %ds" % [str(CARDS[str(e0.card)].short), int(ceil(float(e0.ends) - _t))])
+		return " · ".join(e)
 	if _ddos_down(i): e.append("DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t)))
 	if _sabotaged(i): e.append("Sabotaged %ds" % int(ceil(float(hosts[i].sabot_until) - _t)))
 	if _phished(i): e.append("Phished %ds" % int(ceil(float(hosts[i].steal_until) - _t)))
@@ -6296,24 +7045,26 @@ func _effects_line(i: int) -> String:
 
 func _panel_build(i: int) -> void:
 	var h: Dictionary = hosts[i]
-	_plabel("Installations", 16, C_TEXT)
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 4)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	var w := _palette_card_w()
+	_psection("INSTALLATIONS", "%d/%d slots" % [_standing(i), int(h.slots)])
+	var grid := GridContainer.new(); grid.columns = PANEL_COLS
+	grid.add_theme_constant_override("h_separation", PALETTE_GAP); grid.add_theme_constant_override("v_separation", 6)
 	for slot in int(h.slots):
 		var col := VBoxContainer.new(); col.add_theme_constant_override("separation", 3)
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
-		box.custom_minimum_size = Vector2(112, 140); col.add_child(box)
+		box.custom_minimum_size = Vector2(w, 140); col.add_child(box)
 		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 socket positions right under it
 			var sl := SocketList.new(); sl.game = self; sl.host = i; sl.first = FIREWALL_SOCKETS * _wall_seat(i, slot)
+			sl.custom_minimum_size.x = w
 			col.add_child(sl)
-		row.add_child(col)
-	panel_box.add_child(row)
-	_plabel("Build · %d s each" % int(BUILD_TIME), 16, C_TEXT)
-	var palette := HBoxContainer.new(); palette.add_theme_constant_override("separation", PALETTE_GAP)
-	palette.alignment = BoxContainer.ALIGNMENT_CENTER
+		grid.add_child(col)
+	panel_box.add_child(grid)
+	_psection("BUILD", "%d s of work, once supplied" % int(BUILD_TIME))
+	var palette := GridContainer.new(); palette.columns = PANEL_COLS
+	palette.add_theme_constant_override("h_separation", PALETTE_GAP); palette.add_theme_constant_override("v_separation", PALETTE_GAP)
 	for kind in BUILD_KINDS:
 		var card := BuildCard.new(); card.game = self; card.kind = kind
-		card.custom_minimum_size = Vector2(_palette_card_w(), 140); palette.add_child(card)
+		card.custom_minimum_size = Vector2(w, 140); palette.add_child(card)
 	panel_box.add_child(palette)
 
 
@@ -6334,9 +7085,6 @@ func _cycle_text(i: int) -> String:   # what one production cycle on this host d
 		var ins := []
 		for r in (spec.use as Dictionary): ins.append("%s %s" % [_amt(float(spec.use[r]) * m * k), RES_NAME[r]])
 		parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(spec.rate) * m * k), RES_NAME[str(spec.out)]])
-	var bots := 0
-	for k in _count(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
-	if bots > 0: parts.append("+%d Bots" % bots if i == int(rig.get(int(hosts[i].owner), -1)) else "%d Bots carry %d home" % [bots, bots])
 	if parts.is_empty(): return ""
 	return "Every %d s: %s" % [int(PROD_CYCLE), " · ".join(parts)]
 
@@ -6359,7 +7107,6 @@ func _store_text(i: int) -> String:   # this host's storage, and why it is not l
 	var owner := int(hosts[i].owner)
 	if _store_total(i) >= STORE_CAP - 0.5: line += " · full, production stops"
 	elif _store_total(i) >= 1.0 and owner != NEUTRAL and _attack_route_none(owner, i): line += " · no route home"
-	elif _store_total(i) >= 1.0 and owner != NEUTRAL and _avail(owner, "bots") - float(bot_reserve.get(owner, BOT_RESERVE_DEFAULT)) < 1.0: line += " · waiting for courier Bots"
 	return line
 
 
@@ -6373,7 +7120,7 @@ func _cycle_preview(i: int) -> Dictionary:
 	for fac in [owner, benef]:
 		S.st[fac] = {}
 		for res in RES: S.st[fac][res] = _st_get(i, fac, res)
-	var out := {"benef": benef, "conv": [], "bots": 0, "sent": [], "unmade": 0, "bots_why": ""}
+	var out := {"benef": benef, "conv": [], "sent": []}
 	# a) Intel harvesters
 	var n := _cycle_kinds(i, "intel")
 	if n > 0:
@@ -6391,7 +7138,13 @@ func _cycle_preview(i: int) -> Dictionary:
 			var own := minf(need, float(S.st[owner].intel))
 			_pv_take(S, i, owner, "intel", own)
 			if need - own > 0.0001: _pv_take(S, i, benef, "intel", need - own)
-	# c) converters, in order
+	# c) converters, in order (a remote host's as far as its plan funds them, exactly as _run_cycle runs them)
+	var use_plan: bool = not _st_local(i, owner) and benef == owner
+	var planned := {}
+	if use_plan:
+		var budget := {}
+		for res in RES: budget[res] = _free(owner, res)
+		planned = _host_plan(i, owner, budget).frac
 	for kind in CONVERT_ORDER:
 		var count := _cycle_kinds(i, kind)
 		if count == 0: continue
@@ -6400,8 +7153,16 @@ func _cycle_preview(i: int) -> Dictionary:
 		var m := _tmult(i, res_out)
 		var row := {"kind": kind, "n": count, "frac": 0.0, "short": "", "made": 0.0, "use": {}}
 		var done := 0.0
+		var slots := []
+		for sl in (hosts[i].builds as Array).size():
+			if str(hosts[i].builds[sl]) == kind and _producer_active(i, sl): slots.append(sl)
 		for k in count:
-			var frac := 1.0; var lim := ""
+			var frac := float(planned.get(slots[k], 0.0)) if use_plan else 1.0; var lim := ""
+			if frac < 0.9999:   # the plan holds it back: the input the main node cannot cover, else storage room for its supplies
+				var best := 1.0e9; lim = "room"
+				for r in (spec.use as Dictionary):
+					var cover := (float(S.st[benef][str(r)]) + _inbound(i, str(r)) + _free(owner, str(r))) / maxf(0.000001, float(spec.use[r]) * m)
+					if cover < 0.9999 and cover < best: best = cover; lim = str(r)
 			for r in (spec.use as Dictionary):
 				var fr := float(S.st[benef][str(r)]) / maxf(0.000001, float(spec.use[r]) * m)
 				if fr < frac: frac = fr; lim = str(r)
@@ -6417,18 +7178,6 @@ func _cycle_preview(i: int) -> Dictionary:
 			done += frac
 		row.frac = done / float(count)
 		out.conv.append(row)
-	# d) Bot stations
-	var bots := 0
-	for k in _cycle_kinds(i, "bot"): bots += int(round(float(BUILD_KINDS.bot.rate) * _tmult(i, "bots")))
-	out.bots = bots
-	if bots > 0:
-		if _st_local(i, owner):
-			var held := _incoming(owner, "bots")   # as _add_bank: room is kept for the couriers out on trips
-			out["bots_in"] = minf(float(bots), maxf(0.0, _cap(owner, "bots") - _avail(owner, "bots") - held))
-		else:
-			var room := _courier_cap(i) - int(hosts[i].get("couriers", 0)) - _couriers_out(owner, i)
-			out["couriers_made"] = clampi(room, 0, bots)
-			out.unmade = bots - int(out.couriers_made)
 	out["after"] = S.st[benef]
 	out["after_owner"] = S.st[owner]
 	return out
@@ -6490,34 +7239,48 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 		var lim := str(row.short)
 		var out_res := str(BUILD_KINDS[str(row.kind)].out)
 		if lim == "cap": probs.append(["blocked", C_WARN, "%s stops: your %s bank is full. Spend some, or pause the %s." % [nm, RES_NAME[out_res], nm]])
+		elif lim == "room": probs.append(["starved", C_WARN, "%s waits its turn: storage here has no room for all its supplies this cycle. Let surplus ship, or pause a producer." % nm])
 		elif main: probs.append(["starved", C_WARN, "%s has no %s in your bank to use." % [nm, RES_NAME[lim]]])
 		elif float(row.frac) > 0.0001: probs.append(["starved", C_WARN, "%s runs at %d%%: not enough %s on this host." % [nm, int(round(100.0 * float(row.frac))), RES_NAME[lim]]])
 		elif not _input_here(i, lim):
 			if _inbound(i, lim) >= 1.0: probs.append(["starved", C_WARN, "%s waits for the %s on its way from your main node." % [nm, RES_NAME[lim]]])
-			else: probs.append(["starved", C_WARN, "%s needs %s here: keep some here (below), or build %s here." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "its input")]])
+			elif _free(owner, lim) < 0.999: probs.append(["starved", C_WARN, "%s needs %s here; your main node has none to send. Make %s, or build %s here." % [nm, RES_NAME[lim], RES_NAME[lim], _MAKER_OF.get(lim, "its input")]])
+			elif not _route_ok(owner, _hub(owner), i): probs.append(["starved", C_WARN, "%s needs %s here, and no worker can reach this host." % [nm, RES_NAME[lim]]])
+			elif int(_worker_counts(owner, _pool_of(owner, _hub(owner), i)).total) == 0: probs.append(["starved", C_WARN, "%s needs %s here, but you have no workers to fetch it. Build a Bot station here or at your main node." % [nm, RES_NAME[lim]]])
+			elif _has_team(i): probs.append(["starved", C_WARN, "%s needs %s here: this host's workers are bringing it from your main node." % [nm, RES_NAME[lim]]])
+			else: probs.append(["starved", C_WARN, "%s needs %s here: your main node's workers are bringing it as they come free." % [nm, RES_NAME[lim]]])
 		else: probs.append(["starved", C_WARN, "%s gets no %s: the converters before it use it all. Add %s here, or pause one." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "more input")]])
 	if pv.has("fw") and not bool(pv.fw.on):
 		probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here and none is left. Build an Intel harvester here." % _amt(float(pv.fw.need))])
 	if not main and not _ddos_down(i):
-		var spare := _avail(owner, "bots") - float(bot_reserve.get(owner, BOT_RESERVE_DEFAULT))
 		var bank_full := []
 		for res in RES:
 			if _st_get(i, owner, res) >= 1.0 and _room(owner, res) < 1.0: bank_full.append(str(RES_NAME[res]))
-		var waits := "No courier Bots are spare: %d in your bank, %d kept in reserve." % [int(_avail(owner, "bots")), int(bot_reserve.get(owner, BOT_RESERVE_DEFAULT))]
+		var pool := _pool_of(owner, _hub(owner), i)
+		var wc := _worker_counts(owner, pool)
+		var waits := ("All %d of %s's workers are busy." % [int(wc.total), "this host" if pool == i else "your main node"]) if int(wc.total) > 0 else "Your main node has no workers: build a Bot station there."
 		if _store_total(i) >= STORE_CAP - 0.5:
 			var why := "Storage %d/%d: producers here stop until it ships." % [int(round(_store_total(i))), int(STORE_CAP)]
-			if not bank_full.is_empty(): why += " Your %s bank is full, so it waits." % " and ".join(bank_full)
-			elif spare < 1.0: why += " " + waits
+			if not bank_full.is_empty(): why += " Your main node's %s is full: spend some, or pause what makes it." % " and ".join(bank_full)
+			elif int(wc.idle) == 0: why += " " + waits
 			probs.append(["blocked", C_WARN, why])
-		elif not bank_full.is_empty(): probs.append(["blocked", C_WARN, "Your %s bank is full: what is stored here waits." % " and ".join(bank_full)])
-		elif _store_total(i) >= 1.0 and spare < 1.0 and not _attack_route_none(owner, i):
-			probs.append(["waiting for couriers", C_WARN, waits + " Lower the reserve on your main node, or build a Bot station here."])
-	if int(pv.unmade) > 0 and not main: probs.append(["", C_DIM, "Its Bot stations rest: %d couriers is all this host keeps." % _courier_cap(i)])
+		elif not bank_full.is_empty(): probs.append(["blocked", C_WARN, "Your main node's %s is full: what is stored here waits." % " and ".join(bank_full)])
+		elif _store_total(i) >= 1.0 and int(wc.idle) == 0 and not _attack_route_none(owner, i):
+			probs.append(["waiting for workers", C_WARN, waits])
 	if paused > 0: probs.append(["paused" if paused == producers else "", C_DIM, "%d producer%s paused by you." % [paused, "" if paused == 1 else "s"]])
 	for slot_key in (hosts[i].jobs as Dictionary):
 		var job: Dictionary = hosts[i].jobs[slot_key]
-		var what := str(BUILD_KINDS[str(job.kind)].name)
-		probs.append(["building" if producers == 0 else "", C_DIM, ("Building %s: %d s left." if str(job.phase) == "build" else "Clearing a slot for %s: %d s left.") % [what, int(ceil(float(job.left)))]])
+		var what := str(BUILD_KINDS[str(job.kind)].name) if str(job.kind) != "" else "nothing"
+		var line := ""
+		match _job_state(job):
+			"paused": line = "%s is paused: no work and no new deliveries." % what
+			"demolishing": line = "Clearing a slot for %s: %d s left." % [what, int(ceil(float(job.left)))]
+			"waiting":
+				var bill := 0.0; var here := 0.0
+				for r in (job.bill as Dictionary): bill += float(job.bill[r]); here += minf(float(job.bill[r]), float((job.escrow as Dictionary).get(r, 0.0)))
+				line = "%s waits for its materials: %d of %d here; workers bring the rest." % [what, int(here + 0.0001), int(bill + 0.0001)]
+			_: line = "Building %s: %d s left." % [what, int(ceil(float(job.left)))]
+		probs.append(["building" if producers == 0 else "", C_DIM, line])
 	if producers == 0 and _count_all(i, "wall") == 0 and (hosts[i].jobs as Dictionary).is_empty():
 		probs.append(["idle", C_DIM, "Nothing installed: drag a building onto an empty slot."])
 	var status := "operating"; var col := C_GOOD
@@ -6545,10 +7308,6 @@ func _next_cycle_text(i: int, pv: Dictionary) -> String:   # what the next cycle
 		var ins := []
 		for r in (spec.use as Dictionary): ins.append("%s %s" % [_amt(float((row.use as Dictionary).get(str(r), 0.0))), RES_NAME[str(r)]])
 		parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(row.made)), RES_NAME[str(spec.out)]])
-	var bots := int(pv.bots)
-	if bots > 0:
-		if pv.has("bots_in"): parts.append("+%s Bots" % _amt(float(pv.bots_in)))
-		elif int(pv.get("couriers_made", 0)) > 0: parts.append("+%d couriers here" % int(pv.couriers_made))
 	if parts.is_empty(): return ""
 	return "Next cycle in %.1f s: %s" % [maxf(0.0, float(hosts[i].get("cyc", PROD_CYCLE))), " · ".join(parts)]
 
@@ -6590,12 +7349,9 @@ func _delivery_lines(i: int) -> Array:   # [[text, colour]] for a remote host: r
 	var lines := []
 	var route := _route_home_line(i)
 	lines.append([route, C_BAD if route.ends_with("none") else C_DIM])
-	var c := _courier_counts(owner, i)
-	if _courier_cap(i) > 0:
-		var t := "Couriers: %d here · %d out" % [int(c.idle), int(c.out)]
-		if int(c.held) > 0: t += " · %d held" % int(c.held)
-		lines.append([t + " · up to %d" % _courier_cap(i), C_WARN if int(c.held) > 0 else C_DIM])
-	else: lines.append(["Couriers: from your main node · %d on the way" % int(c.out) + (" · %d held" % int(c.held) if int(c.held) > 0 else ""), C_WARN if int(c.held) > 0 else C_DIM])
+	var pool := _pool_of(owner, _hub(owner), i)
+	var c := _worker_counts(owner, pool)
+	lines.append([("Workers %d (this host's)" if pool == i else "Workers %d (your main node's)") % int(c.total) + " — %d available, %d collecting, %d carrying" % [int(c.idle), int(c.collecting), int(c.carrying)] + (", %d blocked" % int(c.blocked) if int(c.blocked) > 0 else ""), C_WARN if int(c.blocked) > 0 else C_DIM])
 	lines.append([_store_text(i), C_WARN if _store_total(i) >= STORE_CAP - 0.5 else C_DIM])
 	var got := _host_delivered(owner, i)
 	var parts := []
@@ -6603,18 +7359,6 @@ func _delivery_lines(i: int) -> Array:   # [[text, colour]] for a remote host: r
 		if float(got.get(res, 0.0)) >= 0.5: parts.append("%d %s" % [int(round(float(got[res]))), RES_NAME[res]])
 	if not parts.is_empty(): lines.append(["Delivered recently: %s per min%s." % [", ".join(parts), " (early estimate)" if _t < float(LEDGER_SECS) else ""], C_DIM])
 	return lines
-
-
-func _courier_counts(fac: int, i: int) -> Dictionary:   # {idle, out, held}: this host's own couriers, or the main node's serving it
-	var own := _courier_cap(i) > 0
-	var out := {"idle": int(hosts[i].get("couriers", 0)) if own else 0, "out": 0, "held": 0}
-	for f in flights:
-		if str(f.kind) != "courier" or int(f.owner) != fac: continue
-		var mine := int(f.origin) == i if own else (int(f.origin) == _hub(fac) and (int(f.get("dest", -1)) == i or int(f.get("src", -1)) == i))
-		if not mine: continue
-		if bool(f.get("blocked", false)): out.held = int(out.held) + 1
-		else: out.out = int(out.out) + 1
-	return out
 
 
 func _cut_off(i: int) -> Array:   # your hosts that, with i, have no route to your main node (the disconnected segment)
@@ -6629,55 +7373,19 @@ func _cut_off(i: int) -> Array:   # your hosts that, with i, have no route to yo
 	return out
 
 
-func _panel_host_econ(i: int) -> void:   # role and status, its first two problems, the next cycle, then couriers, storage and stock
+func _panel_host_econ(i: int) -> void:   # what is wrong, why, and what to do (its first two problems), then the next cycle
 	var d := _host_diag(i)
 	_plabel("%s · %s" % [str(d.role), str(d.status)], 15, d.col)
 	for line in (d.lines as Array).slice(0, 2): _plabel(str(line[0]), 12, line[1])   # the rest: Economy view, Help
 	if str(d.next) != "": _plabel(str(d.next), 12, C_TEXT)
-	if i == int(rig.get(int(hosts[i].owner), -1)): return
-	for line in _delivery_lines(i): _plabel(str(line[0]), 12, line[1])
-	_want_row(i)
-
-
-func _want_inputs(i: int) -> Array:   # the resources this host's installations use, in RES order
-	var need := {}
-	for b in (hosts[i].builds as Array):
-		var k := str(b)
-		if k == "" or not BUILD_KINDS.has(k): continue
-		for r in (BUILD_KINDS[k].get("use", {}) as Dictionary): need[str(r)] = true
-	var out := []
-	for res in RES:
-		if need.has(res): out.append(res)
-	return out
-
-
-func _want_row(i: int) -> void:   # desired stock: "Keep here  − 2 Intel +" for each input its installations use
-	var res_list := _want_inputs(i)
-	if res_list.is_empty(): return
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 4)
-	var head := _lbl(row, "Keep here", 12, C_DIM, 0)
-	head.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN; head.autowrap_mode = TextServer.AUTOWRAP_OFF
-	for res in res_list:
-		var n := int(_want(i, res))
-		var tip := "Your main node sends %s until this host holds %d (0 to %d). Its installations use it; it is never carried back out." % [RES_NAME[res], n, WANT_MAX]
-		for pair in [["−", n - 1, n > 0], ["+", n + 1, n < WANT_MAX]]:
-			if str(pair[0]) == "+":
-				var nl := _lbl(row, "%d %s" % [n, RES_NAME[res]], 12, C_TEXT if n > 0 else C_DIM, 0)
-				nl.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN; nl.autowrap_mode = TextServer.AUTOWRAP_OFF; nl.tooltip_text = tip
-				nl.mouse_filter = Control.MOUSE_FILTER_PASS
-			var b := Button.new(); b.text = str(pair[0]); b.custom_minimum_size = Vector2(26, 24)
-			b.add_theme_font_size_override("font_size", 13); b.disabled = not bool(pair[2]); b.tooltip_text = tip
-			b.pressed.connect(_cmd.bind(["want", i, res, int(pair[1])]))
-			row.add_child(b)
-	panel_box.add_child(row)
 
 
 const PALETTE_GAP := 4
+const PANEL_COLS := 3   # slots and building cards per row in the inspector
 
 
-func _palette_card_w() -> float:   # every building kind side by side within the sidebar's content width, never under its scrollbar
-	var n := BUILD_KINDS.size()
-	return floorf((PANEL_W - 44.0 - PALETTE_GAP * (n - 1)) / float(n))
+func _palette_card_w() -> float:   # three building cards (or slots) side by side within the inspector, never under its scrollbar
+	return floorf((PANEL_W - 44.0 - PALETTE_GAP * (PANEL_COLS - 1)) / float(PANEL_COLS))
 
 
 func _panel_selecting() -> void:
@@ -6686,12 +7394,257 @@ func _panel_selecting() -> void:
 		return
 	var source := int(sel.keys()[0])
 	_plabel(str(hosts[source].name), 20, C_TEXT)
-	_plabel(_stage_line(source), 14, C_TEXT)
+	_plabel(_stage_line(source), 14, C_DIM)
 	var fx := _effects_line(source)
 	if fx != "": _plabel(fx, 13, C_WARN)
-	if _mine(source): _panel_host_econ(source)
+	if _mine(source):
+		_panel_host_econ(source)
+		_panel_local_stock(source)
+		_panel_workers(source)
+		_panel_construction(source)
 	_panel_build(source)
-	if source == int(rig.get(PLAYER, -1)): _panel_logistics()
+
+
+# ---- inspector sections: local stock, workers, construction ----
+func _psection(title: String, note := "", note_col := C_DIM) -> void:   # a section heading with a short note on its right
+	_gap(6.0)
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var a := _tcell(row, title, 0.0, Color(0.62, 0.74, 0.9)); a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if note != "": _tcell(row, note, 0.0, note_col, HORIZONTAL_ALIGNMENT_RIGHT)
+	panel_box.add_child(row)
+	var rule := ColorRect.new(); rule.color = Color(0.25, 0.32, 0.42, 0.7); rule.custom_minimum_size = Vector2(0, 1)
+	panel_box.add_child(rule)
+
+
+func _tcell(parent: Control, txt: String, w: float, col: Color, align := HORIZONTAL_ALIGNMENT_LEFT, fs := 14) -> Label:
+	var l := Label.new(); l.text = txt
+	var cf := _compact(txt)
+	if cf != null: l.add_theme_font_override("font", cf)
+	l.add_theme_font_size_override("font_size", fs); l.add_theme_color_override("font_color", col)
+	l.horizontal_alignment = align; l.custom_minimum_size = Vector2(w, 0)
+	l.clip_text = true; l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	parent.add_child(l)
+	return l
+
+
+const STOCK_COLS := [96.0, 54.0, 96.0, 90.0]   # Material · Here · On the way · Needed now (= the inspector's 340 px)
+
+
+func _ptable(head: Array, rows: Array, tips := []) -> GridContainer:   # rows: [[text, colour], ...] per row; numbers right-aligned
+	var g := GridContainer.new(); g.columns = head.size()
+	g.add_theme_constant_override("h_separation", 0); g.add_theme_constant_override("v_separation", 1)
+	for k in head.size():
+		var h := _tcell(g, str(head[k]), float(STOCK_COLS[k]), C_DIM, HORIZONTAL_ALIGNMENT_LEFT if k == 0 else HORIZONTAL_ALIGNMENT_RIGHT, 13)
+		if k < tips.size(): h.tooltip_text = str(tips[k]); h.mouse_filter = Control.MOUSE_FILTER_PASS
+	for row in rows:
+		for k in (row as Array).size():
+			_tcell(g, str(row[k][0]), float(STOCK_COLS[k]), row[k][1], HORIZONTAL_ALIGNMENT_LEFT if k == 0 else HORIZONTAL_ALIGNMENT_RIGHT)
+	panel_box.add_child(g)
+	return g
+
+
+func _cycle_needs(i: int) -> Dictionary:   # {res: units} one full cycle uses from this host's storage, after what the host makes itself
+	var gross := {}; var made := {}
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0: gross.intel = float(BUILD_KINDS.wall.use.intel) * walls
+	made.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
+	for k in (hosts[i].builds as Array).size():
+		var kind := str(hosts[i].builds[k])
+		if not (kind in CONVERT_ORDER) or not _producer_active(i, k): continue
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var m := _tmult(i, str(spec.out))
+		for r in (spec.use as Dictionary): gross[str(r)] = float(gross.get(str(r), 0.0)) + float(spec.use[r]) * m
+		made[str(spec.out)] = float(made.get(str(spec.out), 0.0)) + float(spec.rate) * m
+	var out := {}
+	for r in gross:
+		var v := float(gross[r]) - float(made.get(r, 0.0))
+		if v > 0.0001: out[r] = v
+	return out
+
+
+func _stock_rows(i: int) -> Array:   # [res, here, on the way, needed now] for what this host holds, uses, makes or awaits
+	var fac := int(hosts[i].owner)
+	var need := _cycle_needs(i)
+	var touches := {}
+	for k in (hosts[i].builds as Array).size():
+		var kind := str(hosts[i].builds[k])
+		if kind == "" or kind == "bot": continue
+		if kind == "wall": touches["intel"] = true; continue
+		touches[str(BUILD_KINDS[kind].out)] = true
+		for r in (BUILD_KINDS[kind].get("use", {}) as Dictionary): touches[str(r)] = true
+	var out := []
+	for res in RES:
+		var here := float(_store_of(i, fac).get(res, 0.0))
+		var way := _inbound(i, res) + _fetch_held(i, res)
+		var nd := float(need.get(res, 0.0))
+		if here < 0.05 and way < 0.05 and nd < 0.05 and not touches.has(res): continue
+		out.append([res, here, way, nd])
+	return out
+
+
+func _panel_local_stock(i: int) -> void:
+	var fac := int(hosts[i].owner)
+	if i == _hub(fac):   # the main node's stock is the bank; say what of it is spoken for
+		var held := []
+		for res in RES:
+			if _rig_claimed(fac, res) > 0.05: held.append("%s %s" % [_amt(_rig_claimed(fac, res)), RES_NAME[res]])
+		_psection("LOCAL STOCK", "your banks (top bar)")
+		_plabel(("Reserved for workers' pickups: %s." % ", ".join(held)) if not held.is_empty() else "Nothing reserved: all of your bank can be spent.", 12, C_DIM)
+		return
+	var full := _store_total(i) >= STORE_CAP - 0.5
+	_psection("LOCAL STOCK", "Storage %s/%d" % [_amt(_store_total(i)), int(STORE_CAP)], C_WARN if full else C_DIM)
+	var rows := []
+	for r in _stock_rows(i):
+		var res := str(r[0])
+		var short := float(r[3]) > float(r[1]) + float(r[2]) + 0.05
+		rows.append([[str(RES_NAME[res]), _res_col(res)], [_amt(float(r[1])), C_TEXT], [_amt(float(r[2])) if float(r[2]) >= 0.05 else "—", C_TEXT if float(r[2]) >= 0.05 else C_DIM],
+			[_amt(float(r[3])) if float(r[3]) >= 0.05 else "—", C_WARN if short else (C_TEXT if float(r[3]) >= 0.05 else C_DIM)]])
+	if rows.is_empty(): _plabel("Nothing stored, used or made here yet.", 12, C_DIM)
+	else: _ptable(["Material", "Here", "On the way", "Needed now"], rows,
+		["", "In this host's storage now.", "Carried here by workers right now.", "What one production cycle here uses, after what this host makes itself. Workers bring it automatically."])
+	var gap := {}   # the uncovered shortage: needed now less what is here and on the way
+	for r in _stock_rows(i):
+		var g0 := float(r[3]) - float(r[1]) - float(r[2])
+		if g0 > 0.05: gap[str(r[0])] = g0
+	if not gap.is_empty():
+		var who := "this host's workers fetch it" if _has_team(i) else ("your main node's workers bring it" if int(_worker_counts(fac, _hub(fac)).total) > 0 else "no workers can bring it: build a Bot station")
+		for r in gap:
+			if _free(fac, str(r)) < 0.999: who = "your main node has no %s to send" % RES_NAME[str(r)]; break
+		_plabel("Still uncovered: %s — %s." % [_res_list(gap), who], 12, C_WARN)
+	var keep := {}; var pile := {}
+	for res in RES:
+		if _earmark(i, res) > 0.05: keep[res] = _earmark(i, res)
+		if _loot(i, fac, res) > 0.05: pile[res] = _loot(i, fac, res)
+	if not keep.is_empty(): _plabel("Kept for this host's next use: %s." % _res_list(keep), 12, C_DIM)
+	if not pile.is_empty(): _plabel("Salvage here: %s. Workers take it home." % _res_list(pile), 12, C_WARN)
+	var ticket: Dictionary = hosts[i].get("refill", {})
+	if ticket.is_empty():
+		var pv := _refill_preview(i)
+		if pv.is_empty():
+			_btn("Refill supplies", _refill_click.bind(i), false, null, "Nothing to bring: what is here and on its way covers one full cycle.", 30.0)
+		else:
+			_plabel("Refill brings %s once (one cycle's inputs), kept for this host." % _res_list(pv), 12, C_DIM)
+			_btn("Refill supplies", _refill_click.bind(i), true, null, "A one-time delivery of one full cycle's inputs: %s. Workers bring it and it is kept for this host's next use." % _res_list(pv), 30.0)
+	else:
+		var why := "on its way"
+		if _refill_state(i) == "requested":
+			why = "waiting for a free worker"
+			for res in ticket:
+				if _free(fac, str(res)) < 0.999: why = "waiting: your main node has no %s" % RES_NAME[str(res)]; break
+		_plabel("Refill: %s still to come · %s." % [_res_list(ticket), why], 12, C_WARN if why.begins_with("waiting:") else C_TEXT)
+		_btn("Cancel refill", _refill_cancel_click.bind(i), true, null, "Stops the rest of this refill. What workers already carry still arrives.", 30.0)
+
+
+func _refill_click(i: int) -> void: _cmd(["refill", i])
+func _refill_cancel_click(i: int) -> void: _cmd(["refill_cancel", i])
+
+
+func _worker_ids(fac: int, home: int) -> Array:   # this host's workers by their stable number
+	var out := []
+	for wid in workers:
+		if int(workers[wid].fac) == fac and int(workers[wid].home) == home: out.append(int(wid))
+	out.sort()
+	return out
+
+
+func _worker_line(wid: int) -> Array:   # [text, colour]: one worker, by number, and what it is doing
+	var w: Dictionary = workers[wid]
+	var f := _flight_of(wid)
+	var st := _worker_state(wid)
+	var txt := "available at %s" % str(hosts[int(w.home)].name)
+	var col := C_DIM
+	match st:
+		"blocked":
+			txt = "blocked at %s: the way on is cut" % str(hosts[int(f.get("at", w.home))].name); col = C_WARN
+		"collecting":
+			var job: Dictionary = f.get("job", {})
+			col = C_TEXT
+			if job.has("src"): txt = "collecting %s %s at %s" % [_amt(float(job.amt)), RES_NAME[str(job.res)], str(hosts[int(job.src)].name)]
+			elif job.has("dest"): txt = "fetching %s %s from your main node" % [_amt(float(job.amt)), RES_NAME[str(job.res)]]
+			else: txt = "returning to %s" % str(hosts[int(w.home)].name); col = C_DIM
+		"carrying":
+			var to := int(f.dest) if str(f.trip) == "out" else int(f.origin)
+			txt = "carrying %s → %s" % [_res_list(f.cargo), str(hosts[to].name)]; col = C_TEXT
+	if str(w.state) == "retiring": txt = "retiring after this leg · " + txt
+	return ["#%d  %s" % [wid, txt], col]
+
+
+func _worker_touches(wid: int, i: int) -> bool:   # is this worker's current trip for host i?
+	var f := _flight_of(wid)
+	if f.is_empty(): return false
+	var job: Dictionary = f.get("job", {})
+	return int(f.dest) == i or int(job.get("src", -1)) == i or int(job.get("dest", -1)) == i
+
+
+func _panel_workers(i: int) -> void:
+	var fac := int(hosts[i].owner)
+	var own := _worker_ids(fac, i)
+	var stations := _teams(i).size()
+	var waiting := 0.0
+	for slot in _teams(i):
+		for k in (_teams(i)[slot].w as Array).size():
+			if int(_teams(i)[slot].w[k]) < 0: waiting = maxf(waiting, float(_teams(i)[slot].re[k]))
+	if stations > 0 or not own.is_empty():
+		_psection("WORKERS", "%d from %s" % [own.size(), "its station" if stations == 1 else "%d stations" % stations])
+		for wid in own:
+			var ln := _worker_line(wid)
+			_plabel(str(ln[0]), 12, ln[1])
+		if waiting > 0.0: _plabel("A replacement worker starts in %d s." % ceili(waiting), 12, C_WARN)
+	else:
+		var hub := _hub(fac)
+		var pool := _pool_of(fac, hub, i)
+		var helping := []
+		for wid in _worker_ids(fac, pool):
+			if _worker_touches(wid, i): helping.append(wid)
+		_psection("WORKERS", "none stationed here")
+		if _worker_ids(fac, pool).is_empty(): _plabel("No workers at your main node: build a Bot station there, or here.", 12, C_WARN)
+		else: _plabel("Your main node's workers serve this host%s." % (": %d on it now" % helping.size() if not helping.is_empty() else ""), 12, C_DIM)
+		for wid in helping:
+			var ln := _worker_line(wid)
+			_plabel(str(ln[0]), 12, ln[1])
+	if i != _hub(fac):
+		var route := _route_home_line(i)
+		_plabel(route, 12, C_BAD if route.ends_with("none") else C_DIM)
+
+
+func _panel_construction(i: int) -> void:
+	var jobs: Dictionary = hosts[i].jobs
+	if jobs.is_empty(): return
+	_psection("CONSTRUCTION", "%d project%s" % [jobs.size(), "" if jobs.size() == 1 else "s"])
+	var slots := jobs.keys(); slots.sort()
+	for slot in slots:
+		var job: Dictionary = jobs[slot]
+		var what := str(BUILD_KINDS[str(job.kind)].name) if str(job.kind) != "" else "Demolition"
+		var st := _job_state(job)
+		var head := "%s · slot %d · " % [what, int(slot) + 1]
+		match st:
+			"paused": head += "paused"
+			"demolishing": head += "clearing the slot: %d s" % ceili(float(job.left))
+			"waiting": head += "waiting for materials"
+			_: head += "building: %d s left" % ceili(float(job.left))
+		_plabel(head, 13, C_WARN if st in ["paused", "waiting"] else C_TEXT)
+		var bill: Dictionary = job.get("bill", {})
+		if not bill.is_empty():
+			var rows := []
+			for res in RES:
+				if not bill.has(res): continue
+				var here := float((job.escrow as Dictionary).get(res, 0.0))
+				var way := float((job.inbound as Dictionary).get(res, 0.0)) + float((job.fetch as Dictionary).get(res, 0.0))
+				var left := _job_short(job, res)
+				rows.append([[str(RES_NAME[res]), _res_col(res)], ["%s/%s" % [_amt(here), _amt(float(bill[res]))], C_GOOD if here >= float(bill[res]) - 0.05 else C_TEXT],
+					[_amt(way) if way >= 0.05 else "—", C_TEXT if way >= 0.05 else C_DIM], [_amt(left) if left >= 0.05 else "—", C_WARN if left >= 0.05 else C_DIM]])
+			_ptable(["Material", "Here", "On the way", "To send"], rows,
+				["", "Delivered into the project / its whole bill.", "Carried here by workers right now.", "Still at your main node: workers take it as they come free."])
+		if str(job.kind) != "":
+			if str(job.phase) == "build" and _job_funded(job):
+				_plabel("Work %d/%d s." % [int(float(job.total) - float(job.left)), int(float(job.total))], 12, C_TEXT)
+			elif str(job.phase) == "build": _plabel("The %d s of work starts when every material is here." % int(BUILD_TIME), 12, C_DIM)
+			else: _plabel("Then %d s of work, once every material is here." % int(BUILD_TIME), 12, C_DIM)
+		_btn_row([["Resume" if bool(job.get("paused", false)) else "Pause", _toggle_job.bind(i, int(slot)), true, "Pause stops work and new deliveries; loaded workers still arrive."],
+			["Cancel", _cancel_job.bind(i, int(slot)), true, "What was delivered stays here as salvage, less what the work used; workers take it home."]])
+
+
 func _fixed_button_style(button: Button, red := false) -> void:
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 		var style := StyleBoxFlat.new()
@@ -6759,22 +7712,6 @@ func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, f
 	return x - at.x
 
 
-func _panel_logistics() -> void:   # the main node's shipping controls: Bots reserve and shipping priority
-	_gap(4.0)
-	_plabel("Logistics", 16, C_TEXT)
-	var c := _courier_counts(PLAYER, _hub(PLAYER))
-	_plabel("Couriers: %d home · %d out%s · reserve keeps %d home" % [int(_avail(PLAYER, "bots")), int(c.out), (" · %d held" % int(c.held)) if int(c.held) > 0 else "", int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT))], 12, C_DIM)
-	var rrow := []
-	for choice in BOT_RESERVE_CHOICES:
-		rrow.append(["Reserve %d" % choice, _set_reserve.bind(choice), int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT)) != choice])
-	_btn_row(rrow)
-	var prow := [["Balanced", _set_priority.bind(""), str(ship_pri.get(PLAYER, "")) != ""]]
-	for res in ["intel", "cash", "creds", "research"]:
-		prow.append([RES_NAME[res], _set_priority.bind(res), str(ship_pri.get(PLAYER, "")) != res])
-	_plabel("Shipping priority", 13, C_DIM)
-	_btn_row(prow)
-
-
 func _connection_list(_sources: Array) -> void: pass   # no manual connections in this model
 
 
@@ -6799,9 +7736,16 @@ func _panel_inspect() -> void:
 	_plabel(_stage_line(i), 14, C_DIM)
 	var fx := _effects_line(i)
 	if fx != "": _plabel(fx, 13, C_WARN)
+	if not _recon_fresh(PLAYER, i):   # nothing about what it is until a Recon lands
+		if _recon_expired(PLAYER, i): _plabel("Recon expired — send Recon again to inspect it.", 14, C_WARN)
+		else: _plabel("Unknown host — send Recon to inspect. Its buildings and storage are concealed.", 14, C_TEXT)
+		var c0 := _op_chance(PLAYER, i, "breach")
+		_plabel("Your attacks here: %d%% without fresh Recon." % int(round(c0 * 100.0)), 12, C_WARN)
+		return
 	if _recon_fresh(PLAYER, i):
 		var rec: Dictionary = (recon.get(PLAYER, {}) as Dictionary).get(i, {})
-		_plabel("Recon %ds ago · storage %s/%d" % [int(_t - float(rec.get("at", _t))), _amt(float(rec.get("store", 0.0))), int(STORE_CAP)], 12, C_DIM)
+		_plabel(_type_line(i), 13, C_TEXT)
+		_plabel("Recon %d s ago, fresh for %d s more · storage %s/%d" % [int(_t - float(rec.get("at", _t))), maxi(0, int(float(rec.get("at", _t)) + float(CARDS.recon.dur) - _t)), _amt(float(rec.get("store", 0.0))), int(STORE_CAP)], 12, C_DIM)
 		var socks: Array = _loaded_of(rec.get("sockets", []))
 		if (rec.get("builds", []) as Array).has("wall"):
 			var names := []
@@ -6822,7 +7766,7 @@ func _panel_idle() -> void:
 	_gap(2.0)
 	_plabel("①  Make a card: C opens the recipes.", 13)
 	_plabel("②  Drag a ready card onto a host, or click it, then a host.", 13)
-	_plabel("③  Build producers; couriers bring their output home.", 13)
+	_plabel("③  Build producers; workers bring their output home.", 13)
 	_gap(4.0)
 	_plabel("Drag empty map to pan · wheel to zoom · 0 recenters", 11, C_DIM)
 	_plabel("Esc menu · Space pause · C cards · R research · E economy · H events", 11, C_DIM)
@@ -6860,30 +7804,29 @@ func _res_full(res: String) -> bool: return _avail(PLAYER, res) >= _cap(PLAYER, 
 
 
 func _hud_items() -> Array:   # [kind-icon, text, colour, column width, res]
-	var out := []
+	var wc := _worker_counts(PLAYER)   # first the delivery workers (a population, not a material), then the main node's four stocks
+	var out := [["bot", "Workers %d" % int(wc.total), C_TEXT if int(wc.total) > 0 else C_BAD, HUD_BOTS_W, "workers"]]
 	for res in RES:
-		var kind := str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])
+		var kind := str({"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])
 		var txt := "%d/%d" % [int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]
-		if res == "bots":   # couriers, not a material: how many are home and how many are out on trips
-			var c := _courier_counts(PLAYER, _hub(PLAYER))
-			txt = "%d home · %d out" % [int(_avail(PLAYER, "bots")), int(c.out) + int(c.held)]
-		var col := C_WARN if res != "bots" and _res_full(res) else C_TEXT
-		out.append([kind, txt, col, HUD_BOTS_W if res == "bots" else _hud_col_w(), res])
+		out.append([kind, txt, C_WARN if _res_full(res) else C_TEXT, _hud_col_w(), res])
 	return out
 
 
-const HUD_BOTS_W := 186.0   # the couriers' column: "250 home · 250 out" over "250 spare · need 120"
+const HUD_BOTS_W := 180.0   # the workers' column: "Workers 48" over "24 busy · 8 blocked"
 const HUD_OBJ_W := 240.0    # the objective's two lines after the banks
 func _hud_col_w() -> float:   # a material's column: the four share what the couriers' column and the objective leave
 	var w := hud.size.x if hud != null else 950.0
 	return clampf(floorf((w - HUD_BOTS_W - HUD_OBJ_W) / 4.0), 106.0, 150.0)
 
 
-func _hud_rate(res: String) -> Array:   # [the HUD's second line, its colour]: the forecast inflow to the bank; for Bots, courier capacity
+func _hud_rate(res: String) -> Array:   # [the HUD's second line, its colour]: the forecast inflow to the bank; for workers, what they do
 	var fc := _forecast(PLAYER)
-	if res == "bots":
-		var spare := int(fc.spare); var need := int(ceil(float(fc.need) - 0.05))
-		return ["%d spare · need %d" % [spare, need], C_WARN if need > spare else C_DIM]
+	if res == "workers":
+		var wc := _worker_counts(PLAYER)
+		var busy := int(wc.collecting) + int(wc.carrying)
+		if int(wc.blocked) > 0: return ["%d busy · %d blocked" % [busy, int(wc.blocked)], C_WARN]
+		return ["%d busy · %d free" % [busy, int(wc.idle)], C_DIM]
 	if _res_full(res): return ["full", C_WARN]
 	var v := float(fc.rate[res])
 	return ["+%d/min" % int(round(v)), C_GOOD if v >= 0.5 else C_DIM]
@@ -6903,9 +7846,12 @@ func _by_txt(by: Dictionary) -> String:   # "research 12, buildings 4" — large
 func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast for one bank, where it comes from, what holds it back
 	var fc := _forecast(PLAYER)
 	var out := []
-	if res == "bots":
-		out.append(["Couriers: %d at your main node, %d out on trips; the reserve keeps %d home." % [int(_avail(PLAYER, "bots")), int(fc.fleet) - int(_avail(PLAYER, "bots")), int(bot_reserve.get(PLAYER, BOT_RESERVE_DEFAULT))], C_TEXT])
-		out.append(["Keeping up with your hosts needs about %d of your %d spare couriers." % [int(ceil(float(fc.need) - 0.05)), int(fc.spare)], C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
+	if res == "workers":
+		var wc := _worker_counts(PLAYER)
+		out.append(["Workers %d — %d working, %d available, %d blocked (all your stations; 2 per station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), int(wc.blocked)], C_TEXT])
+		out.append(["Your main node's %d serve the hosts without a station; keeping up with them needs about %d." % [int(fc.fleet), int(ceil(float(fc.need) - 0.05))], C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
+		out.append(["Each Bot station provides two reusable workers. Each carries one unit per leg; delivery does not consume them.", C_DIM])
+		out.append(["They supply active needs first, then building materials, then carry surplus home; older deliveries get turns too.", C_DIM])
 		return out
 	var full := _res_full(res)
 	out.append(["Forecast: %s reaches your bank per minute." % ("nothing (the bank is full)" if full else "+%d" % int(round(float(fc.rate[res])))), C_WARN if full else C_TEXT])
@@ -6934,13 +7880,28 @@ func _history_lines(res: String) -> Array:   # the measured flows of one bank ov
 func _econ_lines(res: String) -> Array:   # one bank's forecast and history in words (the HUD tooltip and the Economy view share them)
 	var out := []
 	for l in _forecast_lines(res): out.append(str(l[0]))
-	out.append_array(_history_lines(res))
+	if res != "workers": out.append_array(_history_lines(res))
 	return out
 
 
+func _where_is(fac: int, res: String) -> Dictionary:   # {hosts, transit, reserved}: the resource away from the bank, or spoken for in it
+	var at_hosts := 0.0; var transit := 0.0
+	for i in hosts.size():
+		if int(hosts[i].owner) != fac or i == _hub(fac): continue
+		at_hosts += float(_store_of(i, fac).get(res, 0.0)) + _loot(i, fac, res)
+		for slot in (hosts[i].jobs as Dictionary): at_hosts += float((hosts[i].jobs[slot].get("escrow", {}) as Dictionary).get(res, 0.0))
+	for f in flights:
+		if str(f.kind) == "courier" and int(f.owner) == fac: transit += float((f.cargo as Dictionary).get(res, 0.0))
+	return {"hosts": at_hosts, "transit": transit, "reserved": _rig_claimed(fac, res)}
+
+
 func _econ_tooltip(res: String) -> String:
-	var head := "%s  %s" % [str(RES_NAME[res]).to_upper() + (" (couriers)" if res == "bots" else ""), str(_hud_items()[RES.find(res)][1]) if res == "bots" else "%d / %d" % [int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]]
-	return "%s\n%s\n\nClick for the Economy overview." % [head, "\n".join(PackedStringArray(_econ_lines(res)))]
+	var head := "DELIVERY WORKERS" if res == "workers" else "%s  %d / %d at your main node" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res))]
+	var where := ""
+	if res != "workers":
+		var w := _where_is(PLAYER, res)
+		where = "\nStored at hosts: %s · In transit: %s · Reserved at main node: %s" % [_amt(float(w.hosts)), _amt(float(w.transit)), _amt(float(w.reserved))]
+	return "%s%s\n%s\n\nClick for the Economy overview." % [head, where, "\n".join(PackedStringArray(_econ_lines(res)))]
 
 
 func _objective_tooltip() -> String:
@@ -6958,12 +7919,14 @@ func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the 
 func _panel_economy() -> void:
 	_plabel("Economy", 20, C_TEXT)
 	_plabel("Forecast: what will reach your bank per minute with your network as it is now. Historical: what did over the last %d s." % int(_ledger_window()), 12, C_DIM)
+	_gap(4.0)
+	_plabel("DELIVERY WORKERS", 14, BUILD_KINDS.bot.col)
+	for l in _forecast_lines("workers"): _plabel(str(l[0]), 12, l[1])
 	for res in RES:
 		_gap(4.0)
-		var col: Color = BUILD_KINDS[str({"bots": "bot", "intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col
-		if res == "bots": _plabel("BOTS (COURIERS)  %s" % str(_hud_items()[0][1]), 14, col)
-		else: _plabel("%s  %d / %d   forecast %s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), str(_hud_rate(res)[0])], 14, col)
-		for l in _forecast_lines(res).slice(1 if res != "bots" else 0): _plabel(str(l[0]), 12, l[1])
+		var col: Color = BUILD_KINDS[str({"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col
+		_plabel("%s  %d / %d   forecast %s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), str(_hud_rate(res)[0])], 14, col)
+		for l in _forecast_lines(res).slice(1): _plabel(str(l[0]), 12, l[1])
 		for l in _history_lines(res): _plabel(str(l), 12, C_DIM)
 	_gap(4.0)
 	_plabel("E or Esc closes this view.", 11, C_DIM)
@@ -7158,7 +8121,7 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, roads, wires
 func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jumps (they pass UNDER the buildings)
 	var sight: Dictionary = cx.sight; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
-	for fl in flights:   # yours: a courier is a dot in its cargo's colour (a ring when it travels empty) with an arrow; a rival's is a square
+	for fl in flights:   # yours: a worker is a dot in its cargo's colour (a ring when it travels empty) with an arrow; a rival's is a square
 		if not _flight_seen(fl, sight): continue
 		if str(fl.kind) == "op":   # a card: its remaining path dashed in its family's colour (the card is drawn above the buildings)
 			if int(fl.owner) == PLAYER and not bool(fl.get("blocked", false)): _paint_card_path(fl, vt)
@@ -7177,11 +8140,13 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 			continue
 		var res := _cargo_res(fl)
 		var col := _res_col(res) if res != "" else COURIER_COL
-		if res != "": _cv.draw_circle(pp, 3.8, Color(col, ba))
-		else: _cv.draw_arc(pp, 3.2, 0.0, TAU, 12, Color(col, 0.85 * ba), 1.4, true)
 		var dir := _flight_dir(fl, vt)
+		var perp := Vector2(-dir.y, dir.x)
+		pp += perp * (3.5 + 3.5 * float(int(fl.get("wid", 0)) % 2))   # each direction on its own side; two workers side by side, never one dot
+		if res != "":   # loaded: a filled dot in its cargo's colour
+			_cv.draw_circle(pp, 4.0, Color(col, ba)); _cv.draw_arc(pp, 4.0, 0.0, TAU, 12, Color(0.02, 0.03, 0.05, 0.8 * ba), 1.0, true)
+		else: _cv.draw_arc(pp, 3.2, 0.0, TAU, 12, Color(col, 0.85 * ba), 1.4, true)   # empty: a hollow ring
 		if dir != Vector2.ZERO:   # which way it is going
-			var perp := Vector2(-dir.y, dir.x)
 			_cv.draw_colored_polygon(PackedVector2Array([pp + dir * 9.0, pp + dir * 5.0 + perp * 3.0, pp + dir * 5.0 - perp * 3.0]), Color(col, 0.9 * ba))
 	for w in _worms:   # a worm's jumps: a bold trail, a pulse racing to the newly-infected building, a ring on it
 		if not (sight.has(int(w.a)) or sight.has(int(w.b))): continue
@@ -7387,8 +8352,8 @@ func _flight_seen(fl: Dictionary, sight: Dictionary) -> bool:   # _flight_visibl
 	return sight.has(seg.x) or sight.has(seg.y)
 
 
-const COURIER_COL := Color(0.5, 1.0, 0.7)   # an empty courier of yours
-func _cargo_res(fl: Dictionary) -> String:   # what a courier carries ("" when it travels empty)
+const COURIER_COL := Color(0.5, 1.0, 0.7)   # an empty worker of yours
+func _cargo_res(fl: Dictionary) -> String:   # what a worker carries ("" when it travels empty)
 	var cg: Dictionary = fl.get("cargo", {})
 	return "" if cg.is_empty() else str(cg.keys()[0])
 
@@ -7501,7 +8466,7 @@ func _flight_lines(fl: Dictionary) -> Array:   # what the details beside a packe
 		return out
 	var res := _cargo_res(fl)
 	var origin := int(fl.origin)
-	out.append("Courier of %s" % ("your main node" if origin == _hub(PLAYER) else str(hosts[origin].name)))
+	out.append("Worker #%d of %s" % [int(fl.get("wid", 0)), "your main node" if origin == _hub(PLAYER) else str(hosts[origin].name)])
 	if bool(fl.get("blocked", false)): out.append("Held at %s: the way on is cut" % str(hosts[int(fl.at)].name))
 	if str(fl.trip) == "out":
 		if res != "": out.append("Carrying 1 %s to %s" % [str(RES_NAME[res]), dname])
@@ -7524,7 +8489,7 @@ func _paint_flight_tip(f: Font) -> void:   # screen space: the details of the pa
 			for fl in flights:
 				if bool(fl.get("blocked", false)) and int(fl.owner) == PLAYER and int(fl.at) == int(i):
 					var l := _flight_lines(fl)
-					lines.append(str(l[0]) + (" · " + str(l[1]) if l.size() > 1 and str(l[0]).begins_with("Courier") and not str(l[1]).begins_with("Held") else ""))
+					lines.append(str(l[0]) + (" · " + str(l[1]) if l.size() > 1 and str(l[0]).begins_with("Worker") and not str(l[1]).begins_with("Held") else ""))
 			if not lines.is_empty(): lines.push_front("Held at %s: the way on is cut" % str(hosts[int(i)].name))
 			break
 	if lines.is_empty(): return
@@ -7544,7 +8509,7 @@ func _draw_ghost(f: Font, i: int) -> void:   # a host you saw before but cannot 
 	var p := _w2s(hosts[i].pos)
 	var rr := maxf(16, _r(i) * _zoom)
 	_cv.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-	_draw_type_glyph(_cv, str(hosts[i].get("type", "pc")), p, rr * 1.9, Color(0.42, 0.48, 0.58, 0.2), Color(0.04, 0.06, 0.1, 0.22))
+	_draw_type_glyph(_cv, _public_type(i), p, rr * 1.9, Color(0.42, 0.48, 0.58, 0.2), Color(0.04, 0.06, 0.1, 0.22))
 	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))   # its dim name comes from _paint_names
 
 
@@ -7700,9 +8665,9 @@ func _closed(p: PackedVector2Array) -> PackedVector2Array:   # a polyline that r
 	return out
 
 
-func _visible_bot_count(i: int) -> String:   # a foreign host's badge: its capacity, and what is built only if a fresh Recon saw it
+func _visible_bot_count(i: int) -> String:   # the slot badge: yours, or a host a fresh Recon saw; nothing on an unknown host
 	if _mine(i): return "%d/%d" % [_standing(i), int(hosts[i].slots)]
-	if not _recon_fresh(PLAYER, i): return "?/%d" % int(hosts[i].slots)
+	if not _recon_fresh(PLAYER, i): return ""
 	var seen := 0
 	for b in ((recon.get(PLAYER, {}) as Dictionary).get(i, {}) as Dictionary).get("builds", []):
 		if str(b) != "": seen += 1
@@ -7723,7 +8688,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	fill.a = a
 	var ink := Color(0.04, 0.06, 0.1, 0.9 * a)
 	var focused: bool = sel.has(i) or i == _inspect or is_aim
-	_draw_type_glyph(_cv, str(hosts[i].get("type", "pc")), p, rr * 1.9, fill, ink)   # the building IS its pictogram
+	_draw_type_glyph(_cv, _public_type(i), p, rr * 1.9, fill, ink)   # the building IS its pictogram (a plain marker until you know it)
 	if bool(hosts[i].rig): _frame(p, rr + 1.0, Color(1, 1, 1, 0.8 * a), 2.0)   # a rig = Cash sink
 	if bool(hosts[i].get("junction", false)): _frame(p, rr + 1.5, Color(0.75, 0.9, 1.0, 0.7 * a), 1.0)   # a junction: double traffic
 	if _mine(i) and _t - float(hosts[i].get("hit_t", -100.0)) < CARD_ALARM:   # recently hit → red frame, full brightness
@@ -7739,9 +8704,10 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		_frame(p, rr + 13, C_WARN, 3)
 		if i == _tut_target: _cv.draw_circle(p + Vector2(0, -rr - 18), 5, C_WARN)
 	var sec_txt := _visible_bot_count(i)
-	var bw := _text_w(f, sec_txt, 12) + 8.0   # measured: 4 px either side of the text
-	_cv.draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 16.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
-	_text(_cv, f, Vector2(p.x - bw * 0.5 + 4.0, p.y + rr * 0.42 + 12.5), sec_txt, 12, Color(0.95, 0.97, 1.0, a))
+	if sec_txt != "":   # no badge at all on a host you know nothing about
+		var bw := _text_w(f, sec_txt, 12) + 8.0   # measured: 4 px either side of the text
+		_cv.draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 16.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
+		_text(_cv, f, Vector2(p.x - bw * 0.5 + 4.0, p.y + rr * 0.42 + 12.5), sec_txt, 12, Color(0.95, 0.97, 1.0, a))
 	var sub := _node_sub(i, focused)   # the name is placed afterwards by _paint_names, clear of every warning line
 	if str(sub[0]) != "":
 		var subcol: Color = sub[1]; subcol.a *= a
@@ -7752,14 +8718,19 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 func _node_sub(i: int, focused := false) -> Array:   # [text, colour, screen rect]: ONE warning under the glyph, most urgent first
 	var sub := ""
 	if bool(hosts[i].get("junction", false)): sub = "junction"
-	if _ddos_down(i): sub = "DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t))
+	if not _known_host(PLAYER, i):   # an unknown host: its own defences and states stay hidden (as in its inspector)
+		var sp0: Dictionary = hosts[i].get("siphon", {})
+		if _ddos_down(i): sub = "DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t))
+		elif _phished(i) and int(hosts[i].get("steal_by", -1)) == PLAYER: sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))
+		elif not sp0.is_empty() and int(sp0.get("by", -1)) == PLAYER and float(sp0.get("until", 0.0)) > _t: sub = "SIPHON %ds" % int(ceil(float(sp0.until) - _t))
+	elif _ddos_down(i): sub = "DDoS %ds" % int(ceil(float(hosts[i].ddos_until) - _t))
 	elif _sabotaged(i): sub = "SABOT %ds" % int(ceil(float(hosts[i].sabot_until) - _t))
 	elif _phished(i): sub = "PHISHED %ds" % int(ceil(float(hosts[i].steal_until) - _t))
 	elif not (hosts[i].get("siphon", {}) as Dictionary).is_empty() and float((hosts[i].siphon as Dictionary).get("until", 0.0)) > _t: sub = "SIPHON %ds" % int(ceil(float(hosts[i].siphon.until) - _t))
 	elif float(hosts[i].get("patch_armed_until", 0.0)) > _t: sub = "PATCH"
 	elif float(hosts[i].get("express_until", 0.0)) > _t: sub = "EXPRESS"
 	for e in _execs:
-		if int(e.target) == i: sub = "%s %ds" % [str(CARDS[str(e.card)].short).to_upper(), int(ceil(float(e.ends) - _t))]; break
+		if int(e.target) == i and (_known_host(PLAYER, i) or int(e.fac) == PLAYER): sub = "%s %ds" % [str(CARDS[str(e.card)].short).to_upper(), int(ceil(float(e.ends) - _t))]; break
 	if sub == "" or not (_zoom >= 0.45 or focused or _mine(i)): return ["", Color.WHITE, Rect2()]
 	var col := Color(1, 0.85, 0.4)
 	if sub == "junction": col = Color(0.7, 0.85, 1.0, 0.8)
@@ -7956,6 +8927,12 @@ func _draw_type_glyph(c: CanvasItem, t: String, centre: Vector2, sz: float, fill
 	var w := maxf(1.2, sz * 0.05)
 	var dim := Color(ink.r, ink.g, ink.b, ink.a * 0.35)
 	match t:
+		"unknown":   # a host you know nothing about: a plain hexagon with a dot, the same for every kind of building
+			var pts := PackedVector2Array()
+			for k in 6: pts.append(centre + Vector2.from_angle(TAU * float(k) / 6.0 - PI / 2.0) * sz * 0.4)
+			c.draw_colored_polygon(pts, Color(fill.r, fill.g, fill.b, fill.a * 0.75))
+			pts.append(pts[0]); c.draw_polyline(pts, ink, w, true)
+			c.draw_circle(centre, sz * 0.07, ink)
 		"pc":      # a monitor on a stand
 			var body := Rect2(centre + Vector2(-sz * 0.46, -sz * 0.46), Vector2(sz * 0.92, sz * 0.6))
 			c.draw_rect(body, fill, true); c.draw_rect(body, ink, false, w)
@@ -8202,10 +9179,11 @@ class HudBar extends Control:   # the HUD: each bank's stock and its recent net 
 
 
 
-class CardTile extends Control:
+class CardTile extends Control:   # a recipe: what it does, copies ready and queued; + Queue (or Research for a locked one)
 	var game
 	var key := "phishworm:linked"
 	var stop_button: Button
+	var queue_button: Button
 	var stock_material: ShaderMaterial
 	var press_position := Vector2.ZERO
 	func _init() -> void:
@@ -8218,26 +9196,31 @@ class CardTile extends Control:
 		stock_material = ShaderMaterial.new(); stock_material.shader = shader; material = stock_material
 		var frame := CardFrame.new(); frame.tile = self   # its own material: the red / blue edge never turns gray
 		frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); add_child(frame)
-		stop_button = Button.new(); stop_button.text = "Cancel"; stop_button.name = "CancelResearch"   # a quiet link in the status row
+		stop_button = Button.new(); stop_button.text = "Remove"; stop_button.name = "CancelResearch"   # a quiet link: the newest queued copy goes
 		stop_button.focus_mode = Control.FOCUS_NONE
 		game._link_button_style(stop_button)
+		stop_button.tooltip_text = "Remove the newest queued copy of this card (a copy being made refunds its unworked share)."
 		stop_button.pressed.connect(game._card_research_cancel.bind(key)); add_child(stop_button)
+		queue_button = Button.new(); queue_button.name = "Queue"; queue_button.focus_mode = Control.FOCUS_NONE
+		queue_button.add_theme_font_size_override("font_size", 13)
+		game._fixed_button_style(queue_button)
+		queue_button.pressed.connect(_act); add_child(queue_button)
 		tooltip_text = game._card_tooltip(key)   # the full lead + rules (the face shows whole sentences that fit)
 	func _make_custom_tooltip(for_text: String) -> Object:
 		return game._wrapped_tooltip(for_text)
 	func _process(_dt: float) -> void:
 		var state: Dictionary = game._card_research_state(key)
 		stock_material.set_shader_parameter("saturation", 0.0 if int(state.count) == 0 else 1.0)
-		stop_button.visible = bool(state.queued)
+		stop_button.visible = int(state.n) > 0
 		stop_button.size = Vector2(70, 22); stop_button.position = Vector2(size.x - 14 - 70, size.y - 56)
+		var act: Array = game._recipe_action(key)
+		queue_button.text = str(act[0]); queue_button.disabled = not bool(act[1]); queue_button.tooltip_text = str(act[2])
+		queue_button.size = Vector2(96, 26); queue_button.position = Vector2(size.x - 14 - 96, size.y - 30)
 		queue_redraw(); (get_child(0) as CanvasItem).queue_redraw()
-	func _gui_input(event: InputEvent) -> void:   # a recipe: click to make a copy (or pause / resume the one being made)
-		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-			if event.pressed: press_position = event.position
-			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
-				game._card_research_click(key); accept_event()
-		elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER:
-			game._card_research_click(key); accept_event()
+	func _act() -> void: game._recipe_act(key)
+	func _gui_input(event: InputEvent) -> void:   # the body only explains; + Queue (or Research) is the action. Enter = the action
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER:
+			_act(); accept_event()
 	func _draw() -> void:
 		var font := get_theme_default_font()
 		var card: Dictionary = game.CARDS[game._card_of(key)]
@@ -8264,13 +9247,11 @@ class CardTile extends Control:
 			(blurb[3] as TextParagraph).draw(get_canvas_item(), Vector2(14, game.CARD_TEXT_TOP + lead.get_size().y + game.CARD_TEXT_GAP), game.C_DIM)
 		# (the research price is drawn as resource icons by CardFrame, in colour)
 		var status_colour: Color = Color.WHITE if working else (game.C_WARN if str(state.status) in ["Waiting", "Paused"] else game.C_TEXT)
-		var status := "%s · %d%%" % [str(state.status), int(float(state.progress) * 100)] if bool(state.queued) else str(state.status)
+		var status := "%s · %d%%" % [str(state.status), int(float(state.progress) * 100)] if str(state.status) in ["Making", "Paused", "Researching"] else str(state.status)
 		game._text(self, font, Vector2(14, size.y - 41), status, 13, status_colour, size.x - 110, HORIZONTAL_ALIGNMENT_LEFT)
-		draw_rect(Rect2(14, size.y - 30, size.x - 28, 8), Color(0.17, 0.20, 0.26))
-		draw_rect(Rect2(14, size.y - 30, (size.x - 28) * float(state.progress), 8), status_colour)
-		var hint := "Click to resume" if str(state.status) == "Paused" else ("Click to pause" if bool(state.queued) else "Click to make a copy")
-		if int(state.count) > 0: hint += " · use it from Ready"
-		game._text(self, font, Vector2(14, size.y - 8), hint, 10, game.C_DIM, size.x - 28, HORIZONTAL_ALIGNMENT_LEFT)
+		draw_rect(Rect2(14, size.y - 34, size.x - 28 - 104, 6), Color(0.17, 0.20, 0.26))
+		draw_rect(Rect2(14, size.y - 34, (size.x - 28 - 104) * float(state.progress), 6), status_colour)
+		game._text(self, font, Vector2(14, size.y - 12), game._recipe_hint(key), 12, game.C_DIM, size.x - 28 - 104, HORIZONTAL_ALIGNMENT_LEFT)
 
 
 class CardDragPreview extends Control:
@@ -8305,50 +9286,87 @@ class CardFrame extends Control:   # a big card's red / blue edge, drawn outside
 		game._draw_cost_row(self, game._card_cost(tile.key), game._card_time(tile.key), Vector2(14, size.y - 66))   # in colour, outside the shader
 
 
-class LaneChip extends Control:   # one manufacturing lane in the strip: what it makes, how far, its state; click pauses / resumes, x cancels
+class ResearchBar extends Control:   # always on screen: what is being researched, on which track, how far, and whether it moves
 	var game
-	var lane := 0
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _get_tooltip(_at: Vector2) -> String:
+		var st: Dictionary = game._research_bar_state()
+		match str(st.state):
+			"idle": return "Nothing is being researched. Open Research (R), select a blueprint, then Research. Research costs Intel, Crypto and Research while it runs."
+			"paused": return "%s is paused at %d%%. Open Research (R) and resume it." % [str(st.name), int(float(st.frac) * 100)]
+			"stalled": return "%s has stopped at %d%%: %s. It continues by itself once your bank has it." % [str(st.name), int(float(st.frac) * 100), str(st.why)]
+		return "Researching %s (%s track): %d%%, %d s of work left. It pays as it goes. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
+	func _process(_dt: float) -> void: queue_redraw()
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			game._toggle_research(); accept_event()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var st: Dictionary = game._research_bar_state()
+		var state := str(st.state)
+		var col: Color = {"active": Color(0.72, 0.55, 1.0), "paused": game.C_WARN, "stalled": game.C_BAD}.get(state, game.C_DIM)
+		var hot := Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.07, 0.1, 0.92).lightened(0.05 if hot else 0.0))
+		if state != "idle": draw_rect(Rect2(1, 1, (size.x - 2) * float(st.frac), size.y - 2), Color(col, 0.22))
+		draw_rect(Rect2(0.5, 0.5, size.x - 1, size.y - 1), Color(col, 0.85), false, 1.0)
+		game._draw_kind_icon(self, "lab", Vector2(15, size.y * 0.5), 15.0, col, f)
+		var head := "RESEARCH"
+		game._text(self, f, Vector2(28, size.y * 0.5 + 5), head, 12, col)
+		var x: float = 28.0 + game._text_w(f, head, 12) + 10.0
+		var txt := ""
+		match state:
+			"idle": txt = "idle · %d blueprint%s open · press R" % [int(st.open), "" if int(st.open) == 1 else "s"] if int(st.open) > 0 else "idle · nothing open to research"
+			"active": txt = "%s · %s · %d%% · %d s left" % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
+			"paused": txt = "%s · %s · %d%% · paused" % [str(st.name), str(st.track), int(float(st.frac) * 100)]
+			"stalled": txt = "%s · %d%% · stalled: %s" % [str(st.name), int(float(st.frac) * 100), str(st.why)]
+		game._text(self, f, Vector2(x, size.y * 0.5 + 5), txt, 13, game.C_TEXT if state == "active" else col, size.x - x - 8.0, HORIZONTAL_ALIGNMENT_LEFT)
+
+
+class QueueChip extends Control:   # one of the queue's four positions: the head (made now, or waiting and why) or a waiting copy; x removes it
+	var game
+	var pos := 0
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		tooltip_text = " "
 	func _make_custom_tooltip(for_text: String) -> Object:
 		return game._wrapped_tooltip(for_text)
 	func job() -> Dictionary:
-		var L: Array = game.lanes.get(game.PLAYER, [])
-		return L[lane] if lane < L.size() else {}
-	func state() -> Dictionary:   # {recipe, kind: free | idle | making | paused | starved | done, progress, text}
+		var q: Array = game._mq(game.PLAYER)
+		return q[pos] if pos < q.size() else {}
+	func state() -> Dictionary:   # {recipe, kind: empty | making | paused | waiting | queued | done, progress, text}
 		var j := job()
-		var recipe := str(j.get("recipe", ""))
-		var out := {"recipe": recipe, "kind": "free", "progress": 0.0, "text": "Free lane"}
-		if recipe == "": return out
-		if not (j.get("paid", {}) as Dictionary).is_empty():
-			out.progress = clampf(float(j.progress) / maxf(0.001, game._make_time(recipe)), 0.0, 1.0)
-			out.kind = "paused" if bool(j.paused) else "making"
-			out.text = ("Paused %d%%" if bool(j.paused) else "Making %d%%") % int(float(out.progress) * 100)
-		elif bool(j.get("pending", false)):
-			out.kind = "starved"; out.text = game._lane_short(recipe)
-		elif game._t - float(game._lane_done.get(lane, -100.0)) < game.LANE_DONE_SECS:
-			out.kind = "done"; out.text = "Done: 1 ready"; out.progress = 1.0
-		else:
-			out.kind = "idle"; out.text = "Idle"
+		if j.is_empty():
+			if pos == 0 and game._t - float(game._mq_done_t) < game.QUEUE_DONE_SECS: return {"recipe": "", "kind": "done", "progress": 1.0, "text": "Done: 1 ready"}
+			return {"recipe": "", "kind": "empty", "progress": 0.0, "text": "Empty" if pos > 0 else "+ Queue a card"}
+		var recipe := str(j.recipe)
+		var out := {"recipe": recipe, "kind": "queued", "progress": 0.0, "text": "%d · waiting" % (pos + 1)}
+		if pos == 0:
+			if not (j.paid as Dictionary).is_empty():
+				out.progress = clampf(float(j.progress) / maxf(0.001, game._make_time(recipe)), 0.0, 1.0)
+				out.kind = "paused" if bool(game.mq_paused.get(game.PLAYER, false)) else "making"
+				out.text = ("Paused %d%%" if str(out.kind) == "paused" else "Making %d%%") % int(float(out.progress) * 100)
+			else:
+				out.kind = "waiting"; out.text = game._mq_head_why_short(game.PLAYER)
+				if str(out.text) == "": out.kind = "making"; out.text = "Starting"   # it can pay: it starts on the next step
 		return out
-	func busy() -> bool: return str(state().kind) in ["making", "paused", "starved"]
 	func _get_tooltip(_at: Vector2) -> String:
 		var st := state()
-		if str(st.recipe) == "": return "A free manufacturing lane. Click to open the recipes and make a copy."
+		if str(st.recipe) == "": return "The manufacturing queue holds %d copies, the one being made included. Open the recipes (C) and use + Queue." % game.QUEUE_SIZE
 		var nm := str(game.CARDS[str(st.recipe)].name)
 		match str(st.kind):
-			"making": return "Making %s. Click to pause; x cancels (the unworked part is refunded)." % nm
-			"paused": return "%s is paused. Click to resume; x cancels." % nm
-			"starved": return "%s waits to start: %s. x cancels." % [nm, str(st.text).to_lower()]
-		return "This lane last made %s. Click to make another." % nm
+			"making": return "Making %s. Its price is paid. x cancels it and refunds the unworked share." % nm
+			"paused": return "%s is paused with the queue. Resume continues it; x cancels it." % nm
+			"waiting": return "%s waits to start. %s. Nothing behind it starts first. x removes it (nothing was spent)." % [nm, game._mq_head_why(game.PLAYER)]
+		return "%s is number %d in the queue. It is made when the ones before it are done. x removes it (nothing was spent)." % [nm, pos + 1]
 	func _gui_input(event: InputEvent) -> void:
 		if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT): return
-		var st := state()
-		if busy() and event.position.x >= size.x - 24.0: game._cmd(["lane_cancel", lane])
-		elif str(st.kind) in ["making", "paused"]: game._cmd(["lane_pause", lane])
-		elif str(st.recipe) != "" and str(st.kind) != "starved": game._cmd(["card_action", str(st.recipe)])
-		elif str(st.recipe) == "": game._open_drawer("attack" if game._card_bank not in ["attack", "defense"] else game._card_bank)
+		var j := job()
+		if not j.is_empty() and event.position.x >= size.x - 24.0: game._cmd(["unqueue", int(j.id)])
+		elif j.is_empty(): game._open_drawer("attack" if game._card_bank not in ["attack", "defense"] else game._card_bank)
 		accept_event(); queue_redraw()
 	func _draw() -> void:
 		var f := get_theme_default_font()
@@ -8356,24 +9374,29 @@ class LaneChip extends Control:   # one manufacturing lane in the strip: what it
 		var recipe := str(st.recipe)
 		var kind := str(st.kind)
 		var fam: Color = game.FAMILY_COL[str(game.CARDS[recipe].fam)] if recipe != "" else game.C_DIM
-		var edge: Color = {"making": fam, "paused": game.C_WARN, "starved": game.C_BAD, "done": game.C_GOOD}.get(kind, Color(0.3, 0.34, 0.42))
+		var edge: Color = {"making": fam, "paused": game.C_WARN, "waiting": game.C_BAD, "done": game.C_GOOD, "queued": Color(0.4, 0.46, 0.56)}.get(kind, Color(0.25, 0.29, 0.36))
 		var hot := Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.055, 0.075, 0.105).lightened(0.05 if hot else 0.0))
-		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), edge, false, 2 if kind in ["making", "starved", "done"] else 1)
+		draw_rect(Rect2(1, 1, size.x - 2, size.y - 2), edge, false, 2 if kind in ["making", "waiting", "done"] else 1)
 		if recipe == "":
-			game._text(self, f, Vector2(12, size.y * 0.5 + 5), "+  " + str(st.text), 13, game.C_DIM, size.x - 20, HORIZONTAL_ALIGNMENT_LEFT)
+			game._text(self, f, Vector2(10, size.y * 0.5 + 5), str(st.text), 12, game.C_GOOD if kind == "done" else game.C_DIM, size.x - 16, HORIZONTAL_ALIGNMENT_LEFT)
 			return
-		game._draw_card_glyph(self, recipe, Vector2(18, size.y * 0.5 - 1), 24, Color(1, 1, 1, 0.55 if kind == "idle" else 1.0), f)
-		var room := size.x - 34.0 - (24.0 if busy() else 6.0)
-		game._text(self, f, Vector2(34, 16), str(game.CARDS[recipe].short), 12, game.C_TEXT, room, HORIZONTAL_ALIGNMENT_LEFT)
-		var tc: Color = edge if kind != "idle" else game.C_DIM
-		game._text(self, f, Vector2(34, 32), str(st.text), 11, tc, room, HORIZONTAL_ALIGNMENT_LEFT)
-		if kind in ["making", "paused", "done"]:
+		game._draw_card_glyph(self, recipe, Vector2(16, size.y * 0.5 - 1), 22, Color(1, 1, 1, 0.6 if kind == "queued" else 1.0), f)
+		var room := size.x - 30.0 - 22.0
+		game._text(self, f, Vector2(30, 16), str(game.CARDS[recipe].short), 12, game.C_TEXT, room, HORIZONTAL_ALIGNMENT_LEFT)
+		var short: Dictionary = game._mq_head_short_whole(game.PLAYER) if kind == "waiting" else {}
+		if not short.is_empty():   # what the head lacks, as icons and amounts ("Needs" in front when it fits)
+			var row: float = game._draw_cost_row(self, short, -1.0, Vector2(30, 28), 11, 11.0, false)
+			var x0 := 30.0
+			if game._text_w(f, "Needs", 11) + 4.0 + row <= room:
+				game._text(self, f, Vector2(30, 32), "Needs", 11, edge, room, HORIZONTAL_ALIGNMENT_LEFT); x0 += game._text_w(f, "Needs", 11) + 4.0
+			game._draw_cost_row(self, short, -1.0, Vector2(x0, 28), 11, 11.0)
+		else: game._text(self, f, Vector2(30, 32), str(st.text), 11, edge if kind != "queued" else game.C_DIM, room, HORIZONTAL_ALIGNMENT_LEFT)
+		if kind in ["making", "paused"]:
 			draw_rect(Rect2(3, size.y - 5, size.x - 6, 3), Color(0.17, 0.20, 0.26))
 			draw_rect(Rect2(3, size.y - 5, (size.x - 6) * float(st.progress), 3), edge)
-		if busy():   # the cancel mark
-			var c := Vector2(size.x - 13, size.y * 0.5)
-			draw_line(c + Vector2(-5, -5), c + Vector2(5, 5), game.C_BAD, 2, true); draw_line(c + Vector2(-5, 5), c + Vector2(5, -5), game.C_BAD, 2, true)
+		var c := Vector2(size.x - 12, size.y * 0.5)   # remove / cancel
+		draw_line(c + Vector2(-4, -4), c + Vector2(4, 4), game.C_BAD, 2, true); draw_line(c + Vector2(-4, 4), c + Vector2(4, -4), game.C_BAD, 2, true)
 
 
 class ReadyChip extends Control:   # one ready card in the strip: drag it onto a host, or click it (selected) and then click a host
@@ -8608,7 +9631,7 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 # A building card (palette and slots share it), in fixed bands so nothing overlaps at 112 x 140:
 # title 4-28 · icon 32-72 · two effect lines (88, 101) · bottom band 108-136: the price as icons (palette) or a status (slots).
 const BUILD_EFFECT := {   # per 5-s cycle (the host panel says "Every 5 s")
-	"bot": ["+2 couriers", "1 unit a trip"], "intel": ["+2 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
+	"bot": ["2 workers", "1 unit a leg"], "intel": ["+2 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
 	"cred": ["+1 Cred", "uses 1 Intel"], "lab": ["+1 Research", "Intel+Crypto"], "wall": ["3 sockets", "uses 1 Intel"],
 }
 func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:
@@ -8715,6 +9738,11 @@ class SlotBox extends Control:
 			game._text(self, font, Vector2(46, 76), "+", 28, game.C_DIM)
 			return
 		var footer := "" if game._slot_active(host, slot) else "Inactive"
+		if kind == "bot" and job.is_empty():   # a station: how many of its two workers are there
+			var team: Dictionary = game._teams(host).get(slot, {})
+			var alive := 0
+			for wid in (team.get("w", []) as Array): if int(wid) >= 0: alive += 1
+			footer = "%d of %d workers" % [alive, game.WORKERS_PER_STATION] if not team.is_empty() else "Off: no workers"
 		if kind in ["cash", "cred", "lab"]:
 			if game._producer_paused(host, slot): footer = "Paused · click"
 			elif game._slot_active(host, slot):
@@ -8724,21 +9752,20 @@ class SlotBox extends Control:
 		elif kind == "wall":
 			var a: int = game.FIREWALL_SOCKETS * game._wall_seat(host, slot)
 			footer = "%d/%d loaded" % [game._loaded_of((h.sockets as Array).slice(a, a + game.FIREWALL_SOCKETS)).size(), game.FIREWALL_SOCKETS] if bool(h.get("fw_on", true)) else "OFF: no Intel"
+		var waiting: bool = not job.is_empty() and str(job.phase) == "build" and not game._job_funded(job)
 		if not job.is_empty():
 			footer = ""
-			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else "■  %.0fs" % float(job.left)
+			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else ("■  Supplying" if waiting else "■  %.0fs" % float(job.left))
 		game._draw_building_card(self, kind, footer, not job.is_empty())
 		if not job.is_empty():
-			var total: float = game.DEMOLISH_TIME if str(job.phase) == "demolish" else game.BUILD_TIME
-			draw_rect(Rect2(6, 106, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
-			var short := str(job.get("short", ""))
-			if str(job.phase) == "build" and not bool(job.get("paused", false)) and short != "":   # construction waits for a resource
-				var price: float = float(game._job_cost_total(job).get(short, 0.0))
-				var paid: float = price - float(game._job_cost_left(job).get(short, 0.0))
-				var res_name: String = "Crypto" if short == "cash" else "Intel"
+			var total: float = maxf(0.001, float(job.total))
+			if not waiting: draw_rect(Rect2(6, 106, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
+			else:   # construction waits for its materials: how much of the bill is here
+				var bill := 0.0; var here := 0.0
+				for r in (job.bill as Dictionary): bill += float(job.bill[r]); here += minf(float(job.bill[r]), float((job.escrow as Dictionary).get(r, 0.0)))
 				draw_rect(Rect2(4, 77, size.x - 8, 28), Color(0.12, 0.07, 0.03))
-				game._fit_text(self, "Needs %s" % res_name, Rect2(6, 89, size.x - 12, 0), 12, game.C_WARN)
-				game._fit_text(self, "%d / %d paid" % [int(paid), int(price)], Rect2(6, 102, size.x - 12, 0), 11, game.C_TEXT)
+				game._fit_text(self, "Materials", Rect2(6, 89, size.x - 12, 0), 12, game.C_WARN)
+				game._fit_text(self, "%d / %d here" % [int(here + 0.0001), int(bill + 0.0001)], Rect2(6, 102, size.x - 12, 0), 11, game.C_TEXT)
 
 
 
@@ -8801,7 +9828,7 @@ class SocketList extends Control:   # one finished Firewall's 3 socket positions
 		match str(st[0]):
 			"held": return "%s on its way: it loads here on arrival.%s" % [str(game.CARDS[str(st[1])].name), off]
 			"loaded": return "%s loaded: it fires when %s.%s" % [str(game.CARDS[str(st[1])].name), str(game.SOCKET_TRIGGER[str(st[1])]), off]
-		return "Empty socket. Send Patch, Incident response, Traffic filter or Courier cover to this host: the first empty socket from the left takes it.%s" % off
+		return "Empty socket. Send Patch, Incident response, Traffic filter or Cargo cover to this host: the first empty socket from the left takes it.%s" % off
 	func _can_drop_data(_p: Vector2, data: Variant) -> bool:
 		return data is Dictionary and (data as Dictionary).has("card") and game._socketable(game._card_of(str(data.card))) and game._can_play(game.PLAYER, str(data.card), host) == ""
 	func _drop_data(_p: Vector2, data: Variant) -> void:
@@ -8851,6 +9878,11 @@ class BuildCard extends Control:   # a draggable card for one building kind
 		custom_minimum_size = Vector2(72, 94)
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		focus_mode = Control.FOCUS_ALL
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _get_tooltip(_at: Vector2) -> String:
+		return "%s\n\nMaterials: %s. They must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [str(game.BUILD_KINDS[kind].desc), game._build_cost_text(kind), int(game.BUILD_TIME)]
 
 	func _get_drag_data(_p: Vector2) -> Variant:
 		var icon := DragIcon.new(); icon.game = game; icon.kind = kind

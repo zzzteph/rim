@@ -60,10 +60,10 @@ func run() -> void:
 func reconcile() -> void:   # within one ledger window, the change in every bank equals what came in minus what went out
 	fresh()
 	own_pc(["bot", "intel", "cash"])
-	g.bank[P] = {"bots": 60.0, "intel": 120.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	g.bank[P] = {"intel": 120.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	g._start_job(int(g.rig[P]), "cred", 2)          # a building (the main node's free slot)
-	g._lane_set(P, 0, "breach"); g._lane_manufacture(P, 0)   # manufacturing
+	g._cmd(["queue", "breach", 1])                 # manufacturing
 	g._do_research(P, "exploit")                   # research, paid as it goes
 	step(20.0)
 	var sums: Dictionary = g._ledger_sums(P)
@@ -83,7 +83,7 @@ func reconcile() -> void:   # within one ledger window, the change in every bank
 	check(by("cash", "in", "delivered") > 0.0 and by("cash", "in", "trickle") > 0.0, "Income is split by cause: deliveries and the main-node trickle")
 
 
-func layout_rate() -> void:   # station + harvester + Miner: its own couriers deliver 1 Intel and 1 Crypto per 5-s cycle
+func layout_rate() -> void:   # station + harvester + Miner: its own workers deliver 1 Intel and 1 Crypto per 5-s cycle
 	fresh()
 	g._set_builds(int(g.rig[P]), [])
 	own_pc(["bot", "intel", "cash"])
@@ -139,15 +139,22 @@ func cargo_loss() -> void:   # a broken route holds cargo where it is; it goes o
 	check(held >= 1 and by("intel", "lost", "cargo") == 0.0 and g._incoming(P, "intel") >= float(held), "Cargo whose route broke waits at the far host, held, nothing lost (%d held)" % held)
 	g._capture(via, P)   # the route returns
 	step(8.0)
-	check(held_cargo().is_empty() and by("intel", "in", "delivered") > 0.0 and g._incoming(P, "intel") < 0.001, "When the route returns the held cargo goes on and arrives; its bank room is used")
+	var riding := 0.0   # cargo heading to the bank, and pickups claimed by workers on their way: exactly the room held
+	for f in g.flights:
+		if str(f.kind) != "courier": continue
+		if int(f.dest) == int(g.rig[P]): riding += float((f.cargo as Dictionary).get("intel", 0.0))
+		if (f.get("job", {}) as Dictionary).has("src") and str(f.job.res) == "intel": riding += float(f.job.amt)
+	check(held_cargo().is_empty() and by("intel", "in", "delivered") > 0.0 and absf(g._incoming(P, "intel") - riding) < 0.001, "When the route returns the held cargo goes on and arrives; the bank room held is only what still rides or is claimed (%.0f)" % riding)
 	g.hosts[far].store = {P: {"intel": 4.0}}
-	step(2.0)
+	for k in 600:   # until a worker has loaded at the far host and is about to leave it
+		g._sim_step(g.SIM_DT)
+		if g.flights.any(func(f): return str(f.kind) == "courier" and str(f.trip) == "back" and not (f.cargo as Dictionary).is_empty() and int(f.route[0]) == far and int(f.hop_i) == 0): break
 	g.hosts[via].owner = g.NEUTRAL; g.hosts[via].gen = int(g.hosts[via].gen) + 1
-	step(3.0)
+	step(2.0)
 	var waiting := held_cargo().size()
 	g._capture(far, g.RIVAL)   # the host it waits in is taken
 	step(1.0)
-	check(waiting >= 1 and by("intel", "lost", "cargo") > 0.0 and held_cargo().is_empty(), "Cargo waiting in a host that is taken is lost, and recorded as lost")
+	check(waiting >= 1 and by("intel", "lost", "cargo") > 0.0 and held_cargo().is_empty(), "Cargo waiting in a host that is taken is lost, and recorded as lost (%d waiting)" % waiting)
 	check(g._incoming(P, "intel") < 0.001, "Its reserved bank room is released when it is lost")
 
 

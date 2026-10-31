@@ -26,7 +26,7 @@ func fresh() -> void:
 	g._open_menu(false)
 	P = g.PLAYER
 	R = int(g.botnets[1]) if int(g.botnets[0]) == P else int(g.botnets[0])
-	g.bank[P] = {"bots": 60.0, "intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 
 
 func step(secs: float) -> void:
@@ -113,13 +113,17 @@ func conditions() -> void:
 	g._capture(via, P)
 	step(2.0)
 	check(entries("cutoff").size() == 1 and not bool(entries("cutoff")[0].live), "Restoring the route ends it; it stays in the history")
-	# couriers held at the reserve
-	g.bank[P].bots = 0.0
+	# no workers anywhere
+	for i in g.hosts.size():
+		if int(g.hosts[i].owner) == P and g._count_all(i, "bot") > 0: g._set_builds(i, [])
 	g.hosts[t].store = {P: {"intel": 4.0}}
 	step(1.0)
-	check(entries("couriers").size() == 1 and bool(entries("couriers")[0].live), "Units waiting with no Bots above the reserve: couriers held")
+	check(entries("noworkers").size() == 1 and bool(entries("noworkers")[0].live) and int(entries("noworkers")[0].pri) == g.EV_CRIT, "No workers at all is critical: nothing can move")
+	g._set_builds(int(g.rig[P]), ["bot"])
+	step(1.0)
+	check(entries("noworkers").size() == 1 and not bool(entries("noworkers")[0].live), "A new station ends it")
 	# research that cannot pay
-	g.bank[P] = {"bots": 60.0, "intel": 0.0, "cash": 0.0, "creds": 60.0, "research": 0.0}
+	g.bank[P] = {"intel": 0.0, "cash": 0.0, "creds": 60.0, "research": 0.0}
 	g.research_job[P] = {"key": "exploit", "progress": 1.0, "paused": false}
 	step(1.0)
 	check(entries("research").size() == 1 and str(entries("research")[0].text).contains("stopped"), "Research that cannot pay is actionable: %s" % (str(entries("research")[0].text) if entries("research").size() > 0 else "none"))
@@ -142,12 +146,10 @@ func conditions() -> void:
 func news() -> void:
 	fresh()
 	g.cards[P] = {}
-	g.known[P]["breach"] = true
-	for k in 2:
-		g._lane_set(P, k, "breach"); g._lane_manufacture(P, k)
-	step(16.0)
-	var e: Array = entries("mf:breach")
-	check(e.size() == 1 and int(e[0].n) == 2 and int(e[0].pri) == g.EV_INFO, "Two copies finished together: one entry ×2")
+	for k in 2: g._cmd(["queue", "recon"])
+	step(8.0)
+	var e: Array = entries("mf:recon")
+	check(e.size() == 1 and int(e[0].n) == 2 and int(e[0].pri) == g.EV_INFO, "Two copies finished close together: one entry ×2")
 	g.research_job[P] = {"key": "exploit", "progress": g._research_time("exploit") - 0.05, "paused": false}
 	step(1.0)
 	check(entries("bp:exploit").size() == 1, "A learned blueprint is recorded")
