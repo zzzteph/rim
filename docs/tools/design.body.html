@@ -201,9 +201,9 @@ m      = the host type's multiplier for that resource</pre>
     <tbody>{{LAYOUTS}}</tbody>
   </table></div>
   <h3>Host status</h3>
-  <p>A selected host's panel names its status from the first problem that applies, in this order. The next-cycle preview is worked out exactly as the cycle will run, so it never shows output the host cannot make.</p>
+  <p>Your host's panel is only a build menu, with no prose. Its diagnosis is in the tooltip of each of its slots, which lists the host's first two problems in this order. The diagnosis is worked out exactly as the next cycle will run, so it never promises output the host cannot make.</p>
   <div class="tablebox"><table>
-    <thead><tr><th>Status</th><th>When</th><th>What the panel suggests</th></tr></thead>
+    <thead><tr><th>Status</th><th>When</th><th>What the tooltip suggests</th></tr></thead>
     <tbody>
       <tr><th>under DDoS</th><td>a DDoS is active here</td><td>nothing is made or sent until it ends</td></tr>
       <tr><th>sabotaged</th><td>a Sabotage is active here</td><td>producers are off; cargo still passes</td></tr>
@@ -211,7 +211,7 @@ m      = the host type's multiplier for that resource</pre>
       <tr><th>no route</th><td>no chain of your hosts links it to your main node</td><td>retake a host between them</td></tr>
       <tr><th>starved</th><td>a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty</td><td>build the missing harvester or Miner here, or replace the converter</td></tr>
       <tr><th>blocked</th><td>storage full, or the bank for what is stored (or a main-node converter's output) is at its cap</td><td>spend that resource, or pause the converter; storage that is full of surplus ships as workers come free</td></tr>
-      <tr><th>waiting for workers</th><td>units are stored and every worker that serves the host is busy (or there are none)</td><td>wait, or build a Bot station here (or at your main node if you have none)</td></tr>
+      <tr><th>waiting for workers</th><td>units are stored and every one of your workers is busy (or you have none)</td><td>wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node</td></tr>
       <tr><th>Firewall off</th><td>the next cycle cannot pay the Firewall's Intel</td><td>build an Intel harvester here</td></tr>
       <tr><th>paused · building · idle</th><td>every producer paused by you · nothing finished yet · nothing installed</td><td>—</td></tr>
       <tr><th>operating</th><td>none of the above</td><td>—</td></tr>
@@ -236,7 +236,7 @@ m      = the host type's multiplier for that resource</pre>
       <pre class="code">travel = links × 1 s + hosts passed × 0.25 s   (× 0.5 with Express route)
 each link direction admits 8 packets per second (16 on a junction's links); extra packets wait</pre></div>
     <div class="rule"><h4>Held and lost</h4>
-      <p>When the way on is cut (a relay taken or under DDoS) a packet waits at the last host it reached, marked <b>held</b>, and goes on as soon as a route opens. A worker whose destination is lost turns back with its cargo. A card held for 20 s, or whose target is gone, comes back to your hand. Packets are lost only with a host they wait in. Packet siphon drops grabbed cargo on its host for the thief's workers; Cargo cover protects it.</p></div>
+      <p>When the way on is cut (a relay taken or under DDoS) a packet waits at the last host it reached, marked <b>held</b>, and goes on as soon as a route opens. A worker whose destination is lost turns back with its cargo. A card held for 20 s, or whose target is gone, comes back to your hand. Packets are lost only with a host they wait in; a worker that collected on a rival's host (theft) waits there for its way home. A rival's Express or Cargo cover on its own host never helps your workers leaving it. Packet siphon drops grabbed cargo on its host for the thief's workers; Cargo cover protects it.</p></div>
   </div>
   <p class="note"><b>Interpretations (0.6.2):</b> a worker lost on a cut route is replaced after 5 s while its station stands; a station whose host has no route to the main node keeps its new workers waiting there; cancelling a project during its work leaves the unworked share of its materials at the site; one in four assignments is a host turn. Cargo and workers are never teleported.</p>
 </section>

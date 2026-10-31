@@ -212,10 +212,13 @@ transit (`_where_is`). The **Workers** column is the worker population, not an i
 "Workers N" over "B busy · F free" (or "· K blocked"). `tests/forecast_test.gd` checks the forecast against 120 s of
 steady play and against no workers, a cut route, starvation and supply, a paused producer and a full bank.
 
-Host panels (0.6.2). Your host's panel is a **build menu**: its name, its slots (`SlotBox`, compact `SLOT_H` 112 px
-cards; four slots in one row, otherwise rows of three) and the six buildings (`BuildCard`, `PALETTE_H` 112 px, rows of
-three) — no prose, and the same height every frame, so it never scrolls or jumps at 1280×720 (selecting your host
-closes the card drawer to give it the room). A slot shows its state on the card (materials n/m while a project waits
+Host panels (0.6.3). Your host's panel is a **build menu**: its name, its slots (`SlotBox`, compact `SLOT_H` 112 px
+cards in rows of three; a finished Firewall shows its three sockets inside its own card, so a row never grows) and
+the six buildings (`BuildCard`, `PALETTE_H` 112 px in rows of three, or `PALETTE_H_MINI` 74 px — name, picture,
+price — when `_palette_h` finds the full menu would not fit `_panel_avail_h`, as under Learn's banner). No prose, and
+the same height every frame, so it never scrolls or jumps at 1280×720. Selecting your host closes the card drawer, and
+opening the drawer closes the build menu; a selected host a rival takes turns into an inspection behind its fog.
+A slot card says what it makes on that host (`_build_short`: the type multiplier, e.g. +1.5 Intel on a Server). A slot shows its state on the card (materials n/m while a project waits
 for them, its work bar, paused, inactive, needs an input) and a red stop button while busy; its tooltip
 (`_slot_tip`) says what it is, what it is doing and the host's first two problems from `_host_diag`.
 No card is sent or launched from a host panel: cards go through the card UI and drag and drop. A foreign host's

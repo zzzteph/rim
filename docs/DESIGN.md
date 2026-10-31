@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.3 · commit 5ef692f
+RIM 0.6.3 · commit 5bc6603
 
 ## Contents
 
@@ -259,9 +259,9 @@ m      = the host type's multiplier for that resource
 
 ### Host status
 
-A selected host's panel names its status from the first problem that applies, in this order. The next-cycle preview is worked out exactly as the cycle will run, so it never shows output the host cannot make.
+Your host's panel is only a build menu, with no prose. Its diagnosis is in the tooltip of each of its slots, which lists the host's first two problems in this order. The diagnosis is worked out exactly as the next cycle will run, so it never promises output the host cannot make.
 
-| Status                   | When                                                                                                                 | What the panel suggests                                                                                 |
+| Status                   | When                                                                                                                 | What the tooltip suggests                                                                               |
 |--------------------------|----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
 | under DDoS               | a DDoS is active here                                                                                                | nothing is made or sent until it ends                                                                   |
 | sabotaged                | a Sabotage is active here                                                                                            | producers are off; cargo still passes                                                                   |
@@ -269,7 +269,7 @@ A selected host's panel names its status from the first problem that applies, in
 | no route                 | no chain of your hosts links it to your main node                                                                    | retake a host between them                                                                              |
 | starved                  | a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty | build the missing harvester or Miner here, or replace the converter                                     |
 | blocked                  | storage full, or the bank for what is stored (or a main-node converter's output) is at its cap                       | spend that resource, or pause the converter; storage that is full of surplus ships as workers come free |
-| waiting for workers      | units are stored and every worker that serves the host is busy (or there are none)                                   | wait, or build a Bot station here (or at your main node if you have none)                               |
+| waiting for workers      | units are stored and every one of your workers is busy (or you have none)                                            | wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node  |
 | Firewall off             | the next cycle cannot pay the Firewall's Intel                                                                       | build an Intel harvester here                                                                           |
 | paused · building · idle | every producer paused by you · nothing finished yet · nothing installed                                              | —                                                                                                       |
 | operating                | none of the above                                                                                                    | —                                                                                                       |
@@ -305,7 +305,7 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
 
 #### Held and lost
 
-When the way on is cut (a relay taken or under DDoS) a packet waits at the last host it reached, marked **held**, and goes on as soon as a route opens. A worker whose destination is lost turns back with its cargo. A card held for 20 s, or whose target is gone, comes back to your hand. Packets are lost only with a host they wait in. Packet siphon drops grabbed cargo on its host for the thief's workers; Cargo cover protects it.
+When the way on is cut (a relay taken or under DDoS) a packet waits at the last host it reached, marked **held**, and goes on as soon as a route opens. A worker whose destination is lost turns back with its cargo. A card held for 20 s, or whose target is gone, comes back to your hand. Packets are lost only with a host they wait in; a worker that collected on a rival's host (theft) waits there for its way home. A rival's Express or Cargo cover on its own host never helps your workers leaving it. Packet siphon drops grabbed cargo on its host for the thief's workers; Cargo cover protects it.
 
 **Interpretations (0.6.2):** a worker lost on a cut route is replaced after 5 s while its station stands; a station whose host has no route to the main node keeps its new workers waiting there; cancelling a project during its work leaves the unworked share of its materials at the site; one in four assignments is a host turn. Cargo and workers are never teleported.
 

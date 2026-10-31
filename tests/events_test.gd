@@ -57,6 +57,7 @@ func run() -> void:
 	conditions()
 	news()
 	strip_and_history()
+	logs_label_from_the_start()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -188,3 +189,13 @@ func strip_and_history() -> void:
 	check(g.events.size() == g.EV_KEEP, "The history keeps the last %d entries" % g.EV_KEEP)
 	g._gen()
 	check(g.events.is_empty() and g.op_outcomes.is_empty() and g._ledger.is_empty(), "A new match starts with an empty history and ledger")
+
+
+func logs_label_from_the_start() -> void:   # the Logs button reads "Logs" from the first frame of a match or lesson, never blank or stale
+	fresh()
+	check(g.logs_button.text == "Logs", "A new match: the Logs button reads 'Logs' before any step (%s)" % g.logs_button.text)
+	for k in 5: g._event("test:%d" % k, g.EV_CRIT, "Something critical %d" % k)
+	g._refresh_event_strip()
+	check(g.logs_button.text.contains("5 new"), "...then counts what is new (%s)" % g.logs_button.text)
+	g._start_campaign(0)
+	check(g.logs_button.text == "Logs", "A lesson that opens paused shows 'Logs', not the last match's count (%s)" % g.logs_button.text)

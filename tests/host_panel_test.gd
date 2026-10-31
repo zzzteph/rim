@@ -79,6 +79,7 @@ func run() -> void:
 	await no_stale_controls()
 	await local_supplies()
 	await inspector()
+	await typed_rates_and_lost_selection()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -241,3 +242,16 @@ func inspector() -> void:   # compact at 1280×720: your host's panel is its nam
 	g._refresh_panel(); await frames()
 	check(box != null and box.stop_button.visible and str(box.stop_button.text).contains("Cancel") and str(g._slot_tip(n, 1)).contains("Waiting for its materials"),
 		"An order waiting for its materials says so on its slot (and its tooltip), with a cancel button, not in prose")
+
+
+func typed_rates_and_lost_selection() -> void:
+	fresh()
+	var home: int = int(g.rig[P])   # a Server: Intel x1.5
+	check(g._build_short("intel", home) == "+1.5 Intel" and g._build_short("intel") == "+1 Intel", "A slot card gives what it makes on THIS host (%s on a Server; the palette card says %s)" % [g._build_short("intel", home), g._build_short("intel")])
+	var n := neighbour(g.NEUTRAL)
+	g._capture(n, P); g.hosts[n].type = "db"; g.hosts[n].slots = 4; g._set_builds(n, ["intel", "cred", "", ""])
+	check(g._build_short("intel", n) == "+2 Intel" and g._build_short("cred", n) == "+1.5 Cred", "...+2 Intel and +1.5 Cred on a Database")
+	g.sel = {n: true}; g._inspect = -1; g._refresh_panel()
+	g._capture(n, R); g._set_builds(n, ["wall", "lab", "", ""])   # a rival takes the host you are looking at, and builds
+	var txt := "\n".join(PackedStringArray(panel_items()))
+	check(g.sel.is_empty() and g._inspect == n and not txt.contains("Research lab") and not txt.contains("Firewall"), "A selected host a rival takes stops being your build menu: you inspect it behind its fog")

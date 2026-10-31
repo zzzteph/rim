@@ -487,7 +487,7 @@ func _ready() -> void:
 	_refresh_hand()
 	logs_button = Button.new(); logs_button.name = "Logs"; logs_button.focus_mode = Control.FOCUS_NONE
 	logs_button.add_theme_font_size_override("font_size", 14); logs_button.custom_minimum_size = Vector2(LOGS_W, RESEARCH_BAR_H)
-	logs_button.clip_text = true; logs_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	logs_button.clip_text = true; logs_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS; logs_button.text = "Logs"
 	logs_button.tooltip_text = "What happened: your operations, attacks on you, captures, losses and problems (H)."
 	_fixed_button_style(logs_button); logs_button.pressed.connect(_open_logs); add_child(logs_button)
 	top_tabs = HBoxContainer.new()
@@ -562,6 +562,7 @@ func _gen() -> void:
 	_logi_dirty = {}; _logi_next = {}
 	_ai = {}; _fx = []; _worms = []; _hold = {}; card_plays = {}
 	_ledger = {}; op_outcomes = []; intrusions_resolved = 0; events = []; _ev_next_poll = 0.0; _ev_dirty = true; _ev_seen_t = -1.0   # per-match records
+	_refresh_event_strip()   # the Logs button reads "Logs" from the first frame, even while a lesson opens paused
 	for fac in botnets:
 		bank[fac] = {}
 		for res in RES: bank[fac][res] = float(START[res])
@@ -2182,7 +2183,8 @@ func _tick_blocked() -> void:   # held packets: on when a route opens; turned ba
 	for f in flights:
 		if not bool(f.get("blocked", false)) or bool(f.get("dead", false)): continue
 		var fac := int(f.owner); var at := int(f.at)
-		var foreign_end := str(f.kind) == "courier" and not bool(f.get("dest_own", true)) and at == int(f.get("dest", -1))   # collecting at a rival's host
+		var foreign_end := str(f.kind) == "courier" and ((not bool(f.get("dest_own", true)) and at == int(f.get("dest", -1))) \
+			or at == int(f.get("pickup", -1)))   # held where it collected on a rival's host: it waits there for a way home
 		if int(hosts[at].owner) != fac and not foreign_end: _lose(f, at, "taken"); continue   # the host it waits in was taken
 		if _routing_down(at): continue
 		var dest := int(f.get("dest", -1))
@@ -2302,8 +2304,10 @@ func _courier_arrive(f: Dictionary) -> bool:   # true: the worker goes on (back 
 			if float(job.amt) - got > 0.0001: _release_incoming(fac, str(job.res), float(job.amt) - got)
 		elif at != home: _backhaul(fac, hub, f, at)
 		f.trip = "back"; f.dest = home
-		f.express = float(hosts[at].get("express_until", 0.0)) > _t   # Express on this host speeds what leaves it
-		if (f.cargo as Dictionary).size() > 0: f.covered = float(hosts[at].get("cover_until", 0.0)) > _t   # so does Cargo cover
+		var own_here := int(hosts[at].owner) == fac   # a rival's Express or Cargo cover on its own host never helps your workers
+		f.pickup = -1 if own_here else at
+		f.express = own_here and float(hosts[at].get("express_until", 0.0)) > _t   # Express on this host speeds what leaves it
+		if (f.cargo as Dictionary).size() > 0: f.covered = own_here and float(hosts[at].get("cover_until", 0.0)) > _t   # so does Cargo cover
 		var rt := _travel_route(fac, at, home)
 		if rt.size() >= 2 and _end_ok(f, home): _reroute(f, rt)
 		else: _block(f, at)
@@ -4579,8 +4583,12 @@ func _set_deck_open(open: bool) -> void:
 	_deck_drag_restore = false
 	if open == _deck_open: return
 	_deck_open = open
+	if open and not sel.is_empty():   # the drawer and your host's build menu share the right side: the drawer wins, no scrolling menu
+		if sel.size() == 1: _inspect = -1
+		sel = {}
+		_refresh_panel()
 	_layout_ui()
-	if open: _keep_target_visible()   # a selected building must not end up under the drawer
+	if open: _keep_target_visible()
 
 
 func _open_drawer(bank: String) -> void:   # the drawer on this view (from the strip, the Research button, a tab)
@@ -6644,7 +6652,11 @@ func _refresh_panel() -> void:
 	_refresh_top_tabs()
 	var shown := _panel_shown()
 	panel.visible = shown and not menu_open
-	var context := "%s|%s|%d|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost)]
+	for k in sel.keys():   # a selected host a rival took is no longer yours to build on: inspect it instead, behind its fog
+		if _host_ok(int(k)) and not _mine(int(k)):
+			sel.erase(k)
+			if sel.is_empty(): _inspect = int(k)
+	var context := "%s|%s|%d|%s|%s|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost), str(_banner_on()), str(_deck_open)]   # (the build menu's density follows the banner and the drawer)
 	if _tab == "events": context += "|" + ",".join(PackedStringArray(events.map(func(e): return str(e.key))))   # a new order rebuilds the rows, so each still opens its own event
 	var changed := context != _panel_context
 	var keep := 0 if changed else _scroll_pos()
@@ -6676,8 +6688,14 @@ func _refresh_panel() -> void:
 	if changed: _keep_target_visible()
 
 
+func _sockets_first(box: Node) -> int:   # the first socket a slot card's embedded SocketList shows, or -1 without one
+	for c in box.get_children():
+		if c.get("first") != null: return int(c.first)
+	return -1
+
+
 func _same_ui_shape(a: Node, b: Node) -> bool:
-	if a is SlotBox and b is SlotBox: return a.host == b.host and a.slot == b.slot
+	if a is SlotBox and b is SlotBox: return a.host == b.host and a.slot == b.slot and _sockets_first(a) == _sockets_first(b)   # (a Firewall's sockets inside)
 	if a.get_class() != b.get_class() or a.get_script() != b.get_script() or a.get_child_count() != b.get_child_count(): return false
 	if a is OptionButton and a.selected != b.selected: return false
 	if a is Button:
@@ -7004,6 +7022,20 @@ func _effects_line(i: int) -> String:
 
 const SLOT_H := 112.0      # an installation slot in the inspector (the compact card: name, picture, what it makes, its state)
 const PALETTE_H := 112.0   # a building card in the inspector's palette: name, picture, what it makes, its price
+const PALETTE_H_MINI := 74.0   # ...when the whole menu would not fit (under Learn's banner): name, picture, price
+const SLOT_VSEP := 4.0     # between two rows of slots
+
+
+func _panel_avail_h() -> float:   # the build menu's scroll height, from the same layout _layout_ui applies
+	var top := (_camp_banner_h() + 74.0) if _banner_on() else 64.0
+	var bottom := get_viewport_rect().size.y - 24.0 if won or lost else _deck_top() - 12.0
+	return maxf(180.0, bottom - top) - 24.0
+
+
+func _palette_h(i: int) -> float:   # the full palette when the whole build menu fits, else the mini one; never a scrollbar
+	var rows := ceili(float(int(hosts[i].slots)) / float(PANEL_COLS))
+	var need := 32.0 + rows * SLOT_H + (rows - 1) * SLOT_VSEP + 14.0 + 2.0 * PALETTE_H + PALETTE_GAP
+	return PALETTE_H if need <= _panel_avail_h() else PALETTE_H_MINI
 
 
 func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is doing, and what holds this host back
@@ -7031,31 +7063,29 @@ func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is d
 	return "\n".join(PackedStringArray(out))
 
 
-func _slot_cols(i: int) -> int: return 4 if int(hosts[i].slots) == 4 else PANEL_COLS   # four slots fit one row
-
-
 func _panel_build(i: int) -> void:   # the slots, then the six buildings: both always fully in view, the same height every frame
 	var h: Dictionary = hosts[i]
-	var cols := _slot_cols(i)
+	var cols := PANEL_COLS   # three cards a row, whatever the host: 4 and 5 slots take two rows
 	var w := floorf((PANEL_W - 44.0 - PALETTE_GAP * (cols - 1)) / float(cols))
 	var grid := GridContainer.new(); grid.columns = cols
-	grid.add_theme_constant_override("h_separation", PALETTE_GAP); grid.add_theme_constant_override("v_separation", 6)
+	grid.add_theme_constant_override("h_separation", PALETTE_GAP); grid.add_theme_constant_override("v_separation", int(SLOT_VSEP))
 	for slot in int(h.slots):
-		var col := VBoxContainer.new(); col.add_theme_constant_override("separation", 3)
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
-		box.custom_minimum_size = Vector2(w, SLOT_H); col.add_child(box)
-		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 socket positions right under it
+		box.custom_minimum_size = Vector2(w, SLOT_H)
+		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 sockets inside its card
 			var sl := SocketList.new(); sl.game = self; sl.host = i; sl.first = FIREWALL_SOCKETS * _wall_seat(i, slot)
-			sl.custom_minimum_size.x = w
-			col.add_child(sl)
-		grid.add_child(col)
+			sl.mouse_filter = Control.MOUSE_FILTER_PASS   # a building dragged onto it, or a right click, still reaches the slot
+			sl.custom_minimum_size = Vector2(w - 8.0, SocketList.ROW * 3.0); sl.position = Vector2(4.0, 28.0); sl.size = sl.custom_minimum_size
+			box.add_child(sl); box.sockets_inside = true
+		grid.add_child(box)
 	panel_box.add_child(grid)
 	_gap(6.0)
 	var palette := GridContainer.new(); palette.columns = PANEL_COLS
 	palette.add_theme_constant_override("h_separation", PALETTE_GAP); palette.add_theme_constant_override("v_separation", PALETTE_GAP)
+	var ph := _palette_h(i)
 	for kind in BUILD_KINDS:
 		var card := BuildCard.new(); card.game = self; card.kind = kind
-		card.custom_minimum_size = Vector2(_palette_card_w(), PALETTE_H); palette.add_child(card)
+		card.custom_minimum_size = Vector2(_palette_card_w(), ph); palette.add_child(card)
 	panel_box.add_child(palette)
 
 
@@ -8252,9 +8282,9 @@ func _flight_lines(fl: Dictionary) -> Array:   # what the details beside a packe
 	var station := int((workers.get(int(fl.get("wid", -1)), {}) as Dictionary).get("home", origin))
 	out.append("Worker #%d (station on %s)" % [int(fl.get("wid", 0)), str(hosts[station].name)])
 	if bool(fl.get("blocked", false)): out.append("Held at %s: the way on is cut" % str(hosts[int(fl.at)].name))
-	if str(fl.trip) == "out":
+	if str(fl.trip) == "join": out.append("Joining your workers at the main node" + ((", with 1 %s" % str(RES_NAME[res])) if res != "" else ""))
+	elif str(fl.trip) == "out":
 		if res != "": out.append("Carrying 1 %s to %s" % [str(RES_NAME[res]), dname])
-		elif str(fl.trip) == "join": out.append("Joining your workers at the main node")
 		else: out.append("Going to collect from " + dname)
 	else: out.append(("Bringing 1 %s home" % str(RES_NAME[res])) if res != "" else "Coming home empty")
 	if not bool(fl.get("blocked", false)): out.append("Arrives in %ds" % ceili(eta))
@@ -9422,18 +9452,35 @@ const BUILD_EFFECT := {   # per 12-s cycle (the building tooltip says "Every 12 
 	"bot": ["2 workers", "1 unit a leg"], "intel": ["+1 Intel", "+50 cap"], "cash": ["+1 Crypto", "uses 1 Intel"],
 	"cred": ["+1 Cred", "uses 1 Intel"], "lab": ["+1 Research", "Intel+Crypto"], "wall": ["3 sockets", "uses 1 Intel"],
 }
-func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false) -> void:
+func _build_short(kind: String, host := -1) -> String:   # the compact card's one line; in a host's slot, what it makes THERE (type multiplier)
+	var out := str(BUILD_KINDS[kind].out)
+	if host < 0 or out == "" or not _host_ok(host): return str(BUILD_SHORT[kind])
+	var amt := float(BUILD_KINDS[kind].rate) * _tmult(host, out)
+	return "+%s %s" % [_amt(amt), {"intel": "Intel", "cash": "Crypto", "creds": "Cred", "research": "Research"}[out]]
+
+
+func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false, host := -1) -> void:
 	var font := canvas.get_theme_default_font()
 	var w := canvas.size.x
 	var colour: Color = BUILD_KINDS[kind].col if not gray else Color(0.6, 0.6, 0.6)
 	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), Color(0.13, 0.15, 0.21) if not gray else Color(0.15, 0.15, 0.15))
 	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), colour, false, 2)
+	if canvas.size.y < 90.0:   # the mini palette card: name 4-24 · picture 28-50 · price (what it makes: its tooltip)
+		canvas.draw_rect(Rect2(4, 4, w - 8, 20), colour.darkened(0.8))
+		_fit_text(canvas, str(BUILD_KINDS[kind].card), Rect2(6, 19, w - 12, 0), 12, C_TEXT)
+		canvas.draw_rect(Rect2(6, 28, w - 12, 24), Color(0.04, 0.05, 0.07))
+		_draw_kind_icon(canvas, kind, Vector2(w * 0.5, 40), 20, colour, font)
+		if show_cost:
+			var cw0 := _draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
+			_draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2((w - cw0) * 0.5, canvas.size.y - 10.0), 11, 12.0)
+		elif footer != "": _fit_text(canvas, footer, Rect2(6, canvas.size.y - 10.0, w - 12, 0), 11, C_DIM)
+		return
 	if canvas.size.y < 130.0:   # the compact palette card: name 4-26 · picture 30-64 · what it makes 80 · price 99
 		canvas.draw_rect(Rect2(4, 4, w - 8, 22), colour.darkened(0.8))
 		_fit_text(canvas, str(BUILD_KINDS[kind].card), Rect2(6, 20, w - 12, 0), 12, C_TEXT)
 		canvas.draw_rect(Rect2(6, 30, w - 12, 34), Color(0.04, 0.05, 0.07))
 		_draw_kind_icon(canvas, kind, Vector2(w * 0.5, 47), 28, colour, font)
-		_fit_text(canvas, str(BUILD_SHORT[kind]), Rect2(6, 80, w - 12, 0), 11, C_TEXT)
+		_fit_text(canvas, _build_short(kind, host), Rect2(6, 80, w - 12, 0), 11, C_TEXT)
 		if show_cost:
 			var cw := _draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
 			_draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2((w - cw) * 0.5, 99), 11, 12.0)
@@ -9478,6 +9525,12 @@ func _text_w(f: Font, s: String, fs: int) -> float:   # = f.get_string_size(s, H
 	return _shape(f, s, fs).get_size().x
 
 
+func _text_fit_left(c: CanvasItem, f: Font, pos: Vector2, s: String, fs: int, col: Color, w: float) -> void:   # left-aligned, shrunk to fit w
+	var size := fs
+	while size > 8 and _text_w(f, s, size) > w: size -= 1
+	_text(c, f, pos, s, size, col)
+
+
 func _fit_text(c: CanvasItem, text: String, at: Rect2, fs: int, col: Color) -> void:   # centred on at.position.y, shrunk to fit the width
 	var font := get_theme_default_font()
 	var size := fs
@@ -9490,6 +9543,7 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 	var host := -1
 	var slot := 0
 	var stop_button: Button
+	var sockets_inside := false   # a finished Firewall: its SocketList child covers the picture (the card keeps one height)
 	const STOP_H := 22.0
 	func _init() -> void:
 		custom_minimum_size = Vector2(112, 112)
@@ -9508,6 +9562,7 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 		stop_button.tooltip_text = "Cancel this project: what was delivered stays here as salvage, and workers take it home."
 		stop_button.pressed.connect(game._cancel_job.bind(host, slot)); add_child(stop_button)
 	func _process(_dt: float) -> void:
+		if slot >= (game.hosts[host].builds as Array).size(): return   # the host lost slots (a lesson's reset): the panel is about to be rebuilt
 		var busy: bool = game.hosts[host].jobs.has(slot)
 		stop_button.visible = busy
 		stop_button.size = Vector2(size.x, STOP_H)
@@ -9533,6 +9588,7 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 	func _draw() -> void:
 		var font := get_theme_default_font()
 		var h: Dictionary = game.hosts[host]
+		if slot >= (h.builds as Array).size(): return
 		var job: Dictionary = h.jobs.get(slot, {})
 		var kind := str(h.builds[slot])
 		if not job.is_empty() and str(job.phase) == "build": kind = str(job.kind)
@@ -9560,7 +9616,9 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 		if not job.is_empty():   # the card says the state (materials, paused); the red button cancels, with the work left on it
 			footer = ""
 			stop_button.text = "■  %.0fs" % float(job.left) if not waiting and not bool(job.get("paused", false)) else "■  Cancel"
-		game._draw_building_card(self, kind, footer, not job.is_empty())
+		if sockets_inside and job.is_empty(): footer = ""   # its sockets say what is loaded, and OFF
+		game._draw_building_card(self, kind, footer, not job.is_empty(), false, host)
+		if sockets_inside and job.is_empty(): draw_rect(Rect2(4, 27, size.x - 8, 70), Color(0.13, 0.15, 0.21))   # under the sockets
 		if not job.is_empty():
 			var total: float = maxf(0.001, float(job.total))
 			if not waiting: draw_rect(Rect2(6, size.y - STOP_H - 5.0, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
@@ -9620,12 +9678,12 @@ class SocketList extends Control:   # one finished Firewall's 3 socket positions
 					draw_rect(r, Color(cc.r, cc.g, cc.b, 0.12 * a), true); draw_rect(r, Color(cc, 0.7 * a), false, 1.0)
 					game._draw_card_glyph(self, str(st[1]), r.position + Vector2(10, ROW * 0.5 - 1.5), 15.0, Color(1, 1, 1, 0.55 * a), f)
 					var e := eta(k)
-					game._text(self, f, r.position + Vector2(21, 14), "%s %s" % [str(game.CARDS[str(st[1])].short), ("in %ds" % ceili(e)) if e >= 0.0 else "held"], 11, Color(cc.lightened(0.3), 0.8 * a))
+					game._text_fit_left(self, f, r.position + Vector2(21, 14), "%s %s" % [str(game.CARDS[str(st[1])].short), ("in %ds" % ceili(e)) if e >= 0.0 else "held"], 11, Color(cc.lightened(0.3), 0.8 * a), size.x - 25.0)
 				"loaded":
 					var cc2: Color = game.FAMILY_COL[str(game.CARDS[str(st[1])].fam)]
 					draw_rect(r, Color(cc2.r, cc2.g, cc2.b, 0.3 * a), true); draw_rect(r, Color(cc2, a), false, 1.5)
 					game._draw_card_glyph(self, str(st[1]), r.position + Vector2(10, ROW * 0.5 - 1.5), 15.0, Color(1, 1, 1, a), f)
-					game._text(self, f, r.position + Vector2(21, 14), str(game.CARDS[str(st[1])].short) if on else "%s · OFF" % str(game.CARDS[str(st[1])].short), 11, Color(game.C_TEXT, a) if on else game.C_BAD)
+					game._text_fit_left(self, f, r.position + Vector2(21, 14), str(game.CARDS[str(st[1])].short) if on else "%s · OFF" % str(game.CARDS[str(st[1])].short), 11, Color(game.C_TEXT, a) if on else game.C_BAD, size.x - 25.0)
 	func _get_tooltip(at: Vector2) -> String:
 		var k := clampi(int(at.y / ROW), 0, 2)
 		var st := state(k)

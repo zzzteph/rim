@@ -253,6 +253,13 @@ func one_pool() -> void:   # every worker works from the main node: a remote sta
 	g._set_builds(home, ["intel"]); g._tick_teams(0.0)   # no station at the main node
 	var h := near(); own(h, ["bot"])
 	var mine := ids(h)
+	var join_tip := ""
+	for k in 30:   # on the way: hovering it says where it is going
+		for f in g.flights:
+			if str(f.kind) == "courier" and str(f.get("trip", "")) == "join" and join_tip == "": join_tip = " | ".join(PackedStringArray(g._flight_lines(f)))
+		if join_tip != "": break
+		g._sim_step(g.SIM_DT)
+	check(join_tip.contains("Joining your workers at the main node") and not join_tip.contains("Coming home empty"), "A new worker on its way to the main node says so when hovered (%s)" % join_tip)
 	step(4.0)
 	var at_hub := 0
 	for wid in mine: if int(g.workers[wid].base) == home: at_hub += 1
