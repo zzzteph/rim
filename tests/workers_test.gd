@@ -1,8 +1,9 @@
 extends SceneTree
-## Delivery workers and physical construction (feedback 31 Oct, layers 1-4): two reusable workers per Bot station
-## with stable identities; automatic demand (local use first, the net shortfall fetched, the surplus collected);
-## one unit per leg; claims taken once; capture destroys a host's own workers wherever they are; a lost worker is
-## replaced at its surviving station; construction is supplied into escrow before its work runs.
+## Delivery workers and physical construction: two reusable workers per Bot station with stable identities, all of
+## them ONE pool working from the main node (a new station's workers go there first); automatic demand (local use
+## first, the net shortfall brought, the surplus collected); construction first, then inputs, then surplus, the hosts
+## served in turn; one unit per leg; claims taken once; capture destroys a station's workers wherever they are; a lost
+## worker is replaced at its surviving station; construction is supplied into escrow before its work runs.
 ## godot --headless --path . --script tests/workers_test.gd
 var g
 var P := 1
@@ -47,6 +48,9 @@ func own(i: int, kinds: Array, type := "pc") -> void:
 	g._set_builds(i, kinds); g._tick_teams(0.0)
 
 
+func station_of(f: Dictionary) -> int: return int((g.workers.get(int(f.get("wid", -1)), {}) as Dictionary).get("home", -1))
+
+
 func ids(home := -2) -> Array:
 	var out := []
 	for wid in g.workers:
@@ -66,12 +70,15 @@ func run() -> void:
 	lab_bundle()
 	shared_trips()
 	no_double_claim()
-	refill()
+	no_ping_pong()
+	one_pool()
+	builds_first()
 	storage_fair()
 	construction()
 	cancel_and_pause()
 	fairness()
 	escrow_theft()
+	resources_in_turn()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -93,8 +100,8 @@ func identities_and_replacement() -> void:
 	fresh()
 	var h := near(); own(h, ["bot", "intel"])
 	var before := ids()
-	step(40.0)
-	check(ids() == before and led("in:delivered:intel") >= 5.0, "Many trips later the same worker identities remain (%s), %.0f Intel delivered" % [str(ids()), led("in:delivered:intel")])
+	step(60.0)
+	check(ids() == before and led("from:%d:intel" % h) >= 2.0, "Many trips later the same worker identities remain (%s), %.0f Intel delivered" % [str(ids()), led("from:%d:intel" % h)])
 	# a worker waiting at a knocked-out relay is held, not lost: no replacement
 	var far := -1
 	for nb in g.hosts[h].links:
@@ -107,11 +114,13 @@ func identities_and_replacement() -> void:
 	for wid in ids(far): if g._worker_state(wid) == "blocked": blocked += 1
 	check(ids(far).size() == 2, "Workers held behind a DDoS stay the same two (%d held), nobody is replaced" % blocked)
 	# a worker lost on the road leaves a vacant slot, refilled after 5 s of station operation
+	g.bank[P].intel = 150.0; g.bank[P].cash = 60.0
+	g._cmd(["build", h, 2, "wall"])   # 40 units to carry: every worker of the pool goes on the road
 	var lost_id := -1
-	for k in 300:
+	for k in 1800:
 		g._sim_step(g.SIM_DT)
 		for f in g.flights:
-			if str(f.kind) == "courier" and int(f.origin) == far and not bool(f.get("blocked", false)): lost_id = int(f.wid); g._lose(f, int(g.rig[P]), "test"); break
+			if str(f.kind) == "courier" and station_of(f) == far and not bool(f.get("blocked", false)): lost_id = int(f.wid); g._lose(f, int(g.rig[P]), "test"); break
 		if lost_id > 0: break
 	g.flights = g.flights.filter(func(x): return not bool(x.get("dead", false)))
 	var t0: float = g._t
@@ -131,7 +140,7 @@ func capture_kills() -> void:
 	var total_before := ids().size()
 	g._capture(h, R)
 	check(ids(h).is_empty() and ids().size() == total_before - 4, "Capturing a two-station host destroys its four workers (%d were away)" % away)
-	check(not g.flights.any(func(f): return str(f.kind) == "courier" and int(f.origin) == h), "...wherever they were: none of them is still travelling")
+	check(not g.flights.any(func(f): return str(f.kind) == "courier" and not g.workers.has(int(f.get("wid", -1)))), "...wherever they were: none of them is still travelling")
 	check(g.events.any(func(e): return str(e.text).contains("4 station workers destroyed")), "The former owner is told how many workers were destroyed")
 	g._capture(h, P); g._tick_teams(0.0)
 	check(ids(h).is_empty() and (g.hosts[h].builds as Array).count("bot") == 0, "Retaken, it has empty slots and no team: nothing restarts by itself")
@@ -152,34 +161,34 @@ func retirement() -> void:
 
 func local_use_first() -> void:
 	fresh()
-	var a := near(); own(a, ["intel", "cash", "bot"])   # makes 2 Intel, uses 1: 1 to send
+	var a := near(); own(a, ["intel", "cash", "bot"])   # makes 1 Intel, uses 1: nothing to fetch
 	var plan: Dictionary = g._host_plan(a, P, {"intel": 0.0, "cash": 0.0, "creds": 0.0, "research": 0.0})
-	check(float(plan.short.intel) == 0.0, "Makes 2, uses 1: nothing to fetch")
+	check(float(plan.short.intel) == 0.0, "Makes 1, uses 1: nothing to fetch")
 	g.hosts[a].store = {P: {"intel": 1.0}}
 	plan = g._host_plan(a, P, {})
-	check(absf(float(plan.export.intel) - 1.0) < 0.001, "Made 3 (stock 1 + 2), uses 2 next cycle with 2 made locally: 1 may leave")
-	var b := near([a]); own(b, ["intel", "cash", "cash", "bot"])   # makes 2, uses 2
+	check(absf(float(plan.export.intel) - 1.0) < 0.001, "Stock 1 + 1 made, 1 used next cycle with 1 made locally: 1 may leave")
+	var b := near([a]); own(b, ["intel", "intel", "cash", "cash", "bot"])   # makes 2, uses 2
 	g.hosts[b].store = {}
 	plan = g._host_plan(b, P, {})
 	check(float(plan.short.intel) == 0.0 and float(plan.export.intel) == 0.0, "Makes 2, uses 2: nothing to fetch, nothing to send")
 	g._set_builds(b, ["intel", "cash", "cash", "cash"]); g.hosts[b].slots = 4
 	plan = g._host_plan(b, P, {"intel": 50.0})
-	check(absf(float(plan.short.intel) - 1.0) < 0.001, "Makes 2, needs 3: the 1-unit shortfall is fetched")
+	check(absf(float(plan.short.intel) - 2.0) < 0.001, "Makes 1, needs 3: the 2-unit shortfall is brought")
 
 
-func empty_miner() -> void:   # the baseline reproduction: no setup, no refill click
+func empty_miner() -> void:   # the baseline reproduction: no setup, no clicks
 	fresh()
 	var h := near(); own(h, ["cash", "bot"])
-	step(20.0)
-	check(led("from:%d:cash" % h) >= 2.0 and led("out:supply:intel") >= 2.0, "An empty Miner with its two workers fetches Intel and sends Crypto home on its own (%.0f Crypto in 20 s)" % led("from:%d:cash" % h))
+	step(45.0)
+	check(led("from:%d:cash" % h) >= 2.0 and led("out:supply:intel") >= 2.0, "An empty Miner gets its Intel brought and its Crypto collected on its own (%.0f Crypto in the last 30 s)" % led("from:%d:cash" % h))
 
 
 func fractional() -> void:
 	fresh()
 	var h := near(); own(h, ["cash", "bot"], "erp")   # an ERP Miner uses 1.5 Intel a cycle
-	step(25.0)
+	step(45.0)
 	var got := led("from:%d:cash" % h)
-	check(got >= 3.0, "A fractional input (1.5 Intel a cycle) is supplied: %.1f Crypto made and delivered" % got)
+	check(got >= 1.5, "A fractional input (1.5 Intel a cycle) is supplied: %.1f Crypto made and delivered" % got)
 	var biggest := 0.0
 	for f in g.flights: for r in (f.get("cargo", {}) as Dictionary): biggest = maxf(biggest, float(f.cargo[r]))
 	check(biggest <= 1.0 + 0.0001, "No worker carries more than one unit (%.2f)" % biggest)
@@ -192,59 +201,109 @@ func lab_bundle() -> void:
 	check(float(plan.short.intel) >= 0.99 and float(plan.short.cash) >= 0.99, "A Lab with no inputs asks for both when the main node has both")
 	plan = g._host_plan(h, P, {"intel": 10.0, "cash": 0.0, "creds": 0.0, "research": 0.0})
 	check(float(plan.short.intel) == 0.0, "...and holds no Intel for itself when no Crypto can come")
-	step(25.0)
-	check(led("from:%d:research" % h) >= 2.0, "Supplied with both it sends Research home (%.0f)" % led("from:%d:research" % h))
+	step(50.0)
+	check(led("from:%d:research" % h) >= 1.0, "Supplied with both it sends Research home (%.0f)" % led("from:%d:research" % h))
 
 
 func shared_trips() -> void:
 	fresh()
-	var h := near(); own(h, ["intel", "lab", "bot"])   # surplus Intel out, Crypto in
+	var h := near(); own(h, ["intel", "lab"])   # surplus Intel to collect, Crypto to bring
 	g.hosts[h].store = {P: {"intel": 3.0}}
 	step(0.1)
 	var both := false
 	for f in g.flights:
-		if str(f.kind) == "courier" and int(f.origin) == h and not (f.cargo as Dictionary).is_empty() and not (f.job as Dictionary).is_empty(): both = true
-	check(both, "A worker takes surplus Intel to the main node and is booked to bring Crypto back on the same trip")
+		if str(f.kind) == "courier" and (f.cargo as Dictionary).has("cash") and int((f.job as Dictionary).get("src", -1)) == h: both = true
+	check(both, "One round trip does both: Crypto out to the host, and its surplus Intel booked for the way back")
 
 
 func no_double_claim() -> void:
 	fresh()
-	var h := near(); own(h, ["cash", "bot"])
+	var h := near(); own(h, ["cash"])
 	g.bank[P].intel = 1.0
 	step(0.1)
-	var fetching := 0
+	var carrying := 0
 	for f in g.flights:
-		if str(f.kind) == "courier" and int(f.origin) == h and str((f.job as Dictionary).get("res", "")) == "intel": fetching += 1
-	check(fetching == 1 and absf(g._rig_claimed(P, "intel") - 1.0) < 0.001, "Two free workers, one Intel at the main node: only one goes for it")
-	step(1.2)
-	check(absf(led("out:supply:intel") - 1.0) < 0.001 and g._rig_claimed(P, "intel") <= g._avail(P, "intel") + 0.001, "The claim turns into cargo exactly once: one unit left the bank, and claims never exceed what is there")
-
-
-func refill() -> void:
+		if str(f.kind) == "courier" and (f.cargo as Dictionary).has("intel"): carrying += 1
+	check(carrying == 1 and g._avail(P, "intel") < 0.5, "Two free workers, one Intel at the main node: only one carries it, and it left the bank once")
 	fresh()
-	var h := near(); own(h, ["intel", "cash", "cred", "bot"])   # makes 2 Intel, uses 2: nothing needed normally
-	g.hosts[h].cyc = 9.0   # its next cycle comes late, so the delivered refill can be watched before it is used
+	var x := near(); own(x, ["intel"])
+	g.hosts[x].store = {P: {"intel": 1.0}}
 	step(0.1)
-	var pv: Dictionary = g._refill_preview(h)
-	check(absf(float(pv.get("intel", 0.0)) - 2.0) < 0.001, "Refill preview: one cycle's gross inputs, 2 Intel (%s)" % str(pv))
-	g._cmd(["refill", h]); g._cmd(["refill", h])
-	check(absf(float(g.hosts[h].refill.get("intel", 0.0)) - 2.0) < 0.001, "One ticket per host: a second click adds nothing")
-	var sent0 := led("out:supply:intel")
-	step(5.0)
+	var booked := 0
+	for f in g.flights:
+		if str(f.kind) == "courier" and int((f.job as Dictionary).get("src", -1)) == x: booked += 1
+	check(booked == 1, "One unit to collect: only one worker is booked for it (%d)" % booked)
+
+
+func no_ping_pong() -> void:   # what was brought for a host's next cycle is not carried straight back out
+	fresh()
+	var h := near(); own(h, ["cash"])
+	g.hosts[h].cyc = 11.0   # its cycle comes late, so the delivered Intel waits there a while
+	for k in 120:
+		step(0.1)
+		if float(g._store_of(h, P).get("intel", 0.0)) >= 0.999: break
 	var plan: Dictionary = g._host_plan(h, P, {})
-	check(g._earmark(h, "intel") >= 1.999 and float(plan.export.intel) < 0.001, "Delivered refill Intel is kept for this host's next use, not sent back (earmark %.0f)" % g._earmark(h, "intel"))
-	step(3.0)
-	check(led("out:supply:intel") - sent0 >= 2.0 - 0.001 and (g.hosts[h].refill as Dictionary).is_empty(), "Workers bring it from the main node; the ticket is then complete")
-	step(12.0)
-	check((g.hosts[h].refill as Dictionary).is_empty() and g._earmark(h, "intel") < 0.001, "Used up, it is not ordered again by itself")
-	g._set_builds(int(g.rig[P]), ["", "bot"])   # no Intel made at the main node either: only its trickle
-	g.bank[P].intel = 0.0
-	g.hosts[h].store = {}
-	g._cmd(["refill", h])
-	step(3.0)
-	check(not (g.hosts[h].refill as Dictionary).is_empty() and g._refill_state(h) == "requested", "No Intel at the main node: the request stays, visibly waiting (%s, %s, bank %.1f)" % [str(g.hosts[h].refill), g._refill_state(h), g._avail(P, "intel")])
-	g._cmd(["refill_cancel", h])
-	check((g.hosts[h].refill as Dictionary).is_empty(), "...and can be cancelled")
+	check(float(g._store_of(h, P).get("intel", 0.0)) >= 0.999 and float(plan.export.intel) < 0.001, "Delivered Intel is kept for the Miner's next cycle, not offered back")
+	step(8.0)
+	check(led("from:%d:intel" % h) < 0.001, "...and none of it travels back to the main node")
+
+
+func one_pool() -> void:   # every worker works from the main node: a remote station's workers serve any host
+	fresh()
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["intel"]); g._tick_teams(0.0)   # no station at the main node
+	var h := near(); own(h, ["bot"])
+	var mine := ids(h)
+	var join_tip := ""
+	for k in 30:   # on the way: hovering it says where it is going
+		for f in g.flights:
+			if str(f.kind) == "courier" and str(f.get("trip", "")) == "join" and join_tip == "": join_tip = " | ".join(PackedStringArray(g._flight_lines(f)))
+		if join_tip != "": break
+		g._sim_step(g.SIM_DT)
+	check(join_tip.contains("Joining your workers at the main node") and not join_tip.contains("Coming home empty"), "A new worker on its way to the main node says so when hovered (%s)" % join_tip)
+	step(4.0)
+	var at_hub := 0
+	for wid in mine: if int(g.workers[wid].base) == home: at_hub += 1
+	check(at_hub == 2, "A remote station's two workers first go to the main node and work from there (%d of 2)" % at_hub)
+	var x := near([h]); g._capture(x, P); g.hosts[x].slots = 3; g._set_builds(x, [])
+	g._cmd(["build", x, 0, "intel"])
+	var served := false
+	for k in 300:
+		g._sim_step(g.SIM_DT)
+		for f in g.flights:
+			if str(f.kind) == "courier" and station_of(f) == h and int(f.dest) == x and (f.cargo as Dictionary).size() > 0: served = true
+		if served: break
+	check(served, "...so they carry building materials to another host that has no station")
+	var counts: Dictionary = g._worker_counts(P)
+	check(int(counts.idle) == 0, "With materials to carry, no worker stays free (%s)" % str(counts))
+
+
+func builds_first() -> void:   # construction first, then inputs, then surplus; the hosts are served in turn
+	fresh()
+	var home: int = int(g.rig[P])
+	var hs := []   # three hosts of yours with a route home: the main node's neutral neighbours, then theirs
+	var frontier := [home]
+	while hs.size() < 3 and not frontier.is_empty():
+		var nxt := []
+		for f0 in frontier:
+			for nb in g.hosts[int(f0)].links:
+				if hs.size() < 3 and int(g.hosts[int(nb)].owner) == g.NEUTRAL and not hs.has(int(nb)):
+					hs.append(int(nb)); g._capture(int(nb), P); g.hosts[int(nb)].slots = 3; nxt.append(int(nb))
+		frontier = nxt
+	if hs.size() < 3: check(false, "three hosts of yours"); return
+	var a: int = hs[0]; var b: int = hs[1]; var c: int = hs[2]
+	g._set_builds(a, ["intel"]); g._set_builds(b, ["intel"]); g._set_builds(c, [])
+	g.hosts[a].store = {P: {"intel": 5.0}}; g.hosts[b].store = {P: {"intel": 5.0}}   # surplus waiting on two hosts
+	g._cmd(["build", c, 0, "intel"])
+	var reqs: Array = g._open_requests(P, home)
+	var cands := []
+	for r in reqs:
+		var amt: float = g._amount(P, home, r)
+		if amt > 0.0001: var cc: Dictionary = r.duplicate(); cc.amt = amt; cands.append(cc)
+	var first: Dictionary = g._pick_request(P, cands, 0)
+	check(str(first.get("purpose", "")).begins_with("build:"), "A building order is served before surplus (%s)" % str(first.get("purpose", "")))
+	step(30.0)
+	check(led("from:%d:intel" % a) >= 1.0 and led("from:%d:intel" % b) >= 1.0, "Both hosts' surplus is collected in turn, not one host's only (%.0f, %.0f)" % [led("from:%d:intel" % a), led("from:%d:intel" % b)])
 
 
 func storage_fair() -> void:
@@ -253,9 +312,9 @@ func storage_fair() -> void:
 	g.hosts[h].store = {P: {"cash": 7.0}}   # little room left
 	var ran := {}
 	for k in 8:
-		step(5.0)
+		step(g.PROD_CYCLE)
 		for slot in (g.hosts[h].get("plan_frac", {}) as Dictionary): ran[int(slot)] = true
-	check(ran.size() >= 3, "Short of room for every Miner's supplies, they take turns (%d of 4 funded over 40 s)" % ran.size())
+	check(ran.size() >= 3, "Short of room for every Miner's supplies, they take turns (%d of 4 funded over 8 cycles)" % ran.size())
 
 
 func construction() -> void:
@@ -273,7 +332,7 @@ func construction() -> void:
 		if g.hosts[h].jobs.has(0) and float(g.hosts[h].jobs[0].left) < float(g.hosts[h].jobs[0].total) - 0.001 and not g._job_funded(g.hosts[h].jobs[0]): arrived_before_work = false
 		if not g.hosts[h].jobs.has(0): break
 	check(arrived_before_work, "No work happens before all 16 units are in the site's escrow (beyond the 10-unit store)")
-	check(str(g.hosts[h].builds[0]) == "bot" and ids(h).size() == 2, "Built after %.1f s (ideal 25 s on one hop): its own two workers start" % (g._t - t0))
+	check(str(g.hosts[h].builds[0]) == "bot" and ids(h).size() == 2, "Built after %.1f s (ideal 26 s on one hop): its two workers start" % (g._t - t0))
 	check(absf(led("out:supply:intel") + led("out:supply:cash") - 16.0) < 0.01, "Exactly the bill was carried: 16 units")
 	# local stock reduces what is carried
 	fresh()
@@ -320,7 +379,7 @@ func cancel_and_pause() -> void:
 	step(6.0)
 	var esc1 := 0.0
 	for r in (g.hosts[h3].jobs[0].escrow as Dictionary): esc1 += float(g.hosts[h3].jobs[0].escrow[r])
-	check(absf(esc1 - esc0) < 0.001 and g._rig_claimed(P, "intel") < 0.001, "Paused: loaded cargo landed, then no new deliveries (escrow %.0f)" % esc1)
+	check(absf(esc1 - esc0) < 0.001, "Paused: loaded cargo landed, then no new deliveries (escrow %.0f)" % esc1)
 	# capture mid-delivery: the site's materials are lost to the former owner, recorded once
 	g._cmd(["job", h3, 0])
 	step(3.0)
@@ -330,7 +389,7 @@ func cancel_and_pause() -> void:
 	check(absf(led("lost:site:intel") + led("lost:site:cash") - esc) < 0.001 and (g.hosts[h3].jobs as Dictionary).is_empty(), "Captured mid-delivery: its %.0f site units are recorded lost, nothing refunded" % esc)
 
 
-func fairness() -> void:   # endless input demand for the main node's pool must not starve a build or an export-only host
+func fairness() -> void:   # endless input demand must not starve a build or an export-only host
 	fresh()
 	var home: int = int(g.rig[P])
 	var hosts := []
@@ -343,7 +402,7 @@ func fairness() -> void:   # endless input demand for the main node's pool must 
 	g.bank[P].intel = 150.0
 	if c >= 0: g._cmd(["build", c, 0, "wall"])
 	step(60.0)
-	check(led("from:%d:intel" % b) >= 2.0, "An export-only host still gets its Intel collected (%.0f in 60 s)" % led("from:%d:intel" % b))
+	check(led("from:%d:intel" % b) >= 1.0, "An export-only host still gets its Intel collected (%.0f in the last 30 s)" % led("from:%d:intel" % b))
 	check(c < 0 or not g.hosts[c].jobs.has(0) or float(g.hosts[c].jobs[0].escrow.get("intel", 0.0)) >= 4.0, "A construction order still gets its materials")
 
 
@@ -361,3 +420,16 @@ func escrow_theft() -> void:
 	for r in g.RES: pile += g._loot(h, R, r)
 	check(esc >= 1.0 and after < esc and absf(pile - (esc - after)) < 0.001, "A Vault raid takes unbuilt site materials (%.0f of %.0f) into the raider's pile" % [esc - after, esc])
 	check(not g._job_funded(g.hosts[h].jobs[0]) and g._build_requests(h, P).size() > 0, "The project lacks them again and asks for them")
+
+
+func resources_in_turn() -> void:   # one host with two surpluses: both go home in turn, not only the older request's
+	fresh()
+	var home: int = int(g.rig[P])
+	var h := near()
+	own(h, [])
+	g.hosts[h].type = "server"; g.hosts[h].slots = 3; g._set_builds(h, ["intel", "intel", "lab"])   # Intel always spare, plus Research
+	for res in g.RES: g.bank[P][res] = 100.0
+	step(240.0)
+	var sums: Dictionary = g._ledger_sums(P)
+	var research := float(sums.get("from:%d:research" % h, 0.0)); var intel := float(sums.get("from:%d:intel" % h, 0.0))
+	check(research > 0.5 and intel > 0.5, "A Lab host that always has spare Intel still sends its Research home (recent: %.1f Research, %.1f Intel)" % [research, intel])

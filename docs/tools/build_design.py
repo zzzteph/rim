@@ -62,8 +62,8 @@ def chips(cost, secs=None):
     return "".join(out)
 
 # reference income (units per minute) for the "price in seconds of income" column
-EARLY = {"intel": 48, "cash": 36, "creds": 12, "research": 12}
-MID = {"intel": 84, "cash": 48, "creds": 36, "research": 24}
+EARLY = {"intel": 8, "cash": 15, "creds": 5, "research": 5}    # 1 unit per producer per 12-s cycle, the trickle 5/min
+MID = {"intel": 8, "cash": 20, "creds": 15, "research": 10}
 def wait(cost, inc):
     best, who = 0.0, ""
     for r in RES:
@@ -72,7 +72,9 @@ def wait(cost, inc):
             best, who = v / inc[r] * 60, RES_NAME[r]
     return best, who
 
-UNSCOUTED = re.search(r"UNSCOUTED_CHANCE := ([0-9.]+)", open(f"{ROOT}/scripts/botnet_cfg/tuning.gd").read()).group(1)
+_TUNING = open(f"{ROOT}/scripts/botnet_cfg/tuning.gd").read()
+RECON_P, SCOUTED_P, UNSCOUTED_P = (float(re.search(rf"{k} := ([0-9.]+)", _TUNING).group(1)) for k in ("RECON_CHANCE", "SCOUTED_CHANCE", "UNSCOUTED_CHANCE"))
+pc = lambda p: f"{p * 100:g}%"
 # ---- what every card does, exactly (checked against scripts/botnet_proto.gd) ----
 D = {}
 D["recon"] = [
@@ -80,12 +82,13 @@ D["recon"] = [
     ("Timing", "Travels, then takes effect on arrival. No execution."),
     ("Effect", f"Takes a snapshot of the host: what is in each slot, how full its storage is, and which cards wait in its Firewall. You see the snapshot, not later changes, for {n(C['recon']['dur'])} s; then the slots go back to “?”."),
     ("Quiet", "The target gets no red frame and no pulse. It is the only attack card that does not show."),
-    ("Odds", f"While the snapshot is fresh ({n(C['recon']['dur'])} s, and only for the faction that made it), your attacks on that host succeed at their full chance. Without it every other attack card succeeds half the time (UNSCOUTED_CHANCE {UNSCOUTED}). Freshness is judged when the operation resolves. A change of owner voids it."),
+    ("Its own odds", f"A Recon gets through {pc(RECON_P)} of the time (RECON_CHANCE), whatever the host. A miss shows nothing, and only you hear of it."),
+    ("Odds", f"While the snapshot is fresh ({n(C['recon']['dur'])} s, and only for the faction that made it), your other attack cards on that host succeed {pc(SCOUTED_P)} of the time (SCOUTED_CHANCE); without it, {pc(UNSCOUTED_P)} (UNSCOUTED_CHANCE). Freshness is judged when the operation resolves. A change of owner voids it. Defence cards on your own hosts always work."),
 ]
 D["breach"] = [
     ("Target", "Any foreign host your operations can reach, neutral or a rival’s. There are no security levels."),
     ("Timing", f"Travels, then executes for {n(C['breach']['exec'])} s on the host ({n(C['breach']['exec_rig'])} s on a held main node). The owner sees “Breach executing” and has that long to react."),
-    ("Outcome", "When its execution ends: first a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>) or another owner taking it first (<b>owner changed</b>) stop it; then, without fresh Recon of the host, one 50% draw (<b>missed</b>). With fresh Recon nothing is drawn: it is captured."),
+    ("Outcome", "When its execution ends: first a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>) or another owner taking it first (<b>owner changed</b>) stop it; then one draw (<b>missed</b> on a fail): " + pc(SCOUTED_P) + " with fresh Recon of the host, " + pc(UNSCOUTED_P) + " without."),
     ("Effect", "On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots."),
     ("Stopped by", "A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile."),
     ("Limit", "One capture or raid per attacker per host at a time."),
@@ -93,14 +96,14 @@ D["breach"] = [
 D["exploit"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("Timing", f"Travels, then executes for {n(C['exploit']['exec'])} s ({n(C['exploit']['exec_rig'])} s on a held main node): less time for a defender's Patch to travel there."),
-    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured."),
+    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured."),
     ("Effect", "As Credential breach: the host becomes yours, wiped."),
     ("Stopped by", "As Credential breach."),
 ]
 D["zeroday"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("Timing", f"Travels, then executes for {n(C['zeroday']['exec'])} s; {n(C['zeroday']['exec_rig'])} s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time."),
-    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured."),
+    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured."),
     ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host."),
     ("Stopped by", "As Credential breach."),
 ]
@@ -108,7 +111,7 @@ D["worm"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("What it is", f"A capture on up to {n(C['worm']['reach'])} linked hosts, one after the other."),
     ("Timing", f"Travels; each stage executes for {n(C['worm']['exec'])} s ({n(C['worm']['exec_rig'])} s on a main node), and each can be stopped on its own."),
-    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw when unscouted."),
+    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw (" + pc(SCOUTED_P) + " scouted, " + pc(UNSCOUTED_P) + " not). Both stages land " + pc(SCOUTED_P * SCOUTED_P) + " of the time with both hosts scouted, " + pc(UNSCOUTED_P * UNSCOUTED_P) + " with neither."),
     ("Stops when", "A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured."),
 ]
 D["phish"] = [
@@ -175,9 +178,9 @@ D["express"] = [
 
 WHY = {
     "recon": ("Tells you whether an expensive card will pay off: what a host holds, how full its storage is, and whether a Patch waits in its Firewall.", "Before an 0day, Vault raid, Worm or Sabotage, or to find a rival's richest host."),
-    "breach": ("The way to grow: every host adds slots, and holding 51% of all hosts wins.", "On neutral hosts first, as nobody defends them; scouted, so it cannot miss."),
+    "breach": ("The way to grow: every host adds slots, and holding 51% of all hosts wins.", "On neutral hosts first, as nobody defends them; scouted, for " + pc(SCOUTED_P) + " instead of " + pc(UNSCOUTED_P) + "."),
     "exploit": ("A faster capture: 9 s leaves a defender little time to get a Patch there.", "Against a rival's hosts, where a Patch might be sent."),
-    "zeroday": ("The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.", "After a Recon shows no Patch waiting, or after a cheaper card has used it up."),
+    "zeroday": ("The fastest capture: 5 s (12 s on a main node) leaves only an armed or loaded Patch in time: the card for a defended host or a rival main node.", "After a Recon shows no Patch waiting, or after a cheaper card has used it up."),
     "worm": ("Two captures in one launch, reaching a host behind a rival's front line.", "When a rival holds a chain of linked hosts; scout both."),
     "phish": ("Hurts a rival without taking ground: you gain exactly what they lose.", "On their best-producing host."),
     "siphon": ("Takes a whole supply line, not one host's output.", "On a host their deliveries cross, set to the resource they need most."),
@@ -209,7 +212,7 @@ def card_sheet(key):
 # ---- buildings table ----
 B_NOTE = {
     "intel": "Feeds the converters on its own host first; the rest is stored.",
-    "bot": "Provides 2 reusable workers that belong to its host. Each carries 1 unit per leg: surplus to the main node, missing inputs and building materials back. A worker lost on the road is replaced after 5 s; capture destroys them all.",
+    "bot": "Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and missing inputs out, surplus back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are.",
     "cash": "Uses Intel on its own host (the bank, at the main node); workers bring it when none is made there.",
     "cred": "Uses Intel from its own host’s storage only.",
     "lab": "Uses Intel and Crypto on its own host: a Miner beside it, or workers bring them as one bundle.",
@@ -262,8 +265,8 @@ def find_unused():   # constants in the config files that the game's scripts nev
     return out
 UNUSED = find_unused()
 T = DATA["tuning"]; TY = DATA["types"]
-def per_min(cost_cycle):   # units per 5-s cycle -> per minute
-    return cost_cycle * 12
+def per_min(cost_cycle):   # units per 12-s cycle -> per minute
+    return cost_cycle * 5
 
 def start_chips():
     return chips({r: int(T["START"][r]) for r in RES})
@@ -296,22 +299,22 @@ def hosttypes():
 def ch(d):
     return chips({k: v for k, v in d.items() if v})
 LAYOUTS = [
-    ("Bot station + Intel harvester + Miner", "2 Intel → 1 Intel + 1 Crypto; 2 workers of its own", "both units, by its own workers", {"intel": 12, "cash": 12}),
-    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 workers", "both units, by its own workers", {"intel": 12, "creds": 12}),
-    ("Intel harvester + Miner + Lab (Research host)", "2 Intel → 1 Crypto → with 1 Intel, 1 Research", "1 unit by the main node's workers", {"research": 12}),
-    ("Bot station + 2 Intel harvesters", "4 Intel; 2 workers", "4 units by its 2 workers while a round trip takes under 2.5 s", {"intel": 48}),
-    ("Intel harvester + Miner + Cred. harvester (no station)", "1 Crypto + 1 Credential", "2 units by the main node's workers", {"cash": 12, "creds": 12}),
-    ("Bot station alone (IoT device)", "2 workers for this host", "nothing to carry", {}),
-    ("Miner alone (no Intel made there)", "1 Intel (delivered) → 1 Crypto", "Intel out and Crypto back on the same worker round trips, automatically", {"intel": -12, "cash": 12}),
-    ("Database: station + harvester + 2 Cred. harvesters", "4 Intel → 1 Intel + 3 Credentials; 2 workers", "4 units by its 2 workers", {"intel": 12, "creds": 36}),
-    ("Main node (Server): Intel harvester + Bot station + Miner", "3 Intel → 2 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 36, "cash": 24, "creds": 12, "research": 12}),
+    ("Bot station + Intel harvester + Miner", "1 Intel → 1 Crypto; 2 workers for the pool", "1 unit by your workers", {"cash": 5}),
+    ("Bot station + Intel harvester + Cred. harvester", "1 Intel → 1 Credential; 2 workers", "1 unit by your workers", {"creds": 5}),
+    ("Intel harvester + Miner + Lab (Research host)", "1 Intel → 1 Crypto; the Lab's Intel is brought", "1 unit in, 1 out", {"intel": -5, "research": 5}),
+    ("2 Intel harvesters + Miner", "2 Intel → 1 Intel + 1 Crypto", "2 units by your workers", {"intel": 5, "cash": 5}),
+    ("Intel harvester + Miner + Cred. harvester", "1 Intel (+1 brought) → 1 Crypto + 1 Credential", "1 unit in, 2 out", {"intel": -5, "cash": 5, "creds": 5}),
+    ("Bot station alone (IoT device)", "2 workers for the pool", "nothing to carry", {}),
+    ("Miner alone (no Intel made there)", "1 Intel (brought) → 1 Crypto", "Intel out and Crypto back on the same worker round trips, automatically", {"intel": -5, "cash": 5}),
+    ("Database: harvester + 2 Cred. harvesters", "2 Intel (+1 brought) → 3 Credentials", "1 unit in, 3 out", {"intel": -5, "creds": 15}),
+    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel → 0.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 7, "cash": 10, "creds": 5, "research": 5}),
 ]
 def layouts():
     out = []
     for nm, made, deliv, net in LAYOUTS:
         net_txt = "".join(f'<span class="chip r-{r}"><b>{"+" if v > 0 else "−"}{abs(v)}</b> {RES_SHORT[r]}</span>' for r, v in ((r, net.get(r, 0)) for r in RES) if v)
         out.append(f"<tr><th>{html.escape(nm)}</th><td>{html.escape(made)}</td><td>{html.escape(deliv)}</td><td class='nowrap'>{net_txt or '0'}</td></tr>")
-    out.append("<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−12</b> Intel</span></td></tr>")
+    out.append("<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−5</b> Intel</span></td></tr>")
     return "".join(out)
 def inc_row(inc):
     return "".join(f"<td class='num'>{inc[r]}</td>" for r in RES)
@@ -324,8 +327,8 @@ def capture_ev():   # what a capture costs: a vector, its times and the reaction
         rows.append(f"<tr><th>{html.escape(c['name'])}</th><td class='nowrap'>{chips(c['make'])}</td><td class='num'>{n(c['time'])} s</td><td class='num'>{ex}</td><td class='num'>{e:.0f} s ({ew}) · {m:.0f} s ({mw})</td></tr>")
     return "".join(rows)
 PAYBACK = [   # what each building adds and uses; no single "payback" number: the resources are not interchangeable
-    ("Intel harvester", {"intel": 12}, "+2 Intel (+3 on a Server, +4 on a database or file server)", "Raw input: everything else converts it."),
-    ("Bot station", {"intel": 12, "cash": 4}, "2 reusable workers for its host", "Its host stops waiting for the main node's 2 workers: surplus goes home and inputs come in on its own round trips."),
+    ("Intel harvester", {"intel": 12}, "+1 Intel a cycle (+1.5 on a Server, +2 on a database or file server)", "Raw input: everything else converts it."),
+    ("Bot station", {"intel": 12, "cash": 4}, "2 reusable workers for the one pool at the main node", "More round trips for every host: building materials first, then inputs, then surplus."),
     ("Crypto miner", {"intel": 15}, "+1 Crypto, uses 1 Intel on its host", "Turns Intel into Crypto: worth it only while Crypto limits your plan."),
     ("Credential harvester", {"intel": 15, "cash": 4}, "+1 Credential, uses 1 Intel on its host", "The capture and theft budget early in a match."),
     ("Research lab", {"intel": 20, "cash": 8}, "+1 Research, uses 1 Intel and 1 Crypto on its host", "Needs a Miner beside it, or workers bring both inputs as a bundle."),
@@ -335,7 +338,7 @@ def payback():
     return "".join(f"<tr><th>{html.escape(nm)}</th><td class='nowrap'>{chips(c)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>" for nm, c, a, b in PAYBACK)
 def unused():
     return "".join(f"<tr><th>{f}.gd</th><td><code>{'</code>, <code>'.join(v)}</code></td></tr>" for f, v in UNUSED.items())
-COMMANDS = "build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause, refill (one cycle of inputs, once), refill_cancel"
+COMMANDS = "build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause"
 json_txt = json.dumps(DATA, indent=1, ensure_ascii=False)
 
 page = open(os.path.join(HERE, "design.head.html")).read() + open(os.path.join(HERE, "design.body.html")).read()

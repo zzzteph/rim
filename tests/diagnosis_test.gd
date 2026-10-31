@@ -214,13 +214,14 @@ func route_inspection() -> void:
 func delivered_per_host() -> void:
 	fresh()
 	g._set_builds(int(g.rig[P]), [])
-	var n := own_pc(["bot", "intel", "cash"])
-	step(45.0)
+	var n := own_pc(["bot", "intel", "intel", "cash"])   # 2 Intel made, 1 used: 1 Intel and 1 Crypto a cycle
+	step(60.0)
 	var got: Dictionary = g._host_delivered(P, n)
 	var cash := float(got.get("cash", 0.0)); var intel := float(got.get("intel", 0.0))
-	check(absf(cash - 12.0) <= 2.5 and absf(intel - 12.0) <= 2.5, "Delivered from this host: %.1f Crypto/min (12) and %.1f Intel/min (12)" % [cash, intel])
+	var per_min: float = 60.0 / g.PROD_CYCLE
+	check(absf(cash - per_min) <= 2.5 and absf(intel - per_min) <= 2.5, "Delivered from this host: %.1f Crypto/min (%.0f) and %.1f Intel/min (%.0f)" % [cash, per_min, intel, per_min])
 	var wc: Dictionary = g._worker_counts(P, n)
-	check(int(wc.total) == 2, "Its station's two workers stay its own (%d)" % int(wc.total))
+	check(int(wc.total) == 2, "Its station's two workers are counted with it (%d)" % int(wc.total))
 	var lines: Array = g._delivery_lines(n)
 	var txt := ""
 	for l in lines: txt += str(l[0]) + "\n"
@@ -235,20 +236,21 @@ func dfs_text(n: Node) -> String:
 	return out
 
 
-func panel_order() -> void:   # role → status → problems → next cycle → local stock → workers (route) → installations → build
+func panel_order() -> void:   # your host's panel is a build menu: its name, its slots, the buildings; no status prose
 	fresh()
 	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 	var n := own_pc(["cash"])
 	g.sel = {n: true}; g._inspect = -1
 	g._refresh_panel()
-	var txt := dfs_text(g.panel_box)   # in reading order (the probe's _panel_text is breadth-first)
-	var at := []
-	for needle in ["CRYPTO HOST · starved", "needs Intel here", "Next cycle in", "LOCAL STOCK", "WORKERS", "Route home:", "INSTALLATIONS", "BUILD"]: at.append(txt.find(needle))
-	var ordered := true
-	for k in at.size(): ordered = ordered and int(at[k]) >= 0 and (k == 0 or int(at[k]) > int(at[k - 1]))
-	check(ordered, "Host panel order: status, problem, next cycle, local stock, workers and route, installations, build (%s)" % str(at))
-	check(txt.contains("Needed now") and txt.contains("On the way") and txt.contains("[Refill supplies]"), "Local stock reads Material / Here / On the way / Needed now, with Refill supplies")
-	g._cmd(["build", n, 1, "intel"])
-	g._refresh_panel()
-	txt = dfs_text(g.panel_box)
-	check(txt.contains("CONSTRUCTION") and txt.contains("To send") and txt.contains("waiting for materials"), "An order shows its materials: here, on the way, to send")
+	var labels := []; var slots := 0; var cards := 0
+	var stack: Array = [g.panel_box]
+	while not stack.is_empty():
+		var c: Node = stack.pop_back()
+		for ch in c.get_children(): stack.append(ch)
+		if c is Label: labels.append(str((c as Label).text))
+		elif c.get_class() == "Control" and c.has_method("_can_drop_data") and "slot" in c: slots += 1
+		elif "kind" in c and c.has_method("_get_drag_data"): cards += 1
+	check(labels == [str(g.hosts[n].name)], "The only text is the host's name (%s)" % str(labels))
+	check(slots == int(g.hosts[n].slots) and cards == g.BUILD_KINDS.size(), "Then its %d slots and the %d buildings (%d, %d)" % [int(g.hosts[n].slots), g.BUILD_KINDS.size(), slots, cards])
+	var d: Dictionary = g._host_diag(n)
+	check(str(d.status) == "starved", "The diagnosis still exists for the Logs and the Economy view (%s)" % str(d.status))

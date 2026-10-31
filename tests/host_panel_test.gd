@@ -79,6 +79,8 @@ func run() -> void:
 	await no_stale_controls()
 	await local_supplies()
 	await inspector()
+	await typed_rates_and_lost_selection()
+	await view_stays_put()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -159,7 +161,7 @@ func no_launch_controls() -> void:
 	check(bad.is_empty(), "No host panel sends or launches a card (%s)" % str(bad))
 	g.sel = {}; g._inspect = foe
 	var txt := "\n".join(PackedStringArray(panel_items()))
-	check(txt.contains("50% without fresh Recon"), "A foreign host's panel says what your attacks' odds are there")
+	check(txt.contains("25% without fresh Recon, 50% with it"), "A foreign host's panel says what your attacks' odds are there")
 
 
 func no_stale_controls() -> void:   # explore a host, change selection, clear it, switch panels: only the current context shows
@@ -208,29 +210,99 @@ func local_supplies() -> void:   # supplies are automatic: no Keep-here stepper 
 	check(probs <= 2, "At most two problem lines; the rest are for the Economy view and Help (%d)" % probs)
 
 
-func inspector() -> void:   # compact at 1280×720; workers by number; Refill supplies is a one-time ticket you can cancel
+func inspector() -> void:   # compact at 1280×720: your host's panel is its name, its slots and the buildings, nothing else
 	fresh()
 	await frames()
 	check(g.PANEL_W >= 360.0 and g.PANEL_W <= 400.0, "The inspector is %d px wide at 1280×720" % int(g.PANEL_W))
 	var home: int = int(g.rig[P])
 	g.sel = {home: true}; g._inspect = -1
 	var items := panel_items()
-	var lines := items.filter(func(s): return str(s).begins_with("L:#"))
-	check(lines.size() == 2, "The main node lists its two workers by number (%s)" % str(lines))
+	var labels := items.filter(func(s): return str(s).begins_with("L:"))
+	check(labels == ["L:" + str(g.hosts[home].name)], "The main node's panel has no prose: only its name (%s)" % str(labels))
 	var n := neighbour(g.NEUTRAL)
 	g._capture(n, P); g._set_builds(n, ["lab"])
 	g.bank[P].intel = 0.0; g.bank[P].cash = 0.0
 	g.sel = {n: true}; g._inspect = -1
 	items = panel_items()
-	var m: float = g._tmult(n, "research")
-	var use := {"intel": float(g.BUILD_KINDS.lab.use.intel) * m, "cash": float(g.BUILD_KINDS.lab.use.cash) * m}   # the host type scales a Lab's inputs
-	var want := "Refill brings %s Intel + %s Crypto" % [g._amt(use.intel), g._amt(use.cash)]
-	check(items.has("B:Refill supplies") and items.any(func(s): return str(s).contains(want)), "Refill previews its exact quantities: one cycle's gross inputs (%s)" % str(items.filter(func(s): return str(s).contains("Refill"))))
-	check(items.any(func(s): return str(s).begins_with("L:Still uncovered:") and str(s).contains("your main node has no Intel")), "The uncovered shortage is shown apart from what is needed, with why it is not coming")
-	g._refill_click(n)
-	items = panel_items()
-	check(items.has("B:Cancel refill") and items.any(func(s): return str(s).contains("waiting: your main node has no Intel")), "A requested refill says honestly why it waits")
-	g._refill_click(n)
-	check((g.hosts[n].refill as Dictionary) == {"intel": float(use.intel), "cash": float(use.cash)}, "Asking again does not add a second ticket (%s)" % str(g.hosts[n].refill))
-	g._refill_cancel_click(n)
-	check((g.hosts[n].refill as Dictionary).is_empty() and panel_items().has("B:Refill supplies"), "Cancel removes it")
+	check(not items.any(func(s): return str(s).contains("Refill") or str(s).contains("LOCAL STOCK") or str(s).contains("WORKERS") or str(s).contains("slots")), "No Refill, no stock table, no worker list, no slot count")
+	var boxes := 0; var cards := 0
+	var stack := [g.panel_box]
+	while not stack.is_empty():
+		var c: Node = stack.pop_back()
+		for ch in c.get_children(): stack.append(ch)
+		if "slot" in c and "host" in c and c.has_method("_can_drop_data") and not ("first" in c): boxes += 1
+		elif "kind" in c and c.has_method("_get_drag_data"): cards += 1
+	check(boxes == int(g.hosts[n].slots) and cards == g.BUILD_KINDS.size(), "Its slots and the six buildings are all there (%d, %d)" % [boxes, cards])
+	g._cmd(["build", n, 1, "intel"])
+	var box = null
+	stack = [g.panel_box]
+	while not stack.is_empty():
+		var c2: Node = stack.pop_back()
+		for ch in c2.get_children(): stack.append(ch)
+		if "slot" in c2 and "host" in c2 and c2.has_method("_can_drop_data") and not ("first" in c2) and int(c2.slot) == 1: box = c2
+	g._refresh_panel(); await frames()
+	check(box != null and box.stop_button.visible and str(box.stop_button.text).contains("Cancel") and str(g._slot_tip(n, 1)).contains("Waiting for its materials"),
+		"An order waiting for its materials says so on its slot (and its tooltip), with a cancel button, not in prose")
+
+
+func typed_rates_and_lost_selection() -> void:
+	fresh()
+	var home: int = int(g.rig[P])   # a Server: Intel x1.5
+	check(g._build_short("intel", home) == "+1.5 Intel" and g._build_short("intel") == "+1 Intel", "A slot card gives what it makes on THIS host (%s on a Server; the palette card says %s)" % [g._build_short("intel", home), g._build_short("intel")])
+	var n := neighbour(g.NEUTRAL)
+	g._capture(n, P); g.hosts[n].type = "db"; g.hosts[n].slots = 4; g._set_builds(n, ["intel", "cred", "", ""])
+	check(g._build_short("intel", n) == "+2 Intel" and g._build_short("cred", n) == "+1.5 Cred", "...+2 Intel and +1.5 Cred on a Database")
+	g.sel = {n: true}; g._inspect = -1; g._refresh_panel()
+	g._capture(n, R); g._set_builds(n, ["wall", "lab", "", ""])   # a rival takes the host you are looking at, and builds
+	var txt := "\n".join(PackedStringArray(panel_items()))
+	check(g.sel.is_empty() and g._inspect == n and not txt.contains("Research lab") and not txt.contains("Firewall"), "A selected host a rival takes stops being your build menu: you inspect it behind its fog")
+
+
+func view_stays_put() -> void:   # the sim never moves your view or your reading place (a host taken, won, lost or fogged); one selected host never sits under the drawer
+	fresh()
+	var home: int = int(g.rig[P])
+	var n := neighbour(g.NEUTRAL)
+	g._capture(n, P); g._set_builds(n, ["intel"])
+	g.sel = {n: true}; g._inspect = n; g._refresh_panel(); await frames()
+	g._pan += Vector2(-3000, 0); var pan0: Vector2 = g._pan   # the player looks at another part of the town
+	g._capture(n, R); await frames()
+	check(g._pan.distance_to(pan0) < 1.0 and g._inspect == n, "A rival taking your selected host does not move your view (moved %s)" % str(g._pan - pan0))
+	var m := neighbour(g.NEUTRAL)
+	g._capture(m, P)
+	g.sel = {m: true, home: true}; g._inspect = -1; g._refresh_panel(); await frames()
+	g._pan += Vector2(-3000, 0); pan0 = g._pan
+	g._capture(m, R); await frames()
+	check(g._pan.distance_to(pan0) < 1.0 and g.sel.keys() == [home], "...nor does it jump to the other host you had selected (moved %s)" % str(g._pan - pan0))
+	var o := -1   # inspect a neutral host in sight, launch at it, look elsewhere while the attack runs
+	for i in g.hosts.size():
+		if o < 0 and int(g.hosts[i].owner) == g.NEUTRAL and g._visible_to(P, i): o = i
+	g.sel = {}; g._inspect = o; g._tab = ""; g._refresh_panel(); await frames()
+	g._deck_open = true; g._refresh_panel(); await frames()   # (the Research drawer opened with R while inspecting)
+	g._pan += Vector2(-3000, 0); pan0 = g._pan
+	g._capture(o, P); step(0.6); await frames()   # past the next heartbeat refresh
+	check(g._pan.distance_to(pan0) < 1.0 and g.sel.keys() == [o] and g._inspect == -1, "Your own capture of the host you inspect does not move your view either; it becomes your selection (moved %s, sel %s)" % [str(g._pan - pan0), str(g.sel.keys())])
+	check(not g._deck_open, "...and its build menu replaces the open drawer at once")
+	var far := -1   # a host of yours with no other host of yours next to it: lost, it falls into the fog
+	for i in g.hosts.size():
+		if int(g.hosts[i].owner) != g.NEUTRAL or (g.hosts[home].links as Array).has(i) or i == home: continue
+		var lone := true
+		for nb in g.hosts[i].links: lone = lone and int(g.hosts[int(nb)].owner) != P
+		if lone: far = i; break
+	g._capture(far, P)
+	g.sel = {far: true}; g._inspect = -1; g._tab = ""; g._refresh_panel(); await frames()
+	pan0 = g._pan
+	g._capture(far, R); step(0.6); await frames()
+	check(not g._visible_to(P, far) and g._inspect == -1 and g.sel.is_empty(), "Setup: a selected outpost lost to a rival falls into the fog and leaves the sidebar")
+	check(g._pan.distance_to(pan0) < 1.0, "The narrower sidebar it leaves does not slide the map (moved %s)" % str(g._pan - pan0))
+	g.sel = {}; g._inspect = -1; g._tab = ""; g._refresh_panel()
+	for k in 40: g._event("scroll:%d" % k, g.EV_INFO, "Entry number %d of a long history" % k)
+	g._open_logs(); await frames(3)
+	g.panel_scroll.scroll_vertical = 200; await frames()
+	var s0: int = g.panel_scroll.scroll_vertical
+	g._set_deck_open(true); g._refresh_panel(); await frames()
+	var s1: int = g.panel_scroll.scroll_vertical
+	g._set_deck_open(false); g._refresh_panel(); await frames()
+	check(s0 > 0 and s1 == s0 and g.panel_scroll.scroll_vertical == s0, "Opening and closing the card drawer keeps your place in the Logs (%d -> %d -> %d)" % [s0, s1, g.panel_scroll.scroll_vertical])
+	g._tab = ""; g._set_deck_open(true)
+	g.sel = {home: true}; g._inspect = home; g._refresh_panel()   # selected by a capture, a lesson step, a log entry, a shift-click
+	check(not g._deck_open, "One host of yours selected while the drawer is open: the drawer closes, its build menu gets the full height")

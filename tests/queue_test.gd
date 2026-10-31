@@ -89,10 +89,6 @@ func waiting_head() -> void:
 	g._cmd(["unqueue", int(g._mq(P)[1].id)])
 	check(recipes() == ["breach"] and g.bank[P] == bank0, "Removing a waiting entry is free")
 	g.bank[P].intel = 12.0; g.bank[P].creds = 12.0
-	g.rig_claim[P] = {"intel": 6.0}   # a worker's pickup holds some of it
-	step(0.5)
-	check((g._mq(P)[0].paid as Dictionary).is_empty(), "Stock held for a worker's pickup does not pay for a copy")
-	g.rig_claim[P] = {}
 	step(0.5)
 	check(not (g._mq(P)[0].paid as Dictionary).is_empty() and g._mq_head_why(P) == "", "With the stock free the head pays and starts")
 

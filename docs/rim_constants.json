@@ -9,13 +9,13 @@
         "short": "I",
         "col": "#66d9ff",
         "out": "intel",
-        "rate": 2.0,
+        "rate": 1.0,
         "use": {},
         "cost": {
           "intel": 12.0
         },
         "cap": 50.0,
-        "desc": "Makes 2 Intel every 5 s. The Miner, Credential harvester and Lab on this host use it first."
+        "desc": "Makes 1 Intel every 12 s. The Miner, Credential harvester and Lab on this host use it first."
       },
       "bot": {
         "name": "Bot station",
@@ -46,7 +46,7 @@
           "intel": 15.0
         },
         "cap": 50.0,
-        "desc": "Every 5 s turns 1 Intel on this host into 1 Crypto."
+        "desc": "Every 12 s turns 1 Intel on this host into 1 Crypto."
       },
       "cred": {
         "name": "Credential harvester",
@@ -63,7 +63,7 @@
           "cash": 4.0
         },
         "cap": 50.0,
-        "desc": "Every 5 s turns 1 Intel on this host into 1 Credential."
+        "desc": "Every 12 s turns 1 Intel on this host into 1 Credential."
       },
       "lab": {
         "name": "Research lab",
@@ -81,7 +81,7 @@
           "cash": 8.0
         },
         "cap": 50.0,
-        "desc": "Every 5 s turns 1 Intel and 1 Crypto on this host into 1 Research."
+        "desc": "Every 12 s turns 1 Intel and 1 Crypto on this host into 1 Research."
       },
       "wall": {
         "name": "Firewall",
@@ -98,7 +98,7 @@
           "cash": 15.0
         },
         "cap": 0.0,
-        "desc": "3 sockets for defence cards, which fire on their own when this host is hit. Uses 1 Intel every 5 s."
+        "desc": "3 sockets for defence cards, which fire on their own when this host is hit. Uses 1 Intel every 12 s."
       }
     },
     "PRODUCER_KINDS": [
@@ -155,8 +155,8 @@
           "research": 0
         },
         "make_time": 3.0,
-        "lead": "Scout a host: full odds for 45 s.",
-        "rules": "Shows its installations, storage and Firewall cards for 45 s. While that is fresh your attacks on it work every time; unscouted, they work half the time."
+        "lead": "Scout a host: better odds for 45 s.",
+        "rules": "Gets through half the time. Then it shows the host's installations, storage and Firewall cards for 45 s, and your attacks on it work 50% of the time instead of 25%."
       },
       "breach": {
         "name": "Credential breach",
@@ -175,7 +175,7 @@
         },
         "make_time": 12.0,
         "lead": "Capture a host in 15 s.",
-        "rules": "Travels from your main node, then executes for 15 s, 30 s on a main node. It captures the host unless a Patch, a lost route or a change of owner stops it first."
+        "rules": "Travels from your main node, then executes for 15 s, 30 s on a main node. If it succeeds it captures the host. A Patch, a lost route or a change of owner stops it first."
       },
       "exploit": {
         "name": "Known exploit",
@@ -251,7 +251,7 @@
         },
         "make_time": 16.0,
         "lead": "Empty the storage of 3 linked hosts.",
-        "rules": "Raids a rival host for 10 s. Then it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your workers collect it from there. A Patch stops it."
+        "rules": "Raids a rival host for 10 s. If it succeeds it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your workers collect it from there. A Patch stops it."
       },
       "ddos": {
         "name": "DDoS",
@@ -309,7 +309,7 @@
         },
         "make_time": 22.0,
         "lead": "Capture 2 linked hosts in turn.",
-        "rules": "Captures the target, then its nearest linked host of the same owner. Each stage executes for 12 s (24 s on a main node) and can be stopped on its own. A Patch, a lost route or a change of owner ends it."
+        "rules": "Tries to capture the target, then its nearest linked host of the same owner. Each stage executes for 12 s (24 s on a main node) and can be stopped on its own. A Patch, a lost route or a change of owner ends it."
       },
       "sabotage": {
         "name": "Supply-chain sabotage",
@@ -399,7 +399,7 @@
         },
         "make_time": 8.0,
         "lead": "Shield this host's cargo for 30 s.",
-        "rules": "Its workers' cargo is safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs some, and saves it."
+        "rules": "Cargo leaving this host is safe from Packet siphon all the way. In a Firewall socket it fires when a siphon grabs some, and saves it."
       },
       "express": {
         "name": "Express route",
@@ -417,7 +417,7 @@
         },
         "make_time": 10.0,
         "lead": "Halve delivery time for 45 s.",
-        "rules": "Shipments and new Bots from this host cross each link twice as fast. It cannot go in a Firewall socket: play it when you need the speed."
+        "rules": "Workers leaving this host cross each link twice as fast. It cannot go in a Firewall socket: play it when you need the speed."
       }
     },
     "RESEARCH": {
@@ -733,9 +733,9 @@
       "research": 150.0
     },
     "CAP_PER_PRODUCER": 50.0,
-    "PROD_CYCLE": 5.0,
+    "PROD_CYCLE": 12.0,
     "STORE_CAP": 10.0,
-    "MAIN_INCOME": 0.2,
+    "MAIN_INCOME": 0.0833333333333333,
     "WORKERS_PER_STATION": 2,
     "WORKER_CARRY": 1.0,
     "WORKER_REPLACE": 5.0,
@@ -746,7 +746,9 @@
     "LINK_CAP": 8,
     "MAX_QUEUE": 1.0,
     "EXPRESS_MULT": 0.5,
-    "UNSCOUTED_CHANCE": 0.5,
+    "RECON_CHANCE": 0.5,
+    "SCOUTED_CHANCE": 0.5,
+    "UNSCOUTED_CHANCE": 0.25,
     "FIREWALL_SOCKETS": 3,
     "BUILD_TIME": 10.0,
     "DEMOLISH_TIME": 5.0,
@@ -875,7 +877,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.1",
+    "GAME_VERSION": "0.6.8",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

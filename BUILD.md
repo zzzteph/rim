@@ -90,7 +90,7 @@ godot --headless --path . --script tests/objective_test.gd   # the majority obje
 godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
 godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
 godot --headless --path . --script tests/preview_test.gd     # target preview: legality, route/arrival, execution, fog-safe areas, dated Recon
-godot --headless --path . --script tests/recon_test.gd       # no security levels; unscouted 50% odds, seeded dice, counters first
+godot --headless --path . --script tests/recon_test.gd       # no security levels; Recon 50%, attacks 50%/25%, seeded dice, counters first
 godot --headless --path . --script tests/logistics_test.gd   # workers: supply round trip, conservation, sockets on arrival, held / lost packets
 godot --headless --path . --script tests/workers_test.gd     # 2 workers per station, identities, replacement, capture, local use, escrow, fairness
 godot --headless --path . --script tests/queue_test.gd       # the four-place FIFO queue: capacity, order, waiting head, full hand, pause, cancel
@@ -101,6 +101,7 @@ godot --headless --path . --script tests/forecast_test.gd    # income forecast v
 godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
+godot --headless --path . --script tests/ai_rules_test.gd    # AI turn-taking: cut-off projects, Research host (4+ slots), boxed-in research, retools
 godot --headless --path . --script tests/campaign_test.gd    # plays Learn as one session: no rebuilds, no waits, resume
 godot --headless --path . --script tests/mp_lockstep_test.gd # two screens, same command stream: identical every turn
 godot --headless --path . --script tests/text_fit_test.gd    # every text fits with a margin; no overlaps; whole sentences
@@ -130,13 +131,14 @@ Prices and constants come from `scripts/botnet_cfg/`; the text describing behavi
 `docs/tools/design.body.html` and the card tables in `docs/tools/build_design.py`, and is kept true to the
 code by hand: change a rule, update its description there and rebuild.
 
-Economy (research–manufacture–deliver, 0.4.0). There are five resources (`RES` in
-tuning.gd): **Bots**, **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
+Economy (research–manufacture–deliver; 0.6.2 rates). There are four resources (`RES` in
+tuning.gd): **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
 spendable once they reach your **main node** (your rig). The main node itself only trickles one of
-every resource every 5 s (`MAIN_INCOME`), so a network that builds nothing stalls: the economy is
-what you build. Every held host runs one **production cycle** every `PROD_CYCLE` (5) s on its own
+every resource every 12 s (`MAIN_INCOME`, 5 a minute), so a network that builds nothing stalls: the economy is
+what you build. Every held host runs one **production cycle** every `PROD_CYCLE` (12) s on its own
 phase (`_tick_production` → `_run_cycle`): Intel harvesters first, then each Firewall's upkeep, then
-the converters in `CONVERT_ORDER` (Miner, Credential harvester, Research lab), then the Bot stations.
+the converters in `CONVERT_ORDER` (Miner, Credential harvester, Research lab). Every producer makes
+**1 unit a cycle** (5 a minute; the host type's multiplier scales output and input).
 Converters use only what is in **their own host's storage** — at the main node that is the bank —
 so a remote Miner needs an Intel harvester beside it. A remote host keeps what it made in a
 **storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary);
@@ -145,7 +147,7 @@ cap of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resour
 anything on its way reserves its room at the destination (`incoming` for a bank, `hosts[i].inbound` for a
 host's storage), so nothing is credited early and nothing overfills.
 
-Workers and logistics (0.6.1, the `LOGISTICS` block in botnet_proto.gd). There is no Bots bank. Every finished,
+Workers and logistics (0.6.2, the `LOGISTICS` block in botnet_proto.gd). There is no Bots bank. Every finished,
 operational **Bot station** provides exactly `WORKERS_PER_STATION` (2) reusable **workers** with stable ids
 (`workers`, `hosts[i].teams` per station slot and installation generation); the main node starts with its station's
 two. A worker carries `WORKER_CARRY` (1) unit per leg and is never consumed by a delivery. A worker lost while its
@@ -159,20 +161,22 @@ Demand is automatic (`_host_plan`, `_open_requests`). Installations use what is 
 only for its **net shortfall** for the next feasible cycle (after what it makes itself), its Firewall upkeep and the
 bills of its construction; a converter's inputs are requested as a bundle only when the whole bundle can be had;
 when storage cannot hold every converter's supplies a fair subset runs, in rotation (`plan_rr`). What is not
-needed for the next cycle is **surplus** and goes to the main node. A host with its own station is served by its
-own workers (they fetch missing inputs from the main node and take surplus home, both ways on one round trip when
-possible); a host without one is served by the main node's workers. Dispatch (`_tick_logistics`, event-driven with a
-0.25 s fallback) gives three of four assignments by purpose — inputs, then construction, then surplus and loot —
-and every fourth to the oldest feasible request (`_pool_turn`, part of the lockstep fingerprint). A pickup
-**claims** its unit (`claim`, `rig_claim`) and the destination holds room for what is coming (`inbound`, `fetch`),
-so two workers never take the same last unit or the same last room. **Refill supplies** (the `refill` command)
-asks once for one cycle's gross inputs (`_refill_preview`, exact quantities in the panel); one ticket per host,
-cancellable (`refill_cancel`); what it brings is earmarked for that host's next use and is not exported.
+needed for the next cycle is **surplus** and goes to the main node. **All of a botnet's workers are one pool working
+from the main node**: a new station's workers first make a one-way trip to the main node (`_join`, carrying their
+host's surplus if any) and from then on every trip is main node → host → main node (`_send_from_hub`): out with
+building materials or a missing input, back with that host's surplus or a theft / salvage pile. Dispatch
+(`_tick_logistics`, event-driven with a 0.25 s fallback) gives three of four assignments by purpose — construction
+first, then inputs, then surplus and loot — and, within a purpose, to the host served least recently; every fourth
+goes to the host served least recently whatever it needs (`_pick_request`, `_served`/`_serve_n`/`_pool_turn`, part of
+the lockstep fingerprint), so the hosts are served in turn. A collection **claims** its unit (`claim`) and the
+destination holds room for what is coming (`inbound`), so two workers never take the same last unit or the same last
+room. Supplies leave the bank with their worker. There is no Refill or any other supply setting: input supply is
+automatic, in the background.
 
-> **Interpretations (0.6.1):** a worker lost on a cut route with its station still standing is replaced after 5 s;
-> the earmark of a refill is consumed first at the host's next cycle; cancelling a project during its work leaves
-> the unworked share of its materials at the site as salvage (workers take it home), never back in the bank at
-> once; the oldest-request turn is one in four per worker pool.
+> **Interpretations (0.6.2):** a worker lost on a cut route with its station still standing is replaced after 5 s;
+> a station whose host has no route to the main node keeps its workers waiting there (they count as "on their way",
+> not free); cancelling a project during its work leaves the unworked share of its materials at the site as salvage
+> (workers take it home), never back in the bank at once; every fourth assignment is a host-turn for fairness.
 
 Movement (`_advance_flights`, every step). Every packet — workers and every card — moves hop by hop
 (`hop_i`) and is checked whenever it leaves a host: that host must still be its owner's (else it is lost
@@ -201,21 +205,38 @@ command). It is worked out from the network, never extrapolated from early ledge
 trickle and buildings (with their bank inputs), then each host whose output is yours (`_fc_cycle`: its active
 producers, inputs made there or supplied by workers from a shared budget — plenty while the bank holds
 a buffer, else what the main node itself brings in — Firewall upkeep, the converters in order), limited by its route
-home, by its own workers' round trips or a fair share of the main node's workers, and by the bank's room;
-remote production counts only as fast as it can be delivered (storage that fills stops production). A full bank
-shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
-workers", "no route home from …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
-transit and reserved at the main node (`_where_is`). The **Workers** column is the worker population, not an income:
+home, by your workers' round trips dealt as the dispatcher deals them (0.6.7: `_fc_split` — of every 4 assignments
+3 bring missing inputs first, the hosts in turn, and the 4th goes to the host served least recently; short of
+workers, the pool makes as many trips a minute as its time allows), by its storage's room for supplies
+(`_fc_accepts`: when its plan is limited, only the share of one cycle's inputs the plan funds — 0.6.8), and by the
+bank's room. A Firewall on a host you phish eats your Intel once the owner's stock there is gone; nothing comes from
+a phished host whose storage is full of the owner's stock ("storage full at …"), nor from any host while your main
+node is under DDoS. "Not enough workers" names each material the shortage cuts, even to nothing, and never one it
+frees (0.6.8). The full-bank test is once per material, not per host (it walks every host's producers). A host the trips cannot keep up with
+stays full, so it makes only what leaves and its converters turn its Intel into their output first (`_fc_throttled`).
+A full bank shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
+workers", "no route home from …", "no room for supplies at …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
+transit (`_where_is`). The **Workers** column is the worker population, not an income:
 "Workers N" over "B busy · F free" (or "· K blocked"). `tests/forecast_test.gd` checks the forecast against 120 s of
-steady play and against no workers, a cut route, starvation and supply, a paused producer and a full bank.
+steady play and against no workers (including hosts that run only on supplies), a cut route, starvation and supply,
+a paused producer, a full bank, a File server whose three Labs take turns for room (within 20%), a phished host with a
+Firewall and one with a full storage, and a main node under DDoS, and, with two workers for six hosts, each material
+within 30% of what arrives.
 
-Host panels (0.6.1). The inspector is `PANEL_W` (384) px wide at 1280×720 and holds state, cause and action: role ·
-status with at most two problems (what, why, what to do), the next cycle, **LOCAL STOCK** (Material · Here · On the
-way · Needed now, storage n/10, earmarked and salvage lines, **Refill supplies** with its exact preview, or the
-ticket's state and Cancel), **WORKERS** (each by number with what it is doing; a host without a station says the main
-node's workers serve it and lists those on it now; the route home), **CONSTRUCTION** (each project's ingredients
-here / on the way / to send, its work progress, Pause and Cancel), then installations and the build palette in rows
-of three (`_panel_local_stock`, `_panel_workers`, `_panel_construction`, `_panel_build`).
+Host panels (0.6.3). Your host's panel is a **build menu**: its name, its slots (`SlotBox`, compact `SLOT_H` 112 px
+cards in rows of three; a finished Firewall shows its three sockets inside its own card, so a row never grows) and
+the six buildings (`BuildCard`, `PALETTE_H` 112 px in rows of three, or `PALETTE_H_MINI` 74 px — name, picture,
+price — when `_palette_h` finds the full menu would not fit `_panel_avail_h`, as under Learn's banner). No prose, and
+the same height every frame, so it never scrolls or jumps at 1280×720. Selecting your host closes the card drawer, and
+opening the drawer closes the build menu; however one host of yours becomes the selection (a capture, a Learn step,
+a shift-click, a Logs entry), `_refresh_panel` closes the drawer too (0.6.5). A selected host a rival takes turns into
+an inspection (if you still see it) without moving your view; a host you inspect that you capture becomes your
+selection in the same refresh, and an inspection the fog drops leaves the narrower sidebar without sliding the map
+(0.6.8: `_refresh_panel` treats every change the sim makes to the sidebar like a prune), and the drawer's state is part of the panel's context only
+while the build menu shows, so opening it keeps your place in the Logs or the Economy view.
+A slot card says what it makes on that host (`_build_short`: the type multiplier, e.g. +1.5 Intel on a Server). A slot shows its state on the card (materials n/m while a project waits
+for them, its work bar, paused, inactive, needs an input) and a red stop button while busy; its tooltip
+(`_slot_tip`) says what it is, what it is doing and the host's first two problems from `_host_diag`.
 No card is sent or launched from a host panel: cards go through the card UI and drag and drop. A foreign host's
 panel shows only its owner and "Unknown host — send Recon to inspect." until a fresh Recon adds its type, slots,
 storage and Firewall cards; when the Recon goes stale it says "Recon expired". Under every finished Firewall a
@@ -238,7 +259,7 @@ can see, its route home (green, chevrons pointing home) and a tag with hops and 
 route home rings its cut-off segment (`_cut_off`) in red. None of this changes the simulation.
 
 Target preview (Milestone A). `_target_preview(fac, card, host)` says, before anything is spent: whether the card can
-launch and why not (`_can_play`), the chance (`_chance_line`: full or 50%, with the Recon's age), the route from the main node with arrival time
+launch and why not (`_can_play`), the chance (`_chance_line`: 50% scouted or 25% unscouted, with the Recon's age; 50% for a Recon itself), the route from the main node with arrival time
 and queueing, the execution time and what stops it, the hosts an area or chain effect would hit as far as the player
 can see (`_preview_nearest`, `_preview_chain` — never hosts out of sight), the Worm's next stage (`_worm_next`),
 public defences (an armed Patch, a Filter) and the last Recon snapshot with its age (`_known_defences`; loaded
@@ -252,9 +273,10 @@ Siphon on your hosts, a Firewall without Intel, hosts cut off from the main node
 no workers at all, research that cannot pay — and keeps ONE entry per condition that updates while
 live and then ends (it stays in the history as news). One-off news comes from hooks: `_op_outcome` via
 `_event_outcome` (your operations' results and attacks on you, ending their intrusion entry), `_fire_socket`,
-blueprints learned, copies made, lost cargo; the same news within 10 s counts up on one entry. The map strip
-(bottom-left, above the message line) shows up to four rows, critical first; a click finds the host and opens its
-panel; `H` or the strip's last row opens the Events view. The history keeps 80 entries, is cleared with the match
+blueprints learned, copies made, lost cargo; the same news within 10 s counts up on one entry. Nothing is drawn over
+the map: a **Logs** button at the top-left under the HUD (`logs_button`) counts the entries that are new since you
+last looked ("Logs · 3 new", red while something critical is new or live) and opens the Events view (`H` too), where
+a click finds an entry's host. The history keeps 80 entries, is cleared with the match
 (`_gen`, with the economic ledger and `op_outcomes`), and is not part of the lockstep fingerprint.
 
 Cards are **researched once, then manufactured**. A blueprint is learned in the single
@@ -283,22 +305,24 @@ the active research's state ("Research 45%", "Paused 45%", "Stalled 45%", or "Re
 research view names it with its progress and time left (`_research_status_line`), shows the selected blueprint's
 price, time and action above the tree (`ResearchInfo`, `_research_action`), and draws the selection (a cyan band
 and outline) apart from hover (a lighter fill) and the states (known: family colour; researching: white with a
-bar; paused: amber; stalled: red; open: violet; locked: grey). A persistent **research bar** under the HUD
-(`ResearchBar`, `_research_bar_state`) always shows the active project's name, track, progress, active / paused /
-stalled (and what is missing) and the work left, or "idle" with how to start. `tests/cards_ui_test.gd` covers
+bar; paused: amber; stalled: red; open: violet; locked: grey). While research runs, a **research bar** under the HUD
+(`ResearchBar`, `_research_bar_state`) shows the project's name, track, progress, active / paused / stalled (and
+what is missing) and the work left; with nothing running there is no bar. `tests/cards_ui_test.gd` covers
 empty and crowded inventories, paging, selection and launch, research states, the research bar and the queue strip.
 
 There are **no security levels**: any card may target any foreign host; a host's type decides only its slots
 and production multipliers. Capture cards differ by price and execution time (`exec`, and `exec_rig` on a held
 main node — Breach 15/30 s, Known exploit 9/20 s, 0day 5/12 s, each Worm stage 12/24 s). **Recon** reveals
-installations, storage and Firewall cards for 45 s and gives that faction's attacks on the host their full
-chance: without fresh Recon (`_recon_fresh(fac, t, at)`, judged when the operation resolves, voided by a change
-of owner) every other attack card succeeds at `UNSCOUTED_CHANCE` (0.5) × its baseline of 1.0 (`_op_chance`).
+installations, storage and Firewall cards for 45 s, but itself gets through only `RECON_CHANCE` (0.5) of the time
+(a miss shows nothing and only its sender hears of it). Every other attack card succeeds at `SCOUTED_CHANCE` (0.5)
+with fresh Recon of the host (`_recon_fresh(fac, t, at)`, judged when the operation resolves, voided by a change
+of owner) and `UNSCOUTED_CHANCE` (0.25) without (`_op_chance`); defence cards on your own hosts always work.
 `_op_roll` draws once per resolved operation from `sim_rng` (seeded from the map in `_gen`, part of `_mp_hash`),
 only when the chance is below 1, and only after counters, a void target and the route have been decided.
+`rolls_always_hit` (tests only) forces every draw to succeed while still taking it, for suites about effects.
 
 The idle right sidebar shows compact standings automatically; selecting a node replaces it
-with the host inspector (status, local stock, workers, construction, installations, build palette). Help uses six
+with the host's build menu (its slots and the buildings). Help uses six
 illustrated pages with examples; the tutorial colours its keywords like the things they name
 (ATTACK red, DEFENCE blue, your pieces green).
 
@@ -320,7 +344,7 @@ their buildings, and borders are inset so two botnets' lines never touch (`_terr
 recomputed only when sight or ownership changes).
 
 Installations (`BUILD_KINDS` in buildings.gd) go in a host's slots. Producers
-(`PRODUCER_KINDS`): the **Intel harvester** makes 2 Intel a cycle from nothing; the **Crypto
+(`PRODUCER_KINDS`): the **Intel harvester** makes 1 Intel a cycle from nothing; the **Crypto
 miner** and **Credential harvester** each turn 1 Intel into 1 of their resource; the **Research
 lab** turns 1 Intel and 1 Crypto into 1 Research; the **Bot station** provides 2 reusable workers. Host
 type multipliers scale output and input (`_tmult`). A **Firewall** (`wall`) is not a producer: each
@@ -408,7 +432,7 @@ then **execute** on arrival for the card's `exec` seconds before they resolve
 recorded by `_op_outcome` in `op_outcomes` with its own message for both sides: **countered** (a Patch: by
 hand, armed, or loaded in a Firewall), **owner changed** (the target's ownership generation moved first, so
 a host is never captured twice from one generation), **route failed** (no path from the attacker's main
-node when it ends), **missed** (unscouted and the 50% draw failed), **raided** (Vault raid) or **captured**.
+node when it ends), **missed** (the draw failed: 50% scouted, 25% unscouted), **raided** (Vault raid) or **captured**.
 Intrusions resolve earliest end first, equal end times by operation id
 (launch order), and a turn's commands — a manual Patch included — apply before that turn's steps. A Worm
 captures its target, then runs one more stage on the nearest visible linked host of the same original owner

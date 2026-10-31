@@ -76,6 +76,7 @@ func run() -> void:
 	relays()
 	no_foreign_transit()
 	full_destinations()
+	held_at_a_rival_pickup()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -95,7 +96,7 @@ func supply_round_trip() -> void:   # automatic: nobody asks; the Miner's need i
 	var supplied := led("out:supply:intel")
 	var at_host: float = float(g.hosts[far].store.get(P, {}).get("intel", 0.0))
 	var cash_made: float = led("in:delivered:cash") + float(g.hosts[far].store.get(P, {}).get("cash", 0.0)) + in_flight("cash")
-	check(supplied >= 4.0 and cash_made >= 1.0, "The Miner turns the supplied Intel into Crypto (%.0f Intel sent, %.0f Crypto made)" % [supplied, cash_made])
+	check(supplied >= 2.0 and cash_made >= 1.0, "The Miner turns the supplied Intel into Crypto (%.0f Intel sent, %.0f Crypto made)" % [supplied, cash_made])
 	check(absf(supplied - (at_host + in_flight("intel") + cash_made)) < 0.01, "Intel is conserved: sent %.0f = %.0f at the host + %.0f on the way + %.0f turned into Crypto" % [supplied, at_host, in_flight("intel"), cash_made])
 	check(led("in:delivered:cash") >= 1.0 and led("from:%d:cash" % far) == led("in:delivered:cash"), "Its Crypto rides back with the workers and reaches the bank (%.0f)" % led("in:delivered:cash"))
 	check(led("from:%d:intel" % far) == 0.0, "The Intel it needs is never carried back out of the host")
@@ -247,3 +248,37 @@ func full_destinations() -> void:
 	step(3.0)
 	check(led("out:supply:cash") == sent0, "No supply is sent to a host with no room for it")
 	check(str(g._host_diag(far).lines).contains("full"), "...and the host says why: its storage and the bank for what it holds are full")
+
+
+func held_at_a_rival_pickup() -> void:   # your worker collecting on a rival's host waits there when its way home is cut for a moment
+	fresh()
+	var hub: int = int(g.rig[P])
+	var a := -1; var x := -1
+	for nb in g.hosts[hub].links:
+		for nb2 in g.hosts[int(nb)].links:
+			if int(nb2) != hub and not g.hosts[hub].links.has(int(nb2)) and int(g.hosts[int(nb2)].owner) == g.NEUTRAL: a = int(nb); x = int(nb2); break
+		if a >= 0: break
+	if x < 0: check(false, "a rival host two hops from the main node"); return
+	g._capture(a, P); g.hosts[a].slots = 3; g._set_builds(a, [])
+	g._capture(x, R); g._set_builds(x, [])
+	g._add_to(x, "loot", P, "intel", 2.0)   # stolen goods waiting for your workers there
+	var f := {}
+	for k in 300:
+		g._sim_step(g.SIM_DT)
+		for ff in g.flights:
+			if str(ff.kind) == "courier" and int(ff.owner) == P and int(ff.dest) == x and int(ff.get("hop_i", 0)) == (ff.route as Array).size() - 1: f = ff; break
+		if not f.is_empty(): break
+	if f.is_empty(): check(false, "a worker on its way to collect at the rival's host"); return
+	g.hosts[x].cover_until = g._t + 30.0; g.hosts[x].express_until = g._t + 30.0   # the rival's own Cargo cover and Express there
+	g.hosts[a].ddos_until = g._t + 3.0   # your relay home goes down for 3 s just as it picks up
+	var wid := int(f.wid)
+	for k in 30:
+		g._sim_step(g.SIM_DT)
+		if str(f.trip) == "back": break
+	check(str(f.trip) == "back" and not bool(f.get("covered", false)) and not bool(f.get("express", false)),
+		"Leaving a rival's host, your worker gets nothing from the rival's Cargo cover or Express there")
+	step(1.0)
+	check(g.workers.has(wid) and bool(f.get("blocked", false)) and int(f.at) == x, "With the way home cut it waits where it collected, with its cargo (not lost)")
+	var before := float(g._ledger_sums(P).get("in:stolen:intel", 0.0))
+	step(10.0)
+	check(g.workers.has(wid) and float(g._ledger_sums(P).get("in:stolen:intel", 0.0)) > before, "When the relay is back it brings the stolen cargo home")

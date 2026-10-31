@@ -19,4 +19,4 @@ const TYPE_WEIGHTS := {
 	3: {"db": 0.25, "file": 0.20, "server": 0.20, "web": 0.15, "erp": 0.20},
 }
 # There are no security levels: a host's type decides its slots and production specialties above, and any card
-# can target any foreign host. What changes an attack's odds is Recon (tuning.gd UNSCOUTED_CHANCE).
+# can target any foreign host. What changes an attack's odds is Recon (tuning.gd SCOUTED_CHANCE / UNSCOUTED_CHANCE).

@@ -141,7 +141,12 @@ func research_states() -> void:
 	check(g.research_button.text.begins_with("Paused") and str(g._research_status_line()[0]).begins_with("Paused: DDoS"), "Paused: %s" % g.research_button.text)
 	g._research_act()
 	for r in ["intel", "cash", "research"]: g.bank[P][r] = 0.0
-	step(1.0); g._update_card_banks()
+	step(2.0); g._update_card_banks()   # an empty bank with the main node's trickle still coming in: slower, not stopped
+	check(not g.research_button.text.begins_with("Stalled") and str(g._research_status_line()[0]).contains("slowed") and str(g._research_status_line()[1]) == str(g.C_WARN),
+		"An empty bank that still takes in a trickle: research goes on, slowed (%s)" % str(g._research_status_line()[0]))
+	g.hosts[int(g.rig[P])].ddos_until = g._t + 60.0   # nothing comes in at all: after a production cycle with no payment it has stopped
+	for r in ["intel", "cash", "research"]: g.bank[P][r] = 0.0
+	step(g.RESEARCH_STALL_SECS + 1.0); g._update_card_banks()
 	check(g.research_button.text.begins_with("Stalled") and str(g._research_status_line()[1]) == str(g.C_BAD), "Starved of resources: %s, in red" % g.research_button.text)
 	g._research_node_click("express")
 	var st_sel: Dictionary = g._research_node_state("express"); var st_run: Dictionary = g._research_node_state("ddos")
@@ -179,14 +184,15 @@ func queue_strip() -> void:
 	check(str(chip(0).state().kind) in ["empty", "done"] and g._mq(P).is_empty(), "x on the chip removes it")
 
 
-func research_bar() -> void:   # always on screen, outside the drawer: name, track, %, state, work left; idle says so
+func research_bar() -> void:   # on screen outside the drawer while research runs: name, track, %, state, work left; gone when idle
 	fresh(); await frames()
 	var bar: Control = g.research_bar
-	check(bar.visible and not g._deck_open, "The research bar is on screen with the drawer closed")
-	check(str(g._research_bar_state().state) == "idle" and str(bar._get_tooltip(Vector2.ZERO)).begins_with("Nothing is being researched"), "Idle: it says nothing is being researched and how to start")
+	await frames()
+	check(not bar.visible and str(g._research_bar_state().state) == "idle", "Nothing being researched: no bar at all")
+	g._cmd(["research", "ddos"]); step(2.0); await frames()
+	check(bar.visible and not g._deck_open, "Research running: the bar is on screen with the drawer closed")
 	var hud_end: float = g.hud.get_global_rect().end.y
-	check(bar.get_global_rect().position.y >= hud_end - 0.5 and not bar.get_global_rect().intersects(g.panel.get_global_rect()), "It sits under the HUD and clear of the inspector")
-	g._cmd(["research", "ddos"]); step(2.0)
+	check(bar.get_global_rect().position.y >= hud_end - 0.5 and not bar.get_global_rect().intersects(g.panel.get_global_rect()) and not bar.get_global_rect().intersects(g.logs_button.get_global_rect()), "It sits under the HUD, beside the Logs button, clear of the inspector")
 	var st: Dictionary = g._research_bar_state()
 	check(str(st.state) == "active" and str(st.name) == "DDoS" and str(st.track) == "Attack" and float(st.frac) > 0.0 and float(st.left) > 0.0,
 		"Active: name, track, progress and work left (%s)" % str(st))
@@ -194,6 +200,7 @@ func research_bar() -> void:   # always on screen, outside the drawer: name, tra
 	check(str(g._research_bar_state().state) == "paused", "Paused reads paused")
 	g.research_job[P].paused = false
 	for r in ["intel", "cash", "research"]: g.bank[P][r] = 0.0
+	g.research_job[P].paid_t = g._t - g.RESEARCH_STALL_SECS - 1.0   # nothing paid for longer than a cycle
 	check(str(g._research_bar_state().state) == "stalled" and str(g._research_bar_state().why).contains("no"), "Stalled names what is missing: %s" % str(g._research_bar_state().why))
 	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true
 	bar._gui_input(ev); await frames()

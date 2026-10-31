@@ -2,7 +2,8 @@ extends SceneTree
 ## The HUD's income forecast (feedback round B, section 3): what will reach the main node's bank per minute with the
 ## network as it stands, worked out from the network rather than extrapolated from early ledger events. It is checked
 ## against a long controlled simulation, and against the conditions that cut income: no free workers, a cut route,
-## a starved converter (and its supply), a paused producer, a full bank. Workers show activity, not an income.
+## a starved converter (and its supply), a paused producer, a full bank, a host whose converters take turns for room,
+## a phished host, a main node under DDoS. Workers show activity, not an income.
 ## godot --headless --path . --script tests/forecast_test.gd
 var g
 var P := 1
@@ -33,6 +34,8 @@ func step(secs: float) -> void:
 
 
 func rate(res: String) -> float: return float(g._forecast(P).rate[res])
+func trickle() -> float: return g.MAIN_INCOME * 60.0           # the main node's 1 of each per cycle, per minute
+func per_cycle() -> float: return 60.0 / g.PROD_CYCLE           # one unit a cycle, per minute
 
 
 func measured(res: String, secs: float) -> float:   # what actually reached the bank per minute over secs of play (refunds aside)
@@ -86,11 +89,15 @@ func run() -> void:
 	paused()
 	full_bank()
 	no_early_spike()
+	short_of_workers()
+	limited_plan()
+	phished()
+	main_node_down()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
 
-func network() -> Dictionary:   # a main node with a harvester and a station, a near host with its own workers, a far one served from home
+func network() -> Dictionary:   # a main node with a harvester and a station, a near host with a station, a far one: one pool serves both
 	fresh()
 	var home: int = int(g.rig[P])
 	g._set_builds(home, ["intel", "bot"])
@@ -105,15 +112,15 @@ func network() -> Dictionary:   # a main node with a harvester and a station, a 
 
 func sustained() -> void:
 	var n := network()
-	step(30.0)   # past the start: storages and workers settle
+	step(60.0)   # past the start: storages and workers settle
 	var fc := {}
 	for res in g.RES: fc[res] = rate(res)
-	var got := track(120.0)
+	var got := track(240.0)
 	var bad := []
 	for res in ["intel", "cash", "creds", "research"]:
 		var tol := maxf(2.5, 0.12 * float(fc[res]))
 		if absf(float(got[res]) - float(fc[res])) > tol: bad.append("%s %.1f vs %.1f" % [res, float(got[res]), float(fc[res])])
-	check(bad.is_empty(), "Forecast matches 120 s of steady play within 12%% (Intel %.0f/%.0f, Crypto %.0f/%.0f, Creds %.0f/%.0f) %s" %
+	check(bad.is_empty(), "Forecast matches 240 s of steady play within 12%% (Intel %.0f/%.0f, Crypto %.0f/%.0f, Creds %.0f/%.0f) %s" %
 		[float(fc.intel), float(got.intel), float(fc.cash), float(got.cash), float(fc.creds), float(got.creds), str(bad)])
 	var from: Dictionary = (g._forecast(P).from as Dictionary).get("creds", {})
 	check(from.has(str(g.hosts[n.far].name)) and from.has("main node trickle"), "It says where each bank's income comes from (%s)" % str(from))
@@ -126,16 +133,30 @@ func no_workers() -> void:
 	var n := network()
 	step(20.0)
 	var with: float = rate("creds")
-	g._set_builds(n.home, ["intel"])   # the main node's station goes: its workers retire, and the far host has none of its own
+	g._set_builds(n.home, ["intel"]); g._set_builds(n.near, ["intel", "cash"])   # every station goes: its workers retire, nobody carries
 	g._fc_gen += 1
 	var fc: Dictionary = g._forecast(P)
-	check(with > 12.5 and rate("creds") <= 12.5 + 0.01 and (fc.limits as Dictionary).get("creds", []).has("not enough workers"),
+	check(with > trickle() + 0.5 and rate("creds") <= trickle() + 0.01 and (fc.limits as Dictionary).get("creds", []).has("not enough workers"),
 		"No workers for it: the far host's Credentials leave the forecast at once (%.0f → %.0f), and it says why" % [with, rate("creds")])
 	var hud := str(g._hud_rate("workers")[0])
 	check(hud.contains("busy") and not hud.contains("/min"), "The Workers column shows what workers do, not an income: '%s'" % hud)
 	step(10.0)   # the retiring workers finish their legs
 	var got := track(60.0)
-	check(float(got.creds) <= 12.0 + 2.5, "...and none arrive (%.1f/min: the trickle only)" % float(got.creds))
+	check(float(got.creds) <= trickle() + 2.5, "...and none arrive (%.1f/min: the trickle only)" % float(got.creds))
+	fresh()   # hosts that run only on what workers bring, and one whose Lab eats its own Intel
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["intel", "bot"])
+	var a: int = neighbours_of(home)[0]
+	g.hosts[a].type = "pc"; g._capture(a, P); g._set_builds(a, ["lab", "cash"])
+	var b: int = neighbours_of(home)[0]
+	g.hosts[b].type = "pc"; g._capture(b, P); g._set_builds(b, ["intel", "lab"])
+	step(60.0)
+	var res_with: float = rate("research")
+	g._set_builds(home, ["intel"]); g._fc_gen += 1
+	var lim: Dictionary = g._forecast(P).limits
+	check(res_with > trickle() + 0.5 and (lim.get("research", []) as Array).has("not enough workers"),
+		"A host that runs only on supplies still says why its Research left the forecast (%.0f → %.0f: %s)" % [res_with, rate("research"), str(lim.get("research", []))])
+	check(not (lim.get("intel", []) as Array).has("not enough workers"), "...and the shortage is not blamed on Intel, which the Lab used anyway (%s)" % str(lim.get("intel", [])))
 
 
 func cut_route() -> void:
@@ -143,9 +164,9 @@ func cut_route() -> void:
 	step(20.0)
 	g._capture(n.near, g.RIVAL)   # the far host's only way home
 	var fc: Dictionary = g._forecast(P)
-	check(rate("creds") <= 12.0 + 0.01 and str((fc.limits as Dictionary).get("creds", [])).contains("no route home"), "A cut route: the far host's output is not counted (%.0f), and the reason is named" % rate("creds"))
+	check(rate("creds") <= trickle() + 0.01 and str((fc.limits as Dictionary).get("creds", [])).contains("no route home"), "A cut route: the far host's output is not counted (%.0f), and the reason is named" % rate("creds"))
 	var got := track(40.0)
-	check(float(got.creds) <= 12.0 + 2.5, "...and it does not arrive (%.1f/min)" % float(got.creds))
+	check(float(got.creds) <= trickle() + 2.5, "...and it does not arrive (%.1f/min)" % float(got.creds))
 
 
 func starved_and_supplied() -> void:
@@ -155,16 +176,16 @@ func starved_and_supplied() -> void:
 	var h: int = neighbours_of(home)[0]
 	g._capture(h, P); g._set_builds(h, ["cash"])   # a lone Miner: no Intel of its own
 	step(10.0)
-	check(rate("cash") <= 12.0 + 0.01, "A starved Miner adds nothing to the Crypto forecast (%.0f: the trickle)" % rate("cash"))
+	check(rate("cash") <= trickle() + 0.01, "A starved Miner adds nothing to the Crypto forecast (%.0f: the trickle)" % rate("cash"))
 	g._set_builds(home, ["bot"]); g._fc_gen += 1   # workers at the main node supply it automatically
-	check(rate("cash") >= 24.0 - 0.01 and rate("intel") <= 12.0 + 0.01, "Supplied with Intel by workers it adds 12 Crypto/min; the supplied Intel is not income (%.0f, %.0f)" % [rate("cash"), rate("intel")])
-	step(20.0)
-	var got := track(90.0)
-	check(absf(float(got.cash) - rate("cash")) <= 3.0, "...which the simulation delivers (%.1f/min vs %.0f)" % [float(got.cash), rate("cash")])
+	check(rate("cash") >= trickle() + per_cycle() - 0.01 and rate("intel") <= trickle() + 0.01, "Supplied with Intel by workers it adds %.0f Crypto/min; the supplied Intel is not income (%.0f, %.0f)" % [per_cycle(), rate("cash"), rate("intel")])
+	step(30.0)
+	var got := track(180.0)
+	check(absf(float(got.cash) - rate("cash")) <= 2.5, "...which the simulation delivers (%.1f/min vs %.0f)" % [float(got.cash), rate("cash")])
 	g.bank[P].intel = 0.0; g._fc_gen += 1
-	check(absf(rate("cash") - 24.0) < 0.01, "With the bank's Intel gone it still runs on what the trickle brings in (1 a cycle): %.0f" % rate("cash"))
-	var got2 := track(60.0)
-	check(absf(float(got2.cash) - 24.0) <= 3.0, "...as the simulation does (%.1f/min)" % float(got2.cash))
+	check(absf(rate("cash") - trickle() - per_cycle()) < 0.01, "With the bank's Intel gone it still runs on what the trickle brings in (1 a cycle): %.0f" % rate("cash"))
+	var got2 := track(120.0)
+	check(absf(float(got2.cash) - trickle() - per_cycle()) <= 2.5, "...as the simulation does (%.1f/min)" % float(got2.cash))
 	g.hosts[home].ddos_until = g._t + 60.0; g.bank[P].intel = 0.0; g._fc_gen += 1   # and with the main node down, nothing comes in to send
 	check(rate("cash") <= 0.01, "With no Intel to send at all, the supplied Miner is starved again (%.0f)" % rate("cash"))
 
@@ -174,7 +195,7 @@ func paused() -> void:
 	step(10.0)
 	var before: float = rate("cash")
 	g._cmd(["produce", n.near, 2])   # pause the near host's Miner
-	check(g._producer_paused(n.near, 2) and rate("cash") <= before - 11.9, "Pausing a Miner takes its Crypto out of the forecast at once (%.0f → %.0f)" % [before, rate("cash")])
+	check(g._producer_paused(n.near, 2) and rate("cash") <= before - per_cycle() + 0.1, "Pausing a Miner takes its Crypto out of the forecast at once (%.0f → %.0f)" % [before, rate("cash")])
 	check(rate("intel") > 0.0, "...and the Intel it no longer uses is forecast to come home instead (%.0f)" % rate("intel"))
 
 
@@ -194,6 +215,124 @@ func no_early_spike() -> void:   # the old reading extrapolated the first second
 	step(1.0)
 	var early: float = rate("intel")
 	step(29.0)
-	var steady: float = 12.0 + 12.0 * float(g.BUILD_KINDS.intel.rate) * g._tmult(home, "intel")
+	var steady: float = trickle() + per_cycle() * float(g.BUILD_KINDS.intel.rate) * g._tmult(home, "intel")
 	check(absf(early - rate("intel")) < 0.01 and absf(early - steady) < 0.01, "From the first second the forecast is the network's steady rate (%.0f Intel/min: trickle + harvester)" % early)
 	check(not str(g._hud_rate("intel")[0]).begins_with("~"), "No early-estimate tilde: it is a forecast, not a measurement")
+
+
+func short_of_workers() -> void:   # two workers for six hosts: the forecast follows the dispatcher (missing inputs on three turns
+	fresh()                          # of four, every other turn to the host served least recently, supplies only where they fit),
+	                                 # material by material, not one even share for everything
+	var home: int = int(g.rig[P])
+	var hs := []
+	var frontier := [home]; var seen := {home: true}
+	while hs.size() < 6 and not frontier.is_empty():
+		var nxt := []
+		for f0 in frontier:
+			for nb in g.hosts[int(f0)].links:
+				if seen.has(int(nb)): continue
+				seen[int(nb)] = true
+				if hs.size() < 6 and int(g.hosts[int(nb)].owner) == g.NEUTRAL: hs.append(int(nb)); g._capture(int(nb), P); nxt.append(int(nb))
+		frontier = nxt
+	var lays := [["intel", "cash", "intel"], ["intel", "cred", "intel"], ["cash"], ["cred"], ["intel", "intel", "lab"], ["intel"]]
+	for k in hs.size(): g._set_builds(hs[k], (lays[k] as Array).slice(0, int(g.hosts[hs[k]].slots)))
+	for res in g.RES: g.bank[P][res] = 100.0
+	for k in int(240.0 / g.SIM_DT): g._sim_step(g.SIM_DT)   # settle
+	var fc_by := {}; var got_by := {}; var n := 0   # what the remote hosts deliver, per material
+	for res in g.RES: fc_by[res] = 0.0; got_by[res] = 0.0
+	for sec in 300:
+		for k in int(round(1.0 / g.SIM_DT)): g._sim_step(g.SIM_DT)
+		for res in g.RES: g.bank[P][res] = 100.0   # nothing caps, nothing starves
+		g._fc_gen += 1
+		var fc: Dictionary = g._forecast(P)
+		for r in g.RES:
+			for src in (fc.from.get(r, {}) as Dictionary):
+				if not str(src).begins_with("main node"): fc_by[r] = float(fc_by[r]) + float(fc.from[r][src])
+		n += 1
+		if sec % 30 == 29:   # the ledger keeps 30 s: "from:<host>:<res>" is what each host delivered
+			var sums: Dictionary = g._ledger_sums(P)
+			for key in sums:
+				var parts := str(key).split(":")
+				if parts[0] == "from": got_by[parts[2]] = float(got_by[parts[2]]) + float(sums[key])
+	var f := 0.0; var m := 0.0; var bad := []; var said := []
+	for r in g.RES:
+		var fr := float(fc_by[r]) / n; var mr := float(got_by[r]) / 5.0
+		f += fr; m += mr
+		said.append("%s %.1f/%.1f" % [g.RES_NAME[r], fr, mr])
+		if absf(fr - mr) > 0.3 * mr: bad.append(g.RES_NAME[r])
+	check(absf(f - m) <= 0.2 * m, "Two workers for six hosts: the forecast of what the hosts deliver (%.1f/min) is within 20%% of what arrives (%.1f/min)" % [f, m])
+	check(bad.is_empty(), "...and each material is within 30%% of what arrives, forecast/measured per minute: %s %s" % [", ".join(PackedStringArray(said)), str(bad)])
+
+
+func host_rates(secs: int) -> Dictionary:   # {fc, got}: what the remote hosts are forecast to deliver and do deliver, per material per minute
+	var fc_by := {}; var got_by := {}         # (the bank stays stocked: nothing caps, nothing starves)
+	for res in g.RES: fc_by[res] = 0.0; got_by[res] = 0.0
+	for sec in secs:
+		step(1.0)
+		for res in g.RES: g.bank[P][res] = 100.0
+		g._fc_gen += 1
+		var fc: Dictionary = g._forecast(P)
+		for r in g.RES:
+			for src in (fc.from.get(r, {}) as Dictionary):
+				if not str(src).begins_with("main node"): fc_by[r] = float(fc_by[r]) + float(fc.from[r][src]) / float(secs)
+		if sec % 30 == 29:   # the ledger keeps 30 s: "from:<host>:<res>" is what each host delivered
+			var sums: Dictionary = g._ledger_sums(P)
+			for key in sums:
+				var parts := str(key).split(":")
+				if parts[0] == "from": got_by[parts[2]] = float(got_by[parts[2]]) + float(sums[key]) * 60.0 / float(secs)
+	return {"fc": fc_by, "got": got_by}
+
+
+func limited_plan() -> void:   # a File server (Research x2) with three Labs: one cycle's supplies (12) are more than its storage
+	fresh()                      # holds (10), so its Labs take turns; the forecast counts the ones that run, not none
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["bot", "bot", "bot"])
+	var h: int = neighbours_of(home)[0]
+	g.hosts[h].type = "file"; g.hosts[h].slots = int(g.NODE_TYPES.file.slots)
+	g._capture(h, P); g._set_builds(h, ["lab", "lab", "lab"])
+	for res in g.RES: g.bank[P][res] = 100.0
+	for k in 8:
+		step(30.0)
+		for res in g.RES: g.bank[P][res] = 100.0
+	var budget := {}
+	for res in g.RES: budget[res] = g._free(P, res)
+	check(bool(g._host_plan(h, P, budget).limited), "Setup: the File server's plan is limited by its storage")
+	var r: Dictionary = host_rates(300)
+	var f := float(r.fc.research); var m := float(r.got.research)
+	check(m > 10.0 and absf(f - m) <= 0.2 * m, "Its Research is forecast within 20%% of what arrives (%.1f vs %.1f/min), not as nothing" % [f, m])
+
+
+func phished() -> void:   # a rival's host you phish: its Firewall eats your Intel when the owner keeps none there; a storage
+	fresh()                 # full of the owner's stock takes none of yours
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["intel", "bot"])
+	var h: int = neighbours_of(home)[0]
+	g.hosts[h].type = "pc"; g.hosts[h].slots = 3
+	g._capture(h, g.RIVAL); g._set_builds(h, ["intel", "intel", "wall"])
+	g.hosts[h].steal_by = P; g.hosts[h].steal_until = g._t + 600.0
+	g._fc_gen += 1
+	var src := str(g.hosts[h].name)
+	var f := float((g._forecast(P).from.get("intel", {}) as Dictionary).get(src, 0.0))
+	step(30.0)
+	var sums := 0.0
+	for k in 4:
+		step(30.0)
+		sums += float(g._ledger_sums(P).get("from:%d:intel" % h, 0.0))
+	check(absf(f - per_cycle()) < 0.01 and absf(sums / 2.0 - f) <= 1.5, "Two harvesters and a Firewall, phished: the Firewall's Intel comes out of yours, %.0f/min forecast, %.1f/min arrive" % [f, sums / 2.0])
+	g._set_builds(h, ["intel", "intel"])
+	g.hosts[h].store = {g.RIVAL: {"intel": float(g.STORE_CAP)}}   # the owner's stock fills it and its workers cannot reach it
+	g._fc_gen += 1
+	var fc: Dictionary = g._forecast(P)
+	f = float((fc.from.get("intel", {}) as Dictionary).get(src, 0.0))
+	check(f == 0.0 and str(fc.limits.get("intel", [])).contains("storage full at"), "A storage full of the owner's stock: none of your harvest lands, none is forecast, and it says why (%s)" % str(fc.limits.get("intel", [])))
+
+
+func main_node_down() -> void:   # a DDoSed main node sends no worker out: the remote hosts' output waits where it is
+	var n := network()
+	step(20.0)
+	g.hosts[n.home].ddos_until = g._t + 60.0; g._fc_gen += 1
+	var fc: Dictionary = g._forecast(P)
+	var remote := 0.0
+	for r in g.RES:
+		for src in (fc.from.get(r, {}) as Dictionary): if not str(src).begins_with("main node"): remote += float(fc.from[r][src])
+	check(remote == 0.0 and str(fc.limits.get("creds", [])).contains("your main node is under DDoS"), "Main node under DDoS: nothing from the hosts is forecast while it lasts (%.1f/min), and it says why" % remote)

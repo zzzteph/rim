@@ -83,14 +83,15 @@ func reconcile() -> void:   # within one ledger window, the change in every bank
 	check(by("cash", "in", "delivered") > 0.0 and by("cash", "in", "trickle") > 0.0, "Income is split by cause: deliveries and the main-node trickle")
 
 
-func layout_rate() -> void:   # station + harvester + Miner: its own workers deliver 1 Intel and 1 Crypto per 5-s cycle
+func layout_rate() -> void:   # station + 2 harvesters + Miner: 1 Intel and 1 Crypto go home per 12-s cycle (5 a minute each)
 	fresh()
 	g._set_builds(int(g.rig[P]), [])
-	own_pc(["bot", "intel", "cash"])
-	step(45.0)   # warm-up past the 30-s window
+	own_pc(["bot", "intel", "intel", "cash"])
+	step(60.0)   # warm-up past the 30-s window
 	var cash := by("cash", "in", "delivered"); var intel := by("intel", "in", "delivered"); var trickle := by("cash", "in", "trickle")
-	check(absf(cash - 12.0) <= 2.5 and absf(intel - 12.0) <= 2.5, "Measured delivery matches the layout: %.1f Crypto/min (12) and %.1f Intel/min (12)" % [cash, intel])
-	check(absf(trickle - 12.0) <= 0.5, "The main-node trickle reads 12/min (%.1f)" % trickle)
+	var per_min: float = 60.0 / g.PROD_CYCLE
+	check(absf(cash - per_min) <= 2.5 and absf(intel - per_min) <= 2.5, "Measured delivery matches the layout: %.1f Crypto/min (%.0f) and %.1f Intel/min (%.0f)" % [cash, per_min, intel, per_min])
+	check(absf(trickle - g.MAIN_INCOME * 60.0) <= 0.5, "The main-node trickle reads %.0f/min (%.1f)" % [g.MAIN_INCOME * 60.0, trickle])
 	check(not bool(g._econ_rates(P, "cash").early), "After 30 s the rates are no longer an early estimate")
 
 
@@ -104,7 +105,7 @@ func starved_and_capped() -> void:
 	g.bank[P].cash = g._cap(P, "cash")   # a full bank: the trickle cannot land
 	step(31.0)
 	var r: Dictionary = g._econ_rates(P, "cash")
-	check(float(r["in"]) < 0.5 and float((r.lost_by as Dictionary).get("cap", 0.0)) > 10.0, "A full bank records overflow as lost to the cap, not as income (in %.1f, lost %.1f)" % [float(r["in"]), float((r.lost_by as Dictionary).get("cap", 0.0))])
+	check(float(r["in"]) < 0.5 and float((r.lost_by as Dictionary).get("cap", 0.0)) > 0.8 * g.MAIN_INCOME * 60.0, "A full bank records overflow as lost to the cap, not as income (in %.1f, lost %.1f)" % [float(r["in"]), float((r.lost_by as Dictionary).get("cap", 0.0))])
 
 
 func far_pair() -> Array:   # [via, far]: a host two links out whose only link to your network is `via`

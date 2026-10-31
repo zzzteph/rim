@@ -57,6 +57,7 @@ func run() -> void:
 	conditions()
 	news()
 	strip_and_history()
+	logs_label_from_the_start()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -125,6 +126,7 @@ func conditions() -> void:
 	# research that cannot pay
 	g.bank[P] = {"intel": 0.0, "cash": 0.0, "creds": 60.0, "research": 0.0}
 	g.research_job[P] = {"key": "exploit", "progress": 1.0, "paused": false}
+	g.hosts[int(g.rig[P])].ddos_until = g._t + 60.0   # nothing comes in: it cannot pay at all
 	step(1.0)
 	check(entries("research").size() == 1 and str(entries("research")[0].text).contains("stopped"), "Research that cannot pay is actionable: %s" % (str(entries("research")[0].text) if entries("research").size() > 0 else "none"))
 	# a rival holding the majority
@@ -168,16 +170,33 @@ func strip_and_history() -> void:
 	g.hosts[t].ddos_until = g._t + 20.0
 	intrusion(9300, int(g.rig[P]), 30.0)
 	step(1.0)
-	var rows: Array = g._ev_strip_rows()
-	check(rows.size() == g.EV_STRIP_ROWS and int(rows[0].pri) == g.EV_CRIT, "The map strip shows at most %d rows, critical first" % g.EV_STRIP_ROWS)
 	g._refresh_event_strip()
-	check(g.event_strip.get_child_count() == g.EV_STRIP_ROWS + 1 and str((g.event_strip.get_child(g.EV_STRIP_ROWS) as Button).text).begins_with("Event history (H)"), "Under the rows, a button opens the history")
-	g._on_strip_row(0)
-	check(g._inspect == int(g.rig[P]) or g.sel.has(int(g.rig[P])), "Clicking the critical row opens its host")
-	g._toggle_events()
+	var lb: Button = g.logs_button
+	check(lb.text.begins_with("Logs · ") and lb.text.ends_with("new") and lb.get_theme_color("font_color") == g.C_BAD, "No strip over the map: the Logs button counts the new entries, red while something critical is new (%s)" % lb.text)
+	check(not ("event_strip" in g), "The old map strip is gone")
+	g._open_logs()
 	var txt: String = g._panel_text()
-	check(g._tab == "events" and txt.contains("Events") and txt.contains("(ongoing)"), "H opens the history, marking what is still going on")
+	check(g._tab == "events" and txt.contains("Events") and txt.contains("(ongoing)"), "Logs opens the history, marking what is still going on")
+	g._refresh_event_strip()
+	check(g.logs_button.text == "Logs", "Opened, nothing is new any more")
+	g._tab = ""; step(3.0); g._refresh_event_strip()
+	check(g.logs_button.text == "Logs", "An ongoing condition's countdown is not news: still nothing new after 3 s (%s)" % g.logs_button.text)
+	var crit := {}
+	for e in g.events:
+		if int(e.pri) == g.EV_CRIT: crit = e; break
+	g._focus_event(crit)
+	check(g._inspect == int(g.rig[P]) or g.sel.has(int(g.rig[P])), "Clicking the critical entry opens its host")
 	for k in 100: g._event("spam:%d" % k, g.EV_INFO, "news %d" % k)
 	check(g.events.size() == g.EV_KEEP, "The history keeps the last %d entries" % g.EV_KEEP)
 	g._gen()
 	check(g.events.is_empty() and g.op_outcomes.is_empty() and g._ledger.is_empty(), "A new match starts with an empty history and ledger")
+
+
+func logs_label_from_the_start() -> void:   # the Logs button reads "Logs" from the first frame of a match or lesson, never blank or stale
+	fresh()
+	check(g.logs_button.text == "Logs", "A new match: the Logs button reads 'Logs' before any step (%s)" % g.logs_button.text)
+	for k in 5: g._event("test:%d" % k, g.EV_CRIT, "Something critical %d" % k)
+	g._refresh_event_strip()
+	check(g.logs_button.text.contains("5 new"), "...then counts what is new (%s)" % g.logs_button.text)
+	g._start_campaign(0)
+	check(g.logs_button.text == "Logs", "A lesson that opens paused shows 'Logs', not the last match's count (%s)" % g.logs_button.text)

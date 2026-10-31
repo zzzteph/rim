@@ -80,13 +80,13 @@ const LEADS := {
 	"deliver": ["Each Bot station provides two reusable workers.", "Each carries one unit per leg and returns for another job."],
 	"produce": ["Installations use the materials they need here first.", "Workers take the surplus to your main node."],
 	"build": ["Queue up to four copies, including the one being made.", "They are made in order, one at a time; finished copies go to Ready."],
-	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Send Recon to inspect a host; unscouted attacks work half the time."],
+	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Recon works half the time; attacks 50% scouted, 25% not."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {
 	"research": "Only materials at your main node fund cards and research. Research gives no free card; a copy pays when it starts.",
-	"deliver": "Missing inputs are fetched from your main node; its workers serve hosts with no station. Losing a host destroys its stations' workers.",
-	"produce": "Workers bring what a host needs automatically. Refill supplies asks once for one cycle of inputs; clicking again adds nothing. Full storage (10) stops it.",
+	"deliver": "All your workers work from your main node: building materials first, then missing inputs, then surplus home. Losing a host destroys its stations' workers.",
+	"produce": "Every 12 s each producer makes 1 unit. Workers bring what a host needs automatically; full storage (10) stops its producers.",
 	"build": "A building's materials must reach its site before its 10 s of work start. The 12-card Ready inventory is separate from the queue.",
 	"attack": "Stolen resources help only when your workers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
 	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",

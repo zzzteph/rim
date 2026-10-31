@@ -67,13 +67,13 @@ func capture_preview() -> void:
 	var pv: Dictionary = g._target_preview(P, "breach", t)
 	var s := text(pv)
 	check(bool(pv.ok) and s.contains("Ready: Credential breach") and not s.contains("ecurity"), "A neighbour: ready, with no security level anywhere")
-	check(s.contains("Chance: 50% without fresh Recon"), "Unscouted, the preview says the chance is 50%")
+	check(s.contains("Chance: 25% without fresh Recon"), "Unscouted, the preview says the chance is 25%")
 	g._mark_scanned(P, t)
-	check(text(g._target_preview(P, "breach", t)).contains("Chance: full"), "Scouted, the preview says the chance is full")
+	check(text(g._target_preview(P, "breach", t)).contains("Chance: 50%"), "Scouted, the preview says the chance is 50%")
 	g.recon[P] = {}
 	s = text(g._target_preview(P, "breach", t))
 	check(s.contains("Route: 1 hop") or s.contains("Route: 2 hops"), "It gives the route: %s" % s.get_slice("\n", 2))
-	check(s.contains("executes for 15 s") and s.contains("unless a Patch, a lost route or a change of owner"), "It gives the execution time and what stops it")
+	check(s.contains("executes for 15 s") and s.contains("If its draw succeeds it captures") and s.contains("a Patch, a lost route or a change of owner stops it first"), "It gives the execution time, that the capture needs its draw, and what stops it")
 	check(s.contains("Defences unknown: no Recon") and s.contains("used only when you launch"), "Unknown defences stay unknown; the card is used only on launch")
 	check(g._mp_hash() == h0 and g.flights.size() == nf and int(g.cards[P].breach) == 1, "Previewing changes nothing: fingerprint, flights and the copy are untouched")
 	var arrive := -1.0
