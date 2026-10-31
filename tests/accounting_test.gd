@@ -1,7 +1,8 @@
 extends SceneTree
 ## Economic accounting (Milestone A, brief §9.2): every bank movement is recorded once, by cause; the recorded flows
-## reconcile with the banks; a simple layout's measured delivery matches its cycle; starved, capped and broken-route
-## cases never show fictional income; the ledger stays out of the lockstep fingerprint.
+## reconcile with the banks; a simple layout's measured delivery matches its cycle; output still waiting in a host's
+## storage, a starved Firewall, a capped bank and a broken route never show fictional income or spending; the ledger
+## stays out of the lockstep fingerprint.
 ## godot --headless --path . --script tests/accounting_test.gd
 var g
 var P := 1
@@ -83,25 +84,39 @@ func reconcile() -> void:   # within one ledger window, the change in every bank
 	check(by("cash", "in", "delivered") > 0.0 and by("cash", "in", "trickle") > 0.0, "Income is split by cause: deliveries and the main-node trickle")
 
 
-func layout_rate() -> void:   # station + 2 harvesters + Miner: 1 Intel and 1 Crypto go home per 12-s cycle (5 a minute each)
+func one_cycle(i: int, kind: String) -> float:   # what one producer of this kind makes on host i in one cycle (rate x host type)
+	return float(g.BUILD_KINDS[kind].rate) * g._tmult(i, str(g.BUILD_KINDS[kind].out))
+
+
+func layout_rate() -> void:   # station + 2 harvesters + Miner, no input used (0.6.12): 2 Intel and 1 Crypto go home per 12-s cycle
 	fresh()
 	g._set_builds(int(g.rig[P]), [])
-	own_pc(["bot", "intel", "intel", "cash"])
+	var n := own_pc(["bot", "intel", "intel", "cash"])
 	step(60.0)   # warm-up past the 30-s window
 	var cash := by("cash", "in", "delivered"); var intel := by("intel", "in", "delivered"); var trickle := by("cash", "in", "trickle")
-	var per_min: float = 60.0 / g.PROD_CYCLE
-	check(absf(cash - per_min) <= 2.5 and absf(intel - per_min) <= 2.5, "Measured delivery matches the layout: %.1f Crypto/min (%.0f) and %.1f Intel/min (%.0f)" % [cash, per_min, intel, per_min])
+	var per_min: float = 60.0 / g.PROD_CYCLE   # cycles a minute
+	var want_cash: float = one_cycle(n, "cash") * per_min; var want_intel: float = 2.0 * one_cycle(n, "intel") * per_min
+	var tol: float = 0.5 * per_min   # half a unit a cycle: the 30-s window holds a whole number of landed units
+	check(absf(cash - want_cash) <= tol and absf(intel - want_intel) <= tol, "Measured delivery matches the layout: %.1f Crypto/min (%s) and %.1f Intel/min (%s)" % [cash, g._amt(want_cash), intel, g._amt(want_intel)])
 	check(absf(trickle - g.MAIN_INCOME * 60.0) <= 0.5, "The main-node trickle reads %.0f/min (%.1f)" % [g.MAIN_INCOME * 60.0, trickle])
 	check(not bool(g._econ_rates(P, "cash").early), "After 30 s the rates are no longer an early estimate")
 
 
 func starved_and_capped() -> void:
 	fresh()
-	g._set_builds(int(g.rig[P]), [])
-	own_pc(["cash"])   # a Miner with no Intel on its host makes nothing, whatever the bank holds
+	g._set_builds(int(g.rig[P]), [])   # no Bot station anywhere: no worker brings this host anything or carries anything home
+	var n := own_pc(["cash", "wall"])   # a Miner and a Firewall, and nothing on the host makes Intel
 	g.bank[P].intel = 140.0
-	step(35.0)
-	check(by("cash", "in", "delivered") == 0.0 and by("cash", "in", "production") == 0.0, "A starved remote Miner shows no Crypto income")
+	var made := 0   # cycles the host ran
+	for k in int(round(35.0 / g.SIM_DT)):
+		var left := float(g.hosts[n].get("cyc", g.PROD_CYCLE))
+		g._sim_step(g.SIM_DT)
+		if float(g.hosts[n].get("cyc", g.PROD_CYCLE)) > left: made += 1   # its timer wrapped: it ran a cycle
+	var stored: float = g._st_get(n, P, "cash")
+	check(made >= 2 and absf(stored - made * one_cycle(n, "cash")) < 0.001 and by("cash", "in", "delivered") == 0.0 and by("cash", "in", "production") == 0.0,
+		"A remote Miner makes its Crypto with no input, but none shows as income while no worker brings it home (%s waiting after %d cycles)" % [g._amt(stored), made])
+	check(not bool(g.hosts[n].fw_on) and by("intel", "out", "upkeep") == 0.0 and float(g._econ_rates(P, "intel")["out"]) == 0.0 and float(g.bank[P].intel) >= 140.0,
+		"A remote Firewall with no Intel on its host is starved: it is off and no upkeep is booked, whatever the bank holds (bank Intel %d)" % int(g.bank[P].intel))
 	g.bank[P].cash = g._cap(P, "cash")   # a full bank: the trickle cannot land
 	step(31.0)
 	var r: Dictionary = g._econ_rates(P, "cash")

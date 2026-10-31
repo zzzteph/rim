@@ -66,18 +66,19 @@ const CARDS := {
 		"lead": "Halve delivery time for 45 s.", "rules": "Workers leaving this host cross each link twice as fast. It cannot go in a Firewall socket: play it when you need the speed."},
 }
 
-# The research tree: a locked recipe, its prerequisite blueprint, one-time cost and time.
+# The research tree: a locked recipe, its prerequisite blueprint, one-time cost and time (0.6.12: blueprints are paid
+# mainly in Crypto, the same totals as before).
 const RESEARCH := {
-	"exploit":  {"prereq": "breach",  "intel": 24, "cash": 4, "research": 20, "time": 40.0},
-	"zeroday":  {"prereq": "exploit", "intel": 48, "cash": 12, "research": 50, "time": 70.0},
-	"worm":     {"prereq": "exploit", "intel": 36, "cash": 8, "research": 36, "time": 55.0},
-	"ddos":     {"prereq": "recon",   "intel": 24, "cash": 4, "research": 18, "time": 35.0},
-	"sabotage": {"prereq": "ddos",    "intel": 40, "cash": 12, "research": 44, "time": 60.0},
-	"siphon":   {"prereq": "phish",   "intel": 24, "cash": 4, "research": 20, "time": 40.0},
-	"vault":    {"prereq": "siphon",  "intel": 36, "cash": 8, "research": 40, "time": 55.0},
-	"filter":   {"prereq": "patch",   "intel": 18, "cash": 4, "research": 14, "time": 30.0},
-	"cover":    {"prereq": "patch",   "intel": 18, "cash": 4, "research": 14, "time": 30.0},
-	"express":  {"prereq": "recon",   "intel": 24, "cash": 4, "research": 20, "time": 35.0},
+	"exploit":  {"prereq": "breach",    "intel": 8, "cash": 20, "research": 20, "time": 40.0},
+	"zeroday":  {"prereq": "exploit",   "intel": 16, "cash": 44, "research": 50, "time": 70.0},
+	"worm":     {"prereq": "exploit",   "intel": 12, "cash": 32, "research": 36, "time": 55.0},
+	"ddos":     {"prereq": "recon",     "intel": 8, "cash": 20, "research": 18, "time": 35.0},
+	"sabotage": {"prereq": "ddos",      "intel": 14, "cash": 38, "research": 44, "time": 60.0},
+	"siphon":   {"prereq": "phish",     "intel": 8, "cash": 20, "research": 20, "time": 40.0},
+	"vault":    {"prereq": "siphon",    "intel": 12, "cash": 32, "research": 40, "time": 55.0},
+	"filter":   {"prereq": "patch",     "intel": 6, "cash": 16, "research": 14, "time": 30.0},
+	"cover":    {"prereq": "patch",     "intel": 6, "cash": 16, "research": 14, "time": 30.0},
+	"express":  {"prereq": "recon",     "intel": 8, "cash": 20, "research": 20, "time": 35.0},
 }
 
 const ATTACK_ORDER := ["recon", "breach", "exploit", "phish", "siphon", "vault", "ddos", "zeroday", "worm", "sabotage"]

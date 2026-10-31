@@ -15,7 +15,7 @@
           "intel": 12.0
         },
         "cap": 50.0,
-        "desc": "Makes 1 Intel every 12 s. The Miner, Credential harvester and Lab on this host use it first."
+        "desc": "Makes 1 Intel every 12 s."
       },
       "bot": {
         "name": "Bot station",
@@ -26,8 +26,8 @@
         "rate": 0.0,
         "use": {},
         "cost": {
-          "intel": 12.0,
-          "cash": 4.0
+          "intel": 4.0,
+          "cash": 12.0
         },
         "cap": 0.0,
         "desc": "Provides 2 reusable delivery workers. Each carries 1 resource unit per trip leg."
@@ -39,14 +39,12 @@
         "col": "#ffd94d",
         "out": "cash",
         "rate": 1.0,
-        "use": {
-          "intel": 1.0
-        },
+        "use": {},
         "cost": {
           "intel": 15.0
         },
         "cap": 50.0,
-        "desc": "Every 12 s turns 1 Intel on this host into 1 Crypto."
+        "desc": "Makes 1 Crypto every 12 s."
       },
       "cred": {
         "name": "Credential harvester",
@@ -55,15 +53,13 @@
         "col": "#ff9973",
         "out": "creds",
         "rate": 1.0,
-        "use": {
-          "intel": 1.0
-        },
+        "use": {},
         "cost": {
           "intel": 15.0,
           "cash": 4.0
         },
         "cap": 50.0,
-        "desc": "Every 12 s turns 1 Intel on this host into 1 Credential."
+        "desc": "Makes 1 Credential every 12 s."
       },
       "lab": {
         "name": "Research lab",
@@ -72,16 +68,13 @@
         "col": "#bf8cff",
         "out": "research",
         "rate": 1.0,
-        "use": {
-          "intel": 1.0,
-          "cash": 1.0
-        },
+        "use": {},
         "cost": {
-          "intel": 20.0,
-          "cash": 8.0
+          "intel": 12.0,
+          "cash": 16.0
         },
         "cap": 50.0,
-        "desc": "Every 12 s turns 1 Intel and 1 Crypto on this host into 1 Research."
+        "desc": "Makes 1 Research every 12 s."
       },
       "wall": {
         "name": "Firewall",
@@ -94,8 +87,8 @@
           "intel": 1.0
         },
         "cost": {
-          "intel": 25.0,
-          "cash": 15.0
+          "intel": 10.0,
+          "cash": 30.0
         },
         "cap": 0.0,
         "desc": "3 sockets for defence cards, which fire on their own when this host is hit. Uses 1 Intel every 12 s."
@@ -117,8 +110,8 @@
         "intel": 12.0
       },
       "bot": {
-        "intel": 12.0,
-        "cash": 4.0
+        "intel": 4.0,
+        "cash": 12.0
       },
       "cash": {
         "intel": 15.0
@@ -128,12 +121,12 @@
         "cash": 4.0
       },
       "lab": {
-        "intel": 20.0,
-        "cash": 8.0
+        "intel": 12.0,
+        "cash": 16.0
       },
       "wall": {
-        "intel": 25.0,
-        "cash": 15.0
+        "intel": 10.0,
+        "cash": 30.0
       }
     },
     "BUILD_COST_INTEL": 20.0
@@ -423,71 +416,71 @@
     "RESEARCH": {
       "exploit": {
         "prereq": "breach",
-        "intel": 24,
-        "cash": 4,
+        "intel": 8,
+        "cash": 20,
         "research": 20,
         "time": 40.0
       },
       "zeroday": {
         "prereq": "exploit",
-        "intel": 48,
-        "cash": 12,
+        "intel": 16,
+        "cash": 44,
         "research": 50,
         "time": 70.0
       },
       "worm": {
         "prereq": "exploit",
-        "intel": 36,
-        "cash": 8,
+        "intel": 12,
+        "cash": 32,
         "research": 36,
         "time": 55.0
       },
       "ddos": {
         "prereq": "recon",
-        "intel": 24,
-        "cash": 4,
+        "intel": 8,
+        "cash": 20,
         "research": 18,
         "time": 35.0
       },
       "sabotage": {
         "prereq": "ddos",
-        "intel": 40,
-        "cash": 12,
+        "intel": 14,
+        "cash": 38,
         "research": 44,
         "time": 60.0
       },
       "siphon": {
         "prereq": "phish",
-        "intel": 24,
-        "cash": 4,
+        "intel": 8,
+        "cash": 20,
         "research": 20,
         "time": 40.0
       },
       "vault": {
         "prereq": "siphon",
-        "intel": 36,
-        "cash": 8,
+        "intel": 12,
+        "cash": 32,
         "research": 40,
         "time": 55.0
       },
       "filter": {
         "prereq": "patch",
-        "intel": 18,
-        "cash": 4,
+        "intel": 6,
+        "cash": 16,
         "research": 14,
         "time": 30.0
       },
       "cover": {
         "prereq": "patch",
-        "intel": 18,
-        "cash": 4,
+        "intel": 6,
+        "cash": 16,
         "research": 14,
         "time": 30.0
       },
       "express": {
         "prereq": "recon",
-        "intel": 24,
-        "cash": 4,
+        "intel": 8,
+        "cash": 20,
         "research": 20,
         "time": 35.0
       }
@@ -877,7 +870,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.11",
+    "GAME_VERSION": "0.6.12",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

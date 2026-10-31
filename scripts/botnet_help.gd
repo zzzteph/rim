@@ -78,7 +78,7 @@ func _draw() -> void:
 const LEADS := {
 	"research": ["Research unlocks a blueprint; manufacture makes a card copy.", "Launching uses that copy. The bar under the top bar shows research."],
 	"deliver": ["Each Bot station provides two reusable workers.", "Each carries one unit per leg and returns for another job."],
-	"produce": ["Installations use the materials they need here first.", "Workers take the surplus to your main node."],
+	"produce": ["Each producer makes its own resource; it needs no input.", "Workers take the output to your main node."],
 	"build": ["Queue up to four copies, including the one being made.", "They are made in order, one at a time; finished copies go to Ready."],
 	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Recon works half the time; attacks 50% scouted, 25% not."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
@@ -86,7 +86,7 @@ const LEADS := {
 const CAPTIONS := {
 	"research": "Only materials at your main node fund cards and research. Research gives no free card; a copy pays when it starts.",
 	"deliver": "Workers work from your main node, building first: what a project needs stays in the bank for it. Losing a host destroys its stations' workers.",
-	"produce": "Every 12 s each producer makes 1 unit. Workers bring what a host needs automatically; full storage (10) stops its producers.",
+	"produce": "Every 12 s each producer makes 1 unit of its resource, with no input. A Firewall uses 1 Intel; full storage (10) stops a host's producers.",
 	"build": "A building's materials must reach its site before its 10 s of work start. The 12-card Ready inventory is separate from the queue.",
 	"attack": "Stolen resources help only when your workers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
 	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",

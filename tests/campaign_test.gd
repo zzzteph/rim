@@ -62,9 +62,9 @@ func do_action(ch: int, st: int) -> void:
 		"2:2": play_when_held("recon", g._camp_gateway)
 		"2:3": play_when_held("exploit", g._camp_gateway)
 		"2:4":
-			if once(key + "c"): build(g._camp_gateway, "cash")
+			if once(key + "c"): build(g._camp_gateway, "cred")
 			if once(key + "b"): build(g._camp_gateway, "bot")
-		"2:5": pass   # your workers bring the Intel and carry the Crypto home
+		"2:5": pass   # your workers carry the Credentials home
 		"3:0": play_when_held("recon", g._camp_practice)
 		"3:1": play_when_held("phish", g._camp_practice)
 		"3:2": play_when_held("response", g._camp_relay)

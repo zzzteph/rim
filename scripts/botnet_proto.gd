@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.11"   # review fixes: Firewall upkeep never waits for building, unreachable projects hold no stock, tooltips measured right, host amounts on every card (lobbies match exact versions)
+const GAME_VERSION := "0.6.12"   # producers need no input, the queue head is paid before research and supplies, prices by role (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1362,6 +1362,7 @@ func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}
 			if take - local > 0.0001:
 				used[str(r)] = float(used.get(str(r), 0.0)) + take - local
 				if not at_main: budget[str(r)] = maxf(0.0, float(budget[str(r)]) - (take - local))
+		if (spec.use as Dictionary).is_empty(): frac = harvest   # (a producer with no input shares a full storage like a harvester)
 		out[str(spec.out)] = float(out[str(spec.out)]) + float(spec.rate) * m * k * frac
 		made[str(spec.out)] = float(made.get(str(spec.out), 0.0)) + float(spec.rate) * m * k * frac
 	if at_main: out = made
@@ -1677,9 +1678,10 @@ func _run_cycle(i: int) -> void:
 	_logi_poke()   # new output and new needs: every pool looks again
 	var benef := _benef(i)
 	if not botnets.has(benef) or _eliminated.has(benef): benef = owner
+	var share := _cycle_share(i, benef)   # a storage that cannot hold the whole cycle: every producer makes the same share
 	# a) Intel harvesters: no input
 	var n := _cycle_kinds(i, "intel")
-	if n > 0: _st_add(i, benef, "intel", float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * n)
+	if n > 0: _st_add(i, benef, "intel", float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * n * share)
 	# b) the Firewall's upkeep, paid by the owner from this host before any converter eats the Intel
 	var walls := _count_all(i, "wall") - _walls_building(i)
 	if walls > 0:
@@ -1698,7 +1700,7 @@ func _run_cycle(i: int) -> void:
 	if use_plan:   # the plan for this very cycle, from what is here and what can still come (never stale)
 		var owed := _build_owed(owner)
 		var budget := _supply_budget(owner, owed)
-		var pl := _host_plan(i, owner, budget, float(owed.get("intel", 0.0)))
+		var pl := _host_plan(i, owner, budget, _upkeep_extra(owner, owed))
 		planned = pl.frac; hosts[i].plan_limited = bool(pl.limited)
 	for kind in CONVERT_ORDER:
 		var spec: Dictionary = BUILD_KINDS[kind]
@@ -1707,6 +1709,7 @@ func _run_cycle(i: int) -> void:
 		for slot in (hosts[i].builds as Array).size():
 			if str(hosts[i].builds[slot]) != kind or not _producer_active(i, slot): continue
 			var frac := float(planned.get(slot, 0.0)) if use_plan else 1.0
+			if (spec.use as Dictionary).is_empty(): frac = share   # (a producer with no input: like a harvester)
 			for r in (spec.use as Dictionary):
 				frac = minf(frac, _st_get(i, benef, str(r)) / maxf(0.000001, float(spec.use[r]) * m))
 			if _st_local(i, benef): frac = minf(frac, _room_now(benef, out) / maxf(0.000001, float(spec.rate) * m))
@@ -1714,6 +1717,17 @@ func _run_cycle(i: int) -> void:
 			for r in (spec.use as Dictionary): _st_take(i, benef, str(r), float(spec.use[r]) * m * frac)
 			_st_add(i, benef, out, float(spec.rate) * m * frac)
 	if bool(hosts[i].get("plan_limited", false)): hosts[i].plan_rr = int(hosts[i].get("plan_rr", 0)) + 1   # the next cycle funds the next ones first
+
+
+func _cycle_share(i: int, benef: int) -> float:   # the share of this cycle's output a remote host's storage has room for (0.6.12):
+	if _st_local(i, benef): return 1.0                # when it cannot hold all of it, every producer makes the same share, so a
+	var gross := 0.0                                  # Miner or Lab is not crowded out by the Intel made before it
+	for k in (hosts[i].builds as Array).size():
+		var kind := str(hosts[i].builds[k])
+		if not kind in PRODUCER_KINDS or not _producer_active(i, k) or not (BUILD_KINDS[kind].use as Dictionary).is_empty(): continue
+		gross += float(BUILD_KINDS[kind].rate) * _tmult(i, str(BUILD_KINDS[kind].out))
+	if gross <= 0.0001: return 1.0
+	return clampf(maxf(0.0, STORE_CAP - _store_total(i)) / gross, 0.0, 1.0)
 
 
 func _walls_building(i: int) -> int:   # installed Firewalls a job is taking down (no upkeep, no sockets): a new one counts only when finished
@@ -2061,7 +2075,7 @@ func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, sin
 		if i == hub or (only >= 0 and i != only): continue
 		var own := int(hosts[i].owner) == fac
 		if own:
-			var plan := _host_plan(i, fac, budget, float(owed_all.get("intel", 0.0)))
+			var plan := _host_plan(i, fac, budget, _upkeep_extra(fac, owed_all))
 			_plan_cache[i] = plan; hosts[i].plan_frac = plan.frac; hosts[i].plan_limited = bool(plan.limited)
 			var upkeep := minf(float(plan.upkeep), float(plan.short.intel))   # a Firewall's Intel keeps its defence on: it goes with building
 			if upkeep > 0.0001: want["%d:upkeep:intel" % i] = [i, "upkeep", "intel", upkeep, "in"]
@@ -2121,12 +2135,23 @@ func _build_owed(fac: int) -> Dictionary:   # {res: what fac's projects still ne
 	return out
 
 
-func _supply_budget(fac: int, owed := {}) -> Dictionary:   # {res: bank stock supplies to production may use}: what the projects do not need
-	var out := {}
+func _supply_budget(fac: int, owed := {}) -> Dictionary:   # {res: bank stock supplies may use}: what the projects and the card queue's
+	var out := {}                                             # unpaid first copy do not need
+	var head := _head_owed(fac)
 	for res in RES:
-		var v := maxf(0.0, _free(fac, res) - float(owed.get(res, 0.0)))
-		out[res] = floorf(v + 0.0001) if owed.has(res) else v   # (while projects hold stock, whole units: no trips with a sliver)
+		var v := maxf(0.0, _free(fac, res) - float(owed.get(res, 0.0)) - float(head.get(res, 0.0)))
+		out[res] = floorf(v + 0.0001) if owed.has(res) or head.has(res) else v   # (while stock is held, whole units: no trips with a sliver)
 	return out
+
+
+func _upkeep_extra(fac: int, owed: Dictionary) -> float:   # bank Intel held for projects and the queue that a Firewall's upkeep may still use
+	return float(owed.get("intel", 0.0)) + float(_head_owed(fac).get("intel", 0.0))
+
+
+func _head_owed(fac: int) -> Dictionary:   # the unpaid price of the card queue's first copy (0.6.12): research and supplies leave it alone,
+	var q: Array = mq.get(fac, [])           # so the copy is not kept waiting while they take the bank unit by unit (building still goes first)
+	if q.is_empty() or bool(mq_paused.get(fac, false)) or not (q[0].get("paid", {}) as Dictionary).is_empty(): return {}
+	return _recipe_cost(str(q[0].recipe))
 
 
 func _build_lack(fac: int, owed := {}) -> Dictionary:   # {res: what the projects wait for that is neither in the bank nor on its way there}
@@ -3741,9 +3766,21 @@ func _research_short(fac: int) -> Array:   # what the bank lacks for a second of
 	var frac := 1.0 / maxf(0.001, _research_time(recipe))
 	var cost := _research_cost(recipe)
 	var short := []
+	var hold := _head_owed(fac)   # (what the card queue's unpaid first copy needs is not research's)
 	for r in cost:
-		if _avail(fac, r) < float(cost[r]) * frac - 0.000001: short.append(str(RES_NAME[r]))
+		if _avail(fac, r) - float(hold.get(r, 0.0)) < float(cost[r]) * frac - 0.000001: short.append(str(RES_NAME[r]))
 	return short
+
+
+func _research_waits_for_card(fac: int) -> String:   # the card copy research waits for, by name ("" when the bank itself is short)
+	var hold := _head_owed(fac)
+	var job: Dictionary = research_job.get(fac, {})
+	if hold.is_empty() or job.is_empty(): return ""
+	var frac := 1.0 / maxf(0.001, _research_time(str(job.key)))
+	var cost := _research_cost(str(job.key))
+	for r in cost:
+		if _avail(fac, r) < float(cost[r]) * frac - 0.000001: return ""
+	return str(CARDS[str(_mq(fac)[0].recipe)].name)
 
 
 func _research_stall(fac: int) -> String:   # "" while research advances (even slowly); else what stops it (mirrors _tick_research)
@@ -3751,6 +3788,8 @@ func _research_stall(fac: int) -> String:   # "" while research advances (even s
 	if short.is_empty(): return ""
 	var job: Dictionary = research_job.get(fac, {})
 	if _t - float(job.get("paid_t", -999.0)) < RESEARCH_STALL_SECS: return ""   # it paid within the last cycle: slow, not stopped
+	var card := _research_waits_for_card(fac)
+	if card != "": return "Research of %s stopped: waiting while your %s copy collects its price." % [str(CARDS[str(job.key)].name), card]
 	return "Research of %s stopped: no %s in your bank." % [str(CARDS[str(job.key)].name), " or ".join(short)]
 
 
@@ -4038,8 +4077,9 @@ func _tick_research(dt: float) -> void:
 		var work := minf(dt, duration - float(job.progress))
 		var cost := _research_cost(recipe); var frac := work / maxf(0.001, duration)
 		var afford := true
+		var hold := _head_owed(fac)   # the card queue's unpaid first copy is paid first
 		for r in cost:
-			if _avail(fac, r) < float(cost[r]) * frac - 0.000001: afford = false; break
+			if _avail(fac, r) - float(hold.get(r, 0.0)) < float(cost[r]) * frac - 0.000001: afford = false; break
 		if not afford: continue
 		for r in cost: _spend(fac, r, float(cost[r]) * frac, "research")
 		job.progress = float(job.progress) + work
@@ -6364,16 +6404,16 @@ func _camp_steps(chapter: int) -> Array:
 		]
 		1: return [
 			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Drag a Bot station onto a free relay slot: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Local use first", "r": "The Miner uses the relay's own Intel first.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
-			{"t": "Surplus goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: your workers carry the relay's spare Intel and Crypto to your main node.", "role": "relay", "pause": false},
+			{"t": "Producers", "r": "Each producer makes 1 unit of its resource every 12 s.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
+			{"t": "Output goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: your workers carry the relay's Intel and Crypto to your main node.", "role": "relay", "pause": false},
 		]
 		2: return [
 			{"t": "Research a blueprint", "r": "Known exploit is learned.", "a": "Open Research (R), select Known exploit, then Research; the bar at the top shows progress.", "role": "", "ui": "card:exploit", "pause": true},
 			{"t": "Queue two copies", "r": "Copies are made one at a time, in order.", "a": "In Attack recipes, click + Queue on Known exploit twice.", "role": "", "ui": "card:exploit", "copies": 2, "pause": false},
 			{"t": "Scout the gateway", "r": "The gateway is scouted.", "a": "Drag Recon onto the Corporate Gateway.", "role": "gateway", "ui": "card:recon", "card": "recon", "pause": false},
 			{"t": "Launch the ready copy", "r": "The Corporate Gateway is yours.", "a": "Launch the ready Known exploit at the Corporate Gateway.", "role": "gateway", "ui": "card:exploit", "card": "exploit", "pause": false},
-			{"t": "A Miner far from Intel", "r": "The gateway's Miner is built.", "a": "Build a Crypto miner on the gateway. No Intel is made there.", "role": "gateway", "ui": "build:cash", "pause": true},
-			{"t": "Missing inputs are fetched", "r": "Crypto from the gateway reached your main node.", "a": "Watch: your workers bring Intel to the gateway's Miner, and its Crypto comes home.", "role": "gateway", "pause": false},
+			{"t": "Credentials for captures", "r": "The gateway's Credential harvester is built.", "a": "Build a Credential harvester on the gateway: Breaches are paid in Credentials.", "role": "gateway", "ui": "build:cred", "pause": true},
+			{"t": "Output comes home", "r": "Credentials from the gateway reached your main node.", "a": "Watch: your workers carry the gateway's Credentials to your main node.", "role": "gateway", "pause": false},
 		]
 		3: return [
 			{"t": "Scout the target", "r": "The Practice host is scouted.", "a": "Drag Recon onto the Practice host.", "role": "practice", "ui": "card:recon", "card": "recon", "pause": true},
@@ -6694,7 +6734,7 @@ func _camp_catch_up(chapter: int) -> void:
 		2:
 			if not known.has(PLAYER): known[PLAYER] = {}
 			known[PLAYER]["exploit"] = true
-			_camp_own(_camp_gateway); _camp_ensure_builds(_camp_gateway, ["cash"])
+			_camp_own(_camp_gateway); _camp_ensure_builds(_camp_gateway, ["cred"])
 		3:
 			if _camp_practice2 >= 0 and _mine(_camp_practice2): _capture(_camp_practice2, RIVAL)   # the Outpost was lost
 
@@ -6876,8 +6916,8 @@ func _camp_step_done(chapter: int, step: int) -> bool:
 				1: return (_held(PLAYER, "exploit") >= 1 and _held(PLAYER, "exploit") + _mq_count(PLAYER, "exploit") >= 2) or _mine(_camp_gateway)
 				2: return _recon_fresh(PLAYER, _camp_gateway) or _mine(_camp_gateway)
 				3: return _mine(_camp_gateway)
-				4: return _count_all(_camp_gateway, "cash") >= 1
-				5: return _camp_delivered(_camp_gateway, "cash") > 0.0
+				4: return _count_all(_camp_gateway, "cred") >= 1
+				5: return _camp_delivered(_camp_gateway, "creds") > 0.0
 		3:
 			match step:
 				0: return _camp_practice >= 0 and (_recon_fresh(PLAYER, _camp_practice) or int(hosts[_camp_practice].get("steal_by", -1)) == PLAYER)
@@ -7503,7 +7543,8 @@ func _cycle_text(i: int) -> String:   # what one production cycle on this host d
 		var m := _tmult(i, str(spec.out))
 		var ins := []
 		for r in (spec.use as Dictionary): ins.append("%s %s" % [_amt(float(spec.use[r]) * m * k), RES_NAME[r]])
-		parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(spec.rate) * m * k), RES_NAME[str(spec.out)]])
+		if ins.is_empty(): parts.append("+%s %s" % [_amt(float(spec.rate) * m * k), RES_NAME[str(spec.out)]])   # (no input: it just makes it)
+		else: parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(spec.rate) * m * k), RES_NAME[str(spec.out)]])
 	if parts.is_empty(): return ""
 	return "Every %d s: %s" % [int(PROD_CYCLE), " · ".join(parts)]
 
@@ -7540,11 +7581,12 @@ func _cycle_preview(i: int) -> Dictionary:
 		S.st[fac] = {}
 		for res in RES: S.st[fac][res] = _st_get(i, fac, res)
 	var out := {"benef": benef, "conv": [], "sent": []}
+	var share := _cycle_share(i, benef)   # (as _run_cycle: a storage short of room gives every producer the same share)
 	# a) Intel harvesters
 	var n := _cycle_kinds(i, "intel")
 	if n > 0:
 		var want := float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * n
-		out["intel"] = [_pv_add(S, i, benef, "intel", want), want]
+		out["intel"] = [_pv_add(S, i, benef, "intel", want * share), want]
 	# b) the Firewall's upkeep
 	var walls := _count_all(i, "wall") - _walls_building(i)
 	if walls > 0:
@@ -7562,7 +7604,7 @@ func _cycle_preview(i: int) -> Dictionary:
 	var planned := {}
 	if use_plan:   # (the same budget _run_cycle plans with: what the projects do not need)
 		var owed := _build_owed(owner)
-		planned = _host_plan(i, owner, _supply_budget(owner, owed), float(owed.get("intel", 0.0))).frac
+		planned = _host_plan(i, owner, _supply_budget(owner, owed), _upkeep_extra(owner, owed)).frac
 	for kind in CONVERT_ORDER:
 		var count := _cycle_kinds(i, kind)
 		if count == 0: continue
@@ -7576,7 +7618,9 @@ func _cycle_preview(i: int) -> Dictionary:
 			if str(hosts[i].builds[sl]) == kind and _producer_active(i, sl): slots.append(sl)
 		for k in count:
 			var frac := float(planned.get(slots[k], 0.0)) if use_plan else 1.0; var lim := ""
-			if frac < 0.9999:   # the plan holds it back: the input the main node cannot cover, else storage room for its supplies
+			if (spec.use as Dictionary).is_empty():   # a producer with no input: its share of the room
+				frac = share; lim = "room" if share < 0.9999 else ""
+			elif frac < 0.9999:   # the plan holds it back: the input the main node cannot cover, else storage room for its supplies
 				var best := 1.0e9; lim = "room"
 				for r in (spec.use as Dictionary):
 					var cover := (float(S.st[benef][str(r)]) + _inbound(i, str(r)) + _free(owner, str(r))) / maxf(0.000001, float(spec.use[r]) * m)
@@ -7655,6 +7699,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 		var lim := str(row.short)
 		var out_res := str(BUILD_KINDS[str(row.kind)].out)
 		if lim == "cap": probs.append(["blocked", C_WARN, "%s stops: your %s bank is full. Spend some." % [nm, RES_NAME[out_res]]])
+		elif lim == "room" and (BUILD_KINDS[str(row.kind)].use as Dictionary).is_empty(): continue   # a producer short of room: the storage line says it
 		elif lim == "room": probs.append(["starved", C_WARN, "%s waits its turn: storage here has no room for all its supplies this cycle; it gets them as surplus ships home." % nm])
 		elif main: probs.append(["starved", C_WARN, "%s has no %s in your bank to use." % [nm, RES_NAME[lim]]])
 		elif float(row.frac) > 0.0001: probs.append(["starved", C_WARN, "%s runs at %d%%: not enough %s on this host." % [nm, int(round(100.0 * float(row.frac))), RES_NAME[lim]]])
@@ -7665,8 +7710,15 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 			elif int(_worker_counts(owner).total) == 0: probs.append(["starved", C_WARN, "%s needs %s here, but you have no workers to fetch it. Build a Bot station." % [nm, RES_NAME[lim]]])
 			else: probs.append(["starved", C_WARN, "%s needs %s here: your workers are bringing it from your main node as they come free." % [nm, RES_NAME[lim]]])
 		else: probs.append(["starved", C_WARN, "%s gets no %s: the converters before it use it all. Add %s here, or replace one of them." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "more input")]])
-	if pv.has("fw") and not bool(pv.fw.on):
-		probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here and none is left. Build an Intel harvester here." % _amt(float(pv.fw.need))])
+	if pv.has("fw") and not bool(pv.fw.on):   # its upkeep: on its way, or why it cannot come
+		var need_fw := _amt(float(pv.fw.need))
+		if _inbound(i, "intel") >= 0.999: pass   # a worker is bringing it: it lands before it is missed
+		elif main: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel and your bank has none." % need_fw])
+		elif _free(owner, "intel") < 0.999: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here; none is made here and your main node has none to send. Build an Intel harvester here." % need_fw])
+		elif not _route_ok(owner, _hub(owner), i): probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, and no worker can reach this host." % need_fw])
+		elif int(_worker_counts(owner).total) == 0: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, but you have no workers to bring it. Build a Bot station." % need_fw])
+		elif _store_room(i) < 0.999: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, and this host's storage is full. It can come once some cargo ships." % need_fw])
+		else: probs.append(["Firewall off", C_WARN, "Firewall needs %s Intel here: your workers are bringing it from your main node." % need_fw])
 	if not main and not _ddos_down(i):
 		var bank_full := []
 		for res in RES:
@@ -7719,7 +7771,10 @@ func _next_cycle_text(i: int, pv: Dictionary) -> String:   # what the next cycle
 		if float(row.made) < 0.05: parts.append("%s idle" % str(spec.card)); continue
 		var ins := []
 		for r in (spec.use as Dictionary): ins.append("%s %s" % [_amt(float((row.use as Dictionary).get(str(r), 0.0))), RES_NAME[str(r)]])
-		parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(row.made)), RES_NAME[str(spec.out)]])
+		if ins.is_empty():   # no input: what it makes, and what it would with room
+			var full := float(spec.rate) * _tmult(i, str(spec.out)) * float(row.n)
+			parts.append("+%s %s" % [_amt(float(row.made)), RES_NAME[str(spec.out)]] + ("" if float(row.made) >= full - 0.05 else " of %s (no room)" % _amt(full)))
+		else: parts.append("%s → %s %s" % [" + ".join(ins), _amt(float(row.made)), RES_NAME[str(spec.out)]])
 	if parts.is_empty(): return ""
 	return "Next cycle in %.1f s: %s" % [maxf(0.0, float(hosts[i].get("cyc", PROD_CYCLE))), " · ".join(parts)]
 
@@ -8055,7 +8110,7 @@ func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast f
 		out.append(["Workers %d — %d working, %d free at your main node%s%s (2 per Bot station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), (", %d on their way to it" % int(wc.joining)) if int(wc.joining) > 0 else "", (", %d blocked" % int(wc.blocked)) if int(wc.blocked) > 0 else ""], C_TEXT])
 		out.append(["All of them work from your main node and serve every host; keeping up with your hosts needs about %d." % int(ceil(float(fc.need) - 0.05)), C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
 		out.append(["Each carries one unit per leg and returns for another job; delivery does not consume them.", C_DIM])
-		out.append(["Building materials go first, then missing inputs, then surplus home; every fourth trip serves the host waiting longest.", C_DIM])
+		out.append(["Building materials and Firewall upkeep go first, then output home; every fourth trip serves the host waiting longest.", C_DIM])
 		return out
 	var full := _res_full(res)
 	out.append(["Forecast: %s reaches your bank per minute." % ("nothing (the bank is full)" if full else "+%d" % int(round(float(fc.rate[res])))), C_WARN if full else C_TEXT])
@@ -9872,12 +9927,7 @@ func _build_desc(kind: String, host := -1) -> String:   # the building's descrip
 	var out := str(spec.get("out", ""))
 	if out == "" or host < 0 or not _host_ok(host) or absf(_tmult(host, out) - 1.0) < 0.001: return str(spec.desc)
 	var m := _tmult(host, out)
-	match kind:
-		"intel": return "Makes %s Intel every %d s here. The Miner, Credential harvester and Lab on this host use it first." % [_amt(m), int(PROD_CYCLE)]
-		"cash": return "Every %d s turns %s Intel on this host into %s Crypto." % [int(PROD_CYCLE), _amt(m), _amt(m)]
-		"cred": return "Every %d s turns %s Intel on this host into %s Credentials." % [int(PROD_CYCLE), _amt(m), _amt(m)]
-		"lab": return "Every %d s turns %s Intel and %s Crypto on this host into %s Research." % [int(PROD_CYCLE), _amt(m), _amt(m), _amt(m)]
-	return str(spec.desc)
+	return "Makes %s %s every %d s here." % [_amt(float(spec.rate) * m), {"intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}[out], int(PROD_CYCLE)]
 
 
 func _draw_conversion(c: CanvasItem, kind: String, centre: Vector2, icon: float, host := -1) -> void:   # what goes in → what comes out, as resource icons
@@ -9887,7 +9937,8 @@ func _draw_conversion(c: CanvasItem, kind: String, centre: Vector2, icon: float,
 	match kind:
 		"bot": items = [["bot", ""], ["", "2 workers"]]
 		"wall": items = [["wall", ""], ["", "3 sockets"]]
-		"intel": items = [["", "+" + _amt(float(spec.rate) * (_tmult(host, "intel") if host >= 0 and _host_ok(host) else 1.0))], ["intel", ""], ["", "/ %d s" % int(PROD_CYCLE)]]
+		_ when (spec.use as Dictionary).is_empty() and str(spec.out) != "":   # a producer: +amount, its resource, every 12 s
+			items = [["", "+" + _amt(float(spec.rate) * (_tmult(host, str(spec.out)) if host >= 0 and _host_ok(host) else 1.0))], [_COST_ICON[str(spec.out)], ""], ["", "/ %d s" % int(PROD_CYCLE)]]
 		_:
 			for r in (spec.use as Dictionary): items.append([_COST_ICON[str(r)], ""])
 			items.append(["", "→"]); items.append([_COST_ICON[str(spec.out)], ""])

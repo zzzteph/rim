@@ -49,12 +49,31 @@ func queue(recipe: String) -> void:
 func run() -> void:
 	capacity_and_order()
 	waiting_head()
+	head_paid_first()
 	full_hand()
 	pause_and_cancel()
 	command_ids()
 	ai_queue()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
+
+
+func head_paid_first() -> void:   # 0.6.12: while the head is unpaid, research leaves its price alone, so the copy is not starved unit by unit
+	fresh()
+	var price: Dictionary = g._recipe_cost("breach")
+	g.bank[P] = {"intel": float(price.get("intel", 0.0)) - 2.0, "cash": 200.0, "creds": 200.0, "research": 200.0}   # 2 Intel short
+	queue("breach")
+	g._cmd(["research", "ddos"])   # research also wants Intel, a little every tick
+	var research_intel_before: float = g.bank[P].intel
+	step(0.1)
+	check((g._mq(P)[0].paid as Dictionary).is_empty() and g._head_owed(P).has("intel"), "Setup: the Breach copy waits for 2 more Intel; its price is held (%s)" % str(g._head_owed(P)))
+	check(absf(float(g.bank[P].intel) - research_intel_before) < 0.01, "Research takes none of the Intel the waiting copy needs (bank %.2f → %.2f)" % [research_intel_before, float(g.bank[P].intel)])
+	check(g._research_stall(P) == "" or g._research_stall(P).contains("collects its price"), "Research says it waits for the copy, not that the bank is empty")
+	g.bank[P].intel = float(g.bank[P].intel) + 3.0   # the Intel arrives: the copy starts at once
+	step(0.2)
+	check(not (g._mq(P)[0].paid as Dictionary).is_empty() and g._head_owed(P).is_empty(), "With its price in the bank the copy starts, and research may use the rest again")
+	g._cmd(["queue_pause"]); queue("recon")
+	check(g._head_owed(P).is_empty() or not (g._mq(P)[0].paid as Dictionary).is_empty(), "A paused queue holds nothing back")
 
 
 func capacity_and_order() -> void:

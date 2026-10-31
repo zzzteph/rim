@@ -140,13 +140,12 @@ tuning.gd): **Intel**, **Crypto**, **Credentials**, **Research**. Resources are 
 spendable once they reach your **main node** (your rig). The main node itself only trickles one of
 every resource every 12 s (`MAIN_INCOME`, 5 a minute), so a network that builds nothing stalls: the economy is
 what you build. Every held host runs one **production cycle** every `PROD_CYCLE` (12) s on its own
-phase (`_tick_production` → `_run_cycle`): Intel harvesters first, then each Firewall's upkeep, then
-the converters in `CONVERT_ORDER` (Miner, Credential harvester, Research lab). Every producer makes
-**1 unit a cycle** (5 a minute; the host type's multiplier scales output and input).
-Converters use only what is in **their own host's storage** — at the main node that is the bank —
-so a remote Miner needs an Intel harvester beside it. A remote host keeps what it made in a
-**storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary);
-full storage stops its producers. Production uses only what has **arrived** on the host. Each bank has a
+phase (`_tick_production` → `_run_cycle`). Every producer makes **1 unit a cycle** of its own resource
+(5 a minute; the host type's multiplier scales it) with **no input** (0.6.12: the Crypto miner, Credential harvester
+and Research lab are producers like the Intel harvester; their `use` is empty and `CONVERT_ORDER` only keeps the
+code path for a future converter). Then each Firewall eats its 1 Intel of upkeep. A remote host keeps what it made in a
+**storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary); a storage that
+cannot hold a whole cycle gives every producer the same share (`_cycle_share`), and full storage stops them. Production uses only what has **arrived** on the host. Each bank has a
 cap of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
 anything on its way reserves its room at the destination (`incoming` for a bank, `hosts[i].inbound` for a
 host's storage), so nothing is credited early and nothing overfills.
@@ -162,9 +161,8 @@ owner gets one event ("Host 7 lost to NYX — 2 station workers destroyed."). St
 carrying, blocked (`_worker_state`).
 
 Demand is automatic (`_host_plan`, `_open_requests`). Installations use what is on their host first; a host asks
-only for its **net shortfall** for the next feasible cycle (after what it makes itself), its Firewall upkeep and the
-bills of its construction; a converter's inputs are requested as a bundle only when the whole bundle can be had;
-when storage cannot hold every converter's supplies a fair subset runs, in rotation (`plan_rr`). What is not
+only for its Firewalls' upkeep for the next cycle (after the Intel it makes itself) and the bills of its construction
+(the converter-bundle and `plan_rr` paths stay for a future converter). What is not
 needed for the next cycle is **surplus** and goes to the main node. **All of a botnet's workers are one pool working
 from the main node**: a new station's workers first make a one-way trip to the main node (`_join`, carrying their
 host's surplus if any) and from then on every trip is main node → host → main node (`_send_from_hub`): out with
@@ -217,7 +215,7 @@ main node's bank per minute with the network as it stands (`_forecast`, recomput
 command). It is worked out from the network, never extrapolated from early ledger events: the main node's
 trickle and buildings (with their bank inputs), then each host whose output is yours (`_fc_cycle`: its active
 producers, inputs made there or supplied by workers from a shared budget — plenty while the bank holds
-a buffer, else what the main node itself brings in — Firewall upkeep, the converters in order), limited by its route
+a buffer, else what the main node itself brings in — Firewall upkeep), limited by its route
 home, by your workers' round trips dealt as the dispatcher deals them (0.6.7: `_fc_split` — of every 4 assignments
 3 bring missing inputs first, the hosts in turn, and the 4th goes to the host served least recently; short of
 workers, the pool makes as many trips a minute as its time allows), by its storage's room for supplies
@@ -226,13 +224,13 @@ bank's room. A Firewall on a host you phish eats your Intel once the owner's sto
 a phished host whose storage is full of the owner's stock ("storage full at …"), nor from any host while your main
 node is under DDoS. "Not enough workers" names each material the shortage cuts, even to nothing, and never one it
 frees (0.6.8). The full-bank test is once per material, not per host (it walks every host's producers). A host the trips cannot keep up with
-stays full, so it makes only what leaves and its converters turn its Intel into their output first (`_fc_throttled`).
+stays full, so it makes only what leaves, every producer the same share (`_fc_throttled` scales them together).
 A full bank shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
-workers", "no route home from …", "no room for supplies at …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
+workers", "no route home from …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
 transit (`_where_is`). The **Workers** column is the worker population, not an income:
 "Workers N" over "B busy · F free" (or "· K blocked"). `tests/forecast_test.gd` checks the forecast against 120 s of
-steady play and against no workers (including hosts that run only on supplies), a cut route, starvation and supply,
-a full bank, a File server whose three Labs take turns for room (within 20%), a phished host with a
+steady play and against no workers (including hosts whose Firewall runs only on supplied upkeep), a cut route, upkeep
+supplied or starved, a full bank, a File server whose storage cannot hold a whole cycle (its producers share the room), a phished host with a
 Firewall and one with a full storage, and a main node under DDoS, and, with two workers for six hosts, each material
 within 30% of what arrives.
 
@@ -303,7 +301,11 @@ response). A known recipe is manufactured into single-use copies through **one F
 `QUEUE_SIZE` (4) entries, the copy being made included (`mq`, `_mq_add`/`_mq_remove`/`_tick_manufacture`). Only
 the head is made; it pays its `make` cost when it starts, from main-node stock no worker has claimed, and takes
 `make_time` seconds. A head that cannot start says why ("Needs 9 Intel at Main rig · 2 on the way", "Ready inventory
-full — use a card") and nothing overtakes it. Removing a waiting entry is free; cancelling the paid head refunds its
+full — use a card") and nothing overtakes it. While the head is unpaid and the queue runs, its price is held back
+from research (`_tick_research`, `_research_short`; the research bar says it waits while the copy collects its price)
+and from supplies (`_supply_budget` via `_head_owed`), so research no longer takes the bank unit by unit before a
+copy can start (0.6.12); construction still goes first. Prices by role (0.6.12, same totals): infrastructure (Bot
+station, Lab, Firewall) and blueprints are paid mainly in Crypto, cards and the harvesters mainly in Intel. Removing a waiting entry is free; cancelling the paid head refunds its
 unworked share. The queue pauses separately (`queue_pause`). Finished copies sit in a 12-slot ready inventory
 (`READY_SLOTS`, `_ready_total`, which also counts the copy being made and cards in flight that may return). The AI
 uses the same queue.
@@ -361,10 +363,10 @@ their buildings, and borders are inset so two botnets' lines never touch (`_terr
 recomputed only when sight or ownership changes).
 
 Installations (`BUILD_KINDS` in buildings.gd) go in a host's slots. Producers
-(`PRODUCER_KINDS`): the **Intel harvester** makes 1 Intel a cycle from nothing; the **Crypto
-miner** and **Credential harvester** each turn 1 Intel into 1 of their resource; the **Research
-lab** turns 1 Intel and 1 Crypto into 1 Research; the **Bot station** provides 2 reusable workers. Host
-type multipliers scale output and input (`_tmult`). A **Firewall** (`wall`) is not a producer: each
+(`PRODUCER_KINDS`): the **Intel harvester**, **Crypto miner**, **Credential harvester** and **Research
+lab** each make 1 unit of their resource a cycle from nothing (0.6.12: no producer has an input; a storage
+that cannot hold a whole cycle is shared among them in proportion, `_cycle_share`); the **Bot station** provides
+2 reusable workers. Host type multipliers scale output (`_tmult`). A **Firewall** (`wall`) is not a producer: each
 one gives the host `FIREWALL_SOCKETS` (3) **sockets** for defence cards and eats 1 Intel a cycle
 from its host's storage (`fw_on`; without Intel it switches off and its cards wait). A Patch,
 Incident response, Traffic filter or Cargo cover sent to a host with a free socket is loaded on

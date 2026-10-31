@@ -62,8 +62,8 @@ def chips(cost, secs=None):
     return "".join(out)
 
 # reference income (units per minute) for the "price in seconds of income" column
-EARLY = {"intel": 8, "cash": 15, "creds": 5, "research": 5}    # 1 unit per producer per 12-s cycle, the trickle 5/min
-MID = {"intel": 8, "cash": 20, "creds": 15, "research": 10}
+EARLY = {"intel": 18, "cash": 15, "creds": 5, "research": 5}    # 1 unit per producer per 12-s cycle (no inputs since 0.6.12), the trickle 5/min
+MID = {"intel": 38, "cash": 20, "creds": 15, "research": 10}
 def wait(cost, inc):
     best, who = 0.0, ""
     for r in RES:
@@ -211,12 +211,12 @@ def card_sheet(key):
 
 # ---- buildings table ----
 B_NOTE = {
-    "intel": "Feeds the converters on its own host first; the rest is stored.",
-    "bot": "Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and missing inputs out, surplus back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are.",
-    "cash": "Uses Intel on its own host (the bank, at the main node); workers bring it when none is made there.",
-    "cred": "Uses Intel from its own host’s storage only.",
-    "lab": "Uses Intel and Crypto on its own host: a Miner beside it, or workers bring them as one bundle.",
-    "wall": "Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. It does not make the host harder to capture.",
+    "intel": "No input. Its Intel is stored on the host until workers take it home (a Firewall there eats 1 a cycle).",
+    "bot": "Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and a Firewall's upkeep out, output back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are.",
+    "cash": "No input (since 0.6.12): it makes Crypto on its own, like a harvester.",
+    "cred": "No input (since 0.6.12): it makes Credentials on its own.",
+    "lab": "No input (since 0.6.12): it makes Research on its own.",
+    "wall": "Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle (workers bring it when none is made there); without it the Firewall is off and its cards wait. It does not make the host harder to capture.",
 }
 def brow(k):
     b = builds[k]
@@ -299,15 +299,14 @@ def hosttypes():
 def ch(d):
     return chips({k: v for k, v in d.items() if v})
 LAYOUTS = [
-    ("Bot station + Intel harvester + Miner", "1 Intel → 1 Crypto; 2 workers for the pool", "1 unit by your workers", {"cash": 5}),
-    ("Bot station + Intel harvester + Cred. harvester", "1 Intel → 1 Credential; 2 workers", "1 unit by your workers", {"creds": 5}),
-    ("Intel harvester + Miner + Lab (Research host)", "1 Intel → 1 Crypto; the Lab's Intel is brought", "1 unit in, 1 out", {"intel": -5, "research": 5}),
-    ("2 Intel harvesters + Miner", "2 Intel → 1 Intel + 1 Crypto", "2 units by your workers", {"intel": 5, "cash": 5}),
-    ("Intel harvester + Miner + Cred. harvester", "1 Intel (+1 brought) → 1 Crypto + 1 Credential", "1 unit in, 2 out", {"intel": -5, "cash": 5, "creds": 5}),
+    ("Bot station + Intel harvester + Miner", "1 Intel + 1 Crypto; 2 workers for the pool", "2 units by your workers", {"intel": 5, "cash": 5}),
+    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 workers", "2 units by your workers", {"intel": 5, "creds": 5}),
+    ("Intel harvester + Miner + Lab", "1 Intel + 1 Crypto + 1 Research", "3 units by your workers", {"intel": 5, "cash": 5, "research": 5}),
+    ("2 Intel harvesters + Miner", "2 Intel + 1 Crypto", "3 units by your workers", {"intel": 10, "cash": 5}),
     ("Bot station alone (IoT device)", "2 workers for the pool", "nothing to carry", {}),
-    ("Miner alone (no Intel made there)", "1 Intel (brought) → 1 Crypto", "Intel out and Crypto back on the same worker round trips, automatically", {"intel": -5, "cash": 5}),
-    ("Database: harvester + 2 Cred. harvesters", "2 Intel (+1 brought) → 3 Credentials", "1 unit in, 3 out", {"intel": -5, "creds": 15}),
-    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel → 0.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 7, "cash": 10, "creds": 5, "research": 5}),
+    ("Miner alone", "1 Crypto, no input", "1 unit by your workers", {"cash": 5}),
+    ("Database: harvester + 2 Cred. harvesters", "2 Intel + 3 Credentials (Database: Intel x2, Credentials x1.5)", "5 units by your workers", {"intel": 10, "creds": 15}),
+    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 13, "cash": 10, "creds": 5, "research": 5}),
 ]
 def layouts():
     out = []
@@ -326,13 +325,14 @@ def capture_ev():   # what a capture costs: a vector, its times and the reaction
         ex = f"{n(c['exec'])} s" + (f" ({n(c['exec_rig'])} s on a main node)" if c.get("exec_rig") else "") + (f" per stage, {n(c['reach'])} stages" if k == "worm" else "")
         rows.append(f"<tr><th>{html.escape(c['name'])}</th><td class='nowrap'>{chips(c['make'])}</td><td class='num'>{n(c['time'])} s</td><td class='num'>{ex}</td><td class='num'>{e:.0f} s ({ew}) · {m:.0f} s ({mw})</td></tr>")
     return "".join(rows)
+BC = DATA["buildings"]["BUILD_COSTS"]
 PAYBACK = [   # what each building adds and uses; no single "payback" number: the resources are not interchangeable
-    ("Intel harvester", {"intel": 12}, "+1 Intel a cycle (+1.5 on a Server, +2 on a database or file server)", "Raw input: everything else converts it."),
-    ("Bot station", {"intel": 12, "cash": 4}, "2 reusable workers for the one pool at the main node", "More round trips for every host: building materials first, then inputs, then surplus."),
-    ("Crypto miner", {"intel": 15}, "+1 Crypto, uses 1 Intel on its host", "Turns Intel into Crypto: worth it only while Crypto limits your plan."),
-    ("Credential harvester", {"intel": 15, "cash": 4}, "+1 Credential, uses 1 Intel on its host", "The capture and theft budget early in a match."),
-    ("Research lab", {"intel": 20, "cash": 8}, "+1 Research, uses 1 Intel and 1 Crypto on its host", "Needs a Miner beside it, or workers bring both inputs as a bundle."),
-    ("Firewall", {"intel": 25, "cash": 15}, "3 sockets; uses 1 Intel on its host", "Returns nothing directly: its value is what its loaded cards stop."),
+    ("Intel harvester", BC["intel"], "+1 Intel a cycle (+1.5 on a Server, +2 on a database or file server)", "Pays for most cards, the harvesters and the Firewalls' upkeep."),
+    ("Bot station", BC["bot"], "2 reusable workers for the one pool at the main node", "More round trips for every host: building materials first, then output home."),
+    ("Crypto miner", BC["cash"], "+1 Crypto a cycle, no input", "Buildings and blueprints are paid mostly in Crypto."),
+    ("Credential harvester", BC["cred"], "+1 Credential a cycle, no input", "The capture and theft budget: a Breach is mostly Credentials."),
+    ("Research lab", BC["lab"], "+1 Research a cycle, no input", "Blueprints and the Known exploit, Worm and 0day cards."),
+    ("Firewall", BC["wall"], "3 sockets; uses 1 Intel on its host", "Returns nothing directly: its value is what its loaded cards stop."),
 ]
 def payback():
     return "".join(f"<tr><th>{html.escape(nm)}</th><td class='nowrap'>{chips(c)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>" for nm, c, a, b in PAYBACK)

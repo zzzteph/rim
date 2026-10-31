@@ -60,7 +60,7 @@ flowchart LR
   <div class="tablebox"><table>
     <thead><tr><th>Phase</th><th>Typical time</th><th>What happens</th></tr></thead>
     <tbody>
-      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.</td></tr>
+      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a Miner, Credential harvester or Lab: each makes its resource with no input); lay out the PC (Bot station, Intel harvester, a second producer); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.</td></tr>
       <tr><th>Expansion</th><td class="num">1–6 min</td><td>Scout and Breach neutral hosts: a Recon gets through half the time, and a scouted Breach that runs its 15 s takes its host half the time (a quarter unscouted). Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
       <tr><th>Contact</th><td class="num">5–10 min</td><td>Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch.</td></tr>
       <tr><th>End game</th><td class="num">10 min +</td><td>0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
@@ -117,7 +117,7 @@ flowchart LR
   </table></div>
   <ul class="plain">
     <li>There are no security levels: any capture card can target any host. A held main node takes longer to execute against (each card's main-node time).</li>
-    <li>A multiplier scales a building's input too: a Credential harvester on a web server turns 2 Intel into 2 Credentials per cycle; a Bot station has 2 workers on any host type.</li>
+    <li>A multiplier scales what a building makes: a Credential harvester on a web server makes 2 Credentials per cycle; a Bot station has 2 workers on any host type.</li>
     <li>When a host changes owner its buildings, storage, Firewall cards and effects are wiped, and its ownership generation counts up: operations aimed at the old owner become void.</li>
   </ul>
 </section>
@@ -139,8 +139,8 @@ flowchart LR
     <thead><tr><th>Resource</th><th>Comes from</th><th>Is spent on</th></tr></thead>
     <tbody>
       <tr><th>Workers</th><td>2 per finished Bot station (the main node starts with one); not a resource</td><td>Nothing: workers carry. Each carries 1 unit a leg and returns for another job. No card or building costs workers.</td></tr>
-      <tr><th class="r-intel">Intel</th><td>Intel harvesters (1 per cycle), the trickle</td><td>Every building, every card, every converter's input, Firewall upkeep, research.</td></tr>
-      <tr><th class="r-cash">Crypto</th><td>Crypto miners, the trickle</td><td>Some buildings, most cards, research, the Lab's input.</td></tr>
+      <tr><th class="r-intel">Intel</th><td>Intel harvesters (1 per cycle), the trickle</td><td>Most cards, the harvesters and Miners, part of other buildings and blueprints, Firewall upkeep.</td></tr>
+      <tr><th class="r-cash">Crypto</th><td>Crypto miners, the trickle</td><td>Most of the Bot station, Lab and Firewall, most blueprints, some cards.</td></tr>
       <tr><th class="r-creds">Credentials</th><td>Credential harvesters, the trickle</td><td>Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.</td></tr>
       <tr><th class="r-research">Research</th><td>Research labs, the trickle</td><td>Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.</td></tr>
     </tbody>
@@ -157,7 +157,7 @@ income      = main-node trickle (1 of each per 12 s, while the main node is held
     <thead><tr><th>Kind</th><th>Causes</th></tr></thead>
     <tbody>
       <tr><th>Received</th><td>trickle (the main node), production (buildings on the main node), delivered (cargo from your hosts), stolen (Phishing, Siphon and Vault-raid loot), returned (a Phishing that ended), refunds (a cancelled build, copy or project)</td></tr>
-      <tr><th>Spent</th><td>buildings (materials a project takes from the bank), manufacturing, research, supply (a unit a worker takes out to one of your hosts), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)</td></tr>
+      <tr><th>Spent</th><td>buildings (materials a project takes from the bank), manufacturing, research, supply (a unit a worker takes out to one of your hosts: a Firewall's upkeep), upkeep (a main-node Firewall)</td></tr>
       <tr><th>Lost</th><td>cap (income that arrived at a full bank), cargo (lost with a host it waited in), site (a project's materials lost with its host), stolen (escrow taken by a Vault raid), siphoned (cargo grabbed by a rival's Packet siphon)</td></tr>
     </tbody>
   </table></div>
@@ -167,21 +167,17 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
   <h3>The income forecast</h3>
   <p>Under each material the HUD shows what will reach your bank per minute with your network as it stands: worked out from the network, not from the ledger, so it is steady while nothing changes and moves as soon as something does (a command, a capture, a full bank, a host's storage filling with output). A full bank reads “full”.</p>
   <pre class="code">forecast(res) = main-node trickle (5/min while the main node is up)
-              + main-node buildings' output (their inputs come from the bank)
+              + main-node buildings' output
               + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
-                  inputs  = made on the host, or brought by workers (plenty while the bank holds ≥ 5,
-                            else only what the main node brings in, shared by the hosts in turn), and only
-                            as far as its storage has room for one cycle's inputs next to the output waiting
-                            there (when one cycle's supplies cannot all fit, only the converters whose
-                            bundles fit, in turn); short inputs, less output
+                  inputs  = only a Firewall's upkeep (1 Intel): made on the host, or brought by workers
                   trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
-                            the main node): of every 4 assignments, 3 go by purpose, missing inputs before
-                            surplus, the hosts in turn; the 4th goes to the host served least recently, so the
+                            the main node): of every 4 assignments, 3 go by purpose, upkeep before
+                            output, the hosts in turn; the 4th goes to the host served least recently, so the
                             hosts' trips even out (deliveries to construction are left out). Each trip carries
                             one unit each way (a supply out, output back); short of workers, the pool makes as
                             many trips as its time allows
                   sent    = what those trips carry; a host they cannot keep up with stays full, so it makes
-                            only what leaves, and its converters turn its Intel into their output first
+                            only what leaves, every producer the same share
                   a Firewall's upkeep on a host you phish comes out of your Intel once the owner keeps none there
                   nothing from a host with no route home, under DDoS, whose storage is full of someone else's
                   stock, while your main node is under DDoS (no worker leaves), or into a full bank</pre>
@@ -194,17 +190,13 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
   beneficiary = the Phishing thief while h is phished, else its owner
   storage     = the beneficiary's bank if h is their main node, else h's storage (10 units, all resources together)
 
-  1. Intel harvesters:  + 1 × m_intel × (active harvesters) Intel into storage, up to its room
+  share = min(1, free storage / this cycle's whole output)      (1 at the main node: the bank)
+  1. Producers, no input (0.6.12): + 1 × m × share of their own resource each
+        (Intel harvester → Intel · Crypto miner → Crypto · Credential harvester → Credentials · Research lab → Research)
   2. Firewalls:         each eats 1 Intel from storage (the owner's first); paid in full → on, else off
-  3. Converters, in order Miner → Credential harvester → Lab, each active one:
-        frac = min(1, inputs available in storage / inputs needed × m)
-        take inputs × m × frac, add 1 × m × frac output
-        (Miner 1 Intel → 1 Crypto · Cred. harvester 1 Intel → 1 Credential · Lab 1 Intel + 1 Crypto → 1 Research)
   (Bot stations make nothing: each provides 2 reusable workers for its host)
 
-converters use only what has ARRIVED in h's storage; supplies on their way do not count
-a remote host runs its converters as far as its plan funds them; a host whose supplies exceed its free storage
-runs a fair subset, in rotation
+a storage that cannot hold the whole cycle gives every producer the same share: none crowds another out
 
 active = built, not under construction, not under DDoS, not sabotaged (a building cannot be paused)
 m      = the host type's multiplier for that resource</pre>
@@ -221,8 +213,8 @@ m      = the host type's multiplier for that resource</pre>
       <tr><th>sabotaged</th><td>a Sabotage is active here</td><td>producers are off; cargo still passes</td></tr>
       <tr><th>phished</th><td>a rival's Phishing is active here</td><td>output goes to them until it ends (Incident response clears it)</td></tr>
       <tr><th>no route</th><td>no chain of your hosts links it to your main node</td><td>retake a host between them</td></tr>
-      <tr><th>starved</th><td>a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty</td><td>build the missing harvester or Miner here, or replace the converter</td></tr>
-      <tr><th>blocked</th><td>storage full, or the bank for what is stored (or a main-node converter's output) is at its cap</td><td>spend that resource; storage that is full of surplus ships as workers come free</td></tr>
+      <tr><th>starved</th><td>a Firewall lacks its Intel here and none can come</td><td>build an Intel harvester here, or a Bot station</td></tr>
+      <tr><th>blocked</th><td>storage full, or the bank for what is stored (or a main-node producer's output) is at its cap</td><td>spend that resource; storage that is full of surplus ships as workers come free</td></tr>
       <tr><th>waiting for workers</th><td>units are stored and every one of your workers is busy (or you have none)</td><td>wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node</td></tr>
       <tr><th>Firewall off</th><td>the next cycle cannot pay the Firewall's Intel</td><td>build an Intel harvester here</td></tr>
       <tr><th>building · idle</th><td>nothing finished yet · nothing installed</td><td>—</td></tr>
@@ -237,7 +229,7 @@ m      = the host type's multiplier for that resource</pre>
     <div class="rule"><h4>Workers</h4>
       <p>Each finished Bot station provides two reusable workers that belong to its host; the main node starts with its station's two. A worker carries 1 unit per leg and returns for another job; delivery does not consume it. States: available, collecting, carrying, blocked. A worker lost on a cut route is replaced after 5 s if its station still stands; a demolished or replaced station's workers retire after their leg; capture destroys every worker of the captured host's stations, even those away. The map shows a loaded worker as a filled dot in its cargo's colour, an empty one as a ring, each direction on its own side.</p></div>
     <div class="rule"><h4>Who carries, and what first</h4>
-      <p>Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. <b>Building comes first.</b> While a project waits for materials, three of four assignments carry them (a Bot station's first, since its workers carry for everything else, then the project ordered first), with the Firewalls' upkeep, so a Firewall never goes off while you build; the fourth keeps every host going: the surplus of a host whose next cycle would not fit its storage, or a material the projects wait for that is not in the bank, else the host served least recently, whatever it needs. The bank's stock that the projects still need is theirs (a project the workers cannot reach, cut off or behind a DDoS, holds none): supplies to production only get the rest, so a building never waits while its materials go to a Miner. A material the projects wait for that is not in the bank is collected from the hosts first. With nothing to build, three of four assignments go by purpose — inputs, then surplus and loot — to the host served least recently, and every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
+      <p>Installations use what is on their host first. A host asks for its Firewalls' upkeep for the next cycle (after the Intel it makes) and its construction bills; producers need no input. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. <b>Building comes first.</b> While a project waits for materials, three of four assignments carry them (a Bot station's first, since its workers carry for everything else, then the project ordered first), with the Firewalls' upkeep, so a Firewall never goes off while you build; the fourth keeps every host going: the surplus of a host whose next cycle would not fit its storage, or a material the projects wait for that is not in the bank, else the host served least recently, whatever it needs. The bank's stock that the projects still need is theirs (a project the workers cannot reach, cut off or behind a DDoS, holds none): supplies to production only get the rest, so a building never waits while its materials go to a Miner. A material the projects wait for that is not in the bank is collected from the hosts first. With nothing to build, three of four assignments go by purpose — inputs, then surplus and loot — to the host served least recently, and every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
     <div class="rule"><h4>No supply settings</h4>
       <p>Supply is automatic and in the background: there is nothing to set per host. What a host's next cycle needs is brought; what was brought for it is not carried back out.</p></div>
     <div class="rule"><h4>Construction</h4>
@@ -330,7 +322,7 @@ stateDiagram-v2
     <div class="rule"><h4>Loading</h4>
       <p>Each finished Firewall gives its host 3 sockets (a host may hold several Firewalls). A Patch, Incident response, Traffic filter or Cargo cover that arrives at a host with a free socket is loaded, unless the attack it answers is already there: then it acts at once. Its socket is held from launch, so the sockets are never overbooked; if the Firewall is gone when it arrives it acts instead. Express route cannot be loaded.</p></div>
     <div class="rule"><h4>Power</h4>
-      <p>Each Firewall eats 1 Intel from its own host every cycle, before any converter. Without it the Firewall is off and its cards wait. Sockets are positions: the leftmost finished Firewall holds the first 3, the next one the next 3, and a card loads into the first empty position from the left. A card that fires leaves its position empty; demolishing or replacing a Firewall loses the cards in its own 3 positions as soon as the work starts, and a new Firewall gets 3 empty ones, so no card ever moves to another Firewall. Capturing the host wipes them. A rival's Recon shows what is loaded.</p></div>
+      <p>Each Firewall eats 1 Intel from its own host every cycle (workers bring it when the host makes none). Without it the Firewall is off and its cards wait. Sockets are positions: the leftmost finished Firewall holds the first 3, the next one the next 3, and a card loads into the first empty position from the left. A card that fires leaves its position empty; demolishing or replacing a Firewall loses the cards in its own 3 positions as soon as the work starts, and a new Firewall gets 3 empty ones, so no card ever moves to another Firewall. Capturing the host wipes them. A rival's Recon shows what is loaded.</p></div>
   </div>
   <div class="tablebox"><table>
     <thead><tr><th>Loaded card</th><th>Fires when</th><th>Result</th></tr></thead>
@@ -452,7 +444,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
     <thead><tr><th>Network</th><th>Layout</th><th class="r-intel">Intel</th><th class="r-cash">Crypto</th><th class="r-creds">Creds</th><th class="r-research">Res.</th></tr></thead>
     <tbody>
       <tr><th>Early (≈ 2 min)</th><td>main node [Intel harvester, Bot station, Miner] + 1 PC [Bot station, Intel harvester, Miner]</td>{{EARLY}}</tr>
-      <tr><th>Mid (≈ 6 min)</th><td>the same main node + 2 PCs with a Cred. harvester, 2 with a Miner, 1 Lab host</td>{{MID}}</tr>
+      <tr><th>Mid (≈ 6 min)</th><td>the same main node + 5 PCs, each with an Intel harvester: 2 with a Cred. harvester, 2 with a Miner, 1 with a Lab</td>{{MID}}</tr>
     </tbody>
   </table></div>
   <p class="meta">per minute; the trickle is included</p>
@@ -470,7 +462,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <div class="tablebox"><table>
     <thead><tr><th>Card</th><th>Typical result</th><th>Upper bound</th></tr></thead>
     <tbody>
-      <tr><th>Phishing (60 s)</th><td>On a Bot station + Intel harvester + converter PC: 5 cycles × (0 Intel + 1 converted) = 5 units to you, 5 lost to them</td><td>A 4-slot ×2 host: ~2× that</td></tr>
+      <tr><th>Phishing (60 s)</th><td>On a Bot station + Intel harvester + Miner PC: 5 cycles × (1 Intel + 1 Crypto) = 10 units to you, 10 lost to them</td><td>A 4-slot ×2 host: ~2× that</td></tr>
       <tr><th>Packet siphon (30 s)</th><td>Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 units</td></tr>
       <tr><th>Vault raid</th><td>Whatever waits in 3 linked storages; near 0 where stations ship every cycle</td><td>30 units</td></tr>
       <tr><th>DDoS (45 s)</th><td>3 hosts × ~4 cycles × ~2 units ≈ 20–25 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>

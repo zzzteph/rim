@@ -92,37 +92,62 @@ func income_and_known() -> void:
 	check(grew, "The main node delivers one of each resource every 12 s locally (every bank grew ~0.8 in 10 s)")
 
 
-func cycles_and_storage() -> void:
+func one_cycle(i: int, kind: String) -> float:   # what one producer of this kind makes on host i in one cycle (rate x host type)
+	var out := str(g.BUILD_KINDS[kind].out)
+	return float(g.BUILD_KINDS[kind].rate) * g._tmult(i, out)
+
+
+func cycles_and_storage() -> void:   # 0.6.12: every producer makes its own resource with no input; only the Firewall eats Intel
 	fresh()
 	var n := own_pc()
-	g._set_builds(n, ["intel", "cash"])
+	var kinds := ["intel", "cash", "cred"]   # the harvester and two former converters, all on one host
+	g._set_builds(n, kinds)
 	g._set_builds(int(g.rig[P]), ["intel"])   # no Bot station anywhere: no workers, so what the host makes stays in its storage
 	step(g.PROD_CYCLE + 0.1)
-	check(is_equal_approx(g._st_get(n, P, "intel"), 0.0) and is_equal_approx(g._st_get(n, P, "cash"), 1.0),
-		"One cycle: the harvester makes 1 Intel and the Miner turns it into 1 Crypto (%s)" % g._store_text(n))
+	var each := true
+	var gross := 0.0   # one whole cycle's output of this host
+	for kind in kinds:
+		gross += one_cycle(n, kind)
+		if not is_equal_approx(g._st_get(n, P, str(g.BUILD_KINDS[kind].out)), one_cycle(n, kind)): each = false
+	check(each and is_equal_approx(g._store_total(n), gross),
+		"One cycle: the harvester makes %s Intel, and the Miner and the Credential harvester make %s Crypto and %s Credentials with no input, leaving the Intel (%s)"
+		% [g._amt(one_cycle(n, "intel")), g._amt(one_cycle(n, "cash")), g._amt(one_cycle(n, "cred")), g._store_text(n)])
 	step(g.PROD_CYCLE * 10.0)
-	check(g._store_total(n) <= g.STORE_CAP + 0.001 and g._store_total(n) >= g.STORE_CAP - 1.0, "Host storage fills to its cap of 10 and stops there (%s)" % g._store_text(n))
+	check(g._store_total(n) <= g.STORE_CAP + 0.001 and g._store_total(n) >= g.STORE_CAP - 1.0, "Host storage fills to its cap of %d and stops there (%s)" % [int(g.STORE_CAP), g._store_text(n)])
+	# Equal producers make the same every cycle, also the last one that only partly fits (it fits STORE_CAP - 3 x gross =
+	# 1 of 3 units here): each holds STORE_CAP / 3, where filling the storage in build order would give the harvester more.
+	var even := absf(g._store_total(n) - g.STORE_CAP) < 0.001
+	for kind in kinds:
+		if absf(g._st_get(n, P, str(g.BUILD_KINDS[kind].out)) - g.STORE_CAP / float(kinds.size())) > 0.001: even = false
+	check(even, "A full storage is shared evenly: the cycle that only partly fits gives each of the %d producers the same share, %s each (%s)"
+		% [kinds.size(), g._amt(g.STORE_CAP / float(kinds.size())), g._store_text(n)])
 	var m := own_pc()
-	g._set_builds(m, ["cash"])
+	g._set_builds(m, ["cash", "wall"])   # a Miner and a Firewall, no Intel harvester: nothing on this host makes Intel
 	g.bank[P].intel = 200.0
 	step(g.PROD_CYCLE * 2.0)
-	check(g._store_total(m) < 0.01 and float(g.bank[P].intel) >= 200.0, "A remote Miner uses only Intel that has reached its host, never the bank's directly")
-	g._set_builds(int(g.rig[P]), ["intel", "bot"])   # a Bot station again: its two workers start collecting
+	check(is_equal_approx(g._st_get(m, P, "cash"), 2.0 * one_cycle(m, "cash")) and g._st_get(m, P, "intel") < 0.0001,
+		"A remote Miner makes its Crypto with no Intel on its host (%s after 2 cycles)" % g._store_text(m))
+	check(not bool(g.hosts[m].fw_on) and float(g.bank[P].intel) >= 200.0,
+		"A remote Firewall uses only Intel that has reached its host, never the bank's directly (it switched off, bank Intel %d)" % int(g.bank[P].intel))
+	g._set_builds(int(g.rig[P]), ["intel", "bot"])   # a Bot station again: its two workers start collecting, and bring the upkeep
 	step(30.0)
-	check(g._store_total(n) < 2.0 and g._store_total(m) > 0.0, "The main node's workers collect a host's storage and supply the Miner (%s · %s)" % [g._store_text(n), g._store_text(m)])
+	check(g._store_total(n) < 2.0 and bool(g.hosts[m].fw_on),
+		"The main node's workers collect a host's storage and bring the Firewall its %s Intel per cycle: it is on again (%s · %s)"
+		% [g._amt(float(g.BUILD_KINDS.wall.use.intel)), g._store_text(n), g._store_text(m)])
 
 
 func stations() -> void:
 	fresh()
 	var n := own_pc()
-	g._set_builds(n, ["intel", "intel", "cash", "bot"])   # 2 Intel made, 1 used: 1 Intel and 1 Crypto to send each cycle
+	g._set_builds(n, ["intel", "intel", "cash", "bot"])   # nothing used (0.6.12): 2 Intel and 1 Crypto to send each cycle
 	g._set_builds(int(g.rig[P]), [])
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	step(g.PROD_CYCLE * 4.0 + 6.0)   # four cycles plus the trip home
 	var trickle: float = (g.PROD_CYCLE * 4.0 + 6.0) * g.MAIN_INCOME
+	var per_intel: float = 2.0 * one_cycle(n, "intel"); var per_cash: float = one_cycle(n, "cash")   # each cycle's output
 	check(g._worker_counts(P, n).total == 2 and g._worker_counts(P).total == 2, "A Bot station's two workers have it as their station (%d here, %d in all)" % [int(g._worker_counts(P, n).total), int(g._worker_counts(P).total)])
-	check(float(g.bank[P].intel) - float(before.intel) - trickle >= 3.0 and float(g.bank[P].cash) - float(before.cash) - trickle >= 3.0,
-		"... and, working from the main node, carry the host's 1 Intel and 1 Crypto per cycle home")
+	check(float(g.bank[P].intel) - float(before.intel) - trickle >= 4.0 * per_intel - 1.0 and float(g.bank[P].cash) - float(before.cash) - trickle >= 4.0 * per_cash - 1.0,
+		"... and, working from the main node, carry the host's %s Intel and %s Crypto per cycle home (four cycles' worth, but for a unit on its way)" % [g._amt(per_intel), g._amt(per_cash)])
 	check(g._store_total(n) < 1.0, "With a station nothing waits in storage, even with no bank couriers")
 
 
