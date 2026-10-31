@@ -46,7 +46,7 @@ flowchart LR
       <li>Enemies: 1–3 AI networks (NYX, KRAKEN, VIPER).</li>
       <li>Seed: a number for a repeatable town, blank for a random one.</li></ul></div>
     <div class="rule"><h4>Other modes</h4>
-      <p><b>Learn:</b> never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. Steps whose action is available at once pause the game until you act (or press Space). Continue restarts the saved lesson with what the earlier lessons had you do.</p>
+      <p><b>Learn:</b> never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. A lesson's first steps, whose action is available at once, pause the game until you act (or press Space); a step that follows something the rival did never pauses, names who did it and points at the host to act on. In open play the banner shrinks after 10 s to one line that keeps the goal in view. Continue restarts the saved lesson with what the earlier lessons had you do.</p>
       <p><b>Multiplayer:</b> hidden from the menus for now. The lockstep backend and its tests remain; see <a href="#multiplayer">Multiplayer</a>.</p></div>
     <div class="rule"><h4>Start state (every network)</h4>
       <ul><li>A main node: a Server (3 slots) with an Intel harvester and a Bot station already built, one slot free.</li>
@@ -206,7 +206,7 @@ converters use only what has ARRIVED in h's storage; supplies on their way do no
 a remote host runs its converters as far as its plan funds them; a host whose supplies exceed its free storage
 runs a fair subset, in rotation
 
-active = built, not under construction, not paused by you, not under DDoS, not sabotaged
+active = built, not under construction, not under DDoS, not sabotaged (a building cannot be paused)
 m      = the host type's multiplier for that resource</pre>
   <div class="tablebox"><table>
     <thead><tr><th>Layout (on a PC, ×1)</th><th>Made each cycle</th><th>Delivered each cycle</th><th>Net to the bank per minute</th></tr></thead>
@@ -222,10 +222,10 @@ m      = the host type's multiplier for that resource</pre>
       <tr><th>phished</th><td>a rival's Phishing is active here</td><td>output goes to them until it ends (Incident response clears it)</td></tr>
       <tr><th>no route</th><td>no chain of your hosts links it to your main node</td><td>retake a host between them</td></tr>
       <tr><th>starved</th><td>a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty</td><td>build the missing harvester or Miner here, or replace the converter</td></tr>
-      <tr><th>blocked</th><td>storage full, or the bank for what is stored (or a main-node converter's output) is at its cap</td><td>spend that resource, or pause the converter; storage that is full of surplus ships as workers come free</td></tr>
+      <tr><th>blocked</th><td>storage full, or the bank for what is stored (or a main-node converter's output) is at its cap</td><td>spend that resource; storage that is full of surplus ships as workers come free</td></tr>
       <tr><th>waiting for workers</th><td>units are stored and every one of your workers is busy (or you have none)</td><td>wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node</td></tr>
       <tr><th>Firewall off</th><td>the next cycle cannot pay the Firewall's Intel</td><td>build an Intel harvester here</td></tr>
-      <tr><th>paused · building · idle</th><td>every producer paused by you · nothing finished yet · nothing installed</td><td>—</td></tr>
+      <tr><th>building · idle</th><td>nothing finished yet · nothing installed</td><td>—</td></tr>
       <tr><th>operating</th><td>none of the above</td><td>—</td></tr>
     </tbody>
   </table></div>
@@ -261,7 +261,7 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
   </table></div>
   <ul class="plain">
     <li>Drag a building card from the host panel onto a slot. The full price is paid when the job starts; the job takes 10 s. Replacing a building first demolishes it (5 s).</li>
-    <li>Click a producer to pause or resume it; a job can be paused or cancelled.</li>
+    <li>A building cannot be paused: it works whenever it can. A project can be cancelled (the red button); right-click demolishes.</li>
     <li>Every building of a resource's kind adds 50 to that resource's bank cap (the Firewall adds nothing).</li>
   </ul>
 </section>
@@ -413,7 +413,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
       <ul><li><b>HUD</b> (top): Workers (busy · free · blocked; workers on their way to the main node count as busy), then the four banks with cap and the forecast income per minute underneath (hover for its sources, what holds it back, and the historical flows); to their right the objective, always visible. At the top right: Research, Economy and Menu. Under the HUD, the Logs button and, while research runs, the research bar.</li>
       <li><b>Economy</b> (top-bar button, a click on the banks, or <b>E</b>): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.</li>
       <li><b>Map</b>: hosts (with slot counts), territories, roads, packets, effects.</li>
-      <li><b>Sidebar</b>: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, paused, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings — no prose, never scrolled, the same height every frame. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.</li>
+      <li><b>Sidebar</b>: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings, each with its picture, what it makes and what it uses on that host (“Makes 1 Crypto · from 1 Intel”) and its price — two wide cards a row, or three small ones with the conversion in resource icons when room is short (under Learn's banner); never scrolled, the same height every frame. A building cannot be paused. Every hover note is sized before it is shown, so it stays fully on screen. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.</li>
       <li><b>Target preview</b>: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (50% with fresh Recon still fresh when it resolves, else 25%; 50% for a Recon); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.</li>
       <li><b>Logs</b>: nothing is drawn over the map. A Logs button at the top-left under the HUD counts the new entries (red while something critical is new or still going on) and opens the history, most urgent first: <b>!</b> needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), <b>›</b> worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, no workers at all, research that cannot pay, a lost shipment, your operation stopped), <b>·</b> news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; <b>H</b> opens the full history (the last 80, with times).</li>
       <li><b>Route inspection</b>: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.</li>

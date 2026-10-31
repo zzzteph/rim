@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.8 · commit 3a3f135
+RIM 0.6.9 · commit d8eac72
 
 ## Contents
 
@@ -75,7 +75,7 @@ flowchart LR
 
 #### Other modes
 
-**Learn:** never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. Steps whose action is available at once pause the game until you act (or press Space). Continue restarts the saved lesson with what the earlier lessons had you do.
+**Learn:** never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. A lesson's first steps, whose action is available at once, pause the game until you act (or press Space); a step that follows something the rival did never pauses, names who did it and points at the host to act on. In open play the banner shrinks after 10 s to one line that keeps the goal in view. Continue restarts the saved lesson with what the earlier lessons had you do.
 
 **Multiplayer:** hidden from the menus for now. The lockstep backend and its tests remain; see [Multiplayer](#multiplayer).
 
@@ -252,7 +252,7 @@ converters use only what has ARRIVED in h's storage; supplies on their way do no
 a remote host runs its converters as far as its plan funds them; a host whose supplies exceed its free storage
 runs a fair subset, in rotation
 
-active = built, not under construction, not paused by you, not under DDoS, not sabotaged
+active = built, not under construction, not under DDoS, not sabotaged (a building cannot be paused)
 m      = the host type's multiplier for that resource
 ```
 
@@ -273,18 +273,18 @@ m      = the host type's multiplier for that resource
 
 Your host's panel is only a build menu, with no prose. Its diagnosis is in the tooltip of each of its slots, which lists the host's first two problems in this order. The diagnosis is worked out exactly as the next cycle will run, so it never promises output the host cannot make.
 
-| Status                   | When                                                                                                                 | What the tooltip suggests                                                                               |
-|--------------------------|----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| under DDoS               | a DDoS is active here                                                                                                | nothing is made or sent until it ends                                                                   |
-| sabotaged                | a Sabotage is active here                                                                                            | producers are off; cargo still passes                                                                   |
-| phished                  | a rival's Phishing is active here                                                                                    | output goes to them until it ends (Incident response clears it)                                         |
-| no route                 | no chain of your hosts links it to your main node                                                                    | retake a host between them                                                                              |
-| starved                  | a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty | build the missing harvester or Miner here, or replace the converter                                     |
-| blocked                  | storage full, or the bank for what is stored (or a main-node converter's output) is at its cap                       | spend that resource, or pause the converter; storage that is full of surplus ships as workers come free |
-| waiting for workers      | units are stored and every one of your workers is busy (or you have none)                                            | wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node  |
-| Firewall off             | the next cycle cannot pay the Firewall's Intel                                                                       | build an Intel harvester here                                                                           |
-| paused · building · idle | every producer paused by you · nothing finished yet · nothing installed                                              | —                                                                                                       |
-| operating                | none of the above                                                                                                    | —                                                                                                       |
+| Status              | When                                                                                                                 | What the tooltip suggests                                                                              |
+|---------------------|----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| under DDoS          | a DDoS is active here                                                                                                | nothing is made or sent until it ends                                                                  |
+| sabotaged           | a Sabotage is active here                                                                                            | producers are off; cargo still passes                                                                  |
+| phished             | a rival's Phishing is active here                                                                                    | output goes to them until it ends (Incident response clears it)                                        |
+| no route            | no chain of your hosts links it to your main node                                                                    | retake a host between them                                                                             |
+| starved             | a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty | build the missing harvester or Miner here, or replace the converter                                    |
+| blocked             | storage full, or the bank for what is stored (or a main-node converter's output) is at its cap                       | spend that resource; storage that is full of surplus ships as workers come free                        |
+| waiting for workers | units are stored and every one of your workers is busy (or you have none)                                            | wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node |
+| Firewall off        | the next cycle cannot pay the Firewall's Intel                                                                       | build an Intel harvester here                                                                          |
+| building · idle     | nothing finished yet · nothing installed                                                                             | —                                                                                                      |
+| operating           | none of the above                                                                                                    | —                                                                                                      |
 
 ## Logistics
 
@@ -333,7 +333,7 @@ When the way on is cut (a relay taken or under DDoS) a packet waits at the last 
 | Firewall             | −1 Intel upkeep                   | 25 Intel, 15 Crypto | —                | Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. It does not make the host harder to capture.                                                  |
 
 - Drag a building card from the host panel onto a slot. The full price is paid when the job starts; the job takes 10 s. Replacing a building first demolishes it (5 s).
-- Click a producer to pause or resume it; a job can be paused or cancelled.
+- A building cannot be paused: it works whenever it can. A project can be cancelled (the red button); right-click demolishes.
 - Every building of a resource's kind adds 50 to that resource's bank cap (the Firewall adds nothing).
 
 ## Research and manufacturing
@@ -732,7 +732,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 - **HUD** (top): Workers (busy · free · blocked; workers on their way to the main node count as busy), then the four banks with cap and the forecast income per minute underneath (hover for its sources, what holds it back, and the historical flows); to their right the objective, always visible. At the top right: Research, Economy and Menu. Under the HUD, the Logs button and, while research runs, the research bar.
 - **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
-- **Sidebar**: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, paused, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings — no prose, never scrolled, the same height every frame. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.
+- **Sidebar**: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings, each with its picture, what it makes and what it uses on that host (“Makes 1 Crypto · from 1 Intel”) and its price — two wide cards a row, or three small ones with the conversion in resource icons when room is short (under Learn's banner); never scrolled, the same height every frame. A building cannot be paused. Every hover note is sized before it is shown, so it stays fully on screen. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.
 - **Target preview**: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (50% with fresh Recon still fresh when it resolves, else 25%; 50% for a Recon); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
 - **Logs**: nothing is drawn over the map. A Logs button at the top-left under the HUD counts the new entries (red while something critical is new or still going on) and opens the history, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, no workers at all, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.

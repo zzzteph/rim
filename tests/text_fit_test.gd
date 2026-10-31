@@ -173,17 +173,38 @@ func hud(res: Vector2i) -> void:
 		check(w(line, 12) <= obj_room, "HUD objective '%s' fits (%.0f of %.0f px) @%s" % [line, w(line, 12), obj_room, res])
 
 
-# ---- building cards: the palette width the sidebar allows, slots 112 px; titles and effects at >= 10 px with side margins ----
+# ---- building cards: the slot / mini width the sidebar allows, slots 112 px, and the wide palette card; titles and what
+# each building does (at x1 and at the largest type multiplier) at >= 10 px with side margins ----
 func build_cards() -> void:
+	var mults := [1.0]
+	for tp in game.NODE_TYPES:
+		for k in ["intel", "cash", "cred", "research"]: if not mults.has(float(game.NODE_TYPES[tp].get(k, 1.0))): mults.append(float(game.NODE_TYPES[tp].get(k, 1.0)))
+	var probe := -1   # a host whose type is set per multiplier, so the lines read as they would there
+	for i in game.hosts.size(): if probe < 0 and int(game.hosts[i].owner) == game.NEUTRAL: probe = i
 	for card_w in [game._palette_card_w(), 112.0]:
 		var room: float = card_w - 12.0
 		for kind in game.BUILD_KINDS:
 			var title := str(game.BUILD_KINDS[kind].card)
 			check(fitted(title, 12, room) >= 11, "build card title '%s' >= 11 px at %d" % [title, card_w])
-			for line in game.BUILD_EFFECT.get(kind, []):
+			for line in game._build_lines(kind):
 				check(fitted(str(line), 11, room) >= 10, "build card line '%s' >= 10 px at %d" % [line, card_w])
 			var cost_w: float = game._draw_cost_row(game, game._build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
 			check(cost_w <= card_w - 2.0 * MARGIN, "build card '%s' price row fits at %d (%.0f px)" % [kind, card_w, cost_w])
+	var wide_w: float = floorf((float(game.PANEL_W) - 44.0 - float(game.PALETTE_GAP)) / 2.0)
+	var tw: float = wide_w - float(game.WIDE_PIC) - 17.0
+	var saved_type := str(game.hosts[probe].type)
+	for tp in game.NODE_TYPES:
+		game.hosts[probe].type = tp
+		for kind in game.BUILD_KINDS:
+			var name := str(game.BUILD_KINDS[kind].name)
+			check(fitted(name, 12, wide_w - 16.0) >= 11, "wide build card name '%s' >= 11 px in %d" % [name, wide_w - 16.0])
+			for line in game._build_lines(kind, probe, true):
+				check(fitted(str(line), 11, tw) >= 10, "wide build card line '%s' (%s) >= 10 px in %d" % [line, tp, tw])
+			for line in game._build_lines(kind, probe):
+				check(fitted(str(line), 11, 100.0) >= 10, "slot card line '%s' (%s) >= 10 px" % [line, tp])
+			var cost_w2: float = game._draw_cost_row(game, game._build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
+			check(cost_w2 <= tw, "wide build card '%s' price row fits (%.0f px of %d)" % [kind, cost_w2, tw])
+	game.hosts[probe].type = saved_type
 
 
 # ---- map names: none overlaps another or a building; yours, rigs and the focused one are always named ----

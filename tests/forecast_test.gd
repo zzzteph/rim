@@ -2,7 +2,7 @@ extends SceneTree
 ## The HUD's income forecast (feedback round B, section 3): what will reach the main node's bank per minute with the
 ## network as it stands, worked out from the network rather than extrapolated from early ledger events. It is checked
 ## against a long controlled simulation, and against the conditions that cut income: no free workers, a cut route,
-## a starved converter (and its supply), a paused producer, a full bank, a host whose converters take turns for room,
+## a starved converter (and its supply), a building that cannot be paused, a full bank, a host whose converters take turns for room,
 ## a phished host, a main node under DDoS. Workers show activity, not an income.
 ## godot --headless --path . --script tests/forecast_test.gd
 var g
@@ -190,13 +190,12 @@ func starved_and_supplied() -> void:
 	check(rate("cash") <= 0.01, "With no Intel to send at all, the supplied Miner is starved again (%.0f)" % rate("cash"))
 
 
-func paused() -> void:
+func paused() -> void:   # a building cannot be paused: the old order is ignored and the forecast stays
 	var n := network()
 	step(10.0)
 	var before: float = rate("cash")
-	g._cmd(["produce", n.near, 2])   # pause the near host's Miner
-	check(g._producer_paused(n.near, 2) and rate("cash") <= before - per_cycle() + 0.1, "Pausing a Miner takes its Crypto out of the forecast at once (%.0f → %.0f)" % [before, rate("cash")])
-	check(rate("intel") > 0.0, "...and the Intel it no longer uses is forecast to come home instead (%.0f)" % rate("intel"))
+	g._cmd(["produce", n.near, 2]); g._cmd(["job", n.near, 2])
+	check(g._producer_active(n.near, 2) and absf(rate("cash") - before) < 0.01, "A Miner cannot be paused: the old pause order changes nothing (%.0f → %.0f)" % [before, rate("cash")])
 
 
 func full_bank() -> void:

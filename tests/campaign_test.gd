@@ -68,7 +68,13 @@ func do_action(ch: int, st: int) -> void:
 		"3:0": play_when_held("recon", g._camp_practice)
 		"3:1": play_when_held("phish", g._camp_practice)
 		"3:2": play_when_held("response", g._camp_relay)
-		"3:3": if once(key): build(g._camp_home, "bot")
+		"3:3":
+			if once(key):   # what the step shows before you act: no pause, who did it, where to build, the cue
+				var spot: int = g._camp_target()
+				var said: String = g._camp_fill(str(g._camp_step().a))
+				cue_checks["losses_step"] = not g._camp_paused and spot >= 0 and g._mine(spot) and g._free_slot(spot) >= 0 and g.sel.has(spot) \
+					and said.contains("NYX (red)") and said.contains(str(g.hosts[spot].name)) and not g._camp_ui_targets().is_empty()
+				build(g._camp_home, "bot")
 
 
 var cue_checks := {}   # what the cues did once an action was accepted
@@ -133,12 +139,14 @@ func run() -> void:
 	check(bool(cue_checks.get("build", false)), "An accepted building order stops the recipe cue during delivery; the status shows its materials")
 	check(bool(cue_checks.get("workers", false)), "The relay's finished Bot station has exactly 2 workers")
 	check(bool(cue_checks.get("lost", false)), "The lost Outpost is explained: 2 station workers destroyed")
+	check(bool(cue_checks.get("losses_step", false)), "The loss step does not pause, says who took it (NYX, red), names a host of yours with a free slot, selects it and cues the Bot station")
 	var t0: float = g._t
 	pump(2.0)
 	check(g._camp_chapter == g.CAMP_OPEN and not g._camp_paused and not g.paused and g._t > t0 + 1.5, "Free play runs without Space (%.1f s passed)" % (g._t - t0))
 	check(g.tut_panel.visible, "Free play shows its banner at first")
 	pump(9.0)
-	check(not g.tut_panel.visible and g._map_rect().position.y < 120.0, "...and hides it after 10 s of play, giving the map its room back")
+	check(g.tut_panel.visible and g.tut_panel.size.y <= g.CAMP_STRIP_H + 0.5 and g._map_rect().position.y < 170.0 and str(g.tut_box.get_child(0).text).contains("Win: hold"),
+		"...and after 10 s of play shrinks it to one line with the goal, giving the map most of its room back (map top %.0f)" % g._map_rect().position.y)
 	var space := InputEventKey.new(); space.keycode = KEY_SPACE; space.pressed = true
 	g._input(space)
 	t0 = g._t; pump(2.0)

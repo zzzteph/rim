@@ -372,17 +372,14 @@ func cancel_and_pause() -> void:
 	var h3 := near(); g._capture(h3, P); g.hosts[h3].slots = 3; g._set_builds(h3, [])
 	g._cmd(["build", h3, 0, "bot"])
 	step(3.0)
-	g._cmd(["job", h3, 0])
+	g._cmd(["job", h3, 0])   # the retired pause order: ignored, deliveries go on
 	var esc0 := 0.0
-	step(6.0)
 	for r in (g.hosts[h3].jobs[0].escrow as Dictionary): esc0 += float(g.hosts[h3].jobs[0].escrow[r])
-	step(6.0)
+	step(3.0)
 	var esc1 := 0.0
 	for r in (g.hosts[h3].jobs[0].escrow as Dictionary): esc1 += float(g.hosts[h3].jobs[0].escrow[r])
-	check(absf(esc1 - esc0) < 0.001, "Paused: loaded cargo landed, then no new deliveries (escrow %.0f)" % esc1)
+	check(esc1 > esc0 + 0.5 and not g.hosts[h3].jobs[0].has("paused"), "A project cannot be paused: deliveries go on (escrow %.0f → %.0f)" % [esc0, esc1])
 	# capture mid-delivery: the site's materials are lost to the former owner, recorded once
-	g._cmd(["job", h3, 0])
-	step(3.0)
 	var esc := 0.0
 	for r in (g.hosts[h3].jobs[0].escrow as Dictionary): esc += float(g.hosts[h3].jobs[0].escrow[r])
 	g._capture(h3, R)

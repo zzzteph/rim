@@ -103,6 +103,10 @@ godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
 godot --headless --path . --script tests/ai_rules_test.gd    # AI turn-taking: cut-off projects, Research host (4+ slots), boxed-in research, retools
 godot --headless --path . --script tests/campaign_test.gd    # plays Learn as one session: no rebuilds, no waits, resume
+
+Learn (0.6.9): lesson 4's rival steps say who acted (“NYX (red) …”), never pause, and point at a host to act on (the
+“station_spot” role: the relay while it has a free slot, else your nearest host with one; `_camp_fill` names it). In
+open play the banner shrinks after `CAMP_OPEN_BANNER_SECS` to a `CAMP_STRIP_H` line with the goal instead of vanishing.
 godot --headless --path . --script tests/mp_lockstep_test.gd # two screens, same command stream: identical every turn
 godot --headless --path . --script tests/text_fit_test.gd    # every text fits with a margin; no overlaps; whole sentences
 godot --headless --path . --script tests/botnet_help_test.gd # Help navigation + layout at 1280x720 and 1366x768
@@ -219,23 +223,27 @@ workers", "no route home from …", "no room for supplies at …", "your bank is
 transit (`_where_is`). The **Workers** column is the worker population, not an income:
 "Workers N" over "B busy · F free" (or "· K blocked"). `tests/forecast_test.gd` checks the forecast against 120 s of
 steady play and against no workers (including hosts that run only on supplies), a cut route, starvation and supply,
-a paused producer, a full bank, a File server whose three Labs take turns for room (within 20%), a phished host with a
+a full bank, a File server whose three Labs take turns for room (within 20%), a phished host with a
 Firewall and one with a full storage, and a main node under DDoS, and, with two workers for six hosts, each material
 within 30% of what arrives.
 
 Host panels (0.6.3). Your host's panel is a **build menu**: its name, its slots (`SlotBox`, compact `SLOT_H` 112 px
 cards in rows of three; a finished Firewall shows its three sockets inside its own card, so a row never grows) and
-the six buildings (`BuildCard`, `PALETTE_H` 112 px in rows of three, or `PALETTE_H_MINI` 74 px — name, picture,
-price — when `_palette_h` finds the full menu would not fit `_panel_avail_h`, as under Learn's banner). No prose, and
-the same height every frame, so it never scrolls or jumps at 1280×720. Selecting your host closes the card drawer, and
+the six buildings (`BuildCard`, 0.6.9: `PALETTE_H` 70 px wide cards two a row — name across the top, picture, what it
+makes and what it uses on this host from `_build_lines`, price — or `PALETTE_H_MINI` 74 px three a row — name, the
+conversion in resource icons (`_draw_conversion`), price — when `_palette_h` finds the full menu would not fit
+`_panel_avail_h`, as under Learn's banner). The same height every frame, so it never scrolls or jumps at 1280×720.
+Hover notes (`_wrapped_tooltip`) measure their wrapped height before they are shown and set their lines at the text
+font's own height (the symbols fallback makes the theme font's lines 28 px at 13 px), so Godot places them fully on
+screen; `TooltipPanel` in `assets/ui_theme.tres` gives them an opaque bordered panel. Selecting your host closes the card drawer, and
 opening the drawer closes the build menu; however one host of yours becomes the selection (a capture, a Learn step,
 a shift-click, a Logs entry), `_refresh_panel` closes the drawer too (0.6.5). A selected host a rival takes turns into
 an inspection (if you still see it) without moving your view; a host you inspect that you capture becomes your
 selection in the same refresh, and an inspection the fog drops leaves the narrower sidebar without sliding the map
 (0.6.8: `_refresh_panel` treats every change the sim makes to the sidebar like a prune), and the drawer's state is part of the panel's context only
 while the build menu shows, so opening it keeps your place in the Logs or the Economy view.
-A slot card says what it makes on that host (`_build_short`: the type multiplier, e.g. +1.5 Intel on a Server). A slot shows its state on the card (materials n/m while a project waits
-for them, its work bar, paused, inactive, needs an input) and a red stop button while busy; its tooltip
+A slot card says what it makes and uses on that host (`_build_lines`: the type multiplier, e.g. +1.5 Intel on a Server); a click does nothing (nothing can be paused), a right click demolishes. A slot shows its state on the card (materials n/m while a project waits
+for them, its work bar, inactive, needs an input) and a red stop button while busy; its tooltip
 (`_slot_tip`) says what it is, what it is doing and the host's first two problems from `_host_diag`.
 No card is sent or launched from a host panel: cards go through the card UI and drag and drop. A foreign host's
 panel shows only its owner and "Unknown host — send Recon to inspect." until a fresh Recon adds its type, slots,
@@ -252,7 +260,7 @@ Host diagnoses and route inspection (Milestone A). `_cycle_preview(i)` works the
 as `_run_cycle` will, on copies (`_pv_add`/`_pv_take`), so "Next cycle in 2.4 s: …" shows feasible output;
 `tests/diagnosis_test.gd` checks the preview against the real
 cycle. `_host_diag(i)` names the status from the first problem (under DDoS, sabotaged, phished, no route,
-starved, blocked, waiting for workers, Firewall off, paused, building, idle; else operating) with a cause and a
+starved, blocked, waiting for workers, Firewall off, building, idle; else operating) with a cause and a
 fix. `_route_eta` reports hops, travel and the queueing a packet leaving now would meet, without reserving link
 capacity; `_host_delivered` reads the ledger's per-host "from" entries. On the map the selected host's links you
 can see, its route home (green, chevrons pointing home) and a tag with hops and time are drawn; a host with no
@@ -358,10 +366,10 @@ Filter, a siphon grabbing this host's cargo for Cover). Express route cannot be 
 supplied before work**: ordering is free; the project's bill (`BUILD_COSTS`) goes into an **escrow** at its site
 (separate from the 10-unit storage, so a 16-unit Bot station fits any host), first from what the host has spare, the
 rest carried by workers one unit a leg; only then do its `BUILD_TIME` s of work run (`_tick_jobs`). Replacing an
-installation demolishes it (`DEMOLISH_TIME` s) while the materials travel. Pause stops work and new deliveries;
-cancel leaves the delivered (unworked) materials at the site as salvage; capture destroys them; a Vault raid can
-steal unconsumed escrow, and the project's shortage reopens. Click an installed producer to pause/resume; DDoS, Supply-chain sabotage, a
-running construction or the owner's pause stops one (`_producer_active`). During Phishing, a
+installation demolishes it (`DEMOLISH_TIME` s) while the materials travel. Nothing can be paused (0.6.9: neither a
+project nor a producer); cancel leaves the delivered (unworked) materials at the site as salvage; capture destroys them;
+a Vault raid can steal unconsumed escrow, and the project's shortage reopens. DDoS, Supply-chain sabotage or a
+running construction stops a producer (`_producer_active`). During Phishing, a
 victim host's new output is stored there for the caster, whose workers collect it; the host's own
 workers stay the owner's. Vault-raid loot and siphoned cargo also wait on the host (`hosts[i].loot`) for
 the thief's workers.

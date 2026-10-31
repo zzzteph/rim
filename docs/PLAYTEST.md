@@ -1,6 +1,6 @@
 # RIM — Milestone A usability tasks
 
-Build: **0.6.8** (a build menu that never scrolls and never sits under the card drawer; rival AIs that keep developing, even when cut off or boxed in, and build their Research host where it feeds itself; a map view that only you move, whatever the sim takes, gives or hides; an income forecast that is right for each material even when workers are short or a host's converters take turns for room, and says why; Recon gets through half the time; attacks work 50% on a scouted host and 25% otherwise; one pool of
+Build: **0.6.9** (a build menu that never scrolls and never sits under the card drawer, and says what each building does; hover notes that stay on screen; buildings that cannot be paused; rival AIs that keep developing, even when cut off or boxed in, and build their Research host where it feeds itself; a map view that only you move, whatever the sim takes, gives or hides; an income forecast that is right for each material even when workers are short or a host's converters take turns for room, and says why; Recon gets through half the time; attacks work 50% on a scouted host and 25% otherwise; one pool of
 workers working from the main node, two per Bot station, building first and the hosts served in turn; 1 unit per
 producer every 12 s; construction supplied before work; one four-place manufacturing
 queue; your host's panel is a build menu with no prose; a Logs button instead of messages over the map; a research

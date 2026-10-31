@@ -51,7 +51,7 @@ func script_for(g) -> Dictionary:   # turn -> {faction: [commands]}, every verb 
 			2: [["research", "ddos"], ["queue", "phish", 3], ["queue_pause"]]},
 		9: {1: [["build", -5, "x", 7], ["build", r1, 0, "nuke"], ["card", "nope", 99999], ["research", "nope"],   # garbage: ignored alike
 				["queue", "nope", 9], ["unqueue", 4242], ["reserve", 7], ["priority", "gold"], ["lane_make", 0], ["want", r1, "intel", 3], [], ["warp"]],
-			2: [["job", r2, s2], ["job", r2, s2], ["queue_pause"], ["refill", r2]]},   # "refill" is a retired verb: ignored on both screens
+			2: [["job", r2, s2], ["job", r2, s2], ["queue_pause"], ["refill", r2]]},   # "refill", "job" and "produce" are retired verbs: ignored on both screens
 		40: {1: [["cancel_research"], ["research", "exploit"]], 2: [["cancel", r2, s2]]},
 		130: {1: [["card", "breach", n1]], 2: [["card", "breach", n2]]},
 		180: {1: [["card", "patch", r1], ["produce", r1, s1]], 2: [["unqueue", 3], ["demolish", r2, s2]]},

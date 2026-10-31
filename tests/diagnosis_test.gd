@@ -180,8 +180,8 @@ func statuses() -> void:
 	check(str(d.status) == "Firewall off" and str(d.role) == "FIREWALL HOST", "A Firewall with no Intel here will be off, and says so")
 	g._set_builds(n, [])
 	check(str(diag(n).status) == "idle" and str(diag(n).role) == "EMPTY HOST", "An empty host is idle and says how to start")
-	g._set_builds(n, ["intel"]); g.hosts[n].producer_paused = {0: true}
-	check(str(diag(n).status) == "paused", "A host whose only producer you paused reads paused")
+	g._set_builds(n, ["intel"]); g._cmd(["produce", n, 0])   # (a retired verb: a building cannot be paused)
+	check(str(diag(n).status) != "paused" and g._producer_active(n, 0), "A building cannot be paused: the old pause order changes nothing")
 	g._set_builds(home, ["cash"]); g.bank[P].intel = 0.0
 	d = diag(home)
 	check(str(d.role) == "MAIN NODE" and str(d.status) == "starved" and lines_have(d, "no Intel in your bank"), "A main-node Miner with an empty Intel bank is starved")
