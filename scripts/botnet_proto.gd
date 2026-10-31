@@ -641,7 +641,7 @@ func _add_host(p: Vector2, c: Vector2i, is_hub: bool, value: int, ntype: String)
 	if is_hub: hub = hosts.size()
 	# A neutral host has no installations and a type-derived security class; it is captured, not fought.
 	hosts.append({"pos": p, "grid": c, "hub": is_hub, "rig": false,
-		"name": "HUB" if is_hub else "%s %d" % [str(tp.short), hosts.size() + 1], "type": ntype,
+		"name": "HUB" if is_hub else "Host %d" % (hosts.size() + 1), "type": ntype,   # a public name says nothing about what it is
 		"links": [], "owner": NEUTRAL, "gen": 0, "value": value, "slots": slots,
 		"builds": _slot_array([], slots), "jobs": {}, "store": {}, "producer_paused": {}, "junction": false,
 		"cyc": PROD_CYCLE * (0.2 + 0.8 * fposmod(float(hosts.size()) * 0.618034, 1.0)), "fw_on": true, "sockets": [], "ship_rr": 0,
@@ -825,7 +825,7 @@ func _claim(i: int, fac: int, is_rig: bool, nm: String) -> void:   # every botne
 		hosts[i].rig = true; rig[fac] = i; hosts[i].builds = _slot_array(["intel", "bot"], int(hosts[i].slots))
 	else:
 		hosts[i].builds = _slot_array([], int(hosts[i].slots))
-		hosts[i].name = "PC %d" % (i + 1)
+		hosts[i].name = "Host %d" % (i + 1)
 	if nm != "": hosts[i].name = nm
 
 
@@ -950,8 +950,22 @@ func _benef(i: int) -> int:   # who the new output here belongs to right now: th
 func _is_botnet(fac: int) -> bool: return fac != NEUTRAL
 
 
-func _r(i: int) -> float:   # drawn radius grows with the building's slots
+func _r(i: int) -> float:   # drawn radius grows with the building's slots (one size for a host you know nothing about)
+	if not _known_host(PLAYER, i): return R_UNKNOWN
 	return 11.0 + 2.5 * float(hosts[i].slots)
+
+
+const R_UNKNOWN := 18.5
+func _known_host(fac: int, i: int) -> bool:   # fac knows its type, slots and contents: its own, or under a fresh Recon
+	return int(hosts[i].owner) == fac or _recon_fresh(fac, i)
+
+
+func _public_type(i: int) -> String: return str(hosts[i].get("type", "pc")) if _known_host(PLAYER, i) else "unknown"
+
+
+func _recon_expired(fac: int, t: int) -> bool:   # a Recon of this host (same owner) has gone stale
+	var rec: Dictionary = (recon.get(fac, {}) as Dictionary).get(t, {})
+	return not rec.is_empty() and int(rec.get("gen", -1)) == int(hosts[t].gen) and not _recon_fresh(fac, t)
 
 
 # route packets travel: BFS over same-faction buildings from src to one bordering t, then the final hop
@@ -4212,14 +4226,17 @@ func _ai_manufacture(fac: int) -> void:
 		if _mq_count(fac, str(recipe)) == 0: _mq_add(fac, str(recipe))
 
 
-func _ai_press_target(fac: int, recipe: String) -> int:   # the reachable rival host with the most producers, else -1
+func _ai_press_target(fac: int, recipe: String) -> int:   # the reachable rival host with the most producers its Recon saw, else -1
 	var best := -1; var most := 0
 	for t in hosts.size():
 		var owner := int(hosts[t].owner)
 		if owner == fac or owner == NEUTRAL or not _op_reachable(fac, t): continue
 		if (recipe == "phish" and _phished(t)) or (recipe == "ddos" and _ddos_down(t)): continue
-		var n := 0
-		for k in hosts[t].builds: if str(k) in PRODUCER_KINDS: n += 1
+		var rec: Dictionary = (recon.get(fac, {}) as Dictionary).get(t, {})   # the same fog as a person: only what a Recon saw
+		var n := 1   # never scouted: worth a look (it scouts first)
+		if not rec.is_empty() and int(rec.get("gen", -1)) == int(hosts[t].gen):
+			n = 0
+			for k in (rec.get("builds", []) as Array): if str(k) in PRODUCER_KINDS: n += 1
 		if n > most: most = n; best = t
 	return best
 
@@ -6865,13 +6882,16 @@ func _type_line(i: int) -> String:
 
 func _stage_line(i: int) -> String:
 	var h: Dictionary = hosts[i]
+	if not _known_host(PLAYER, i):   # an unknown host: who holds it (public) and nothing else
+		var who := "Neutral" if int(h.owner) == NEUTRAL else fname(int(h.owner))
+		if bool(h.get("rig", false)) and int(h.owner) != NEUTRAL: who += " · main node"
+		return who + (" · Recon expired" if _recon_expired(PLAYER, i) else " · unknown")
 	var tname := str(NODE_TYPES[str(h.get("type", "pc"))].name)
 	if bool(h.get("junction", false)): tname += " · junction (×%d streets)" % JUNCTION_CAP_MULT
 	if bool(h.get("rig", false)) and int(h.owner) != NEUTRAL: tname = "Main node · " + tname
-	var scout := "scouted" if _recon_fresh(PLAYER, i) else "unscouted"
-	if int(h.owner) == NEUTRAL: return "Neutral · %s · %s" % [tname, scout]
+	if int(h.owner) == NEUTRAL: return "Neutral · scouted"   # what it is: the line under it (_type_line)
 	if not _mine(i):
-		return "%s · %s · %s" % [fname(int(h.owner)), tname, scout]
+		return "%s%s · scouted" % [fname(int(h.owner)), " · main node" if bool(h.get("rig", false)) else ""]
 	return "%d/%d slots · %s" % [_standing(i), int(h.slots), tname]
 
 
@@ -7576,9 +7596,16 @@ func _panel_inspect() -> void:
 	_plabel(_stage_line(i), 14, C_DIM)
 	var fx := _effects_line(i)
 	if fx != "": _plabel(fx, 13, C_WARN)
+	if not _recon_fresh(PLAYER, i):   # nothing about what it is until a Recon lands
+		if _recon_expired(PLAYER, i): _plabel("Recon expired — send Recon again to inspect it.", 14, C_WARN)
+		else: _plabel("Unknown host — send Recon to inspect.", 14, C_TEXT)
+		var c0 := _op_chance(PLAYER, i, "breach")
+		_plabel("Your attacks here: %d%% without fresh Recon." % int(round(c0 * 100.0)), 12, C_WARN)
+		return
 	if _recon_fresh(PLAYER, i):
 		var rec: Dictionary = (recon.get(PLAYER, {}) as Dictionary).get(i, {})
-		_plabel("Recon %ds ago · storage %s/%d" % [int(_t - float(rec.get("at", _t))), _amt(float(rec.get("store", 0.0))), int(STORE_CAP)], 12, C_DIM)
+		_plabel(_type_line(i), 13, C_TEXT)
+		_plabel("Recon %d s ago, fresh for %d s more · storage %s/%d" % [int(_t - float(rec.get("at", _t))), maxi(0, int(float(rec.get("at", _t)) + float(CARDS.recon.dur) - _t)), _amt(float(rec.get("store", 0.0))), int(STORE_CAP)], 12, C_DIM)
 		var socks: Array = _loaded_of(rec.get("sockets", []))
 		if (rec.get("builds", []) as Array).has("wall"):
 			var names := []
@@ -8340,7 +8367,7 @@ func _draw_ghost(f: Font, i: int) -> void:   # a host you saw before but cannot 
 	var p := _w2s(hosts[i].pos)
 	var rr := maxf(16, _r(i) * _zoom)
 	_cv.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-	_draw_type_glyph(_cv, str(hosts[i].get("type", "pc")), p, rr * 1.9, Color(0.42, 0.48, 0.58, 0.2), Color(0.04, 0.06, 0.1, 0.22))
+	_draw_type_glyph(_cv, _public_type(i), p, rr * 1.9, Color(0.42, 0.48, 0.58, 0.2), Color(0.04, 0.06, 0.1, 0.22))
 	_cv.draw_set_transform(_pan, 0, Vector2(_zoom, _zoom))   # its dim name comes from _paint_names
 
 
@@ -8496,9 +8523,9 @@ func _closed(p: PackedVector2Array) -> PackedVector2Array:   # a polyline that r
 	return out
 
 
-func _visible_bot_count(i: int) -> String:   # a foreign host's badge: its capacity, and what is built only if a fresh Recon saw it
+func _visible_bot_count(i: int) -> String:   # the slot badge: yours, or a host a fresh Recon saw; nothing on an unknown host
 	if _mine(i): return "%d/%d" % [_standing(i), int(hosts[i].slots)]
-	if not _recon_fresh(PLAYER, i): return "?/%d" % int(hosts[i].slots)
+	if not _recon_fresh(PLAYER, i): return ""
 	var seen := 0
 	for b in ((recon.get(PLAYER, {}) as Dictionary).get(i, {}) as Dictionary).get("builds", []):
 		if str(b) != "": seen += 1
@@ -8519,7 +8546,7 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 	fill.a = a
 	var ink := Color(0.04, 0.06, 0.1, 0.9 * a)
 	var focused: bool = sel.has(i) or i == _inspect or is_aim
-	_draw_type_glyph(_cv, str(hosts[i].get("type", "pc")), p, rr * 1.9, fill, ink)   # the building IS its pictogram
+	_draw_type_glyph(_cv, _public_type(i), p, rr * 1.9, fill, ink)   # the building IS its pictogram (a plain marker until you know it)
 	if bool(hosts[i].rig): _frame(p, rr + 1.0, Color(1, 1, 1, 0.8 * a), 2.0)   # a rig = Cash sink
 	if bool(hosts[i].get("junction", false)): _frame(p, rr + 1.5, Color(0.75, 0.9, 1.0, 0.7 * a), 1.0)   # a junction: double traffic
 	if _mine(i) and _t - float(hosts[i].get("hit_t", -100.0)) < CARD_ALARM:   # recently hit → red frame, full brightness
@@ -8535,9 +8562,10 @@ func _draw_node(f: Font, i: int, a: float, is_aim: bool) -> void:
 		_frame(p, rr + 13, C_WARN, 3)
 		if i == _tut_target: _cv.draw_circle(p + Vector2(0, -rr - 18), 5, C_WARN)
 	var sec_txt := _visible_bot_count(i)
-	var bw := _text_w(f, sec_txt, 12) + 8.0   # measured: 4 px either side of the text
-	_cv.draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 16.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
-	_text(_cv, f, Vector2(p.x - bw * 0.5 + 4.0, p.y + rr * 0.42 + 12.5), sec_txt, 12, Color(0.95, 0.97, 1.0, a))
+	if sec_txt != "":   # no badge at all on a host you know nothing about
+		var bw := _text_w(f, sec_txt, 12) + 8.0   # measured: 4 px either side of the text
+		_cv.draw_rect(Rect2(p.x - bw * 0.5, p.y + rr * 0.42, bw, 16.0), Color(0.03, 0.05, 0.08, 0.88 * a), true)
+		_text(_cv, f, Vector2(p.x - bw * 0.5 + 4.0, p.y + rr * 0.42 + 12.5), sec_txt, 12, Color(0.95, 0.97, 1.0, a))
 	var sub := _node_sub(i, focused)   # the name is placed afterwards by _paint_names, clear of every warning line
 	if str(sub[0]) != "":
 		var subcol: Color = sub[1]; subcol.a *= a
@@ -8752,6 +8780,12 @@ func _draw_type_glyph(c: CanvasItem, t: String, centre: Vector2, sz: float, fill
 	var w := maxf(1.2, sz * 0.05)
 	var dim := Color(ink.r, ink.g, ink.b, ink.a * 0.35)
 	match t:
+		"unknown":   # a host you know nothing about: a plain hexagon with a dot, the same for every kind of building
+			var pts := PackedVector2Array()
+			for k in 6: pts.append(centre + Vector2.from_angle(TAU * float(k) / 6.0 - PI / 2.0) * sz * 0.4)
+			c.draw_colored_polygon(pts, Color(fill.r, fill.g, fill.b, fill.a * 0.75))
+			pts.append(pts[0]); c.draw_polyline(pts, ink, w, true)
+			c.draw_circle(centre, sz * 0.07, ink)
 		"pc":      # a monitor on a stand
 			var body := Rect2(centre + Vector2(-sz * 0.46, -sz * 0.46), Vector2(sz * 0.92, sz * 0.6))
 			c.draw_rect(body, fill, true); c.draw_rect(body, ink, false, w)
