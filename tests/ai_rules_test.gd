@@ -127,14 +127,19 @@ func research_when_boxed_in() -> void:
 	fresh()
 	fill_all({3: ["intel", "bot", "cash"], 5: ["intel", "bot", "cash", "lab", "cred"]})
 	g.known[R]["exploit"] = true; g.known[R]["filter"] = true   # two blueprints: more than its 6 buildings / 4
-	check(g._ai_research_due(R), "Every slot it can build on is taken: research is due (building has no turn to take)")
+	var next: String = g._ai_next_research(R)
+	var price: Dictionary = g.RESEARCH[next]; var want: Dictionary = g._ai_wanted(R)
+	g.bank[R] = {}
+	for res in g.RES: g.bank[R][res] = float(price.get(res, 0.0)) + float(want.get(res, 0.0)) + 1.0   # the price on top of the next capture card
+	check(g._ai_research_due(R), "Every slot it can build on is taken and the bank holds %s's price on top of its next card: research is due" % next)
+	g.bank[R]["intel"] = float(price.get("intel", 0.0)) + float(want.get("intel", 0.0)) - 1.0
+	check(not g._ai_research_due(R), "...but not with less: boxed-in research only spends what neither building nor its cards need")
+	g.bank[R]["intel"] = 100.0
 	g._set_builds(hub(), ["intel", "bot", ""])
 	check(not g._ai_research_due(R), "A free slot: building takes its turn first (2 blueprints for 5 buildings)")
-	g.bank[R] = {"intel": 100.0, "cash": 100.0, "creds": 100.0, "research": 100.0}
 	fill_all({3: ["intel", "bot", "cash"], 5: ["intel", "bot", "cash", "lab", "cred"]})
-	g.known[R].erase("filter")
 	g._ai_research(R)
-	check(not (g.research_job.get(R, {}) as Dictionary).is_empty(), "Boxed in with the price in the bank, it starts the next blueprint (%s)" % str(g.research_job.get(R, {}).get("key", "none")))
+	check(str((g.research_job.get(R, {}) as Dictionary).get("key", "")) == next, "Boxed in with the spare price in the bank, it starts the next blueprint (%s)" % str(g.research_job.get(R, {}).get("key", "none")))
 
 
 func retool_a_producer_it_has() -> void:

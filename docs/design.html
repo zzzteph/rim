@@ -103,7 +103,7 @@ ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 4px; max-width: 80
 <header class="intro">
   <h1>RIM rules reference</h1>
   <p>The whole design of RIM as the game runs it today: how a match flows, how the map and hosts work, every economic formula, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers and every constant for analysis.</p>
-  <p class="meta">RIM 0.6.5 · branch claude/amazing-einstein-jc1hrr · commit e65201d · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
+  <p class="meta">RIM 0.6.6 · branch claude/amazing-einstein-jc1hrr · commit 457acd4 · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
   <nav class="toc" aria-label="Contents">
     <div><b>Flow</b><a href="#overview">Overview and core loop</a><a href="#flow">Match flow</a><a href="#time">Time model</a></div>
     <div><b>World</b><a href="#map">Map and network</a><a href="#hosts">Host types</a><a href="#fog">Sight and fog</a></div>
@@ -552,7 +552,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
       <li>Converter choice: what its next capture card lacks for two copies, else the emptiest bank.</li>
       <li>Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least 24 and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind (only a kind it has a producer of on a host with a road home: Crypto piles from the trickle alone); at most one retool every 120 s. A retool ordered on credit waits like any other project from its demolition on.</li></ul></div>
     <div class="rule"><h4>2 · Research</h4>
-      <p>In this order: Known exploit, Traffic filter, DDoS, 0day, Worm, Packet siphon, Cargo cover, Sabotage, Vault raid, Express route. Research takes its turn with building: it is due while it knows fewer blueprints than a quarter of its buildings, or when every slot it could build on is taken (building has no turn to take), and while due no project is ordered on credit. A running research pauses while one of its projects waits for materials, since its per-second payments would keep the bank below the whole unit a worker carries.</p></div>
+      <p>In this order: Known exploit, Traffic filter, DDoS, 0day, Worm, Packet siphon, Cargo cover, Sabotage, Vault raid, Express route. Research takes its turn with building: it is due while it knows fewer blueprints than a quarter of its buildings, or when every slot it could build on is taken and the bank holds the next blueprint's whole price on top of what its next capture card needs (so it never sits on a full price, and never takes from its cards), and while due no project is ordered on credit. A running research pauses while one of its projects waits for materials, since its per-second payments would keep the bank below the whole unit a worker carries.</p></div>
     <div class="rule"><h4>3 · Manufacture</h4>
       <p>A capture card for its nearest target (the cheapest known for a neutral host, the fastest for a rival's; up to 3 held); one Recon; a Patch once it holds 5 hosts (2 when one of its hosts is under attack); Response or Filter while a Firewall socket is free; one DDoS or Phishing when a target exists.</p></div>
     <div class="rule"><h4>4 · Operate and defend</h4>
@@ -1537,7 +1537,7 @@ losing your main node = elimination: your bank, cards, research and flights are 
     8
    ]
   ],
-  &quot;GAME_VERSION&quot;: &quot;0.6.5&quot;,
+  &quot;GAME_VERSION&quot;: &quot;0.6.6&quot;,
   &quot;MAP_CELL&quot;: 190.0,
   &quot;SOCKET_TRIGGER&quot;: {
    &quot;patch&quot;: &quot;a capture, Worm or Vault raid starts here&quot;,

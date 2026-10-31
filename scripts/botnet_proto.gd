@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.5"   # AI drops cut-off projects and researches when boxed in, per-resource forecast, the view stays put (lobbies match exact versions)
+const GAME_VERSION := "0.6.6"   # boxed-in AI research spends only spare stock: never idle on a full price, never at its cards' cost (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -4257,10 +4257,26 @@ func _ai_research(fac: int) -> void:
 		job.paused = _ai_waiting_build(fac)   # construction first
 		return
 	if not _ai_research_due(fac): return
-	for recipe in ["exploit", "filter", "ddos", "zeroday", "worm", "siphon", "cover", "sabotage", "vault", "express"]:
-		if _known(fac, recipe) or _can_research(fac, recipe) != "": continue
-		_do_research(fac, recipe)
-		return
+	var recipe := _ai_next_research(fac)
+	if recipe != "": _do_research(fac, recipe)
+
+
+const AI_RESEARCH_ORDER := ["exploit", "filter", "ddos", "zeroday", "worm", "siphon", "cover", "sabotage", "vault", "express"]
+
+
+func _ai_next_research(fac: int) -> String:   # the first blueprint in its order it can research now, else ""
+	for recipe in AI_RESEARCH_ORDER:
+		if not _known(fac, recipe) and _can_research(fac, recipe) == "": return recipe
+	return ""
+
+
+func _ai_research_spare(fac: int) -> bool:   # the bank holds the next blueprint's whole price on top of what its next capture card needs
+	var recipe := _ai_next_research(fac)
+	if recipe == "": return false
+	var want := _ai_wanted(fac)
+	for res in RES:
+		if _avail(fac, res) < float(RESEARCH[recipe].get(res, 0.0)) + float(want.get(res, 0.0)): return false
+	return true
 
 
 func _ai_research_due(fac: int) -> bool:   # research's turn: fewer blueprints learned than its buildings / 4, or nowhere left to build
@@ -4274,7 +4290,7 @@ func _ai_research_due(fac: int) -> bool:   # research's turn: fewer blueprints l
 		for slot in (hosts[i].builds as Array).size():
 			if str(hosts[i].builds[slot]) != "": built += 1
 			elif reach and not _slot_busy(i, slot): free += 1
-	return learned < built / 4 or (free == 0 and learned < RESEARCH.size())   # boxed in: building has no turn to take
+	return learned < built / 4 or (free == 0 and _ai_research_spare(fac))   # boxed in: research spends what neither building nor cards need
 
 
 func _ai_first_known(fac: int, options: Array) -> String:
