@@ -144,9 +144,14 @@ what you build. Every held host runs one **production cycle** every `PROD_CYCLE`
 phase (`_tick_production` → `_run_cycle`). Every producer makes **1 unit a cycle** of its own resource
 (5 a minute; the host type's multiplier scales it) with **no input** (0.6.12: the Crypto miner, Credential harvester
 and Research lab are producers like the Intel harvester; their `use` is empty and `CONVERT_ORDER` only keeps the
-code path for a future converter). Then each Firewall eats its 1 Intel of upkeep. A remote host keeps what it made in a
+code path for a future converter). Each Firewall eats its 1 Intel of upkeep: on a remote host from this cycle's own
+Intel harvest first, which never takes storage room, then from what is stored there (0.6.14, `_cycle_split`, the one
+rule `_run_cycle`, `_cycle_preview` and the plans share). A remote host keeps what it made in a
 **storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary); a storage that
-cannot hold a whole cycle gives every producer the same share (`_cycle_share`), and full storage stops them. Production uses only what has **arrived** on the host. Each bank has a
+cannot hold a whole cycle gives every producer the same share (`_cycle_share`, from `_store_room`: never the room held
+for cargo on its way), and full storage stops them. An export's last whole unit also takes the crumbs such a shared
+cycle leaves when the host's plan spares them and the bank has room (`_amount`, the request's exact `max`); crumbs of a
+material nothing on the host makes any more leave on their own once the host is not short of room. Production uses only what has **arrived** on the host. Each bank has a
 cap of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
 anything on its way reserves its room at the destination (`incoming` for a bank, `hosts[i].inbound` for a
 host's storage), so nothing is credited early and nothing overfills.
@@ -178,7 +183,8 @@ or DDoSed site holds none): supplies to production only get `_supply_budget` (th
 in `_amount` and in each host's own cycle plan, and `_build_lack` (what they wait for that is neither in the bank nor
 on its way) is collected from the hosts first. With nothing to build, the
 old turns hold: three of four by purpose (inputs, then surplus, then loot — 0.6.13: stolen goods come last, class 3,
-and never jump the queue as a host about to fill up) to the host served least recently, every
+on the fair turns too, and never jump the queue as a host about to fill up; a pile on your own host is your
+`salvage`, class 2, collected first when a project waits for it, 0.6.14) to the host served least recently, every
 fourth to the host served least recently whatever it needs, so the hosts are served in turn. Benchmark (6 projects,
 130 units, 5 producing hosts, 3 seeds, 2 and 4 workers): all built 11–17% sooner than 0.6.9 with more income meanwhile;
 no change without construction. A collection **claims** its unit (`claim`) and the
@@ -304,9 +310,11 @@ response). A known recipe is manufactured into single-use copies through **one F
 the head is made; it pays its `make` cost when it starts, from main-node stock no worker has claimed, and takes
 `make_time` seconds. A head that cannot start says why ("Needs 9 Intel at Main rig · 2 on the way", "Ready inventory
 full — use a card") and nothing overtakes it. While the head is unpaid and the queue runs, its price is held back
-from research (`_tick_research`, `_research_short`; the research bar says it waits while the copy collects its price)
-and from supplies (`_supply_budget` via `_head_owed`), so research no longer takes the bank unit by unit before a
-copy can start (0.6.12); construction still goes first. Prices by role (0.6.12, same totals): infrastructure (Bot
+from research and from supplies (`_supply_budget` via `_head_owed`), so research no longer takes the bank unit by
+unit before a copy can start (0.6.12) — unless the Ready inventory is full and the copy could not start anyway
+(0.6.14). Research also leaves alone what the projects still need (`_research_hold`: `_build_owed`, a remote site's
+only while you have workers), so construction goes first for it too; the research bar names what the bank lacks
+apart from what it keeps, and for whom ("Intel is kept for your Recon copy and your construction"). Prices by role (0.6.12, same totals): infrastructure (Bot
 station, Lab, Firewall) and blueprints are paid mainly in Crypto, cards and the harvesters mainly in Intel. Removing a waiting entry is free; cancelling the paid head refunds its
 unworked share. The queue pauses separately (`queue_pause`). Finished copies sit in a 12-slot ready inventory
 (`READY_SLOTS`, `_ready_total`, which also counts the copy being made and cards in flight that may return). The AI
@@ -389,7 +397,10 @@ running construction stops a producer (`_producer_active`); Sabotage also keeps 
 hits from setting out (`_worker_state` "blocked"; a leg already under way finishes). During Phishing (180 s), a
 victim host's new output is stored there for the caster, whose workers collect it; the host's own
 workers stay the owner's. Vault-raid loot and siphoned cargo (a Packet siphon lasts 60 s) also wait on the host
-(`hosts[i].loot`) for the thief's workers, who collect them last.
+(`hosts[i].loot`) for the thief's workers, who collect them last; a pile has its own claims (`pclaim`, `_pile_free`,
+apart from the storage's `claim` / `_store_free`), so one unit never draws every free worker and a pile pickup never
+takes what the host's storage keeps for its Firewall. When a thief is eliminated its siphons stop and what
+its Phishing diverted goes back to the host's owner at once (0.6.14).
 
 The AI botnets all play `_ai_think` (one economic AI, no difficulty setting): it gives every
 host a self-feeding layout (`_ai_plan`: a Bot station first, then an Intel harvester and its
@@ -463,8 +474,8 @@ Intrusions resolve earliest end first, equal end times by operation id
 captures its target, then runs one more stage on the nearest visible linked host of the same original owner
 (its own draw; 0.6.13: if the first stage had fresh Recon, the second host counts as scouted, `_mark_scanned`); a
 stopped stage ends the chain. **Patch recovery** (0.6.13): a Patch that stops an intrusion — by hand, armed or from a
-Firewall socket — leaves its host recovering for 30 s (`_patch_recover`, `patch_recover_until`, public in the host's
-effects and in `_mp_hash`): no Patch can be played there meanwhile, one on its way goes back to the hand, and one
+Firewall socket — leaves its host recovering for 30 s (`_patch_recover`, `patch_recover_until`, in `_mp_hash`; public: the host's
+effects, a "NO PATCH" map label and the attack preview show it to everyone who sees the host, 0.6.14): no Patch can be played there meanwhile, one on its way goes back to the hand, and one
 already loaded in the Firewall still fires and restarts the window. While its main node is under DDoS a botnet can
 play no card at all (`_can_play`), so a DDoS on the rig opens a window for a capture. Phishing and Siphon land as: a loaded Response
 first, then the draw, then the effect; DDoS and Sabotage draw once for the operation, then each host's own

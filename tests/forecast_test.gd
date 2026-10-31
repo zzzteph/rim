@@ -126,6 +126,8 @@ func run() -> void:
 	full_storage()
 	phished()
 	main_node_down()
+	sabotaged_stations()
+	clogged_host()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -349,8 +351,13 @@ func full_storage() -> void:   # (0.6.12) one Bot station's workers for a far Fi
 	var home: int = int(g.rig[P])
 	g._set_builds(home, ["bot"])
 	var near: int = neighbours_of(home)[0]
-	g._capture(near, P); g._set_builds(near, [])   # an empty relay: the File server is two hops out
-	var h := far_host(near)
+	g._capture(near, P); g._set_builds(near, [])   # two empty relays: the File server is three hops out (0.6.14: the crumbs of a
+	var mid := far_host(near)                       # shared cycle ride home with whole units, so two hops no longer outrun them)
+	g._capture(mid, P); g._set_builds(mid, [])
+	var h := -1
+	for nb in g.hosts[mid].links:
+		var n := int(nb)
+		if n != near and int(g.hosts[n].owner) == g.NEUTRAL and not g.hosts[home].links.has(n) and not g.hosts[near].links.has(n): h = n; break
 	var lay := ["intel", "lab", "cash", "cred"]
 	g.hosts[h].type = "file"; g.hosts[h].slots = int(g.NODE_TYPES.file.slots)
 	g._capture(h, P); g._set_builds(h, lay)
@@ -408,6 +415,13 @@ func phished() -> void:   # a rival's host you phish: its Firewall eats your Int
 	var fc: Dictionary = g._forecast(P)
 	f = float((fc.from.get("intel", {}) as Dictionary).get(src, 0.0))
 	check(f == 0.0 and str(fc.limits.get("intel", [])).contains("storage full at"), "A storage full of the owner's stock: none of your harvest lands, none is forecast, and it says why (%s)" % str(fc.limits.get("intel", [])))
+	g._set_builds(h, ["cash", "lab"])   # (0.6.14) no harvester: a Miner and a Lab fill a storage just the same
+	g.hosts[h].store = {g.RIVAL: {"creds": float(g.STORE_CAP)}}
+	g._fc_gen += 1
+	fc = g._forecast(P)
+	var got_none := float((fc.from.get("cash", {}) as Dictionary).get(src, 0.0)) == 0.0 and float((fc.from.get("research", {}) as Dictionary).get(src, 0.0)) == 0.0
+	check(got_none and str(fc.limits.get("cash", [])).contains("storage full at") and str(fc.limits.get("research", [])).contains("storage full at"),
+		"...and a phished Miner and Lab with no harvester beside them get the same reason (%s)" % str(fc.limits.get("cash", [])))
 
 
 func main_node_down() -> void:   # a DDoSed main node sends no worker out: the remote hosts' output waits where it is
@@ -419,3 +433,51 @@ func main_node_down() -> void:   # a DDoSed main node sends no worker out: the r
 	for r in g.RES:
 		for src in (fc.from.get(r, {}) as Dictionary): if not str(src).begins_with("main node"): remote += float(fc.from[r][src])
 	check(remote == 0.0 and str(fc.limits.get("creds", [])).contains("your main node is under DDoS"), "Main node under DDoS: nothing from the hosts is forecast while it lasts (%.1f/min), and it says why" % remote)
+
+
+func sabotaged_stations() -> void:   # (0.6.14) workers Sabotage keeps at their stations carry nothing: the forecast leaves them out
+	fresh()
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["bot", "bot"])   # every station on the main node
+	var h: int = neighbours_of(home)[0]
+	g.hosts[h].type = "pc"; g.hosts[h].slots = 3
+	g._capture(h, P); g._set_builds(h, ["cred", "cred", "cred"])
+	step(40.0)
+	var src := str(g.hosts[h].name)
+	g._fc_gen += 1
+	var before := float((g._forecast(P).from.get("creds", {}) as Dictionary).get(src, 0.0))
+	g.hosts[home].sabot_until = g._t + 60.0
+	step(6.0)   # the workers that were out come home, and stop there
+	g._fc_gen += 1
+	var fc: Dictionary = g._forecast(P)
+	var f := float((fc.from.get("creds", {}) as Dictionary).get(src, 0.0))
+	var c0 := float(g.bank[P].creds)
+	step(48.0)
+	var got: float = (float(g.bank[P].creds) - c0 - 48.0 * g.MAIN_INCOME) * 60.0 / 48.0
+	check(before > 0.5 and f <= 0.01 and str(fc.limits.get("creds", [])).contains("Sabotage") and got <= 0.5,
+		"Sabotage on the main node, where all the stations are: the host's Credentials leave the forecast (%.0f → %.0f/min) and it says why (%s); none arrive (%.1f/min)"
+		% [before, f, str(fc.limits.get("creds", [])), got])
+
+
+func clogged_host() -> void:   # (0.6.14) one output its bank cannot take fills the host's storage, and then the whole host stops
+	fresh()
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["bot", "bot"])
+	var h: int = neighbours_of(home)[0]
+	g.hosts[h].type = "pc"; g.hosts[h].slots = 3
+	g._capture(h, P); g._set_builds(h, ["intel", "intel", "cash"])
+	for k in int(round(g.PROD_CYCLE * 20.0 / g.SIM_DT)):   # the Crypto bank stays full: the host's Crypto piles up until its storage is full
+		g.bank[P].cash = g._cap(P, "cash"); g.bank[P].intel = 20.0
+		g._sim_step(g.SIM_DT)
+	var src := str(g.hosts[h].name)
+	g._fc_gen += 1
+	var fc: Dictionary = g._forecast(P)
+	var f := float((fc.from.get("intel", {}) as Dictionary).get(src, 0.0))
+	var i0 := float(g.bank[P].intel)
+	for k in int(round(60.0 / g.SIM_DT)):
+		g.bank[P].cash = g._cap(P, "cash")
+		g._sim_step(g.SIM_DT)
+	var got: float = float(g.bank[P].intel) - i0 - 60.0 * g.MAIN_INCOME
+	check(g._store_room(h) < 1.0 and f <= 0.01 and str(fc.limits.get("intel", [])).contains("Crypto bank is full") and got <= 0.5,
+		"A host whose storage is full of Crypto its bank cannot take: its Intel leaves the forecast too (%.0f/min) and it says why (%s); none arrives (%.1f in 60 s)"
+		% [f, str(fc.limits.get("intel", [])), got])

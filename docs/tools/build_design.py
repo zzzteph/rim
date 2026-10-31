@@ -163,7 +163,7 @@ D["response"] = [
 ]
 D["filter"] = [
     ("Target", "One of your hosts."),
-    ("By hand", f"Clears a DDoS there and makes the host ignore DDoS for {n(C['filter']['dur'])} s."),
+    ("By hand", f"Clears a DDoS there and makes the host ignore DDoS for {n(C['filter']['dur'])} s — unless your main node is under DDoS: then no card can be played at all."),
     ("Loaded", "Fires when a DDoS lands: the DDoS never takes effect and the host is immune for the same 30 s."),
 ]
 D["cover"] = [

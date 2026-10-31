@@ -103,7 +103,7 @@ ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 4px; max-width: 80
 <header class="intro">
   <h1>RIM rules reference</h1>
   <p>The whole design of RIM as the game runs it today: how a match flows, how the map and hosts work, every economic formula, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers and every constant for analysis.</p>
-  <p class="meta">RIM 0.6.13 · branch claude/amazing-einstein-jc1hrr · commit d97b1ec · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
+  <p class="meta">RIM 0.6.14 · branch claude/amazing-einstein-jc1hrr · commit 0f0c0d6 · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
   <nav class="toc" aria-label="Contents">
     <div><b>Flow</b><a href="#overview">Overview and core loop</a><a href="#flow">Match flow</a><a href="#time">Time model</a></div>
     <div><b>World</b><a href="#map">Map and network</a><a href="#hosts">Host types</a><a href="#fog">Sight and fog</a></div>
@@ -239,7 +239,7 @@ flowchart LR
   <div class="tablebox"><table>
     <thead><tr><th>Resource</th><th>Comes from</th><th>Is spent on</th></tr></thead>
     <tbody>
-      <tr><th>Workers</th><td>2 per finished Bot station (the main node starts with one); not a resource</td><td>Nothing: workers carry. Each carries 1 unit a leg and returns for another job. No card or building costs workers.</td></tr>
+      <tr><th>Workers</th><td>2 per finished Bot station (the main node starts with one); not a resource</td><td>Nothing: workers carry. Each carries 1 unit a leg (an export's last unit takes the fraction left beside it) and returns for another job. No card or building costs workers.</td></tr>
       <tr><th class="r-intel">Intel</th><td>Intel harvesters (1 per cycle), the trickle</td><td>Most cards, the harvesters and Miners, part of other buildings and blueprints, Firewall upkeep.</td></tr>
       <tr><th class="r-cash">Crypto</th><td>Crypto miners, the trickle</td><td>Most of the Bot station, Lab and Firewall, most blueprints, some cards.</td></tr>
       <tr><th class="r-creds">Credentials</th><td>Credential harvesters, the trickle</td><td>Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.</td></tr>
@@ -270,7 +270,8 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
   <pre class="code">forecast(res) = main-node trickle (5/min while the main node is up)
               + main-node buildings' output
               + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
-                  inputs  = only a Firewall's upkeep (1 Intel): made on the host, or brought by workers
+                  inputs  = only a Firewall's upkeep (1 Intel): this cycle's harvest on the host first
+                            (it needs no storage room), then what is stored there, or brought by workers
                   trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
                             the main node): of every 4 assignments, 3 go by purpose, upkeep before
                             output, the hosts in turn; the 4th goes to the host served least recently, so the
@@ -363,9 +364,9 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
   <h2>Research and manufacturing</h2>
   <div class="rules">
     <div class="rule"><h4>Research (RESEARCH tab)</h4>
-      <p>The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. While it still pays now and then it reads <b>slowed</b> (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read <b>stopped</b> and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.</p></div>
+      <p>The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. It never takes what your projects still need (building first) or the price of the card at the head of the queue while that card could start; the bar says what is missing and what is kept, and for whom. While it still pays now and then it reads <b>slowed</b> (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read <b>stopped</b> and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.</p></div>
     <div class="rule"><h4>Manufacturing (ATTACK and DEFENCE tabs)</h4>
-      <p>These tabs hold only the recipes you know. <b>+ Queue</b> adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.</p></div>
+      <p>These tabs hold only the recipes you know. <b>+ Queue</b> adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it; while the queue runs and the Ready inventory has room, its price is kept for it from research and from supplies. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.</p></div>
   </div>
   <div class="tablebox"><table>
     <thead><tr><th>Blueprint</th><th>Needs</th><th>Price and time</th><th>Early · mid wait</th></tr></thead>
@@ -476,7 +477,7 @@ stateDiagram-v2
   <header><h3>Traffic filter</h3><span class="tag defense">DEFENCE</span><span class="tag">Research after Patch</span> <span class="tag sock">Firewall socket</span></header>
   <p class="lead">Clear DDoS and block it for 30 s.</p>
   <div class="price"><span class="label">Make</span><span class="chip r-intel"><b>14</b> Intel</span><span class="chip r-cash"><b>4</b> Crypto</span><span class="chip r-research"><b>2</b> Research</span><span class="chip time"><b>8</b> s</span><span class="wait">≈ 47 s early · 22 s mid of Intel income</span></div>
-  <dl><dt>Why it exists</dt><dd>DDoS is the strongest disruption and needs its own answer.</dd><dt>Play it when</dt><dd>Loaded on a junction or on your main node.</dd><dt>Target</dt><dd>One of your hosts.</dd><dt>By hand</dt><dd>Clears a DDoS there and makes the host ignore DDoS for 30 s.</dd><dt>Loaded</dt><dd>Fires when a DDoS lands: the DDoS never takes effect and the host is immune for the same 30 s.</dd></dl>
+  <dl><dt>Why it exists</dt><dd>DDoS is the strongest disruption and needs its own answer.</dd><dt>Play it when</dt><dd>Loaded on a junction or on your main node.</dd><dt>Target</dt><dd>One of your hosts.</dd><dt>By hand</dt><dd>Clears a DDoS there and makes the host ignore DDoS for 30 s — unless your main node is under DDoS: then no card can be played at all.</dd><dt>Loaded</dt><dd>Fires when a DDoS lands: the DDoS never takes effect and the host is immune for the same 30 s.</dd></dl>
 </article><article class="sheet defense" id="card-cover">
   <header><h3>Cargo cover</h3><span class="tag defense">DEFENCE</span><span class="tag">Research after Patch</span> <span class="tag sock">Firewall socket</span></header>
   <p class="lead">Shield this host&#x27;s cargo for 30 s.</p>
@@ -927,7 +928,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
     },
     &quot;make_time&quot;: 14.0,
     &quot;lead&quot;: &quot;Halt 3 hosts&#x27; output for 45 s.&quot;,
-    &quot;rules&quot;: &quot;Hits the target and its owner&#x27;s 2 nearest hosts. They stop producing, main-node income and outgoing deliveries; incoming cargo still arrives. On a main node its owner can play no card at all until it ends. Traffic filter clears it.&quot;
+    &quot;rules&quot;: &quot;Hits the target and its owner&#x27;s 2 nearest hosts. They stop producing, main-node income and outgoing deliveries; incoming cargo still arrives. Traffic filter clears it, except on a main node: its owner can play no card at all until it ends.&quot;
    },
    &quot;zeroday&quot;: {
     &quot;name&quot;: &quot;0day&quot;,
@@ -1038,7 +1039,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
     },
     &quot;make_time&quot;: 8.0,
     &quot;lead&quot;: &quot;Clear DDoS and block it for 30 s.&quot;,
-    &quot;rules&quot;: &quot;In a Firewall socket it waits and blocks the next DDoS as it lands. It does not boost production or stop capture.&quot;
+    &quot;rules&quot;: &quot;In a Firewall socket it waits and blocks the next DDoS as it lands. By hand it cannot be played while your main node is under DDoS. It does not stop capture.&quot;
    },
    &quot;cover&quot;: {
     &quot;name&quot;: &quot;Cargo cover&quot;,
@@ -1534,7 +1535,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
     8
    ]
   ],
-  &quot;GAME_VERSION&quot;: &quot;0.6.13&quot;,
+  &quot;GAME_VERSION&quot;: &quot;0.6.14&quot;,
   &quot;MAP_CELL&quot;: 190.0,
   &quot;SOCKET_TRIGGER&quot;: {
    &quot;patch&quot;: &quot;a capture, Worm or Vault raid starts here&quot;,

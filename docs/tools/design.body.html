@@ -138,7 +138,7 @@ flowchart LR
   <div class="tablebox"><table>
     <thead><tr><th>Resource</th><th>Comes from</th><th>Is spent on</th></tr></thead>
     <tbody>
-      <tr><th>Workers</th><td>2 per finished Bot station (the main node starts with one); not a resource</td><td>Nothing: workers carry. Each carries 1 unit a leg and returns for another job. No card or building costs workers.</td></tr>
+      <tr><th>Workers</th><td>2 per finished Bot station (the main node starts with one); not a resource</td><td>Nothing: workers carry. Each carries 1 unit a leg (an export's last unit takes the fraction left beside it) and returns for another job. No card or building costs workers.</td></tr>
       <tr><th class="r-intel">Intel</th><td>Intel harvesters (1 per cycle), the trickle</td><td>Most cards, the harvesters and Miners, part of other buildings and blueprints, Firewall upkeep.</td></tr>
       <tr><th class="r-cash">Crypto</th><td>Crypto miners, the trickle</td><td>Most of the Bot station, Lab and Firewall, most blueprints, some cards.</td></tr>
       <tr><th class="r-creds">Credentials</th><td>Credential harvesters, the trickle</td><td>Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.</td></tr>
@@ -169,7 +169,8 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
   <pre class="code">forecast(res) = main-node trickle (5/min while the main node is up)
               + main-node buildings' output
               + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
-                  inputs  = only a Firewall's upkeep (1 Intel): made on the host, or brought by workers
+                  inputs  = only a Firewall's upkeep (1 Intel): this cycle's harvest on the host first
+                            (it needs no storage room), then what is stored there, or brought by workers
                   trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
                             the main node): of every 4 assignments, 3 go by purpose, upkeep before
                             output, the hosts in turn; the 4th goes to the host served least recently, so the
@@ -262,9 +263,9 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
   <h2>Research and manufacturing</h2>
   <div class="rules">
     <div class="rule"><h4>Research (RESEARCH tab)</h4>
-      <p>The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. While it still pays now and then it reads <b>slowed</b> (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read <b>stopped</b> and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.</p></div>
+      <p>The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. It never takes what your projects still need (building first) or the price of the card at the head of the queue while that card could start; the bar says what is missing and what is kept, and for whom. While it still pays now and then it reads <b>slowed</b> (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read <b>stopped</b> and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.</p></div>
     <div class="rule"><h4>Manufacturing (ATTACK and DEFENCE tabs)</h4>
-      <p>These tabs hold only the recipes you know. <b>+ Queue</b> adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.</p></div>
+      <p>These tabs hold only the recipes you know. <b>+ Queue</b> adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it; while the queue runs and the Ready inventory has room, its price is kept for it from research and from supplies. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.</p></div>
   </div>
   <div class="tablebox"><table>
     <thead><tr><th>Blueprint</th><th>Needs</th><th>Price and time</th><th>Early · mid wait</th></tr></thead>

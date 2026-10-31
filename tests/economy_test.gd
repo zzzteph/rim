@@ -71,6 +71,12 @@ func run() -> void:
 	security_and_firewall()
 	recon_and_worm()
 	capture_end_to_end()
+	firewall_eats_harvest_first()
+	room_held_for_cargo()
+	tight_counts_every_producer()
+	crumbs_ride_home()
+	stolen_goods_last_on_every_turn()
+	ready_full_head_holds_nothing()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -257,3 +263,117 @@ func capture_end_to_end() -> void:
 	check(ok and g._held(P, "breach") == 0, "Playing Breach consumes the copy and launches an operation")
 	step(float(g.CARDS["breach"].exec) + 12.0)   # travel + execution + margin (tests/capture_test.gd checks the exact timing)
 	check(int(g.hosts[t].owner) == P, "The operation captures the host after travel and execution")
+
+
+func firewall_eats_harvest_first() -> void:   # (0.6.14) a remote Firewall eats its host's Intel harvest before the storage is shared out
+	fresh()
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	var n := own_pc()
+	g._set_builds(n, ["intel", "cash", "wall"])
+	var need: float = float(g.BUILD_KINDS.wall.use.intel)
+	var room := one_cycle(n, "cash")   # room for the Miner's cycle only: the harvest the Firewall eats takes none
+	g.hosts[n].store = {P: {"creds": g.STORE_CAP - room}}
+	g.hosts[n].fw_on = true
+	g._run_cycle(n)
+	check(bool(g.hosts[n].fw_on) and g._st_get(n, P, "intel") < 0.0001 and absf(g._st_get(n, P, "cash") - room) < 0.0001 and g._store_total(n) <= g.STORE_CAP + 0.0001,
+		"A storage with room for %s unit: the Firewall eats %s Intel of its host's harvest first (never stored), and the Miner gets the room, not a share cut by the Intel (%s, Firewall %s)"
+		% [g._amt(room), g._amt(need), g._store_text(n), "on" if bool(g.hosts[n].fw_on) else "OFF"])
+	fresh()   # the same host while its Crypto cannot ship (the bank is full): its storage clogs, its Firewall stays on
+	g.bank[P] = {"intel": 40.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	n = own_pc()
+	g._set_builds(n, ["intel", "cash", "wall"])
+	g.hosts[n].fw_on = true
+	var cycles := 0; var off := 0
+	for k in int(round(g.PROD_CYCLE * 20.0 / g.SIM_DT)):
+		g.bank[P].cash = g._cap(P, "cash")
+		var left := float(g.hosts[n].cyc)
+		g._sim_step(g.SIM_DT)
+		if float(g.hosts[n].cyc) > left:
+			cycles += 1
+			if not bool(g.hosts[n].fw_on): off += 1
+	check(cycles >= 19 and off == 0 and g._store_total(n) >= g.STORE_CAP - 0.5,
+		"A host whose storage fills with Crypto its bank cannot take keeps its Firewall on with its own harvest: on in all %d cycles (off in %d; %s)" % [cycles, off, g._store_text(n)])
+
+
+func room_held_for_cargo() -> void:   # (0.6.14) the room held for a Firewall's upkeep on its way stays free: the storage never goes over its cap
+	fresh()
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	var n := own_pc()
+	g._set_builds(n, ["cash", "cash", "wall"])   # no Intel made here: a worker brings the upkeep, holding its room on the way
+	g.hosts[n].store = {P: {"creds": g.STORE_CAP - 2.0 * one_cycle(n, "cash")}}   # room for one cycle of the Miners
+	g.hosts[n].fw_on = true
+	g.hosts[n].cyc = 1.0   # the Miners run while the Intel is on its way
+	var most := 0.0; var held := 0.0
+	for k in int(round(6.0 / g.SIM_DT)):
+		g.bank[P].cash = g._cap(P, "cash"); g.bank[P].creds = g._cap(P, "creds")   # nothing ships: the storage keeps what it gets
+		g._sim_step(g.SIM_DT)
+		most = maxf(most, g._store_total(n))
+		held = maxf(held, g._inbound_total(n))
+	check(held >= float(g.BUILD_KINDS.wall.use.intel) - 0.001 and g._st_get(n, P, "intel") >= float(g.BUILD_KINDS.wall.use.intel) - 0.001 and most <= g.STORE_CAP + 0.001 and not g._store_text(n).contains("%d/%d" % [int(g.STORE_CAP) + 1, int(g.STORE_CAP)]),
+		"The Miners leave the room held for the Intel on its way: it lands and the storage holds at most %d (most %s; %s)" % [int(g.STORE_CAP), g._amt(most), g._store_text(n)])
+
+
+func tight_counts_every_producer() -> void:   # (0.6.14) a host whose next cycle will not fit is 'about to fill up', whatever it makes
+	fresh()
+	var a := own_pc()
+	g._set_builds(a, ["cash", "cred", "lab"])
+	var gross := one_cycle(a, "cash") + one_cycle(a, "cred") + one_cycle(a, "lab")
+	g.hosts[a].store = {P: {"creds": g.STORE_CAP - (gross - 1.0)}}   # room for all but one unit of its next cycle
+	check(g._storage_tight(a), "A Miner, a Credential harvester and a Lab with room for %s of their %s units next cycle: the host is about to fill up, so its surplus goes first (room %s)"
+		% [g._amt(gross - 1.0), g._amt(gross), g._amt(g._store_room(a))])
+	g.hosts[a].store = {}
+	check(not g._storage_tight(a), "...and with its storage empty it is not")
+
+
+func crumbs_ride_home() -> void:   # (0.6.14) a shared cycle's fractions leave with the whole units: none stays on the host for good
+	fresh()
+	g.bank[P] = {"intel": 20.0, "cash": 20.0, "creds": 20.0, "research": 20.0}
+	g._set_builds(int(g.rig[P]), ["bot", "bot"])   # plenty of workers: whatever can ship, ships
+	var n := own_pc()
+	var kinds := ["intel", "cash", "lab"]
+	g._set_builds(n, kinds)
+	g.hosts[n].store = {P: {"creds": g.STORE_CAP - 1.0}}   # room for one unit: each producer makes a third of its cycle
+	g.hosts[n].cyc = 0.01
+	step(0.1)
+	var split := true
+	for kind in kinds: split = split and absf(g._st_get(n, P, str(g.BUILD_KINDS[kind].out)) - one_cycle(n, kind) / (one_cycle(n, "intel") + one_cycle(n, "cash") + one_cycle(n, "lab"))) < 0.001
+	step(g.PROD_CYCLE * 10.0)
+	var crumbs := 0.0   # what of each material is not a whole unit
+	for res in g.RES:
+		var v: float = g._st_get(n, P, res)
+		crumbs += absf(v - roundf(v))
+	check(split and crumbs < 0.001, "After a cycle that left a third of a unit of each material, the crumbs ride home with the next whole units (%s; fractions left %s)" % [g._store_text(n), g._amt(crumbs)])
+
+
+func stolen_goods_last_on_every_turn() -> void:   # (0.6.14) loot never wins an assignment, the fair fourth one included
+	fresh()
+	var a := own_pc()
+	g._set_builds(a, ["cash"])
+	var b := neutral_neighbour("pc")
+	g._mark_served(P, a)   # your host was just served; the loot's host never was
+	var lo := {"key": "l", "id": 1, "since": 0.0, "host": b, "purpose": "loot", "res": "intel", "qty": 3.0, "dir": "out"}
+	var ex := {"key": "e", "id": 2, "since": 0.0, "host": a, "purpose": "export", "res": "cash", "qty": 1.0, "dir": "out"}
+	var bl := {"key": "c", "id": 3, "since": 0.0, "host": a, "purpose": "build:1", "res": "intel", "qty": 1.0, "dir": "in"}
+	var picks := []
+	for turn in g.PRIORITY_TURNS + 1: picks.append(str(g._pick_request(P, [lo, ex], turn).purpose))
+	for turn in g.PRIORITY_TURNS + 1: picks.append(str(g._pick_request(P, [lo, ex, bl], turn).purpose))
+	check(not picks.has("loot"), "Stolen goods are the workers' last job on every turn, the fourth (fair) one too, with or without a project (%s)" % ", ".join(PackedStringArray(picks)))
+
+
+func ready_full_head_holds_nothing() -> void:   # (0.6.14) a queue head that cannot start for a full Ready inventory keeps no price from research
+	fresh()
+	var price: Dictionary = g._recipe_cost("recon")
+	g.bank[P] = {"intel": 40.0, "cash": 40.0, "creds": 40.0, "research": 40.0}
+	for r in price: g.bank[P][r] = float(price[r])   # exactly its price: the bank holds it
+	g.cards[P] = {"recon": g.READY_SLOTS}
+	g._mq(P).append({"id": 999, "recipe": "recon", "paid": {}, "progress": 0.0})
+	var rk := ""
+	for k in g.RESEARCH:
+		if not g._known(P, str(k)) and g._can_research(P, str(k)) == "": rk = str(k); break
+	g.research_job[P] = {"key": rk, "progress": 0.0, "paused": false}
+	for k in int(round(30.0 / g.SIM_DT)):
+		for r in price: g.bank[P][r] = float(price[r])
+		g._sim_step(g.SIM_DT)
+	check(g._head_owed(P).is_empty() and float(g.research_job[P].get("progress", 0.0)) > 1.0 and not g._research_stall(P).contains("price"),
+		"With the Ready inventory full (%d) the waiting Recon copy holds none of its price: research of %s uses the bank (%.0f s done; '%s')"
+		% [g.READY_SLOTS, str(g.CARDS[rk].name), float(g.research_job[P].get("progress", 0.0)), g._research_stall(P)])

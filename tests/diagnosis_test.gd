@@ -65,6 +65,8 @@ func run() -> void:
 	statuses()
 	firewall_upkeep()
 	honest_producer_notes()
+	upkeep_notes_tell_the_truth()
+	sabotaged_workers_note()
 	route_inspection()
 	delivered_per_host()
 	panel_order()
@@ -351,3 +353,43 @@ func honest_producer_notes() -> void:   # producers need no input: a nearly full
 	step(3.0)
 	var d2 := diag(w)
 	check(lines_have(d2, "storage is full") and not lines_have(d2, "bringing it"), "A Firewall whose host storage is full says its Intel cannot come, not that workers bring it")
+
+
+func upkeep_notes_tell_the_truth() -> void:   # (0.6.14) a Firewall's note matches what its next cycle and the workers will do
+	fresh()
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	var n := own_pc(["intel", "cash", "wall"])
+	var need: float = float(g.BUILD_KINDS.wall.use.intel)
+	g.hosts[n].store = {P: {"creds": g.STORE_CAP - float(g.BUILD_KINDS.cash.rate) * g._tmult(n, "cash")}}   # room for the Miner's cycle only
+	g.hosts[n].fw_on = true
+	var d := diag(n)
+	check(str(d.status) != "Firewall off" and str(d.next).contains("Firewall uses %s Intel" % g._amt(need)) and not lines_have(d, "bringing it"),
+		"A Firewall beside its own harvester, the storage nearly full: the harvest feeds it first, and the host does not claim workers bring Intel (%s: %s)" % [d.status, d.next])
+	g._run_cycle(n)
+	check(bool(g.hosts[n].fw_on), "...and the cycle keeps it on, as the preview said")
+	fresh()
+	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	var w := own_pc(["wall", "wall"])   # two Firewalls: more upkeep than the storage has room for
+	need = float(g.BUILD_KINDS.wall.use.intel) * g._count_all(w, "wall")
+	g.hosts[w].store = {P: {"creds": g.STORE_CAP - (need - 0.5)}}
+	var asked := false
+	for r in g._open_requests(P, int(g.rig[P])):
+		if int(r.host) == w and str(r.purpose) == "upkeep": asked = true
+	d = diag(w)
+	check(not asked and str(d.status) == "Firewall off" and not lines_have(d, "bringing it"),
+		"Two Firewalls needing %s Intel with room for %s: no upkeep is asked for, and the host does not say workers are bringing it (%s)" % [g._amt(need), g._amt(need - 0.5), str(d.lines)])
+
+
+func sabotaged_workers_note() -> void:   # (0.6.14) workers Sabotage keeps at their stations are named as stopped, not busy
+	fresh()
+	g.bank[P] = {"intel": 20.0, "cash": 20.0, "creds": 20.0, "research": 20.0}
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["bot", "bot"]); g._tick_teams(0.0)
+	var n := own_pc(["cred", "cred", "cred"])
+	step(40.0)
+	g.hosts[home].sabot_until = g._t + 60.0   # every station is on the main node: all the workers stop when free
+	step(6.0 + g.PROD_CYCLE * 4.0)   # the ones out come home; the host fills up
+	var wc: Dictionary = g._worker_counts(P)
+	var d := diag(n)
+	check(int(wc.idle) == 0 and int(wc.blocked) == int(wc.total) and lines_have(d, "Sabotage") and not lines_have(d, "busy"),
+		"With Sabotage holding all %d workers at their stations, the full host says so, not that they are busy (%s)" % [int(wc.total), str(d.lines)])

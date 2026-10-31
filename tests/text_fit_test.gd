@@ -114,7 +114,7 @@ func chips(res: Vector2i) -> void:   # the strip: the four-place queue, ready ca
 	check(shown >= 3 and game.ready_more.visible and game.ready_more.text == "+%d" % (game.CARD_ORDER.size() - shown), "%d ready chips fit, the rest behind '%s' @%s" % [shown, game.ready_more.text, res])
 	for q in game.lane_strip.get_children():
 		check((q as Control).get_global_rect().end.x <= game.ready_strip.get_global_rect().position.x, "queue stays left of the ready cards @%s" % res)
-	for label in ["Making 100%", "Paused 100%", "Ready full", "Done: 1 ready", "4 · waiting"]:
+	for label in ["Making 100%", "Paused 100%", "Paused", "Ready full", "Done: 1 ready", "4 · waiting"]:
 		check(w(label, 11) <= game.QUEUE_CHIP_W - 30.0 - 22.0, "queue chip line '%s' fits @%s" % [label, res])
 	var worst_short: float = game._draw_cost_row(game, {"intel": 120, "creds": 120}, -1.0, Vector2.ZERO, 11, 11.0, false)
 	check(worst_short <= game.QUEUE_CHIP_W - 30.0 - 22.0, "a waiting head's shortage icons fit (%.0f px) @%s" % [worst_short, res])

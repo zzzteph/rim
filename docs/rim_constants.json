@@ -263,7 +263,7 @@
         },
         "make_time": 14.0,
         "lead": "Halt 3 hosts' output for 45 s.",
-        "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing deliveries; incoming cargo still arrives. On a main node its owner can play no card at all until it ends. Traffic filter clears it."
+        "rules": "Hits the target and its owner's 2 nearest hosts. They stop producing, main-node income and outgoing deliveries; incoming cargo still arrives. Traffic filter clears it, except on a main node: its owner can play no card at all until it ends."
       },
       "zeroday": {
         "name": "0day",
@@ -374,7 +374,7 @@
         },
         "make_time": 8.0,
         "lead": "Clear DDoS and block it for 30 s.",
-        "rules": "In a Firewall socket it waits and blocks the next DDoS as it lands. It does not boost production or stop capture."
+        "rules": "In a Firewall socket it waits and blocks the next DDoS as it lands. By hand it cannot be played while your main node is under DDoS. It does not stop capture."
       },
       "cover": {
         "name": "Cargo cover",
@@ -870,7 +870,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.13",
+    "GAME_VERSION": "0.6.14",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

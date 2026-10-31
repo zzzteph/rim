@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.13 · commit d97b1ec
+RIM 0.6.14 · commit 0f0c0d6
 
 ## Contents
 
@@ -170,13 +170,13 @@ The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are juncti
 
 ## Resources and banks
 
-| Resource    | Comes from                                                                 | Is spent on                                                                                                       |
-|-------------|----------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| Workers     | 2 per finished Bot station (the main node starts with one); not a resource | Nothing: workers carry. Each carries 1 unit a leg and returns for another job. No card or building costs workers. |
-| Intel       | Intel harvesters (1 per cycle), the trickle                                | Most cards, the harvesters and Miners, part of other buildings and blueprints, Firewall upkeep.                   |
-| Crypto      | Crypto miners, the trickle                                                 | Most of the Bot station, Lab and Firewall, most blueprints, some cards.                                           |
-| Credentials | Credential harvesters, the trickle                                         | Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.                       |
-| Research    | Research labs, the trickle                                                 | Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.                            |
+| Resource    | Comes from                                                                 | Is spent on                                                                                                                                                                 |
+|-------------|----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Workers     | 2 per finished Bot station (the main node starts with one); not a resource | Nothing: workers carry. Each carries 1 unit a leg (an export's last unit takes the fraction left beside it) and returns for another job. No card or building costs workers. |
+| Intel       | Intel harvesters (1 per cycle), the trickle                                | Most cards, the harvesters and Miners, part of other buildings and blueprints, Firewall upkeep.                                                                             |
+| Crypto      | Crypto miners, the trickle                                                 | Most of the Bot station, Lab and Firewall, most blueprints, some cards.                                                                                                     |
+| Credentials | Credential harvesters, the trickle                                         | Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.                                                                                 |
+| Research    | Research labs, the trickle                                                 | Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.                                                                                      |
 
 ``` code
 bank cap(resource) = BASE_CAP[resource] + 50 × (your buildings whose output is that resource)
@@ -213,7 +213,8 @@ Under each material the HUD shows what will reach your bank per minute with your
 forecast(res) = main-node trickle (5/min while the main node is up)
               + main-node buildings' output
               + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
-                  inputs  = only a Firewall's upkeep (1 Intel): made on the host, or brought by workers
+                  inputs  = only a Firewall's upkeep (1 Intel): this cycle's harvest on the host first
+                            (it needs no storage room), then what is stored there, or brought by workers
                   trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
                             the main node): of every 4 assignments, 3 go by purpose, upkeep before
                             output, the hosts in turn; the 4th goes to the host served least recently, so the
@@ -331,11 +332,11 @@ When the way on is cut (a relay taken or under DDoS) a packet waits at the last 
 
 #### Research (RESEARCH tab)
 
-The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. While it still pays now and then it reads **slowed** (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read **stopped** and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.
+The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. It never takes what your projects still need (building first) or the price of the card at the head of the queue while that card could start; the bar says what is missing and what is kept, and for whom. While it still pays now and then it reads **slowed** (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read **stopped** and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.
 
 #### Manufacturing (ATTACK and DEFENCE tabs)
 
-These tabs hold only the recipes you know. **+ Queue** adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.
+These tabs hold only the recipes you know. **+ Queue** adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it; while the queue runs and the Ready inventory has room, its price is kept for it from research and from supplies. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.
 
 | Blueprint             | Needs             | Price and time                         | Early · mid wait |
 |-----------------------|-------------------|----------------------------------------|------------------|
@@ -601,7 +602,7 @@ Clear DDoS and block it for 30 s.
 - **Why it exists:** DDoS is the strongest disruption and needs its own answer.
 - **Play it when:** Loaded on a junction or on your main node.
 - **Target:** One of your hosts.
-- **By hand:** Clears a DDoS there and makes the host ignore DDoS for 30 s.
+- **By hand:** Clears a DDoS there and makes the host ignore DDoS for 30 s — unless your main node is under DDoS: then no card can be played at all.
 - **Loaded:** Fires when a DDoS lands: the DDoS never takes effect and the host is immune for the same 30 s.
 
 ### Cargo cover
