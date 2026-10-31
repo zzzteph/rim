@@ -202,8 +202,9 @@ func no_early_spike() -> void:   # the old reading extrapolated the first second
 	check(not str(g._hud_rate("intel")[0]).begins_with("~"), "No early-estimate tilde: it is a forecast, not a measurement")
 
 
-func short_of_workers() -> void:   # two workers for six hosts: the forecast follows the dispatcher (inputs first, output back on
-	fresh()                          # their return legs, then the surplus in turn), not one even share for everything
+func short_of_workers() -> void:   # two workers for six hosts: the forecast follows the dispatcher (missing inputs on three turns
+	fresh()                          # of four, every other turn to the host served least recently, supplies only where they fit),
+	                                 # material by material, not one even share for everything
 	var home: int = int(g.rig[P])
 	var hs := []
 	var frontier := [home]; var seen := {home: true}
@@ -219,8 +220,8 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 	for k in hs.size(): g._set_builds(hs[k], (lays[k] as Array).slice(0, int(g.hosts[hs[k]].slots)))
 	for res in g.RES: g.bank[P][res] = 100.0
 	for k in int(240.0 / g.SIM_DT): g._sim_step(g.SIM_DT)   # settle
-	var fc_sum := 0.0; var n := 0   # what the remote hosts deliver, all resources together (the mix follows each store)
-	var got := 0.0
+	var fc_by := {}; var got_by := {}; var n := 0   # what the remote hosts deliver, per material
+	for res in g.RES: fc_by[res] = 0.0; got_by[res] = 0.0
 	for sec in 300:
 		for k in int(round(1.0 / g.SIM_DT)): g._sim_step(g.SIM_DT)
 		for res in g.RES: g.bank[P][res] = 100.0   # nothing caps, nothing starves
@@ -228,11 +229,18 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 		var fc: Dictionary = g._forecast(P)
 		for r in g.RES:
 			for src in (fc.from.get(r, {}) as Dictionary):
-				if not str(src).begins_with("main node"): fc_sum += float(fc.from[r][src])
+				if not str(src).begins_with("main node"): fc_by[r] = float(fc_by[r]) + float(fc.from[r][src])
 		n += 1
-		if sec % 30 == 29:
+		if sec % 30 == 29:   # the ledger keeps 30 s: "from:<host>:<res>" is what each host delivered
 			var sums: Dictionary = g._ledger_sums(P)
 			for key in sums:
-				if str(key).begins_with("from:"): got += float(sums[key])
-	var f := fc_sum / n; var m := got / 5.0
-	check(absf(f - m) <= 0.3 * m, "Two workers for six hosts: the forecast of what the hosts deliver (%.1f/min) is within 30%% of what arrives (%.1f/min)" % [f, m])
+				var parts := str(key).split(":")
+				if parts[0] == "from": got_by[parts[2]] = float(got_by[parts[2]]) + float(sums[key])
+	var f := 0.0; var m := 0.0; var bad := []; var said := []
+	for r in g.RES:
+		var fr := float(fc_by[r]) / n; var mr := float(got_by[r]) / 5.0
+		f += fr; m += mr
+		said.append("%s %.1f/%.1f" % [g.RES_NAME[r], fr, mr])
+		if absf(fr - mr) > 0.3 * mr: bad.append(g.RES_NAME[r])
+	check(absf(f - m) <= 0.2 * m, "Two workers for six hosts: the forecast of what the hosts deliver (%.1f/min) is within 20%% of what arrives (%.1f/min)" % [f, m])
+	check(bad.is_empty(), "...and each material is within 30%% of what arrives, forecast/measured per minute: %s %s" % [", ".join(PackedStringArray(said)), str(bad)])

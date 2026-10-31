@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.6 · commit 457acd4
+RIM 0.6.7 · commit 55f6a45
 
 ## Contents
 
@@ -207,18 +207,24 @@ Within the window the recorded flows reconcile exactly with the bank. The ledger
 
 ### The income forecast
 
-Under each material the HUD shows what will reach your bank per minute with your network as it stands: worked out from the network, not from the ledger, so it is steady while nothing changes and moves as soon as something does (a command, a capture, a full bank). A full bank reads “full”.
+Under each material the HUD shows what will reach your bank per minute with your network as it stands: worked out from the network, not from the ledger, so it is steady while nothing changes and moves as soon as something does (a command, a capture, a full bank, a host's storage filling with output). A full bank reads “full”.
 
 ``` code
 forecast(res) = main-node trickle (5/min while the main node is up)
               + main-node buildings' output (their inputs come from the bank)
               + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
                   inputs  = made on the host, or brought by workers (plenty while the bank holds ≥ 5,
-                            else only what the main node brings in, shared by the hosts in turn)
-                  sent    = what your workers' round trips can carry, as the dispatcher serves them (one pool
-                            at the main node): inputs first, each input trip bringing one unit of output back,
-                            then the remaining surplus with what is left of the pool, the hosts in turn;
-                            a host whose inputs are short makes less in proportion
+                            else only what the main node brings in, shared by the hosts in turn), and only
+                            as far as its storage has room for one cycle's inputs next to the output waiting
+                            there (none while its plan waits for room); short inputs, less output
+                  trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
+                            the main node): of every 4 assignments, 3 go by purpose, missing inputs before
+                            surplus, the hosts in turn; the 4th goes to the host served least recently, so the
+                            hosts' trips even out (deliveries to construction are left out). Each trip carries
+                            one unit each way (a supply out, output back); short of workers, the pool makes as
+                            many trips as its time allows
+                  sent    = what those trips carry; a host they cannot keep up with stays full, so it makes
+                            only what leaves, and its converters turn its Intel into their output first
                   nothing from a host with no route home, under DDoS, or into a full bank
 ```
 

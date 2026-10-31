@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.6"   # boxed-in AI research spends only spare stock: never idle on a full price, never at its cards' cost (lobbies match exact versions)
+const GAME_VERSION := "0.6.7"   # income forecast deals trips like the dispatcher: right for each material when workers are short (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1337,14 +1337,14 @@ func _fc_limit(d: Dictionary, res: String, why: String) -> void:
 	if not (d.limits[res] as Array).has(why): (d.limits[res] as Array).append(why)
 
 
-func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}) -> Dictionary:   # one steady cycle of host i for fac: {out: {res: units}, used: {res: units supplied}}
-	var out := {}; var used := {}
+func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}, harvest := 1.0) -> Dictionary:   # one steady cycle of host i for fac: {out: {res: units}, used: {res: units supplied}}
+	var out := {}; var used := {}   # (harvest < 1: its Intel harvesters only get that share of their output into a full storage)
 	for res in RES: out[res] = 0.0
 	var supplied := {}   # inputs that keep coming: a remote host's Keep-here stock (from the bank's budget); at the main node, a bank with a buffer
 	for res in RES:
 		if at_main: supplied[res] = _avail(fac, res) >= 5.0
 		else: supplied[res] = int(hosts[i].owner) == fac and float(budget.get(res, 0.0)) > 0.0001   # supplies are automatic
-	out.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
+	out.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel") * harvest
 	var made := out.duplicate()   # at the main node every output is income; what converters and Firewalls use is spending
 	var walls := _count_all(i, "wall") - _walls_building(i)
 	if walls > 0 and int(hosts[i].owner) == fac and not at_main:   # the Firewall eats first, from what is made here, then from supplies
@@ -1378,6 +1378,93 @@ func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}
 	return {"out": out, "used": used}
 
 
+func _fc_accepts(i: int, fac: int) -> float:   # the share of one cycle's supplies host i has room for: 1 all, 0 none
+	if int(hosts[i].owner) != fac: return 1.0   # (only your own hosts are supplied)
+	var budget := {}
+	for res in RES: budget[res] = _free(fac, res)
+	if bool(_host_plan(i, fac, budget).limited): return 0.0   # its plan already waits for room: no input is requested (it only reads the host)
+	var use := {}   # one cycle's inputs on the host, made there or supplied
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls > 0: use["intel"] = float(BUILD_KINDS.wall.use.intel) * walls
+	for kind in CONVERT_ORDER:
+		var k := _count(i, kind)
+		if k == 0: continue
+		var spec: Dictionary = BUILD_KINDS[kind]
+		var m := _tmult(i, str(spec.out))
+		for r in (spec.use as Dictionary): use[str(r)] = float(use.get(str(r), 0.0)) + float(spec.use[r]) * m * k
+	var w := 0.0
+	var waiting := _store_total(i) + _inbound_total(i)   # what fills its storage and is not this cycle's inputs: output waiting to go home
+	for r in use:
+		w += float(use[r])
+		waiting -= minf(float(_store_of(i, fac).get(r, 0.0)) + _inbound(i, str(r)), float(use[r]))
+	for r in RES: waiting -= _claimed(i, fac, r)   # (a worker is already on its way for it)
+	if w <= 0.0001: return 1.0
+	return clampf((STORE_CAP - waiting) / w, 0.0, 1.0)
+
+
+func _fc_fill(base: Array, cap: Array, amount: float) -> Array:   # amount shared out lowest first, none past its cap: x = clamp(level, base, cap)
+	var lo := PackedFloat64Array(); var hi := PackedFloat64Array()   # where each host starts and stops taking a share as the level rises
+	for k in base.size():
+		if float(cap[k]) > float(base[k]) + 0.000001: lo.append(float(base[k])); hi.append(float(cap[k]))
+	if amount <= 0.000001 or lo.is_empty(): return base.duplicate()
+	lo.sort(); hi.sort()
+	var level := INF; var left := amount; var at := lo[0]; var n := 0; var a := 0; var b := 0
+	while a < lo.size() or b < hi.size():
+		var starts := a < lo.size() and (b >= hi.size() or lo[a] <= hi[b])
+		var e := lo[a] if starts else hi[b]
+		if n > 0:
+			if (e - at) * n >= left: level = at + left / n; break
+			left -= (e - at) * n
+		at = e
+		if starts: a += 1; n += 1
+		else: b += 1; n -= 1
+	var x := []
+	for k in base.size(): x.append(clampf(level, float(base[k]), maxf(float(base[k]), float(cap[k]))))
+	return x
+
+
+func _fc_split(din: Array, dem: Array, a: float) -> Array:   # a assignments a minute dealt as the dispatcher deals them: trips per host
+	var zero := []
+	var sum_in := 0.0
+	for v in din: zero.append(0.0); sum_in += float(v)
+	var p := _fc_fill(zero, din, minf(sum_in, a * float(PRIORITY_TURNS) / float(PRIORITY_TURNS + 1)))   # purpose turns: missing inputs, hosts in turn
+	var used := 0.0
+	for v in p: used += float(v)
+	return _fc_fill(p, dem, a - used)   # every other turn goes to the host served least recently: the least served catch up
+
+
+func _fc_scaled(amounts: Dictionary, f: float) -> Dictionary:   # {res: amount × f} for every material
+	var out := {}
+	for res in RES: out[res] = float(amounts.get(res, 0.0)) * f
+	return out
+
+
+func _fc_units(amounts: Dictionary) -> float:
+	var s := 0.0
+	for res in RES: s += float(amounts.get(res, 0.0))
+	return s
+
+
+func _fc_throttled(i: int, fac: int, sup: Dictionary, full: Dictionary, target: float) -> Dictionary:   # host i's output a cycle when only
+	var lo := 0.0; var hi := 1.0                                                                        # `target` units can leave
+	var olo: Dictionary = _fc_cycle(i, fac, false, {}, sup.duplicate(), 0.0).out   # its storage stays full: its Intel harvesters only add as
+	var ohi := full                                                                # much as leaves, its converters turn that into their output
+	var ulo := _fc_units(olo); var uhi := _fc_units(full)
+	if ulo >= target: return _fc_scaled(olo, target / maxf(0.0001, ulo))   # (its supplies alone make more than leaves)
+	for it in 8:   # the output grows piecewise linearly with the harvest: a few secant steps land on it
+		if uhi - ulo <= 0.0001: break
+		var mid := lo + (hi - lo) * (target - ulo) / (uhi - ulo)
+		var om: Dictionary = _fc_cycle(i, fac, false, {}, sup.duplicate(), mid).out
+		var um := _fc_units(om)
+		if absf(um - target) <= 0.0001: return om
+		if um > target: hi = mid; ohi = om; uhi = um
+		else: lo = mid; olo = om; ulo = um
+	var w := clampf((target - ulo) / maxf(0.0001, uhi - ulo), 0.0, 1.0)
+	var out := {}
+	for res in RES: out[res] = lerpf(float(olo[res]), float(ohi[res]), w)
+	return out
+
+
 func _forecast_now(fac: int) -> Dictionary:
 	var per := 60.0 / PROD_CYCLE
 	var d := {"rate": {}, "from": {}, "limits": {}, "need": 0.0, "spare": 0.0, "fleet": 0}
@@ -1392,8 +1479,8 @@ func _forecast_now(fac: int) -> Dictionary:
 		else:
 			budget[res] = MAIN_INCOME * PROD_CYCLE if _main_ok(fac) else 0.0
 			if res == "intel" and _main_ok(fac): budget[res] = float(budget[res]) + float(BUILD_KINDS.intel.rate) * _tmult(hub, "intel") * _count(hub, "intel")
-	# remote hosts first: what each could send home per cycle, and what it needs supplied
-	var remote := []   # [host, ship {res: units/cycle}, supply units/cycle, round trip s]
+	# remote hosts first: what each sends home per cycle and the supply trips that takes
+	var remote := []   # [host, ship {res: units/cycle}, supply trips/cycle, round trip s, supplies {res: units/cycle} if all come]
 	for i in hosts.size():
 		if i == hub: continue
 		var owner := int(hosts[i].owner)
@@ -1402,58 +1489,74 @@ func _forecast_now(fac: int) -> Dictionary:
 		if _ddos_down(i):
 			if _standing(i) > 0: for res in RES: _fc_limit(d, res, "a host under DDoS")
 			continue
-		var cyc := _fc_cycle(i, fac, false, {}, budget)
-		var ship := {}; var sum := 0.0
+		# its storage holds one cycle's inputs next to the output waiting there, or only part of them: the dispatcher
+		# sends a supply only where it fits, so a host full of output gets fewer (none if its plan waits for room)
+		var cyc := _fc_cycle(i, fac, false, {}, budget.duplicate())   # fully supplied, from what the bank can send
+		var acc := 1.0 if (cyc.used as Dictionary).is_empty() else _fc_accepts(i, fac)
+		var sup := _fc_scaled(cyc.used, acc)
+		for res in RES: budget[res] = maxf(0.0, float(budget[res]) - float(sup[res]))   # (a short bank's supplies go to the hosts in turn)
+		var ship: Dictionary = cyc.out if acc >= 0.9999 else _fc_cycle(i, fac, false, {}, sup.duplicate()).out   # supplied as far as it has room
+		var sum := 0.0
 		for res in RES:
-			if float(cyc.out[res]) > 0.0001: ship[res] = float(cyc.out[res]); sum += float(cyc.out[res])
-		var sup := 0.0
-		for r in (cyc.used as Dictionary): sup += float(cyc.used[r])
-		if sum <= 0.0001: continue
+			sum += float(ship[res])
+			if float(cyc.out[res]) > float(ship[res]) + 0.0001: _fc_limit(d, res, "no room for supplies at %s" % str(hosts[i].name))
+		var trips := 0.0   # one unit a leg: a supply's final fraction still takes a trip of its own
+		for r in (cyc.used as Dictionary): trips += ceilf(float(cyc.used[r]) / WORKER_CARRY - 0.0001)
+		trips *= acc
+		if sum <= 0.0001 and trips <= 0.0: continue
 		var rt := _home_route(fac, i)
 		if rt.size() < 2:
-			for res in ship: _fc_limit(d, res, "no route home from %s" % str(hosts[i].name))
+			for res in RES: if float(ship[res]) > 0.0001: _fc_limit(d, res, "no route home from %s" % str(hosts[i].name))
 			continue
 		var hub_x := float(hosts[hub].get("express_until", 0.0)) > _t; var host_x := float(hosts[i].get("express_until", 0.0)) > _t
-		remote.append([i, ship, sup, _travel_time(rt, hub_x) + _travel_time(rt, host_x)])   # out leg leaves the main node, back leg the host
-	# workers: one pool at the main node, with the dispatcher's priorities. Inputs go first, and each input trip brings
-	# one unit of the host's output back on its return leg. What is left of the pool's time then carries the remaining
-	# surplus, shared by the hosts in turn. Starved inputs starve that host's output in proportion.
+		remote.append([i, ship, trips, _travel_time(rt, hub_x) + _travel_time(rt, host_x), sup])   # out leg leaves the main node, back leg the host
+	# workers: one pool at the main node, dealt out as the dispatcher deals its assignments. Of every PRIORITY_TURNS + 1,
+	# the purpose turns bring missing inputs first (the hosts in turn); every other turn goes to the host served least
+	# recently, so the hosts' trips even out. A trip carries one unit each way: a supply out, output back. Short of
+	# workers, the pool makes as many trips a minute as its time allows; a host short of supplies makes less in proportion.
 	var fleet: int = int(_worker_counts(fac).total)
-	var spare := float(fleet)
-	var need_in := 0.0; var need := 0.0
+	var din := []; var dem := []; var cost := []
+	var need := 0.0
 	for row in remote:
 		var units := 0.0
-		for res in (row[1] as Dictionary): units += float(row[1][res])
-		need_in += float(row[2]) * float(row[3]) / PROD_CYCLE
-		need += maxf(units, float(row[2])) * float(row[3]) / PROD_CYCLE   # workers busy keeping up with all of it
-	var share_in := 1.0 if need_in <= spare + 0.0001 else spare / maxf(0.0001, need_in)
-	var left := maxf(0.0, spare - need_in * share_in)
-	var rest := []   # per row: [ride units, surplus units still to carry]
-	var need_out := 0.0
-	for row in remote:
-		var units := 0.0
-		for res in (row[1] as Dictionary): units += float(row[1][res])
-		var made := units * (share_in if float(row[2]) > 0.0001 else 1.0)   # outputs shrink with starved inputs
-		var ride := minf(made, float(row[2]) * share_in)
-		rest.append([ride, made - ride])
-		need_out += (made - ride) * float(row[3]) / PROD_CYCLE
-	var share_out := 1.0 if need_out <= left + 0.0001 else left / maxf(0.0001, need_out)
-	d.need = need; d.spare = spare; d.fleet = fleet
+		for res in RES: units += float(row[1][res])
+		din.append(float(row[2]) * per)
+		dem.append(maxf(float(row[2]), units / WORKER_CARRY) * per)   # trips a minute that keep up with all of it
+		cost.append(float(row[3]))
+		need += float(dem[dem.size() - 1]) * float(row[3]) / 60.0   # workers busy keeping up with it
+	d.need = need; d.spare = float(fleet); d.fleet = fleet
+	var trips_of: Array = dem
+	if need > float(fleet) + 0.0001:
+		var lo := 0.0; var hi := 0.0
+		for v in dem: hi += float(v)
+		for it in 24:   # the assignments a minute the pool's time allows
+			var mid := (lo + hi) / 2.0
+			var x := _fc_split(din, dem, mid)
+			var busy := 0.0
+			for k in x.size(): busy += float(x[k]) * float(cost[k])
+			if busy > float(fleet) * 60.0: hi = mid
+			else: lo = mid
+		trips_of = _fc_split(din, dem, lo)
 	var inflow := {}
 	for k in remote.size():
 		var row: Array = remote[k]
 		var i: int = row[0]
-		var units := 0.0
-		for res in (row[1] as Dictionary): units += float(row[1][res])
-		var got := float(rest[k][0]) + float(rest[k][1]) * share_out
-		var f := clampf(got / maxf(0.0001, units), 0.0, 1.0)
-		if f < 0.999:
-			for res in (row[1] as Dictionary): _fc_limit(d, str(res), "not enough workers")
-		for res in (row[1] as Dictionary):
-			if _room(fac, str(res)) < 1.0 and _avail(fac, str(res)) >= _cap(fac, str(res)) - 0.5: continue   # a full bank takes nothing
-			var v := float(row[1][res]) * f * per
+		var x := float(trips_of[k])
+		var made: Dictionary = row[1]
+		if x < float(din[k]) - 0.0001:   # short of supply trips: the supplies that come
+			made = _fc_cycle(i, fac, false, {}, _fc_scaled(row[4], x / float(din[k]))).out
+		if x < float(dem[k]) - 0.001:
+			for res in RES: if float(made[res]) > 0.0001: _fc_limit(d, res, "not enough workers")
+		# its trips bring everything home while they keep up. Else its storage stays full: its Intel harvesters only make
+		# as much as leaves, and its converters, in their order, turn that Intel into their own output first
+		if _fc_units(made) * per > x * WORKER_CARRY + 0.0001:
+			made = _fc_throttled(i, fac, _fc_scaled(row[4], minf(1.0, x / maxf(0.0001, float(din[k])))), made, x * WORKER_CARRY / per)
+		for res in RES:
+			if _room(fac, res) < 1.0 and _avail(fac, res) >= _cap(fac, res) - 0.5: continue   # a full bank takes nothing
+			var v := float(made[res]) * per
+			if v <= 0.0001: continue
 			inflow[res] = float(inflow.get(res, 0.0)) + v
-			_fc_add(d, str(res), str(hosts[i].name), v)
+			_fc_add(d, res, str(hosts[i].name), v)
 	# the main node: the trickle, then its buildings (inputs straight from the bank)
 	if _main_ok(fac):
 		for res in RES:

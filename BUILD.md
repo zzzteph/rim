@@ -205,13 +205,17 @@ command). It is worked out from the network, never extrapolated from early ledge
 trickle and buildings (with their bank inputs), then each host whose output is yours (`_fc_cycle`: its active
 producers, inputs made there or supplied by workers from a shared budget — plenty while the bank holds
 a buffer, else what the main node itself brings in — Firewall upkeep, the converters in order), limited by its route
-home, by a fair share of your workers' round trips (one pool for every host), and by the bank's room;
-remote production counts only as fast as it can be delivered (storage that fills stops production). A full bank
-shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
-workers", "no route home from …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
+home, by your workers' round trips dealt as the dispatcher deals them (0.6.7: `_fc_split` — of every 4 assignments
+3 bring missing inputs first, the hosts in turn, and the 4th goes to the host served least recently; short of
+workers, the pool makes as many trips a minute as its time allows), by its storage's room for supplies
+(`_fc_accepts`: none while its plan waits for room), and by the bank's room. A host the trips cannot keep up with
+stays full, so it makes only what leaves and its converters turn its Intel into their output first (`_fc_throttled`).
+A full bank shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
+workers", "no route home from …", "no room for supplies at …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
 transit (`_where_is`). The **Workers** column is the worker population, not an income:
 "Workers N" over "B busy · F free" (or "· K blocked"). `tests/forecast_test.gd` checks the forecast against 120 s of
-steady play and against no workers, a cut route, starvation and supply, a paused producer and a full bank.
+steady play and against no workers, a cut route, starvation and supply, a paused producer and a full bank, and, with
+two workers for six hosts, each material within 30% of what arrives.
 
 Host panels (0.6.3). Your host's panel is a **build menu**: its name, its slots (`SlotBox`, compact `SLOT_H` 112 px
 cards in rows of three; a finished Firewall shows its three sockets inside its own card, so a row never grows) and
