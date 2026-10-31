@@ -182,6 +182,12 @@ func statuses() -> void:
 	check(str(diag(n).status) == "idle" and str(diag(n).role) == "EMPTY HOST", "An empty host is idle and says how to start")
 	g._set_builds(n, ["intel"]); g._cmd(["produce", n, 0])   # (a retired verb: a building cannot be paused)
 	check(str(diag(n).status) != "paused" and g._producer_active(n, 0), "A building cannot be paused: the old pause order changes nothing")
+	var said := []   # no advice to pause anything, anywhere a host explains itself
+	for i in g.hosts.size():
+		if not g._mine(i): continue
+		for line in (g._host_diag(i).lines as Array): said.append(str(line[0]))
+		for k in (g.hosts[i].builds as Array).size(): said.append(g._slot_tip(i, k))
+	check(not said.any(func(t): return t.to_lower().contains("pause")), "No host note tells you to pause something")
 	g._set_builds(home, ["cash"]); g.bank[P].intel = 0.0
 	d = diag(home)
 	check(str(d.role) == "MAIN NODE" and str(d.status) == "starved" and lines_have(d, "no Intel in your bank"), "A main-node Miner with an empty Intel bank is starved")

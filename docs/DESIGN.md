@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.10 · commit 4e1a6d1
+RIM 0.6.11 · commit 7cda4e9
 
 ## Contents
 
@@ -294,7 +294,7 @@ Each finished Bot station provides two reusable workers that belong to its host;
 
 #### Who carries, and what first
 
-Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. **Building comes first.** While a project waits for materials, three of four assignments carry them (a Bot station's first, since its workers carry for everything else, then the project ordered first, preferring a site whose trip back can relieve a host about to fill up); the fourth keeps production going: the surplus of a host whose next cycle would not fit its storage, or a material the projects wait for that is not in the bank. The bank's stock that the projects still need is theirs: supplies to production only get the rest, so a building never waits while its materials go to a Miner. A material the projects wait for that is not in the bank is collected from the hosts first. With nothing to build, three of four assignments go by purpose — inputs, then surplus and loot — to the host served least recently, and every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.
+Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. **Building comes first.** While a project waits for materials, three of four assignments carry them (a Bot station's first, since its workers carry for everything else, then the project ordered first), with the Firewalls' upkeep, so a Firewall never goes off while you build; the fourth keeps every host going: the surplus of a host whose next cycle would not fit its storage, or a material the projects wait for that is not in the bank, else the host served least recently, whatever it needs. The bank's stock that the projects still need is theirs (a project the workers cannot reach, cut off or behind a DDoS, holds none): supplies to production only get the rest, so a building never waits while its materials go to a Miner. A material the projects wait for that is not in the bank is collected from the hosts first. With nothing to build, three of four assignments go by purpose — inputs, then surplus and loot — to the host served least recently, and every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.
 
 #### No supply settings
 
@@ -302,7 +302,7 @@ Supply is automatic and in the background: there is nothing to set per host. Wha
 
 #### Construction
 
-Ordering is free. A project's materials go into an escrow at its site — separate from the 10-unit storage, so a 16-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. Pause stops work and new deliveries; cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.
+Ordering is free. A project's materials go into an escrow at its site — separate from the 10-unit storage, so a 16-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.
 
 #### Routes
 
@@ -721,7 +721,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 
 - 2–3 players; lobbies public or by 5-letter code; sizes Small, Medium, Big; players meet only on the same game version.
 - Deterministic lockstep: the server never simulates. Every screen runs the same simulation from the same seed; only commands travel, grouped in turns of 3 steps (0.1 s) and run 2 turns after they are sent.
-- Commands: build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause.
+- Commands: build (order a project: free until its materials arrive), demolish, cancel (a project; its delivered materials stay as salvage), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause.
 - After every turn each screen fingerprints the whole simulation (time, flights, intrusions, every host's owner, buildings, jobs, storage, sockets, Firewall power, cycle phase and timed effects, every bank, every worker and team, claims, inbound supplies, project escrow, the round-robin and fair-dispatch turns, incoming, cards, known recipes, research and the queue) so drift is caught.
 - No pause; a player whose main node falls is out and the others play on.
 

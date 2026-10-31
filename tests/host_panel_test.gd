@@ -81,6 +81,7 @@ func run() -> void:
 	await inspector()
 	await typed_rates_and_lost_selection()
 	await view_stays_put()
+	await notes_know_their_height()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -306,3 +307,25 @@ func view_stays_put() -> void:   # the sim never moves your view or your reading
 	g._tab = ""; g._set_deck_open(true)
 	g.sel = {home: true}; g._inspect = home; g._refresh_panel()   # selected by a capture, a lesson step, a log entry, a shift-click
 	check(not g._deck_open, "One host of yours selected while the drawer is open: the drawer closes, its build menu gets the full height")
+
+
+func notes_know_their_height() -> void:   # a hover note is sized before it is shown, so Godot keeps it on screen: never shorter than its text
+	fresh()
+	var home: int = int(g.rig[P])
+	var texts := []
+	for r in g.RESEARCH: texts.append(g._research_tooltip(str(r)))
+	for r in g.CARDS: texts.append(g._card_tooltip(str(r)))
+	for k in (g.hosts[home].builds as Array).size(): texts.append(g._slot_tip(home, k))
+	texts.append("short")
+	var worst := 0.0; var worst_t := ""
+	for t in texts:
+		var note: Label = g._wrapped_tooltip(str(t))
+		var est: float = note.custom_minimum_size.y
+		var w: float = note.custom_minimum_size.x
+		root.add_child(note)
+		note.custom_minimum_size = Vector2(w, 0); note.size = Vector2(w, 0)
+		await process_frame
+		var real: float = note.get_combined_minimum_size().y
+		if real - est > worst: worst = real - est; worst_t = str(t).substr(0, 40)
+		note.queue_free()
+	check(worst <= 0.5, "Every hover note's measured height covers its text, so it is placed on screen (worst short by %.0f px: '%s')" % [worst, worst_t])

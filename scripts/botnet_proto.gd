@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.10"   # workers build first: materials before supplies, the bank stock projects need is theirs, Bot stations first (lobbies match exact versions)
+const GAME_VERSION := "0.6.11"   # review fixes: Firewall upkeep never waits for building, unreachable projects hold no stock, tooltips measured right, host amounts on every card (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1184,7 +1184,7 @@ func _producer_active(i: int, slot: int) -> bool:   # a finished producer that i
 	return str(hosts[i].builds[slot]) in PRODUCER_KINDS
 
 
-func _count(i: int, kind: String) -> int:   # ACTIVE producers of a kind (0 while DDoSed, sabotaged or paused)
+func _count(i: int, kind: String) -> int:   # ACTIVE producers of a kind (0 while DDoSed, sabotaged or under construction)
 	var b: Array = hosts[i].builds
 	if not b.has(kind): return 0
 	var n := 0
@@ -1696,8 +1696,9 @@ func _run_cycle(i: int) -> void:
 	var use_plan: bool = not _st_local(i, owner) and benef == owner
 	var planned := {}
 	if use_plan:   # the plan for this very cycle, from what is here and what can still come (never stale)
-		var budget := _supply_budget(owner, _build_owed(owner))
-		var pl := _host_plan(i, owner, budget)
+		var owed := _build_owed(owner)
+		var budget := _supply_budget(owner, owed)
+		var pl := _host_plan(i, owner, budget, float(owed.get("intel", 0.0)))
 		planned = pl.frac; hosts[i].plan_limited = bool(pl.limited)
 	for kind in CONVERT_ORDER:
 		var spec: Dictionary = BUILD_KINDS[kind]
@@ -1747,9 +1748,11 @@ func _home_route(fac: int, src: int) -> Array:   # how fac's couriers travel fro
 # building materials or a host's missing input, back with a host's surplus or a theft / salvage pile.
 # Nobody configures shipping: each host's needs come from its own work (_host_plan: the next production cycle's
 # inputs after what it makes itself, its Firewall's upkeep, its construction bills) and whatever it holds beyond that
-# is surplus to collect. Three of every four new assignments go by purpose - construction, then inputs, then surplus -
-# and then to the host served least recently; every fourth goes to the host served least recently whatever it needs
-# (_pick_request), so the hosts are served in turn and nothing waits forever.
+# is surplus to collect. Building comes first: while a project's materials can go, three of every four assignments
+# carry them (and the Firewalls' upkeep), and the bank stock the projects need is kept for them; the fourth relieves a
+# host about to fill up, collects what the projects wait for, or serves the host waiting longest. With nothing to
+# build: by purpose - inputs, then surplus - and every fourth to the host served least recently (_pick_request), so
+# the hosts are served in turn and nothing waits forever.
 # Every packet - worker or card - moves hop by hop through its owner's hosts only (_advance_flights): a relay that is
 # taken or knocked out stops it at the last good host, where it waits, visibly, and goes on when a route opens.
 # Losing a host destroys the workers of its stations wherever they are (_kill_home_workers); a worker lost on the
@@ -1987,8 +1990,8 @@ func _free(fac: int, res: String) -> float:   # main-node stock research, cards,
 # as its WHOLE bundle can be had - here, already on its way, or from the main node's unclaimed stock (shared by the
 # hosts in turn through `budget`) - so no input is sequestered for a recipe whose other input cannot come. If the
 # shortfalls would not fit the host's free storage, the converters take turns (plan_rr) instead of waiting for all.
-func _host_plan(i: int, fac: int, budget: Dictionary) -> Dictionary:   # {frac: {slot: f}, short: {res}, reserve: {res}, export: {res}, limited}
-	var out := {"frac": {}, "short": {}, "reserve": {}, "export": {}, "limited": false, "wall": true}
+func _host_plan(i: int, fac: int, budget: Dictionary, upkeep_extra := 0.0) -> Dictionary:   # (upkeep_extra: bank Intel held for projects a Firewall may still use)   # {frac: {slot: f}, short: {res}, reserve: {res}, export: {res}, limited}
+	var out := {"frac": {}, "short": {}, "reserve": {}, "export": {}, "limited": false, "wall": true, "upkeep": 0.0}   # (upkeep: the part of short.intel the Firewalls eat)
 	var stock := {}; var pool := {}; var made := {}; var local_used := {}
 	for res in RES:
 		stock[res] = maxf(0.0, float(_store_of(i, fac).get(res, 0.0)) - _claimed(i, fac, res))
@@ -2003,9 +2006,10 @@ func _host_plan(i: int, fac: int, budget: Dictionary) -> Dictionary:   # {frac: 
 	var walls := _count_all(i, "wall") - _walls_building(i)
 	if walls > 0:
 		var need := float(BUILD_KINDS.wall.use.intel) * walls
-		var can := float(pool.intel) + minf(float(budget.get("intel", 0.0)), room)
+		var can := float(pool.intel) + minf(float(budget.get("intel", 0.0)) + upkeep_extra, room)
 		if can >= need - 0.0001:
 			var ext := maxf(0.0, need - float(pool.intel)); room -= ext
+			out.upkeep = ext
 			take.call("intel", need)
 		else: out.wall = false
 	var inst := []   # the active converters in cycle order: [kind, slot]
@@ -2043,12 +2047,13 @@ func _host_plan(i: int, fac: int, budget: Dictionary) -> Dictionary:   # {frac: 
 
 
 # ---- requests: what each host needs brought in and has to send out, keeping their age ----
-const REQ_CLASS := {"build": 0, "input": 1, "export": 2, "loot": 2}   # purpose order on three of four assignments: building first
+const REQ_CLASS := {"build": 0, "upkeep": 0, "input": 1, "export": 2, "loot": 2}   # purpose order: building (and the Firewalls' upkeep) first
 
 
 func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, since, host, purpose, res, qty, dir}] in a stable order
 	var want := {}   # key -> [host, purpose, res, qty, dir]
-	var budget := _supply_budget(fac, _build_owed(fac))   # (supplies get what the projects do not need)
+	var owed_all := _build_owed(fac)
+	var budget := _supply_budget(fac, owed_all)   # (supplies get what the projects do not need; a Firewall's upkeep may use their stock)
 	var n := hosts.size()
 	var start := posmod(int(ship_cursor.get(fac, 0)), maxi(1, n))   # the hosts share a short main node in turn
 	for k in n:
@@ -2056,10 +2061,13 @@ func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, sin
 		if i == hub or (only >= 0 and i != only): continue
 		var own := int(hosts[i].owner) == fac
 		if own:
-			var plan := _host_plan(i, fac, budget)
+			var plan := _host_plan(i, fac, budget, float(owed_all.get("intel", 0.0)))
 			_plan_cache[i] = plan; hosts[i].plan_frac = plan.frac; hosts[i].plan_limited = bool(plan.limited)
+			var upkeep := minf(float(plan.upkeep), float(plan.short.intel))   # a Firewall's Intel keeps its defence on: it goes with building
+			if upkeep > 0.0001: want["%d:upkeep:intel" % i] = [i, "upkeep", "intel", upkeep, "in"]
 			for res in RES:
-				if float(plan.short[res]) > 0.0001: want["%d:input:%s" % [i, res]] = [i, "input", res, float(plan.short[res]), "in"]
+				var short_in := float(plan.short[res]) - (upkeep if res == "intel" else 0.0)
+				if short_in > 0.0001: want["%d:input:%s" % [i, res]] = [i, "input", res, short_in, "in"]
 				if float(plan.export[res]) >= 0.999: want["%d:export:%s" % [i, res]] = [i, "export", res, floorf(float(plan.export[res]) + 0.0001), "out"]
 			for b in _build_requests(i, fac): want["%d:build:%s:%s" % [i, str(b[0]), str(b[1])]] = [i, "build:" + str(b[0]), str(b[1]), float(b[2]), "in"]
 		var pile: Dictionary = (hosts[i].get("loot", {}) as Dictionary).get(fac, {})   # theft and salvage piles; a rival's host's output stored for you
@@ -2098,9 +2106,12 @@ func _req_class(r: Dictionary) -> int: return int(REQ_CLASS.get(str(r.purpose).s
 # that the projects still need is theirs (supplies to production get only the rest), and what the projects wait for
 # that is not in the bank is collected from the hosts first.
 func _build_owed(fac: int) -> Dictionary:   # {res: what fac's projects still need from its bank: bill not at the site and not on its way}
-	var out := {}
+	var out := {}                            # (a project the workers cannot reach now - cut off, or behind a DDoS - holds nothing)
+	var hub := _hub(fac)
+	if hub < 0: return out
 	for i in hosts.size():
 		if int(hosts[i].owner) != fac or (hosts[i].jobs as Dictionary).is_empty(): continue
+		if i != hub and not _route_ok(fac, hub, i): continue
 		for s in (hosts[i].jobs as Dictionary):
 			var job: Dictionary = hosts[i].jobs[s]
 			if str(job.get("kind", "")) == "": continue
@@ -2112,7 +2123,9 @@ func _build_owed(fac: int) -> Dictionary:   # {res: what fac's projects still ne
 
 func _supply_budget(fac: int, owed := {}) -> Dictionary:   # {res: bank stock supplies to production may use}: what the projects do not need
 	var out := {}
-	for res in RES: out[res] = maxf(0.0, _free(fac, res) - float(owed.get(res, 0.0)))
+	for res in RES:
+		var v := maxf(0.0, _free(fac, res) - float(owed.get(res, 0.0)))
+		out[res] = floorf(v + 0.0001) if owed.has(res) else v   # (while projects hold stock, whole units: no trips with a sliver)
 	return out
 
 
@@ -2137,7 +2150,7 @@ func _amount(fac: int, hub: int, r: Dictionary, owed := {}) -> float:   # what o
 			if not _build_room(i, str(r.purpose).trim_prefix("build:"), res, amt): return 0.0
 		else:
 			if _store_room(i) < amt - 0.0001: return 0.0                   # no room at the host for it
-			if _free(fac, res) - float(owed.get(res, 0.0)) < amt - 0.0001: return 0.0   # the projects need it: building first
+			if str(r.purpose) != "upkeep" and _free(fac, res) - float(owed.get(res, 0.0)) < amt - 0.0001: return 0.0   # the projects need it: building first
 	else:
 		var have := _pile_or_store(i, fac, res)
 		amt = minf(amt, have)
@@ -2183,24 +2196,29 @@ func _pick_first(fac: int, r: Dictionary, lack: Dictionary) -> int:   # 0: a pro
 
 
 func _pick_request(fac: int, cands: Array, turn: int, lack := {}) -> Dictionary:   # building first: three of four assignments take a project's
-	var fair: bool = turn % (PRIORITY_TURNS + 1) == PRIORITY_TURNS                 # materials (where the trip back can relieve a host about to fill
-	var tight := {}                                                               # up first, then the oldest); the fourth keeps production going -
-	for r in cands:                                                               # the surplus of a host about to fill up, or what the projects
-		if str(r.dir) == "out" and _storage_tight(int(r.host)): tight[int(r.host)] = true   # wait for - when there is any. Supplies to
-	var best := {}; var bk := []                                                  # production never go before building. Among the projects a
-	var building := cands.any(func(r): return _req_class(r) == 0)                 # Bot station goes first (its workers carry for every other one),
-	for pass_n in 2:                                                              # then the one ordered first. With nothing to build, what the
-		var want := 1 if (fair or not building) == (pass_n == 0) else 0          # projects wait for comes first.
+	var fair: bool = turn % (PRIORITY_TURNS + 1) == PRIORITY_TURNS                 # materials (a Bot station's first - its workers carry for every
+	var tight := {}                                                               # other one - then the one ordered first) or a Firewall's upkeep;
+	for r in cands:                                                               # the fourth keeps every host going: the surplus of a host about
+		if str(r.dir) == "out" and _storage_tight(int(r.host)): tight[int(r.host)] = true   # to fill up or what the projects wait for,
+	var best := {}; var bk := []                                                  # else the host served least recently, whatever it needs.
+	var building := cands.any(func(r): return _req_class(r) == 0)                 # With nothing to build, what the projects wait for comes first.
+	for pass_n in 2:
+		var want := 1 if (fair or not building) == (pass_n == 0) else 0
 		for r in cands:
 			if _pick_first(fac, r, lack) != want or (want == 1 and not building and float(lack.get(str(r.res), 0.0)) <= 0.0001): continue
 			var h := int(r.host)
 			var k := []
-			if want == 0:
+			if want == 0:   # (a Firewall's upkeep first: one unit a cycle keeps its loaded defence on)
 				var job := _job_for(h, str(r.purpose).trim_prefix("build:"))
-				k = [0 if str(job.get("kind", "")) == "bot" else 1, int(job.get("id", 0)), 0 if tight.has(h) else 1, int(r.id)]
+				k = [-1 if str(r.purpose) == "upkeep" else (0 if str(job.get("kind", "")) == "bot" else 1), int(job.get("id", 0)), int(r.id)]
 			else: k = [0 if tight.has(h) else 1, _served_at(fac, h), int(r.id)]
 			if best.is_empty() or k < bk: best = r; bk = k
 		if not best.is_empty(): return best
+		if fair and building and pass_n == 0:   # nothing urgent on the fourth turn: the host served least recently, whatever it needs
+			for r in cands:
+				var k2 := [_served_at(fac, int(r.host)), _served_res_at(fac, int(r.host), str(r.res)), int(r.id)]
+				if best.is_empty() or k2 < bk: best = r; bk = k2
+			return best
 	for r in cands:   # nothing to build: inputs before other surplus, hosts in turn; every fourth to the host served least recently
 		var h := int(r.host); var rs := _served_res_at(fac, h, str(r.res))   # (within a host, the resource moved longest ago)
 		var k := [_served_at(fac, h), rs, int(r.id)] if fair else [_req_class(r), _served_at(fac, h), rs, int(r.id)]
@@ -7316,8 +7334,9 @@ func _wrapped_tooltip(text: String) -> Control:   # a hover note that wraps at a
 	for para in text.split("\n"): w = maxf(w, _text_w(font, para, TIP_FS))
 	w = clampf(ceilf(w) + 2.0, 24.0, TIP_W)
 	var line_h := font.get_height(TIP_FS)   # (the symbols fallback makes the theme font's lines tall: set them at the text font's own height)
-	var tight := (font as FontVariation).base_font.get_height(TIP_FS) + 2.0 if font is FontVariation and (font as FontVariation).base_font != null else line_h
-	var lines := roundi(font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, w, TIP_FS, -1, TextServer.BREAK_MANDATORY | TextServer.BREAK_WORD_BOUND | TextServer.BREAK_ADAPTIVE).y / line_h)
+	var base_h := (font as FontVariation).base_font.get_height(TIP_FS) if font is FontVariation and (font as FontVariation).base_font != null else line_h
+	var tight := base_h + 2.0
+	var lines := maxi(1, roundi(font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, w, TIP_FS, -1, TextServer.BREAK_MANDATORY | TextServer.BREAK_WORD_BOUND | TextServer.BREAK_ADAPTIVE).y / base_h))   # (it measures at the text font's height)
 	var note := Label.new(); note.text = text
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.add_theme_font_override("font", font); note.add_theme_font_size_override("font_size", TIP_FS)
@@ -7423,7 +7442,7 @@ func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is d
 	var kind := str(h.builds[slot]) if slot < (h.builds as Array).size() else ""
 	if not job.is_empty() and str(job.kind) != "": kind = str(job.kind)
 	if kind == "": return "Empty slot. Drag a building here, or click one of the buildings below."
-	var out := [str(BUILD_KINDS[kind].desc)]
+	var out := [_build_desc(kind, i)]
 	if not job.is_empty():
 		match _job_state(job):
 			"demolishing": out.append("Clearing the slot: %d s." % ceili(float(job.left)))
@@ -7541,10 +7560,9 @@ func _cycle_preview(i: int) -> Dictionary:
 	# c) converters, in order (a remote host's as far as its plan funds them, exactly as _run_cycle runs them)
 	var use_plan: bool = not _st_local(i, owner) and benef == owner
 	var planned := {}
-	if use_plan:
-		var budget := {}
-		for res in RES: budget[res] = _free(owner, res)
-		planned = _host_plan(i, owner, budget).frac
+	if use_plan:   # (the same budget _run_cycle plans with: what the projects do not need)
+		var owed := _build_owed(owner)
+		planned = _host_plan(i, owner, _supply_budget(owner, owed), float(owed.get("intel", 0.0))).frac
 	for kind in CONVERT_ORDER:
 		var count := _cycle_kinds(i, kind)
 		if count == 0: continue
@@ -7636,7 +7654,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 		var nm := str(BUILD_KINDS[str(row.kind)].name)
 		var lim := str(row.short)
 		var out_res := str(BUILD_KINDS[str(row.kind)].out)
-		if lim == "cap": probs.append(["blocked", C_WARN, "%s stops: your %s bank is full. Spend some, or pause the %s." % [nm, RES_NAME[out_res], nm]])
+		if lim == "cap": probs.append(["blocked", C_WARN, "%s stops: your %s bank is full. Spend some." % [nm, RES_NAME[out_res]]])
 		elif lim == "room": probs.append(["starved", C_WARN, "%s waits its turn: storage here has no room for all its supplies this cycle; it gets them as surplus ships home." % nm])
 		elif main: probs.append(["starved", C_WARN, "%s has no %s in your bank to use." % [nm, RES_NAME[lim]]])
 		elif float(row.frac) > 0.0001: probs.append(["starved", C_WARN, "%s runs at %d%%: not enough %s on this host." % [nm, int(round(100.0 * float(row.frac))), RES_NAME[lim]]])
@@ -7646,7 +7664,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 			elif not _route_ok(owner, _hub(owner), i): probs.append(["starved", C_WARN, "%s needs %s here, and no worker can reach this host." % [nm, RES_NAME[lim]]])
 			elif int(_worker_counts(owner).total) == 0: probs.append(["starved", C_WARN, "%s needs %s here, but you have no workers to fetch it. Build a Bot station." % [nm, RES_NAME[lim]]])
 			else: probs.append(["starved", C_WARN, "%s needs %s here: your workers are bringing it from your main node as they come free." % [nm, RES_NAME[lim]]])
-		else: probs.append(["starved", C_WARN, "%s gets no %s: the converters before it use it all. Add %s here, or pause one." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "more input")]])
+		else: probs.append(["starved", C_WARN, "%s gets no %s: the converters before it use it all. Add %s here, or replace one of them." % [nm, RES_NAME[lim], _MAKER_OF.get(lim, "more input")]])
 	if pv.has("fw") and not bool(pv.fw.on):
 		probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here and none is left. Build an Intel harvester here." % _amt(float(pv.fw.need))])
 	if not main and not _ddos_down(i):
@@ -7657,7 +7675,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 		var waits := ("All %d of your workers are busy." % int(wc.total)) if int(wc.total) > 0 else "You have no workers: build a Bot station."
 		if _store_total(i) >= STORE_CAP - 0.5:
 			var why := "Storage %d/%d: producers here stop until it ships." % [int(round(_store_total(i))), int(STORE_CAP)]
-			if not bank_full.is_empty(): why += " Your main node's %s is full: spend some, or pause what makes it." % " and ".join(bank_full)
+			if not bank_full.is_empty(): why += " Your main node's %s is full: spend some." % " and ".join(bank_full)
 			elif int(wc.idle) == 0: why += " " + waits
 			probs.append(["blocked", C_WARN, why])
 		elif not bank_full.is_empty(): probs.append(["blocked", C_WARN, "Your main node's %s is full: what is stored here waits." % " and ".join(bank_full)])
@@ -8037,7 +8055,7 @@ func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast f
 		out.append(["Workers %d — %d working, %d free at your main node%s%s (2 per Bot station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), (", %d on their way to it" % int(wc.joining)) if int(wc.joining) > 0 else "", (", %d blocked" % int(wc.blocked)) if int(wc.blocked) > 0 else ""], C_TEXT])
 		out.append(["All of them work from your main node and serve every host; keeping up with your hosts needs about %d." % int(ceil(float(fc.need) - 0.05)), C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
 		out.append(["Each carries one unit per leg and returns for another job; delivery does not consume them.", C_DIM])
-		out.append(["Building materials go first, then missing inputs, then surplus home; the hosts are served in turn.", C_DIM])
+		out.append(["Building materials go first, then missing inputs, then surplus home; every fourth trip serves the host waiting longest.", C_DIM])
 		return out
 	var full := _res_full(res)
 	out.append(["Forecast: %s reaches your bank per minute." % ("nothing (the bank is full)" if full else "+%d" % int(round(float(fc.rate[res])))), C_WARN if full else C_TEXT])
@@ -9849,14 +9867,27 @@ func _build_lines(kind: String, host := -1, wide := false) -> Array:   # [what i
 func _build_short(kind: String, host := -1) -> String: return str(_build_lines(kind, host)[0])   # its first line: what it makes there
 
 
-func _draw_conversion(c: CanvasItem, kind: String, centre: Vector2, icon: float) -> void:   # what goes in → what comes out, as resource icons
+func _build_desc(kind: String, host := -1) -> String:   # the building's description with this host's amounts (its type's multiplier)
+	var spec: Dictionary = BUILD_KINDS[kind]
+	var out := str(spec.get("out", ""))
+	if out == "" or host < 0 or not _host_ok(host) or absf(_tmult(host, out) - 1.0) < 0.001: return str(spec.desc)
+	var m := _tmult(host, out)
+	match kind:
+		"intel": return "Makes %s Intel every %d s here. The Miner, Credential harvester and Lab on this host use it first." % [_amt(m), int(PROD_CYCLE)]
+		"cash": return "Every %d s turns %s Intel on this host into %s Crypto." % [int(PROD_CYCLE), _amt(m), _amt(m)]
+		"cred": return "Every %d s turns %s Intel on this host into %s Credentials." % [int(PROD_CYCLE), _amt(m), _amt(m)]
+		"lab": return "Every %d s turns %s Intel and %s Crypto on this host into %s Research." % [int(PROD_CYCLE), _amt(m), _amt(m), _amt(m)]
+	return str(spec.desc)
+
+
+func _draw_conversion(c: CanvasItem, kind: String, centre: Vector2, icon: float, host := -1) -> void:   # what goes in → what comes out, as resource icons
 	var font := get_theme_default_font()
 	var spec: Dictionary = BUILD_KINDS[kind]
 	var items := []   # [icon kind or "", text]
 	match kind:
 		"bot": items = [["bot", ""], ["", "2 workers"]]
 		"wall": items = [["wall", ""], ["", "3 sockets"]]
-		"intel": items = [["", "+1"], ["intel", ""], ["", "/ %d s" % int(PROD_CYCLE)]]
+		"intel": items = [["", "+" + _amt(float(spec.rate) * (_tmult(host, "intel") if host >= 0 and _host_ok(host) else 1.0))], ["intel", ""], ["", "/ %d s" % int(PROD_CYCLE)]]
 		_:
 			for r in (spec.use as Dictionary): items.append([_COST_ICON[str(r)], ""])
 			items.append(["", "→"]); items.append([_COST_ICON[str(spec.out)], ""])
@@ -9894,7 +9925,7 @@ func _draw_building_card(canvas: Control, kind: String, footer: String, gray := 
 		canvas.draw_rect(Rect2(4, 4, w - 8, 20), colour.darkened(0.8))
 		_fit_text(canvas, str(BUILD_KINDS[kind].card), Rect2(6, 19, w - 12, 0), 12, C_TEXT)
 		canvas.draw_rect(Rect2(6, 28, w - 12, 24), Color(0.04, 0.05, 0.07))
-		_draw_conversion(canvas, kind, Vector2(w * 0.5, 40), 14.0)   # what goes in and what comes out
+		_draw_conversion(canvas, kind, Vector2(w * 0.5, 40), 14.0, host)   # what goes in and what comes out (here)
 		if show_cost:
 			var cw0 := _draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
 			_draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2((w - cw0) * 0.5, h - 10.0), 11, 12.0)
@@ -10149,7 +10180,7 @@ class BuildCard extends Control:   # a draggable card for one building kind
 	func _make_custom_tooltip(for_text: String) -> Object:
 		return game._wrapped_tooltip(for_text)
 	func _get_tooltip(_at: Vector2) -> String:
-		return "%s\n\nMaterials: %s. They must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [str(game.BUILD_KINDS[kind].desc), game._build_cost_text(kind), int(game.BUILD_TIME)]
+		return "%s\n\nMaterials: %s. They must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [game._build_desc(kind, host), game._build_cost_text(kind), int(game.BUILD_TIME)]
 
 	func _get_drag_data(_p: Vector2) -> Variant:
 		var icon := DragIcon.new(); icon.game = game; icon.kind = kind

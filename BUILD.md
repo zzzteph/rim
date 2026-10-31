@@ -171,11 +171,13 @@ host's surplus if any) and from then on every trip is main node → host → mai
 building materials or a missing input, back with that host's surplus or a theft / salvage pile. Dispatch
 (`_tick_logistics`, event-driven with a 0.25 s fallback; `_pick_request`, `_served`/`_serve_n`/`_pool_turn`, part of the
 lockstep fingerprint) puts **building first** (0.6.10): while a project's materials can go, three of four assignments
-carry them — Bot stations first (their workers carry for everything else), then by order (job id), a site whose trip
-back can relieve a host about to fill up (`_storage_tight`) first — and the fourth relieves such a host or collects
-what the projects wait for. `_build_owed` is the bank stock the projects still need: supplies to production only get
-`_supply_budget` (the rest), in requests, in `_amount` and in each host's own cycle plan, and `_build_lack` (what they
-wait for that is neither in the bank nor on its way) is collected from the hosts first. With nothing to build, the
+carry them — Bot stations first (their workers carry for everything else), then by order (job id) — together with the
+Firewalls' upkeep (its own `upkeep` request from `_host_plan`'s `upkeep`, never held back), and the fourth relieves a
+host about to fill up (`_storage_tight`), collects what the projects wait for, or else serves the host served least
+recently whatever it needs. `_build_owed` is the bank stock the projects the workers can reach still need (a cut-off
+or DDoSed site holds none): supplies to production only get `_supply_budget` (the rest, in whole units), in requests,
+in `_amount` and in each host's own cycle plan, and `_build_lack` (what they wait for that is neither in the bank nor
+on its way) is collected from the hosts first. With nothing to build, the
 old turns hold: three of four by purpose (inputs, then surplus and loot) to the host served least recently, every
 fourth to the host served least recently whatever it needs, so the hosts are served in turn. Benchmark (6 projects,
 130 units, 5 producing hosts, 3 seeds, 2 and 4 workers): all built 11–17% sooner than 0.6.9 with more income meanwhile;

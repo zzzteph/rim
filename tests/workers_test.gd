@@ -322,6 +322,39 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 	var lack: Dictionary = g._build_lack(P, owed3)
 	var pick_lack: Dictionary = g._pick_request(P, cands_now(owed3), 3, lack)
 	check(lack.has("cash") and str(pick_lack.get("res", "")) == "cash" and str(pick_lack.get("dir", "")) == "out", "Crypto the projects wait for, not in the bank, is collected from a host on that turn (%s %s)" % [str(lack), str(pick_lack.get("purpose", ""))])
+	# a Firewall fed from the bank stays on while you build, and a project the workers cannot reach holds no stock
+	fresh()
+	var w := near(); own(w, ["wall", "", ""])   # no Intel harvester: its upkeep comes from the bank
+	g.hosts[w].sockets = ["filter", "", ""]
+	var others := []
+	for k in 3:
+		var o := near([w] + others)
+		if o < 0: break
+		others.append(o); own(o, ["intel", "", ""])
+	g.bank[P].intel = 150.0
+	for o in others: g._cmd(["build", o, 1, "cred"]); g._cmd(["build", o, 2, "lab"])
+	var off := 0.0
+	for k in 120:
+		step(0.5)
+		if not bool(g.hosts[w].get("fw_on", true)): off += 0.5
+	check(off <= 0.01, "A Firewall whose upkeep comes from the bank never goes off while you build (off %.1f s of 60)" % off)
+	fresh()
+	var far := -1   # a host whose only road home runs through b
+	for cand_b in g.hosts[int(g.rig[P])].links:
+		if far >= 0 or int(g.hosts[int(cand_b)].owner) != g.NEUTRAL: continue
+		b = int(cand_b)
+		for nb in g.hosts[b].links:
+			var c0 := int(nb)
+			if far >= 0 or int(g.hosts[c0].owner) != g.NEUTRAL: continue
+			var other0 := false
+			for nb2 in g.hosts[c0].links: other0 = other0 or (int(nb2) != b and int(g.hosts[int(nb2)].owner) == P)
+			if not other0: far = c0
+	own(b, ["", "", ""]); own(far, ["", "", ""])
+	g._cmd(["build", far, 0, "wall"])
+	check(far >= 0 and float(g._build_owed(P).get("intel", 0.0)) > 1.0, "Setup: a Firewall project two hops out holds the bank's Intel (far %d, jobs %s, owed %s)" % [far, str(g.hosts[far].jobs) if far >= 0 else "-", str(g._build_owed(P))])
+	g._capture(b, R)   # the road to it is cut
+	check(not g._route_ok(P, int(g.rig[P]), far), "Setup: the road to it is cut")
+	check(g._build_owed(P).is_empty() and float(g._supply_budget(P, g._build_owed(P)).intel) >= g._free(P, "intel") - 0.01, "Cut off, it holds nothing: supplies elsewhere get the bank's stock again (owed %s)" % str(g._build_owed(P)))
 
 
 func builds_first() -> void:   # construction first, then inputs, then surplus; the hosts are served in turn

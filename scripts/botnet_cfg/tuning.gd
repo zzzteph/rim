@@ -21,8 +21,9 @@ const MAIN_INCOME := 1.0 / 12.0    # per resource per second (one of each every 
 const WORKERS_PER_STATION := 2     # every operational Bot station has exactly this many reusable workers (any host type)
 const WORKER_CARRY := 1.0          # one resource unit of one type per trip leg (a valid final fraction may be less)
 const WORKER_REPLACE := 5.0        # a worker lost on the road is replaced at its surviving, operational station after this
-const PRIORITY_TURNS := 3          # of every PRIORITY_TURNS + 1 new assignments, this many go by purpose (construction,
-                                   # then inputs, then surplus) and then to the host served least recently; the next by host turn alone
+const PRIORITY_TURNS := 3          # of every PRIORITY_TURNS + 1 new assignments, this many go by purpose (while anything is being
+                                   # built: building materials; else inputs, then surplus) and the next keeps every host served (a
+                                   # host about to fill up, what the projects wait for, else the host served least recently)
 const CARD_GIVE_UP := 20.0         # a card held this long on its way heads back to its main node; the copy returns to your hand
 
 # ── routes (unchanged baseline) ──

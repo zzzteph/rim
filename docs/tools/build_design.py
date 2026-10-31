@@ -338,7 +338,7 @@ def payback():
     return "".join(f"<tr><th>{html.escape(nm)}</th><td class='nowrap'>{chips(c)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>" for nm, c, a, b in PAYBACK)
 def unused():
     return "".join(f"<tr><th>{f}.gd</th><td><code>{'</code>, <code>'.join(v)}</code></td></tr>" for f, v in UNUSED.items())
-COMMANDS = "build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause"
+COMMANDS = "build (order a project: free until its materials arrive), demolish, cancel (a project; its delivered materials stay as salvage), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause"
 json_txt = json.dumps(DATA, indent=1, ensure_ascii=False)
 
 page = open(os.path.join(HERE, "design.head.html")).read() + open(os.path.join(HERE, "design.body.html")).read()
