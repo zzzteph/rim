@@ -104,14 +104,14 @@ D["zeroday"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("Timing", f"Travels, then executes for {n(C['zeroday']['exec'])} s; {n(C['zeroday']['exec_rig'])} s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time."),
     ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured."),
-    ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host."),
+    ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights and workers vanish, and every other host they held becomes <b>yours with its finished buildings</b> (storage, sockets, projects and effects cleared; its Bot stations staff themselves for you at once). You keep the old main node as an ordinary host."),
     ("Stopped by", "As Credential breach."),
 ]
 D["worm"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("What it is", f"A capture on up to {n(C['worm']['reach'])} linked hosts, one after the other."),
     ("Timing", f"Travels; each stage executes for {n(C['worm']['exec'])} s ({n(C['worm']['exec_rig'])} s on a main node), and each can be stopped on its own."),
-    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw (" + pc(SCOUTED_P) + " scouted, " + pc(UNSCOUTED_P) + " not). Both stages land " + pc(SCOUTED_P * SCOUTED_P) + " of the time with both hosts scouted, " + pc(UNSCOUTED_P * UNSCOUTED_P) + " with neither."),
+    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation with its own draw (" + pc(SCOUTED_P) + " scouted, " + pc(UNSCOUTED_P) + " not); if the first host had fresh Recon, the second counts as scouted too. Both stages land " + pc(SCOUTED_P * SCOUTED_P) + " of the time with the first host scouted, " + pc(UNSCOUTED_P * UNSCOUTED_P) + " without."),
     ("Stops when", "A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured."),
 ]
 D["phish"] = [
@@ -141,19 +141,20 @@ D["ddos"] = [
     ("Timing", f"Takes effect on arrival, for {n(C['ddos']['dur'])} s."),
     ("Reach", f"The target and its owner’s {int(n(C['ddos']['reach'])) - 1} hosts nearest to it on the map, all at once."),
     ("Effect", "Each one makes nothing, sends nothing and forwards nothing. New routes go round them. Workers whose route runs through one wait there until it is up. Cargo addressed to them still arrives."),
-    ("On a main node", "Its one-of-each trickle and its producers stop, and its owner cannot launch any attack card until it ends."),
+    ("On a main node", "Its one-of-each trickle and its producers stop, and its owner can play no card at all until it ends — no attack, and no defence card on any host, the main node included. Only cards already armed or loaded in a Firewall still act, so a DDoS on a main node opens a window for a capture."),
     ("Blocked by", "Traffic filter, host by host: a host under Filter ignores it; a Filter loaded in its Firewall fires and the DDoS never lands there."),
 ]
 D["sabotage"] = [
     ("Target", "A rival host."),
     ("Timing", f"Takes effect on arrival, for {n(C['sabotage']['dur'])} s."),
-    ("Effect", f"Switches off every producer on the target and on up to {int(n(C['sabotage']['reach'])) - 1} more hosts of the same owner, each the nearest neighbour of the last. Routing, workers and Firewalls keep working; a main node keeps its trickle."),
+    ("Effect", f"Switches off every producer on the target and on up to {int(n(C['sabotage']['reach'])) - 1} more hosts of the same owner, each the nearest neighbour of the last, and keeps the workers of their Bot stations from setting out (a leg already under way finishes). Routing and Firewalls keep working; a main node keeps its trickle."),
     ("Cleared by", "Incident response, host by host (a Response loaded in a hit host’s Firewall clears that host at once)."),
 ]
 D["patch"] = [
     ("Target", "One of your hosts."),
     ("By hand", "Cancels the capture, Worm stage or Vault raid running there that ends first. With nothing running, it arms the host for 30 s: the next one that would finish there in that time is blocked instead."),
     ("Loaded", "In a free Firewall socket it waits with no time limit and stops the next capture, Worm stage or Vault raid the moment it starts executing there."),
+    ("Recovery", f"Once a Patch stops something, the host recovers for {n(C['patch']['dur'])} s: no other Patch can be played there, one on its way goes back to your hand, and the window is shown to everyone who sees the host. A Patch already loaded in its Firewall still fires, and restarts the window."),
 ]
 D["response"] = [
     ("Target", "One of your hosts."),

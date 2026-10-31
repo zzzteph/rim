@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.12"   # producers need no input, the queue head is paid before research and supplies, prices by role (lobbies match exact versions)
+const GAME_VERSION := "0.6.13"   # Patch recovery, no cards under DDoS on the main node, the captor inherits the network, longer theft, Worm like Known exploit (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1946,7 +1946,9 @@ func _worker_state(wid: int) -> String:   # idle (free at the main node) · join
 	var w: Dictionary = workers.get(wid, {})
 	if w.is_empty(): return "idle"
 	var hub := _hub(int(w.fac))
-	if str(w.state) == "idle": return "idle" if int(w.get("base", w.home)) == hub else "joining"   # waiting at its station for a route
+	if str(w.state) == "idle":
+		if _sabotaged(int(w.home)): return "blocked"   # (0.6.13: a sabotaged host's station sends no worker out until it ends)
+		return "idle" if int(w.get("base", w.home)) == hub else "joining"   # waiting at its station for a route
 	var f := _flight_of(wid)
 	if f.is_empty(): return "idle"
 	if bool(f.get("blocked", false)): return "blocked"
@@ -2061,7 +2063,7 @@ func _host_plan(i: int, fac: int, budget: Dictionary, upkeep_extra := 0.0) -> Di
 
 
 # ---- requests: what each host needs brought in and has to send out, keeping their age ----
-const REQ_CLASS := {"build": 0, "upkeep": 0, "input": 1, "export": 2, "loot": 2}   # purpose order: building (and the Firewalls' upkeep) first
+const REQ_CLASS := {"build": 0, "upkeep": 0, "input": 1, "export": 2, "loot": 3}   # purpose order: building (and the Firewalls' upkeep) first
 
 
 func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, since, host, purpose, res, qty, dir}] in a stable order
@@ -2216,6 +2218,7 @@ func _mark_res(fac: int, r: Dictionary) -> void:   # this host's resource was ju
 
 func _pick_first(fac: int, r: Dictionary, lack: Dictionary) -> int:   # 0: a project's materials · 1: surplus of a host about to fill up
 	if _req_class(r) == 0: return 0                                     # (its producers would stop) or what the projects wait for · -1: else
+	if str(r.purpose) == "loot": return -1   # (0.6.13: stolen goods are collected last; theft never displaces your own deliveries)
 	if str(r.dir) == "out" and (float(lack.get(str(r.res), 0.0)) > 0.0001 or _storage_tight(int(r.host))): return 1
 	return -1
 
@@ -2261,6 +2264,7 @@ func _tick_logistics() -> void:   # every step: free workers take the most usefu
 		for wid in workers:
 			var w: Dictionary = workers[wid]
 			if int(w.fac) != fac or str(w.state) != "idle": continue
+			if _sabotaged(int(w.home)): continue   # Sabotage stops the workers of the stations on the hosts it hits (0.6.13)
 			if int(w.get("base", w.home)) == hub: idle.append(int(wid))
 			elif not _routing_down(int(w.get("base", w.home))): joiners.append(int(wid))
 		if idle.is_empty() and joiners.is_empty(): continue
@@ -2930,11 +2934,13 @@ func _job_state(job: Dictionary) -> String:   # demolishing · waiting for mater
 func _check_rigs() -> void:
 	for fac in botnets:
 		if _eliminated.has(fac) or int(hosts[int(rig[fac])].owner) == fac: continue
-		_eliminate(fac)
+		_eliminate(fac, int(hosts[int(rig[fac])].owner))
 
 
-func _eliminate(fac: int) -> void:
+func _eliminate(fac: int, captor := -1) -> void:   # captor: who took its main node; it inherits the rest of the network (0.6.13)
 	_eliminated[fac] = true
+	var heir := captor if captor != fac and botnets.has(captor) and not _eliminated.has(captor) else -1
+	var inherited := 0
 	if fac == PLAYER and not _mp_on:
 		lost = true; won = false; _end_cause = "Your main node was captured. Protect it to stay in the game."
 	elif fac == PLAYER:
@@ -2949,17 +2955,26 @@ func _eliminate(fac: int) -> void:
 	for res in RES: bank[fac][res] = 0.0
 	for i in hosts.size():
 		if int(hosts[i].owner) != fac: continue
-		hosts[i].owner = NEUTRAL; hosts[i].gen = int(hosts[i].get("gen", 0)) + 1
-		hosts[i].builds = _slot_array([], int(hosts[i].slots)); hosts[i].jobs = {}; hosts[i].store = {}; hosts[i].sockets = []
+		hosts[i].owner = heir if heir >= 0 else NEUTRAL; hosts[i].gen = int(hosts[i].get("gen", 0)) + 1
+		if heir < 0: hosts[i].builds = _slot_array([], int(hosts[i].slots))   # (an heir keeps the finished buildings)
+		hosts[i].jobs = {}; hosts[i].store = {}; hosts[i].sockets = []
 		hosts[i].rig = false
 		hosts[i].teams = {}; hosts[i].claim = {}; hosts[i].inbound = {}
 		_clear_effects(i)
+		if heir >= 0: inherited += 1
 	flights = flights.filter(func(f): return int(f.owner) != fac)
 	for wid in workers.keys():
 		if int(workers[wid].fac) == fac: workers.erase(wid)   # its workers go with it
 	_reqs.erase(fac); _pool_turn.erase(fac); _served.erase(fac); _serve_n.erase(fac); _served_res.erase(fac)
 	_execs = _execs.filter(func(e): return int(e.fac) != fac)
-	if fac != PLAYER: _flash("%s eliminated · its remaining hosts are neutral" % fname(fac), 0)
+	if heir >= 0:   # its stations staff themselves for the heir; the map and the plans see the new owner at once
+		for i in hosts.size():
+			if int(hosts[i].owner) == heir: _sync_teams(i)
+		_refresh_sight(); _logi_poke(heir)
+	if fac != PLAYER:
+		if heir == PLAYER: _flash("%s eliminated · its %d other hosts are yours, with their buildings" % [fname(fac), inherited], 0)
+		elif heir >= 0: _flash("%s eliminated by %s · its %d other hosts are theirs" % [fname(fac), fname(heir), inherited], 0)
+		else: _flash("%s eliminated · its remaining hosts are neutral" % fname(fac), 0)
 
 
 func _clear_effects(i: int) -> void:
@@ -3195,6 +3210,12 @@ func _deliver(f: Dictionary) -> bool:   # a packet reached the end of its route 
 func _support_arrive(f: Dictionary) -> void:   # a defence card reached your host: it loads into its held socket or acts now
 	var fac := int(f.owner); var t := int(f.target)
 	var recipe := _card_of(str(f.card))
+	if str(CARDS[recipe].effect) == "patch" and _patch_recovering(t):   # the host recovers from a Patch: this one cannot act, it goes back
+		var k0 := (hosts[t].sockets as Array).find(str(f.get("sock", "")))
+		if k0 >= 0: hosts[t].sockets[k0] = ""
+		cards[fac][recipe] = _held(fac, recipe) + 1
+		if fac == PLAYER: _flash("Patch back in your hand: %s is recovering from a Patch for %d s" % [str(hosts[t].name), ceili(float(hosts[t].patch_recover_until) - _t)], 1)
+		return
 	if bool(f.get("load", false)):
 		var k := (hosts[t].sockets as Array).find(str(f.get("sock", "")))
 		if k >= 0 and not _trigger_now(recipe, t):   # its own position, still there: it loads into it
@@ -3279,8 +3300,10 @@ func _can_play(fac: int, key: String, t: int) -> String:   # "" if playable, els
 	var defense := _is_defense(recipe)
 	if defense:   # it travels from your main node, through your hosts, like every card
 		if int(hosts[t].owner) != fac: return "a support card needs one of your hosts"
+		if _routing_down(_hub(fac)): return "your main node is under DDoS"   # (0.6.13: no card on it either, until it ends)
+		if str(CARDS[recipe].effect) == "patch" and _patch_recovering(t):
+			return "a Patch acted here: no Patch for %d s" % ceili(float(hosts[t].patch_recover_until) - _t)
 		if t == _hub(fac): return ""
-		if _routing_down(_hub(fac)): return "your main node's routing is cut"
 		if _travel_route(fac, _hub(fac), t).size() < 2: return "no route from your main node to that host"
 		return ""
 	if int(hosts[t].owner) == fac: return "an attack needs a foreign host"
@@ -3325,7 +3348,8 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 		"worm":
 			lines.append(["Then executes for %d s. After a capture it moves on to the nearest linked %s host you can see (%d hosts in all); a Patch or a lost route ends the chain." % [int(ex), owner_name, int(card.reach)], C_TEXT])
 			var nxt := _worm_next(fac, t, int(hosts[t].owner), [t])
-			lines.append(["Next if it captures: %s." % (str(hosts[nxt].name) if nxt >= 0 else "no eligible host in sight"), C_DIM])
+			var nxt_s := (str(hosts[nxt].name) + (", scouted like this one" if _recon_fresh(fac, t) else "")) if nxt >= 0 else "no eligible host in sight"
+			lines.append(["Next if it captures: %s." % nxt_s, C_DIM])
 		"vault":
 			lines.append(["Then executes for %d s. If its draw succeeds it empties up to %d units from this host and its owner's linked hosts; your workers carry them home." % [int(ex), int(card.cargo)], C_TEXT])
 			lines.append(["Would raid, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
@@ -3337,7 +3361,7 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 			lines.append(["On arrival, production and routing stop for %d s on this host and the %d %s hosts nearest to it." % [int(card.dur), int(card.reach) - 1, owner_name], C_TEXT])
 			lines.append(["Would hit, as far as you can see: %s." % _names(_preview_nearest(fac, t, int(card.reach))), C_DIM])
 		"sabotage":
-			lines.append(["On arrival, producers stop for %d s on this host and up to %d linked %s hosts, nearest first." % [int(card.dur), int(card.reach) - 1, owner_name], C_TEXT])
+			lines.append(["On arrival, producers and Bot-station workers stop for %d s on this host and up to %d linked %s hosts, nearest first." % [int(card.dur), int(card.reach) - 1, owner_name], C_TEXT])
 			lines.append(["Would hit, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
 		"siphon":
 			var res := siphon_res if RES.has(siphon_res) and siphon_res != "bots" else "cash"
@@ -3603,7 +3627,7 @@ func _tick_execs() -> void:
 		if float(e.ends) > _t: still.append(e); continue
 		# an armed Patch on the target consumes this intrusion instead of letting it resolve
 		if float(hosts[t].get("patch_armed_until", 0.0)) > _t:
-			hosts[t].patch_armed_until = 0.0; hosts[t].patch_recover_until = _t + float(CARDS.patch.dur)
+			hosts[t].patch_armed_until = 0.0; _patch_recover(t)
 			_op_outcome(e, "countered", "armed Patch")
 			continue
 		var eff := str(e.effect)
@@ -3615,6 +3639,7 @@ func _tick_execs() -> void:
 			_op_outcome(e, "raided")
 			_resolve_vault(fac, t)
 		else:
+			var was_scouted := _recon_fresh(fac, t)   # (before the capture clears the snapshot)
 			_op_outcome(e, "captured")
 			_capture(t, fac)
 			if eff == "worm" and int(e.stage) < int(CARDS.worm.reach):   # a Worm moves on only from a host it took
@@ -3622,6 +3647,7 @@ func _tick_execs() -> void:
 				var nxt := _worm_next(fac, t, int(e.get("victim", NEUTRAL)), seen)
 				if nxt >= 0:
 					seen.append(nxt)
+					if was_scouted: _mark_scanned(fac, nxt)   # (0.6.13: what it learned on the first host counts as scouting the next)
 					_start_exec({"id": int(e.id), "fac": fac, "card": "worm", "effect": "worm", "target": nxt, "gen": int(hosts[nxt].gen), "ends": _t + _exec_time("worm", nxt), "stage": int(e.stage) + 1, "victim": int(e.get("victim", NEUTRAL)), "seen": seen}, still)
 	_execs = still
 
@@ -3921,9 +3947,22 @@ func _panel_events() -> void:
 	_plabel("H or Esc closes this view.", 11, C_DIM)
 
 
+# Patch recovery (0.6.13): a Patch that stops an intrusion leaves its host open for PATCH_RECOVER seconds. No Patch can
+# be played, armed or loaded there meanwhile (one already on its way returns to your hand); a Patch already loaded in
+# its Firewall still fires, and restarts the window. The window is public: anyone who sees the host sees it.
+func _patch_recovering(i: int) -> bool: return float(hosts[i].get("patch_recover_until", 0.0)) > _t
+
+
+func _patch_recover(i: int) -> void:
+	hosts[i].patch_recover_until = _t + float(CARDS.patch.dur)
+	if int(hosts[i].owner) == PLAYER:
+		_event("prec:%d:%d" % [i, roundi(_t * 10.0)], EV_ACT, "A Patch stopped an intrusion on %s: no Patch can act there for %d s." % [str(hosts[i].name), int(CARDS.patch.dur)], i)
+
+
 func _start_exec(e: Dictionary, into = null) -> void:   # an intrusion begins: a Patch in the target's Firewall stops it on the spot
 	var t := int(e.target)
-	if _fire_socket(t, "patch", str(CARDS[str(e.card)].name)):
+	if _fire_socket(t, "patch", str(CARDS[str(e.card)].name)):   # (a loaded Patch fires even while the host recovers, and restarts it)
+		_patch_recover(t)
 		_op_outcome(e, "countered", "the Firewall's Patch")
 		return
 	if into != null: (into as Array).append(e)
@@ -3992,7 +4031,7 @@ func _apply_support(fac: int, recipe: String, t: int, may_load := true) -> void:
 	match eff:
 		"patch":
 			var cancelled := _patch_cancel(fac, t)
-			if cancelled: hosts[t].patch_recover_until = _t + float(CARDS.patch.dur)
+			if cancelled: _patch_recover(t)
 			else: hosts[t].patch_armed_until = _t + float(CARDS.patch.dur)
 		"response": _apply_response(t)
 		"filter": _apply_filter(t)
@@ -5754,7 +5793,7 @@ func _mp_hash() -> String:   # the whole simulation in one fingerprint, to catch
 			parts.append("r%d:%d:%s" % [int(fac), int(h), ",".join(PackedStringArray(rs.map(func(x): return "%s/%d" % [str(x), int(_served_res[fac][h][x])])))])
 	for h in hosts:
 		parts.append("%d,%d,%s,%s,%s,%s,%d,%d" % [int(h.owner), int(h.gen), ",".join(PackedStringArray(h.builds)), JSON.stringify(h.jobs), JSON.stringify(h.store), ",".join(PackedStringArray(h.sockets)), int(h.fw_on), int(round(float(h.cyc) * 30.0))])
-		parts.append("%d,%d,%d,%d,%d" % [roundi(float(h.get("ddos_until", 0.0)) * 100.0), roundi(float(h.get("sabot_until", 0.0)) * 100.0), int(h.get("steal_by", -1)), roundi(float(h.get("steal_until", 0.0)) * 100.0), roundi(float(h.get("express_until", 0.0)) * 100.0)])
+		parts.append("%d,%d,%d,%d,%d,%d,%d" % [roundi(float(h.get("ddos_until", 0.0)) * 100.0), roundi(float(h.get("sabot_until", 0.0)) * 100.0), int(h.get("steal_by", -1)), roundi(float(h.get("steal_until", 0.0)) * 100.0), roundi(float(h.get("express_until", 0.0)) * 100.0), roundi(float(h.get("patch_armed_until", 0.0)) * 100.0), roundi(float(h.get("patch_recover_until", 0.0)) * 100.0)])
 		parts.append("%s|%s|%s|%s|%d" % [JSON.stringify(h.get("teams", {})), JSON.stringify(h.get("claim", {})), JSON.stringify(h.get("inbound", {})), JSON.stringify(h.get("loot", {})), int(h.get("plan_rr", 0))])
 	for fac in botnets:
 		for res in RES: parts.append(str(roundi(_avail(fac, res) * 1000.0)))
@@ -7689,7 +7728,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 	for k in (hosts[i].builds as Array).size():
 		if str(hosts[i].builds[k]) in PRODUCER_KINDS and not _slot_busy(i, k): producers += 1
 	if _ddos_down(i): probs.append(["under DDoS", C_BAD, "Under DDoS for %d s: nothing is made or sent from here." % int(ceil(float(hosts[i].ddos_until) - _t))])
-	if _sabotaged(i): probs.append(["sabotaged", C_BAD, "Sabotaged for %d s: producers are off; cargo still passes through." % int(ceil(float(hosts[i].sabot_until) - _t))])
+	if _sabotaged(i): probs.append(["sabotaged", C_BAD, "Sabotaged for %d s: producers and Bot-station workers are off; cargo still passes through." % int(ceil(float(hosts[i].sabot_until) - _t))])
 	if _phished(i): probs.append(["phished", C_BAD, "Phished by %s for %d s: what is made here goes to them." % [fname(int(hosts[i].steal_by)), int(ceil(float(hosts[i].steal_until) - _t))]])
 	if not main and (producers > 0 or _store_total(i) >= 1.0) and _attack_route_none(owner, i):
 		probs.append(["no route", C_BAD, "No route home: no chain of your hosts links this one to your main node. Retake a host between them."])

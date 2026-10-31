@@ -91,7 +91,8 @@ func phishing() -> void:
 	step(secs)
 	var stolen: float = float(g.bank[P].intel) - secs * float(g.MAIN_INCOME)   # less your own main node's trickle
 	var promised: float = 2.0 * float(g.CARDS.phish.dur) / g.PROD_CYCLE   # the outpost makes 2 Intel a cycle
-	check(stolen >= promised * 0.5, "phishing: its output reaches you (%.0f of ~%.0f Intel; 9 hops away, what is not collected when it ends goes back)" % [stolen, promised])
+	var old_promise: float = 2.0 * 60.0 / g.PROD_CYCLE   # what a whole 60-s Phishing could divert before 0.6.13
+	check(stolen >= old_promise, "phishing: its output reaches you, more than a whole 60-s Phishing could (%.0f of ~%.0f made; 9 hops away your workers bring what they can, the rest goes back)" % [stolen, promised])
 
 
 func siphon() -> void:
@@ -105,7 +106,7 @@ func siphon() -> void:
 	step(secs)
 	var stolen: float = float(g.bank[P].intel) - secs * float(g.MAIN_INCOME)
 	var promised: float = minf(float(g.CARDS.siphon.cargo), 2.0 * float(g.CARDS.siphon.dur) / g.PROD_CYCLE)
-	check(stolen >= promised * 0.6, "siphon: diverted cargo reaches you (%.0f of ~%.0f Intel)" % [stolen, promised])
+	check(stolen >= promised * 0.5, "siphon: diverted cargo reaches you (%.0f of ~%.0f Intel that crossed it; stolen goods are your workers' last job)" % [stolen, promised])
 	check(int(g._worker_counts(P).total) == mine0 and int(g._worker_counts(R).total) == theirs0, "siphon: it takes their cargo, not their workers; your workers fetch it and come back (%d, %d)" % [mine0, theirs0])
 
 

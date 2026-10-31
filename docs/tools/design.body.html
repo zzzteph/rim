@@ -82,8 +82,8 @@ flowchart LR
       <tr><th>Construction</th><td class="num">10 s (+5 s to replace)</td><td></td></tr>
       <tr><th>Research</th><td class="num">30–70 s</td><td>One at a time.</td></tr>
       <tr><th>Manufacturing</th><td class="num">3–26 s per copy</td><td>One queue of four, one copy at a time.</td></tr>
-      <tr><th>Execution (reaction window)</th><td class="num">10–15 s</td><td>Breach 15, Known exploit 12, 0day 10 (15 on a main node), Worm 12 per stage, Vault raid 10.</td></tr>
-      <tr><th>Effects</th><td class="num">30–60 s</td><td>Siphon 30, DDoS 45, Phishing 60, Sabotage 60; Filter and Cover 30, Express 45; Recon view 45.</td></tr>
+      <tr><th>Execution (reaction window)</th><td class="num">5–15 s</td><td>Breach 15 (30 on a main node), Known exploit 9 (20), 0day 5 (12), Worm 9 (20) per stage, Vault raid 10.</td></tr>
+      <tr><th>Effects</th><td class="num">30–180 s</td><td>Siphon 60, DDoS 45, Phishing 180, Sabotage 60; Filter and Cover 30, Express 45; Patch recovery 30; Recon view 45.</td></tr>
       <tr><th>Win hold</th><td class="num">51 s</td><td>Continuous.</td></tr>
       <tr><th>Multiplayer turn</th><td class="num">0.1 s</td><td>3 steps per turn; commands run 2 turns (0.2 s) after they are sent.</td></tr>
     </tbody>
@@ -229,7 +229,7 @@ m      = the host type's multiplier for that resource</pre>
     <div class="rule"><h4>Workers</h4>
       <p>Each finished Bot station provides two reusable workers that belong to its host; the main node starts with its station's two. A worker carries 1 unit per leg and returns for another job; delivery does not consume it. States: available, collecting, carrying, blocked. A worker lost on a cut route is replaced after 5 s if its station still stands; a demolished or replaced station's workers retire after their leg; capture destroys every worker of the captured host's stations, even those away. The map shows a loaded worker as a filled dot in its cargo's colour, an empty one as a ring, each direction on its own side.</p></div>
     <div class="rule"><h4>Who carries, and what first</h4>
-      <p>Installations use what is on their host first. A host asks for its Firewalls' upkeep for the next cycle (after the Intel it makes) and its construction bills; producers need no input. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. <b>Building comes first.</b> While a project waits for materials, three of four assignments carry them (a Bot station's first, since its workers carry for everything else, then the project ordered first), with the Firewalls' upkeep, so a Firewall never goes off while you build; the fourth keeps every host going: the surplus of a host whose next cycle would not fit its storage, or a material the projects wait for that is not in the bank, else the host served least recently, whatever it needs. The bank's stock that the projects still need is theirs (a project the workers cannot reach, cut off or behind a DDoS, holds none): supplies to production only get the rest, so a building never waits while its materials go to a Miner. A material the projects wait for that is not in the bank is collected from the hosts first. With nothing to build, three of four assignments go by purpose — inputs, then surplus and loot — to the host served least recently, and every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
+      <p>Installations use what is on their host first. A host asks for its Firewalls' upkeep for the next cycle (after the Intel it makes) and its construction bills; producers need no input. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a Firewall's upkeep out and that host's output back. <b>Building comes first.</b> While a project waits for materials, three of four assignments carry them (a Bot station's first, since its workers carry for everything else, then the project ordered first), with the Firewalls' upkeep, so a Firewall never goes off while you build; the fourth keeps every host going: the surplus of a host whose next cycle would not fit its storage, or a material the projects wait for that is not in the bank, else the host served least recently, whatever it needs. The bank's stock that the projects still need is theirs (a project the workers cannot reach, cut off or behind a DDoS, holds none): supplies to production only get the rest, so a building never waits while its materials go elsewhere. A material the projects wait for that is not in the bank is collected from the hosts first. With nothing to build, three of four assignments go by purpose — upkeep, then output, then stolen goods (always the workers' last job, so theft never displaces your own deliveries; 0.6.13) — to the host served least recently, and every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
     <div class="rule"><h4>No supply settings</h4>
       <p>Supply is automatic and in the background: there is nothing to set per host. What a host's next cycle needs is brought; what was brought for it is not carried back out.</p></div>
     <div class="rule"><h4>Construction</h4>
@@ -358,9 +358,12 @@ stateDiagram-v2
 a network that holds ≥ majority hosts for 51 s in a row wins (the timer resets the moment it drops below)
 a network with no hosts left is out; the last network with hosts wins
 the HUD, standings, Help and the result all read one function (_objective) for these numbers
-losing your main node = elimination: your bank, cards, research and flights are cleared,
-                        every other host you held becomes neutral with empty slots,
-                        the captor keeps the old main node as an ordinary host</pre>
+losing your main node = elimination: your bank, cards, research and flights are cleared;
+                        the captor inherits every other host you held, with its finished buildings
+                        (projects, storage and sockets are cleared; its Bot stations staff themselves
+                        for the heir), and keeps the old main node as an ordinary host (0.6.13)
+a main node under DDoS takes no card from its owner until it ends; what is armed or loaded
+                        there still fires</pre>
 </section>
 
 <section id="ai">
@@ -462,11 +465,11 @@ losing your main node = elimination: your bank, cards, research and flights are 
   <div class="tablebox"><table>
     <thead><tr><th>Card</th><th>Typical result</th><th>Upper bound</th></tr></thead>
     <tbody>
-      <tr><th>Phishing (60 s)</th><td>On a Bot station + Intel harvester + Miner PC: 5 cycles × (1 Intel + 1 Crypto) = 10 units to you, 10 lost to them</td><td>A 4-slot ×2 host: ~2× that</td></tr>
-      <tr><th>Packet siphon (30 s)</th><td>Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 units</td></tr>
+      <tr><th>Phishing (180 s)</th><td>On a Bot station + Intel harvester + Miner PC: 15 cycles × (1 Intel + 1 Crypto) = up to 30 units to you, 30 lost to them (what your workers can carry home)</td><td>A 4-slot ×2 host: ~2× that</td></tr>
+      <tr><th>Packet siphon (60 s)</th><td>Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 units</td></tr>
       <tr><th>Vault raid</th><td>Whatever waits in 3 linked storages; near 0 where stations ship every cycle</td><td>30 units</td></tr>
       <tr><th>DDoS (45 s)</th><td>3 hosts × ~4 cycles × ~2 units ≈ 20–25 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>
-      <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 5 cycles × 1–2 units ≈ 15–30 units never made</td><td></td></tr>
+      <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 5 cycles × 1–2 units ≈ 15–30 units never made, and their Bot stations' workers idle</td><td></td></tr>
     </tbody>
   </table></div>
 </section>
@@ -503,12 +506,12 @@ losing your main node = elimination: your bank, cards, research and flights are 
     <li><b>Firewall (confirmed):</b> it does not make a host harder to capture; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.</li>
     <li><b>No Bots resource:</b> workers come only from Bot stations (2 each) and only carry. Nothing costs workers.</li>
     <li><b>Deterministic capture (Milestone A):</b> no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.</li>
-    <li><b>Patch stops half of all intrusions</b> in the measured AI sample (98 of 195). With capture now certain when nothing stops it, watch whether Patch loops stall borders before trying the Patch cooldown candidate (brief §13, still off).</li>
+    <li><b>Patch recovery (0.6.13):</b> a Patch that stops an intrusion leaves its host open for 30 s: no Patch can be played, armed or loaded there (one on its way returns to the hand); a Patch already loaded in its Firewall still fires and restarts the window, which every network that sees the host sees. Measured before it: a hand Patch countered 21 of 21 Breaches and Exploits at a border.</li>
     <li><b>Milestone A visibility features</b> (HUD rates and the Economy view, host status and route home, target preview, event history) are checked by tests for correctness and layout only. Whether first-time players understand them is what <code>docs/PLAYTEST.md</code> is for; it has not been run yet.</li>
     <li><b>Vault raid on storage</b> only pays where output piles up. A network with Bot stations everywhere keeps little in storage.</li>
     <li><b>Loading beats acting.</b> On a host with a free socket, a Traffic filter or Cargo cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.</li>
     <li><b>DDoS on a relay holds traffic.</b> Every packet that has to pass it, workers and cards alike, waits before it until it ends; nothing is destroyed unless the host it waits in is taken.</li>
-    <li><b>An eliminated network's hosts go neutral</b> with empty slots; the captor keeps only the old main node.</li>
+    <li><b>The captor of a main node inherits the network</b> with its finished buildings (0.6.13), so an elimination counts toward the majority.</li>
     <li><b>Packet siphon takes the resource chosen on its Ready card</b> (Crypto until you pick another), whether it is dragged or clicked onto a host.</li>
     <li><b>Focus by card:</b> Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 5 Credentials and 5 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.</li>
     <li><b>The AI</b> never plays six of the fifteen cards (Packet siphon, Vault raid, Worm, Sabotage, Cargo cover, Express route; see <a href="#ai">AI</a>).</li>

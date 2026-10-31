@@ -83,6 +83,7 @@ Run the automated mechanics and layout checks before exporting:
 ```bash
 godot --headless --path . --script tests/economy_test.gd     # cycles, storage, stations, caps, research, Firewall sockets, capture
 godot --headless --path . --script tests/theft_test.gd       # Phishing, Packet siphon, Vault raid: the loot reaches home
+godot --headless --path . --script tests/conflict_test.gd    # Patch recovery, DDoS on a main node, inheritance, Sabotage on workers, loot last, Worm
 godot --headless --path . --script tests/capture_test.gd     # deterministic capture: outcomes, timing, same-step order, Worm stages
 godot --headless --path . --script tests/onboarding_test.gd  # first run: Learn and Skirmish open at once; menu is navigation only
 godot --headless --path . --script tests/menu_test.gd        # menus: containment, equal insets, Help round trips, glyphs, seed-picked layout
@@ -176,7 +177,8 @@ recently whatever it needs. `_build_owed` is the bank stock the projects the wor
 or DDoSed site holds none): supplies to production only get `_supply_budget` (the rest, in whole units), in requests,
 in `_amount` and in each host's own cycle plan, and `_build_lack` (what they wait for that is neither in the bank nor
 on its way) is collected from the hosts first. With nothing to build, the
-old turns hold: three of four by purpose (inputs, then surplus and loot) to the host served least recently, every
+old turns hold: three of four by purpose (inputs, then surplus, then loot — 0.6.13: stolen goods come last, class 3,
+and never jump the queue as a host about to fill up) to the host served least recently, every
 fourth to the host served least recently whatever it needs, so the hosts are served in turn. Benchmark (6 projects,
 130 units, 5 producing hosts, 3 seeds, 2 and 4 workers): all built 11–17% sooner than 0.6.9 with more income meanwhile;
 no change without construction. A collection **claims** its unit (`claim`) and the
@@ -331,7 +333,7 @@ empty and crowded inventories, paging, selection and launch, research states, th
 
 There are **no security levels**: any card may target any foreign host; a host's type decides only its slots
 and production multipliers. Capture cards differ by price and execution time (`exec`, and `exec_rig` on a held
-main node — Breach 15/30 s, Known exploit 9/20 s, 0day 5/12 s, each Worm stage 12/24 s). **Recon** reveals
+main node — Breach 15/30 s, Known exploit 9/20 s, 0day 5/12 s, each Worm stage 9/20 s). **Recon** reveals
 installations, storage and Firewall cards for 45 s, but itself gets through only `RECON_CHANCE` (0.5) of the time
 (a miss shows nothing and only its sender hears of it). Every other attack card succeeds at `SCOUTED_CHANCE` (0.5)
 with fresh Recon of the host (`_recon_fresh(fac, t, at)`, judged when the operation resolves, voided by a change
@@ -348,7 +350,10 @@ illustrated pages with examples; the tutorial colours its keywords like the thin
 Winning: hold at least 51% of ALL hosts (rounded up) for 51 continuous seconds
 (`HOLD_FRACTION`/`HOLD_SECS` in tuning.gd), or be the last botnet with its rig. `_objective()` is the one
 source for these numbers: the HUD (always visible, after the five banks), the standings and the win
-check read it.
+check read it. A botnet whose rig is taken is eliminated (`_check_rigs` → `_eliminate(fac, captor)`); 0.6.13: its
+captor **inherits** its other hosts with their finished buildings (a new ownership generation: jobs, storage, sockets,
+workers, claims, inbound cargo and effects are cleared; the heir's Bot stations staff themselves at once, `_sync_teams`),
+so taking a main node is worth a whole network. With no living captor its hosts turn neutral and empty, as before.
 
 Fog of war (one rule for every botnet): a faction's real sight is
 its own hosts and every host one street away from them (`_in_sight`/`_sight_set`); on top of
@@ -380,10 +385,11 @@ rest carried by workers one unit a leg; only then do its `BUILD_TIME` s of work 
 installation demolishes it (`DEMOLISH_TIME` s) while the materials travel. Nothing can be paused (0.6.9: neither a
 project nor a producer); cancel leaves the delivered (unworked) materials at the site as salvage; capture destroys them;
 a Vault raid can steal unconsumed escrow, and the project's shortage reopens. DDoS, Supply-chain sabotage or a
-running construction stops a producer (`_producer_active`). During Phishing, a
+running construction stops a producer (`_producer_active`); Sabotage also keeps the Bot-station workers of the hosts it
+hits from setting out (`_worker_state` "blocked"; a leg already under way finishes). During Phishing (180 s), a
 victim host's new output is stored there for the caster, whose workers collect it; the host's own
-workers stay the owner's. Vault-raid loot and siphoned cargo also wait on the host (`hosts[i].loot`) for
-the thief's workers.
+workers stay the owner's. Vault-raid loot and siphoned cargo (a Packet siphon lasts 60 s) also wait on the host
+(`hosts[i].loot`) for the thief's workers, who collect them last.
 
 The AI botnets all play `_ai_think` (one economic AI, no difficulty setting): it gives every
 host a self-feeding layout (`_ai_plan`: a Bot station first, then an Intel harvester and its
@@ -455,7 +461,12 @@ node when it ends), **missed** (the draw failed: 50% scouted, 25% unscouted), **
 Intrusions resolve earliest end first, equal end times by operation id
 (launch order), and a turn's commands — a manual Patch included — apply before that turn's steps. A Worm
 captures its target, then runs one more stage on the nearest visible linked host of the same original owner
-(its own Recon check and draw); a stopped stage ends the chain. Phishing and Siphon land as: a loaded Response
+(its own draw; 0.6.13: if the first stage had fresh Recon, the second host counts as scouted, `_mark_scanned`); a
+stopped stage ends the chain. **Patch recovery** (0.6.13): a Patch that stops an intrusion — by hand, armed or from a
+Firewall socket — leaves its host recovering for 30 s (`_patch_recover`, `patch_recover_until`, public in the host's
+effects and in `_mp_hash`): no Patch can be played there meanwhile, one on its way goes back to the hand, and one
+already loaded in the Firewall still fires and restarts the window. While its main node is under DDoS a botnet can
+play no card at all (`_can_play`), so a DDoS on the rig opens a window for a capture. Phishing and Siphon land as: a loaded Response
 first, then the draw, then the effect; DDoS and Sabotage draw once for the operation, then each host's own
 Filter/Response answers.
 Support (DEFENCE) cards apply locally and instantly to one of your hosts.

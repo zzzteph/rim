@@ -89,7 +89,7 @@ const CAPTIONS := {
 	"produce": "Every 12 s each producer makes 1 unit of its resource, with no input. A Firewall uses 1 Intel; full storage (10) stops a host's producers.",
 	"build": "A building's materials must reach its site before its 10 s of work start. The 12-card Ready inventory is separate from the queue.",
 	"attack": "Stolen resources help only when your workers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
-	"goal": "Lose your main node and you are eliminated. The top bar always shows the hosts needed, yours, and who holds the majority.",
+	"goal": "Lose your main node and you are out: its captor takes your other hosts and their buildings. The top bar shows the hosts needed and the majority.",
 }
 const LEAD_FS := 14
 const LEAD_PITCH := 24.0   # 14 px lines 24 px apart: 7 px clear between them, 14 px above the illustration
