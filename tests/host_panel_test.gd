@@ -258,7 +258,7 @@ func typed_rates_and_lost_selection() -> void:
 	check(g.sel.is_empty() and g._inspect == n and not txt.contains("Research lab") and not txt.contains("Firewall"), "A selected host a rival takes stops being your build menu: you inspect it behind its fog")
 
 
-func view_stays_put() -> void:   # the sim never moves your view or your reading place; one selected host never sits under the drawer
+func view_stays_put() -> void:   # the sim never moves your view or your reading place (a host taken, won, lost or fogged); one selected host never sits under the drawer
 	fresh()
 	var home: int = int(g.rig[P])
 	var n := neighbour(g.NEUTRAL)
@@ -273,6 +273,27 @@ func view_stays_put() -> void:   # the sim never moves your view or your reading
 	g._pan += Vector2(-3000, 0); pan0 = g._pan
 	g._capture(m, R); await frames()
 	check(g._pan.distance_to(pan0) < 1.0 and g.sel.keys() == [home], "...nor does it jump to the other host you had selected (moved %s)" % str(g._pan - pan0))
+	var o := -1   # inspect a neutral host in sight, launch at it, look elsewhere while the attack runs
+	for i in g.hosts.size():
+		if o < 0 and int(g.hosts[i].owner) == g.NEUTRAL and g._visible_to(P, i): o = i
+	g.sel = {}; g._inspect = o; g._tab = ""; g._refresh_panel(); await frames()
+	g._deck_open = true; g._refresh_panel(); await frames()   # (the Research drawer opened with R while inspecting)
+	g._pan += Vector2(-3000, 0); pan0 = g._pan
+	g._capture(o, P); step(0.6); await frames()   # past the next heartbeat refresh
+	check(g._pan.distance_to(pan0) < 1.0 and g.sel.keys() == [o] and g._inspect == -1, "Your own capture of the host you inspect does not move your view either; it becomes your selection (moved %s, sel %s)" % [str(g._pan - pan0), str(g.sel.keys())])
+	check(not g._deck_open, "...and its build menu replaces the open drawer at once")
+	var far := -1   # a host of yours with no other host of yours next to it: lost, it falls into the fog
+	for i in g.hosts.size():
+		if int(g.hosts[i].owner) != g.NEUTRAL or (g.hosts[home].links as Array).has(i) or i == home: continue
+		var lone := true
+		for nb in g.hosts[i].links: lone = lone and int(g.hosts[int(nb)].owner) != P
+		if lone: far = i; break
+	g._capture(far, P)
+	g.sel = {far: true}; g._inspect = -1; g._tab = ""; g._refresh_panel(); await frames()
+	pan0 = g._pan
+	g._capture(far, R); step(0.6); await frames()
+	check(not g._visible_to(P, far) and g._inspect == -1 and g.sel.is_empty(), "Setup: a selected outpost lost to a rival falls into the fog and leaves the sidebar")
+	check(g._pan.distance_to(pan0) < 1.0, "The narrower sidebar it leaves does not slide the map (moved %s)" % str(g._pan - pan0))
 	g.sel = {}; g._inspect = -1; g._tab = ""; g._refresh_panel()
 	for k in 40: g._event("scroll:%d" % k, g.EV_INFO, "Entry number %d of a long history" % k)
 	g._open_logs(); await frames(3)

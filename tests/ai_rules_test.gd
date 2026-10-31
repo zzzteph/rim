@@ -111,16 +111,18 @@ func station_spares_the_research_host() -> void:
 	give(int(nbs[0]), 2, []); give(int(nbs[1]), 1, ["intel"])
 	var mine: Array = g._ai_mine(R)
 	check(g._ai_workers_short(R), "Setup: four hosts and no station, the pool is short of workers")
-	check(g._ai_plan(R, spare, mine.size()) == ["intel", "cash", "lab"], "Setup: the empty 3-slot host is the one planned to make Research (%s)" % str(g._ai_plan(R, spare, mine.size())))
+	check(not g._ai_plan(R, spare, mine.size()).has("lab"), "A 3-slot host is never planned to make Research: its Lab would eat the bank's scarce Intel (%s)" % str(g._ai_plan(R, spare, mine.size())))
+	g.hosts[spare].slots = 4; g._set_builds(spare, [])   # a 4-slot host: one harvester for the Miner, one for the Lab
+	check(g._ai_plan(R, spare, mine.size()) == ["intel", "cash", "intel", "lab"], "Setup: the empty 4-slot host is the one planned to make Research (%s)" % str(g._ai_plan(R, spare, mine.size())))
 	var spot: Array = g._ai_station_spot(R, mine, mine.size())
 	check(not spot.is_empty() and int(spot[0]) == int(nbs[0]), "The station goes to another host with room, not the Research host (%s, Research host %d)" % [str(spot), spare])
 	g._set_builds(int(nbs[0]), ["intel", "cash"])   # now only the Research host has room
 	spot = g._ai_station_spot(R, mine, mine.size())
-	check(spot == [spare, 0], "With room only there, the station takes the Research host's first slot (%s)" % str(spot))
-	g._set_builds(spare, ["bot"])
-	check(g._ai_plan(R, spare, mine.size()) == ["intel", "cash", "lab"], "...and the host still becomes the Research host: station, Miner, Lab (%s)" % str(g._ai_plan(R, spare, mine.size())))
-	g._set_builds(spare, ["intel"])
-	check(g._ai_station_spot(R, mine, mine.size()).is_empty(), "A station never takes the Miner's or the Lab's place")
+	check(spot == [spare, 2], "With room only there, the station takes the Lab's harvester's place (%s)" % str(spot))
+	g._set_builds(spare, ["", "", "bot"])
+	check(g._ai_plan(R, spare, mine.size()) == ["intel", "cash", "intel", "lab"], "...and the host still becomes the Research host: harvester, Miner, station, Lab (%s)" % str(g._ai_plan(R, spare, mine.size())))
+	g._set_builds(spare, ["", "", "intel"])
+	check(g._ai_station_spot(R, mine, mine.size()).is_empty(), "A station never takes the Miner's, the Miner's harvester's or the Lab's place")
 
 
 func research_when_boxed_in() -> void:

@@ -101,7 +101,7 @@ godot --headless --path . --script tests/forecast_test.gd    # income forecast v
 godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
-godot --headless --path . --script tests/ai_rules_test.gd    # AI turn-taking: cut-off projects, Research host, boxed-in research, retools
+godot --headless --path . --script tests/ai_rules_test.gd    # AI turn-taking: cut-off projects, Research host (4+ slots), boxed-in research, retools
 godot --headless --path . --script tests/campaign_test.gd    # plays Learn as one session: no rebuilds, no waits, resume
 godot --headless --path . --script tests/mp_lockstep_test.gd # two screens, same command stream: identical every turn
 godot --headless --path . --script tests/text_fit_test.gd    # every text fits with a margin; no overlaps; whole sentences
@@ -208,14 +208,20 @@ a buffer, else what the main node itself brings in — Firewall upkeep, the conv
 home, by your workers' round trips dealt as the dispatcher deals them (0.6.7: `_fc_split` — of every 4 assignments
 3 bring missing inputs first, the hosts in turn, and the 4th goes to the host served least recently; short of
 workers, the pool makes as many trips a minute as its time allows), by its storage's room for supplies
-(`_fc_accepts`: none while its plan waits for room), and by the bank's room. A host the trips cannot keep up with
+(`_fc_accepts`: when its plan is limited, only the share of one cycle's inputs the plan funds — 0.6.8), and by the
+bank's room. A Firewall on a host you phish eats your Intel once the owner's stock there is gone; nothing comes from
+a phished host whose storage is full of the owner's stock ("storage full at …"), nor from any host while your main
+node is under DDoS. "Not enough workers" names each material the shortage cuts, even to nothing, and never one it
+frees (0.6.8). The full-bank test is once per material, not per host (it walks every host's producers). A host the trips cannot keep up with
 stays full, so it makes only what leaves and its converters turn its Intel into their output first (`_fc_throttled`).
 A full bank shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
 workers", "no route home from …", "no room for supplies at …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
 transit (`_where_is`). The **Workers** column is the worker population, not an income:
 "Workers N" over "B busy · F free" (or "· K blocked"). `tests/forecast_test.gd` checks the forecast against 120 s of
-steady play and against no workers, a cut route, starvation and supply, a paused producer and a full bank, and, with
-two workers for six hosts, each material within 30% of what arrives.
+steady play and against no workers (including hosts that run only on supplies), a cut route, starvation and supply,
+a paused producer, a full bank, a File server whose three Labs take turns for room (within 20%), a phished host with a
+Firewall and one with a full storage, and a main node under DDoS, and, with two workers for six hosts, each material
+within 30% of what arrives.
 
 Host panels (0.6.3). Your host's panel is a **build menu**: its name, its slots (`SlotBox`, compact `SLOT_H` 112 px
 cards in rows of three; a finished Firewall shows its three sockets inside its own card, so a row never grows) and
@@ -224,7 +230,9 @@ price — when `_palette_h` finds the full menu would not fit `_panel_avail_h`, 
 the same height every frame, so it never scrolls or jumps at 1280×720. Selecting your host closes the card drawer, and
 opening the drawer closes the build menu; however one host of yours becomes the selection (a capture, a Learn step,
 a shift-click, a Logs entry), `_refresh_panel` closes the drawer too (0.6.5). A selected host a rival takes turns into
-an inspection behind its fog without moving your view, and the drawer's state is part of the panel's context only
+an inspection (if you still see it) without moving your view; a host you inspect that you capture becomes your
+selection in the same refresh, and an inspection the fog drops leaves the narrower sidebar without sliding the map
+(0.6.8: `_refresh_panel` treats every change the sim makes to the sidebar like a prune), and the drawer's state is part of the panel's context only
 while the build menu shows, so opening it keeps your place in the Logs or the Economy view.
 A slot card says what it makes on that host (`_build_short`: the type multiplier, e.g. +1.5 Intel on a Server). A slot shows its state on the card (materials n/m while a project waits
 for them, its work bar, paused, inactive, needs an input) and a red stop button while busy; its tooltip

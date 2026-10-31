@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.7"   # income forecast deals trips like the dispatcher: right for each material when workers are short (lobbies match exact versions)
+const GAME_VERSION := "0.6.8"   # review fixes: forecast for limited plans, phished hosts and a DDoSed main node; AI Research host on 4+ slots; sim never moves the view (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -220,6 +220,7 @@ var _ai := {}          # faction -> {timer, dead, ...}
 # selection / command
 var sel := {}          # selected hosts of yours
 var _inspect := -1     # the host whose panel is open, or -1
+var _focus_fogged := false   # the heartbeat dropped an inspection into the fog: the sidebar it shrinks never moves your view
 var _tab := ""         # the open sidebar section
 var _chosen_attack := ""        # the attack recipe the target panel's Launch uses
 var _chosen_siphon_res := "cash"   # the resource a Packet siphon redirects (chosen before launch)
@@ -1347,8 +1348,10 @@ func _fc_cycle(i: int, fac: int, at_main: bool, inflow: Dictionary, budget := {}
 	out.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel") * harvest
 	var made := out.duplicate()   # at the main node every output is income; what converters and Firewalls use is spending
 	var walls := _count_all(i, "wall") - _walls_building(i)
-	if walls > 0 and int(hosts[i].owner) == fac and not at_main:   # the Firewall eats first, from what is made here, then from supplies
+	if walls > 0 and not at_main:   # the Firewall eats first, from what is made here, then from supplies
 		var need := float(BUILD_KINDS.wall.use.intel) * walls
+		var owner := int(hosts[i].owner)
+		if owner != fac: need = maxf(0.0, need - _st_get(i, owner, "intel"))   # phished: the owner's stock here pays first, then your harvest
 		var own := minf(need, float(out.intel)); out.intel = float(out.intel) - own
 		if need - own > 0.0001 and bool(supplied.intel):
 			var got := minf(need - own, float(budget.intel)); budget.intel = float(budget.intel) - got
@@ -1382,16 +1385,21 @@ func _fc_accepts(i: int, fac: int) -> float:   # the share of one cycle's suppli
 	if int(hosts[i].owner) != fac: return 1.0   # (only your own hosts are supplied)
 	var budget := {}
 	for res in RES: budget[res] = _free(fac, res)
-	if bool(_host_plan(i, fac, budget).limited): return 0.0   # its plan already waits for room: no input is requested (it only reads the host)
+	var pl := _host_plan(i, fac, budget)   # (it only reads the host)
 	var use := {}   # one cycle's inputs on the host, made there or supplied
+	var funded := 0.0   # ... and the part of them its plan funds this cycle
 	var walls := _count_all(i, "wall") - _walls_building(i)
-	if walls > 0: use["intel"] = float(BUILD_KINDS.wall.use.intel) * walls
+	if walls > 0:
+		use["intel"] = float(BUILD_KINDS.wall.use.intel) * walls
+		if bool(pl.wall): funded += float(use.intel)
 	for kind in CONVERT_ORDER:
-		var k := _count(i, kind)
-		if k == 0: continue
 		var spec: Dictionary = BUILD_KINDS[kind]
 		var m := _tmult(i, str(spec.out))
-		for r in (spec.use as Dictionary): use[str(r)] = float(use.get(str(r), 0.0)) + float(spec.use[r]) * m * k
+		for slot in (hosts[i].builds as Array).size():
+			if str(hosts[i].builds[slot]) != kind or not _producer_active(i, slot): continue
+			for r in (spec.use as Dictionary):
+				use[str(r)] = float(use.get(str(r), 0.0)) + float(spec.use[r]) * m
+				funded += float(spec.use[r]) * m * float((pl.frac as Dictionary).get(slot, 0.0))
 	var w := 0.0
 	var waiting := _store_total(i) + _inbound_total(i)   # what fills its storage and is not this cycle's inputs: output waiting to go home
 	for r in use:
@@ -1399,7 +1407,9 @@ func _fc_accepts(i: int, fac: int) -> float:   # the share of one cycle's suppli
 		waiting -= minf(float(_store_of(i, fac).get(r, 0.0)) + _inbound(i, str(r)), float(use[r]))
 	for r in RES: waiting -= _claimed(i, fac, r)   # (a worker is already on its way for it)
 	if w <= 0.0001: return 1.0
-	return clampf((STORE_CAP - waiting) / w, 0.0, 1.0)
+	var share := clampf((STORE_CAP - waiting) / w, 0.0, 1.0)
+	if bool(pl.limited): share = minf(share, funded / w)   # one cycle's supplies do not all fit: the converters whose bundles fit take turns
+	return share
 
 
 func _fc_fill(base: Array, cap: Array, amount: float) -> Array:   # amount shared out lowest first, none past its cap: x = clamp(level, base, cap)
@@ -1482,15 +1492,18 @@ func _forecast_now(fac: int) -> Dictionary:
 	# remote hosts first: what each sends home per cycle and the supply trips that takes
 	var remote := []   # [host, ship {res: units/cycle}, supply trips/cycle, round trip s, supplies {res: units/cycle} if all come]
 	for i in hosts.size():
-		if i == hub: continue
+		if i == hub or _routing_down(hub): continue   # (a DDoSed main node sends no worker out: nothing more comes home)
 		var owner := int(hosts[i].owner)
 		var benef := _benef(i)
 		if benef != fac or owner == NEUTRAL: continue   # only output that is fac's (its own, or phished from a rival)
 		if _ddos_down(i):
 			if _standing(i) > 0: for res in RES: _fc_limit(d, res, "a host under DDoS")
 			continue
+		if owner != fac and _store_room(i) <= 0.0001 and _store_of(i, fac).is_empty():   # phished, its storage full of the owner's stock:
+			if _count(i, "intel") > 0: for res in RES: _fc_limit(d, res, "storage full at %s" % str(hosts[i].name))   # none of yours lands
+			continue
 		# its storage holds one cycle's inputs next to the output waiting there, or only part of them: the dispatcher
-		# sends a supply only where it fits, so a host full of output gets fewer (none if its plan waits for room)
+		# sends a supply only where it fits, so a host full of output gets fewer (a limited plan: the bundles that fit, in turn)
 		var cyc := _fc_cycle(i, fac, false, {}, budget.duplicate())   # fully supplied, from what the bank can send
 		var acc := 1.0 if (cyc.used as Dictionary).is_empty() else _fc_accepts(i, fac)
 		var sup := _fc_scaled(cyc.used, acc)
@@ -1538,6 +1551,10 @@ func _forecast_now(fac: int) -> Dictionary:
 			else: lo = mid
 		trips_of = _fc_split(din, dem, lo)
 	var inflow := {}
+	var cap := {}; var bank_full := {}   # (per material, not per host: counting the producers walks every host)
+	for res in RES:
+		cap[res] = _cap(fac, res)
+		bank_full[res] = _avail(fac, res) >= float(cap[res]) - 0.5 and _room(fac, res) < 1.0
 	for k in remote.size():
 		var row: Array = remote[k]
 		var i: int = row[0]
@@ -1545,14 +1562,14 @@ func _forecast_now(fac: int) -> Dictionary:
 		var made: Dictionary = row[1]
 		if x < float(din[k]) - 0.0001:   # short of supply trips: the supplies that come
 			made = _fc_cycle(i, fac, false, {}, _fc_scaled(row[4], x / float(din[k]))).out
-		if x < float(dem[k]) - 0.001:
-			for res in RES: if float(made[res]) > 0.0001: _fc_limit(d, res, "not enough workers")
 		# its trips bring everything home while they keep up. Else its storage stays full: its Intel harvesters only make
 		# as much as leaves, and its converters, in their order, turn that Intel into their own output first
 		if _fc_units(made) * per > x * WORKER_CARRY + 0.0001:
 			made = _fc_throttled(i, fac, _fc_scaled(row[4], minf(1.0, x / maxf(0.0001, float(din[k])))), made, x * WORKER_CARRY / per)
+		if x < float(dem[k]) - 0.001:   # what the shortage cuts, even to nothing (not what it frees: a starved Lab leaves its Intel)
+			for res in RES: if float(row[1][res]) > float(made[res]) + 0.0001: _fc_limit(d, res, "not enough workers")
 		for res in RES:
-			if _room(fac, res) < 1.0 and _avail(fac, res) >= _cap(fac, res) - 0.5: continue   # a full bank takes nothing
+			if bool(bank_full[res]): continue   # a full bank takes nothing
 			var v := float(made[res]) * per
 			if v <= 0.0001: continue
 			inflow[res] = float(inflow.get(res, 0.0)) + v
@@ -1567,7 +1584,7 @@ func _forecast_now(fac: int) -> Dictionary:
 	else: for res in RES: _fc_limit(d, res, "your main node is under DDoS")
 	# a full bank takes nothing more
 	for res in RES:
-		if _avail(fac, res) >= _cap(fac, res) - 0.5 and float(d.rate[res]) > 0.0:
+		if _avail(fac, res) >= float(cap[res]) - 0.5 and float(d.rate[res]) > 0.0:
 			d.rate[res] = 0.0; d.from[res] = {}; _fc_limit(d, res, "your bank is full")
 	return d
 
@@ -4247,7 +4264,6 @@ func _ai_lab_station_slot(i: int, plan: Array) -> int:   # a slot of the Researc
 	var b: Array = hosts[i].builds
 	for k in plan.size():   # its plan's own station
 		if str(plan[k]) == "bot" and str(b[k]) == "" and not _slot_busy(i, k): return k
-	if plan.size() == 3: return 0 if str(b[0]) == "" and not _slot_busy(i, 0) else -1   # [station, Miner, Lab]: workers bring the Intel
 	for k in range(plan.size() - 1, 0, -1):   # a spare harvester's place (never the first: it feeds the Miner)
 		if str(plan[k]) == "intel" and str(b[k]) == "" and not _slot_busy(i, k): return k
 	return -1
@@ -4260,13 +4276,8 @@ func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host 
 	if n == 1: return ["bot" if short_workers else "intel"]   # a lone slot: a station only while the pool lacks workers
 	var conv := _ai_conv(fac)
 	var plan := (["bot", "intel", conv, "intel", conv] if short_workers else ["intel", conv, "intel", conv, "intel"]).slice(0, n)   # a harvester per converter (1 Intel each a cycle); stations only as the pool needs them
-	var b: Array = hosts[i].builds
-	var near := _ai_capture_targets(fac)
-	var wants_research := held >= 3 or (not near.is_empty() and int(hosts[int(near[0])].owner) != NEUTRAL)   # faster captures against a rival run on Research
-	if n == 3 and wants_research and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel", "bot"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
-		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; main-node workers carry it; a station
-		                                  # that had to take the harvester's place leaves the Intel to them)
-	if n >= 4 and not _ai_has_lab_host(fac, i):   # a self-fed Research host: one harvester for the Miner, one for the Lab
+	if n >= 4 and not _ai_has_lab_host(fac, i):   # one self-fed Research host: one harvester for the Miner, one for the Lab (a 3-slot host
+		                                          # would eat the bank's scarce Intel; the main node's own Lab covers research until then)
 		plan = (["bot", "intel", "cash", "intel", "lab"] if short_workers and n >= 5 else ["intel", "cash", "intel", "lab", "intel"]).slice(0, n)
 	elif n >= 4 and held >= 6 and not _ai_has_firewall(fac): plan[3] = "wall"   # one guarded host once the network is worth guarding
 	return plan
@@ -6949,11 +6960,14 @@ func _refresh_panel() -> void:
 	_refresh_top_tabs()
 	var shown := _panel_shown()
 	panel.visible = shown and not menu_open
-	var pruned := false
-	for k in sel.keys():   # a selected host a rival took is no longer yours to build on: inspect it instead, behind its fog
+	var pruned := _focus_fogged   # the sim changed what the sidebar shows, not you: your view stays where it is
+	_focus_fogged = false
+	for k in sel.keys():   # a selected host a rival took is no longer yours to build on: inspect it instead (if you still see it)
 		if _host_ok(int(k)) and not _mine(int(k)):
 			sel.erase(k); pruned = true
-			if sel.is_empty(): _inspect = int(k)
+			if sel.is_empty(): _inspect = int(k) if _visible_to(PLAYER, int(k)) else -1
+	if sel.is_empty() and _inspect >= 0 and _host_ok(_inspect) and _mine(_inspect):   # a host you inspect became yours: its build menu
+		sel = {_inspect: true}; _inspect = -1; pruned = true
 	if sel.size() == 1 and _deck_open and _armed == "" and not (won or lost):   # however one host became the selection (a capture, a lesson
 		_deck_open = false; _deck_drag_restore = false                          # step, a shift-click, a log entry): its build menu gets the full height
 	var context := "%s|%s|%d|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost)]
@@ -6985,8 +6999,8 @@ func _refresh_panel() -> void:
 	_panel_context = context
 	_restore_scroll(keep)
 	_layout_ui()
-	_pan.x += (previous_width - panel.size.x) * 0.5
-	if changed and not pruned: _keep_target_visible()   # a host lost to a rival never moves your view
+	if not pruned: _pan.x += (previous_width - panel.size.x) * 0.5   # the map keeps its centre as you widen or narrow the sidebar
+	if changed and not pruned: _keep_target_visible()   # a host taken, lost or fogged never moves your view
 
 
 func _sockets_first(box: Node) -> int:   # the first socket a slot card's embedded SocketList shows, or -1 without one
@@ -8116,7 +8130,7 @@ func _refresh_sight() -> void:   # remember what every botnet sees now (cheap; o
 
 
 func _drop_fogged_focus() -> void:   # a foreign host that slipped into the fog cannot stay inspected
-	if _inspect >= 0 and not _visible_to(PLAYER, _inspect): _inspect = -1
+	if _inspect >= 0 and not _visible_to(PLAYER, _inspect): _inspect = -1; _focus_fogged = true
 
 
 func _explored(fac: int, i: int) -> bool:   # seen now or before

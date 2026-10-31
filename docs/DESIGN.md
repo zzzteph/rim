@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.7 · commit 55f6a45
+RIM 0.6.8 · commit 3a3f135
 
 ## Contents
 
@@ -216,7 +216,8 @@ forecast(res) = main-node trickle (5/min while the main node is up)
                   inputs  = made on the host, or brought by workers (plenty while the bank holds ≥ 5,
                             else only what the main node brings in, shared by the hosts in turn), and only
                             as far as its storage has room for one cycle's inputs next to the output waiting
-                            there (none while its plan waits for room); short inputs, less output
+                            there (when one cycle's supplies cannot all fit, only the converters whose
+                            bundles fit, in turn); short inputs, less output
                   trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
                             the main node): of every 4 assignments, 3 go by purpose, missing inputs before
                             surplus, the hosts in turn; the 4th goes to the host served least recently, so the
@@ -225,7 +226,9 @@ forecast(res) = main-node trickle (5/min while the main node is up)
                             many trips as its time allows
                   sent    = what those trips carry; a host they cannot keep up with stays full, so it makes
                             only what leaves, and its converters turn its Intel into their output first
-                  nothing from a host with no route home, under DDoS, or into a full bank
+                  a Firewall's upkeep on a host you phish comes out of your Intel once the owner keeps none there
+                  nothing from a host with no route home, under DDoS, whose storage is full of someone else's
+                  stock, while your main node is under DDoS (no worker leaves), or into a full bank
 ```
 
 The tooltip and the Economy overview name where it comes from and what holds it back, and how much is stored at hosts, in transit and reserved at the main node. The Workers column shows the population and what it is doing (busy · free · blocked), not an income.
@@ -691,8 +694,8 @@ One AI for every rival, no difficulty setting. It plays by the same rules, price
 
 - Main node: Intel harvester, Bot station, then a converter chosen by need (it may be a Lab, fed from the bank), Lab, Credential harvester.
 - Other hosts: Intel harvester, converter, Intel harvester, converter, Intel harvester (a harvester for each converter); a 1-slot host gets a harvester.
-- Workers: while it has fewer than one Bot station per two hosts held (stations on order counted), it puts a station in the first free slot of the host with the most free slots, ahead of the plans. It uses the host it plans to make Research on only when no other host has room, and then only a slot that keeps that layout: a 3-slot host's first slot (station, Miner, Lab: workers bring the Intel), a spare harvester's place on a bigger one.
-- One Research host once it holds 3 hosts or its nearest target is a rival's: Intel harvester, Miner, Lab on 3 slots; Intel harvester, Miner, Intel harvester, Lab, Intel harvester on 4+. A Lab on order counts, so it never plans two.
+- Workers: while it has fewer than one Bot station per two hosts held (stations on order counted), it puts a station in the first free slot of the host with the most free slots, ahead of the plans. It uses the host it plans to make Research on only when no other host has room, and then only a slot that keeps that layout (a spare harvester's place).
+- One Research host, on the first host with 4+ slots: Intel harvester, Miner, Intel harvester, Lab, Intel harvester, so its own harvesters feed it. Never on 3 slots: there the Lab would eat Intel the bank does not have yet, and the main node's own Lab covers research until then. A Lab on order counts, so it never plans two.
 - One Firewall (in the fourth slot) on a 4+-slot host once it holds 6 hosts.
 - The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 5 units a minute the card queue would otherwise spend every unit first. A project whose host loses its road home no longer counts as waiting (nothing can bring its bill); after 60 s cut off (longer than a DDoS) the AI cancels it.
 - Converter choice: what its next capture card lacks for two copies, else the emptiest bank.
