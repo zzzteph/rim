@@ -56,6 +56,7 @@ func run() -> void:
 	counters_first()
 	exemptions_and_scope()
 	preview_odds()
+	odds_in_flight_and_after()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -232,3 +233,45 @@ func preview_odds() -> void:
 	s = ""
 	for l in g._target_preview(P, "breach", t).lines: s += str(l[0]) + "\n"
 	check(s.contains("goes stale before it resolves"), "...and warns when the Recon will be stale by the time it resolves")
+
+
+func odds_in_flight_and_after() -> void:   # a capture draws after its execution: the packet's odds are judged then, and a miss keeps its recorded odds
+	fresh()
+	var t := neighbour()
+	g._mark_scanned(P, t)
+	g.recon[P][t].at = g._t - 32.0   # fresh for 13 s more: stale by the time a Breach has executed (travel + 15 s)
+	g.cards[P] = {"breach": 1}
+	g._play_card(P, "breach", t)
+	var fl: Dictionary = {}
+	for f in g.flights:
+		if str(f.kind) == "op" and int(f.owner) == P and str(f.get("card", "")) == "breach": fl = f
+	var tip := "\n".join(PackedStringArray(g._flight_lines(fl))) if not fl.is_empty() else ""
+	check(tip.contains("Chance: 25% (unscouted)"), "A Breach in flight is judged at its draw, after execution: 25%% when the Recon will be stale (%s)" % tip.replace("\n", " | "))
+	check(g._miss_why(P, t, "breach", 1).contains("50%") and g._miss_why(P, t, "breach", 0).contains("25%"), "A miss is explained with the odds it was drawn at, not today's Recon")
+	# the AI does not scout for an attack that resolves after any Recon sent now would be stale: a big spiral, far hosts
+	g.free()
+	g = load("res://scripts/botnet_proto.gd").new()
+	g.theme = load("res://assets/ui_theme.tres")
+	g._opt_size = g.SIZE_PRESETS[2]; g._opt_enemies = 1; g._opt_seed = 3; g._opt_shape = "spiral"
+	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
+	g._open_menu(false)
+	P = g.PLAYER; R = g.RIVAL
+	var far := -1
+	var ai: int = R
+	var prev := {int(g.rig[ai]): -1}   # the AI holds a long chain up to your main node (BFS path), then targets it
+	var queue := [int(g.rig[ai])]
+	while not queue.is_empty():
+		var h: int = queue.pop_front()
+		for nb in g.hosts[h].links:
+			if not prev.has(int(nb)): prev[int(nb)] = h; queue.append(int(nb))
+	var goal: int = int(g.rig[P])
+	var step_h: int = int(prev.get(goal, -1))
+	while step_h >= 0 and step_h != int(g.rig[ai]):
+		g._capture(step_h, ai); step_h = int(prev[step_h])
+	var rt: Array = g._attack_route(ai, goal)
+	if not rt.is_empty() and g._travel_time(rt) + g._exec_time("breach", goal) > float(g.CARDS.recon.dur): far = goal
+	if far >= 0:
+		g.cards[ai] = {"breach": 1, "recon": 1}
+		check(not g._ai_scout_first(ai, far, "breach") and g._held(ai, "recon") == 1, "The AI keeps its Recon when no Recon could still be fresh when the attack resolves")
+	else:
+		check(false, "a host whose Breach resolves later than a Recon stays fresh (%d hosts)" % g.hosts.size())

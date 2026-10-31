@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.3 · commit ad0e652
+RIM 0.6.3 · commit 5ef692f
 
 ## Contents
 
@@ -98,7 +98,7 @@ The match ends when one network holds the majority for 51 s or is the last with 
 | Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch.                                                       |
 | End game  | 10 min +     | 0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                                                                                 |
 
-Measured sample (0.6.3): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each, at 5 units a minute per producer. Held hosts grow from 8 to 13–18; 16 intrusions resolve per match, all Credential breaches on neutral hosts. 60 Recons: 29 got through, 31 missed. Scouted breaches: 19 captured, 10 missed. Unscouted: 16 captured, 35 missed. Overall 35 of 80 breaches captured (44%), against 47 of 78 (60%) under 0.6.2's odds (50% unscouted, 100% scouted). After 10 minutes the largest network holds 4–6 of the 21 hosts needed. The economy, not the odds, sets the pace: each AI launches about one capture every 95 s. The AIs scout first and keep the capture copy for the scouted host; when the Recon misses and none is in hand, they attack at 25%.
+Measured sample (0.6.3): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each, at 5 units a minute per producer. Held hosts grow from 8 to 13–18; 16 intrusions resolve per match, all Credential breaches on neutral hosts. 60 Recons: 29 got through, 31 missed. Scouted breaches: 19 captured, 10 missed. Unscouted: 16 captured, 35 missed. Overall 35 of 80 breaches captured (44%), against 47 of 78 (60%) under 0.6.2's odds (50% unscouted, 100% scouted). After 10 minutes the largest network holds 4–6 of the 21 hosts needed. The economy, not the odds, sets the pace: each AI launches about one capture every 95 s. The AIs scout first and keep the capture copy for the scouted host; when the Recon misses and no other is in hand or being made, they attack at 25%.
 
 ## Time model
 
@@ -367,7 +367,7 @@ Intrusions resolve earliest end first, equal end times in launch order. Each end
 
 #### The Recon rule
 
-Every attack card except Recon succeeds at half its chance (0.5 × a baseline of 1.0) against a host you have no fresh Recon of. Effects that land on arrival (Phishing, Siphon, DDoS, Sabotage) draw on arrival, after a loaded Response has had its say; a DDoS or Sabotage reaching several hosts is one operation with one draw; each Worm stage is its own operation. Counters, a void target or a lost route are always decided first: a draw never lets a card past them. The draw comes from a generator seeded by the map, the same on every screen, and part of the multiplayer fingerprint. Defence cards on your own hosts never need Recon.
+A Recon gets through 50% of the time (RECON_CHANCE), whatever the host; a miss shows nothing, and only its sender hears of it. Every other attack card succeeds 50% against a host you hold fresh Recon of (SCOUTED_CHANCE) and 25% without (UNSCOUTED_CHANCE): one draw per operation. Effects that land on arrival (Phishing, Siphon, DDoS, Sabotage) draw on arrival, after a loaded Response has had its say; a DDoS or Sabotage reaching several hosts is one operation with one draw; each Worm stage is its own operation. Counters, a void target or a lost route are always decided first: a draw never lets a card past them. The draw comes from a generator seeded by the map, the same on every screen, and part of the multiplayer fingerprint. Defence cards on your own hosts always work.
 
 #### Defence cards
 
@@ -419,7 +419,7 @@ Capture a host in 15 s.
 **Make:** 12 Intel, 12 Creds, 12 s (≈ 144 s early · 90 s mid of Credentials income)
 
 - **Why it exists:** The way to grow: every host adds slots, and holding 51% of all hosts wins.
-- **Play it when:** On neutral hosts first, as nobody defends them; scouted, so it cannot miss.
+- **Play it when:** On neutral hosts first, as nobody defends them; scouted, for 50% instead of 25%.
 - **Target:** Any foreign host your operations can reach, neutral or a rival’s. There are no security levels.
 - **Timing:** Travels, then executes for 15 s on the host (30 s on a held main node). The owner sees “Breach executing” and has that long to react.
 - **Outcome:** When its execution ends: first a Patch (**countered**), losing your path to it (**route failed**) or another owner taking it first (**owner changed**) stop it; then one draw (**missed** on a fail): 50% with fresh Recon of the host, 25% without.
@@ -451,7 +451,7 @@ Capture a host in 5 s.
 
 **Make:** 16 Intel, 12 Crypto, 12 Creds, 16 Research, 26 s (≈ 192 s early · 120 s mid of Research income)
 
-- **Why it exists:** The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.
+- **Why it exists:** The fastest capture: 5 s (12 s on a main node) leaves only an armed or loaded Patch in time: the card for a defended host or a rival main node.
 - **Play it when:** After a Recon shows no Patch waiting, or after a cheaper card has used it up.
 - **Target:** Any foreign host your operations can reach.
 - **Timing:** Travels, then executes for 5 s; 12 s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time.
@@ -472,7 +472,7 @@ Capture 2 linked hosts in turn.
 - **Target:** Any foreign host your operations can reach.
 - **What it is:** A capture on up to 2 linked hosts, one after the other.
 - **Timing:** Travels; each stage executes for 12 s (24 s on a main node), and each can be stopped on its own.
-- **Chain:** Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the **same owner** as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw when unscouted.
+- **Chain:** Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the **same owner** as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw (50% scouted, 25% not). Both stages land 25% of the time with both hosts scouted, 6.25% with neither.
 - **Stops when:** A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured.
 
 ### Phishing
@@ -681,9 +681,10 @@ One AI for every rival, no difficulty setting. It plays by the same rules, price
 #### 1 · Develop
 
 - Main node: Intel harvester, Bot station, then a converter chosen by need (it may be a Lab, fed from the bank), Lab, Credential harvester.
-- Other hosts: 1 slot → Bot station; else Bot station, Intel harvester, converter, converter, Intel harvester.
-- A Research host (Intel harvester, Miner, Lab) once it holds 3 hosts or needs Known exploit; on 4-slot hosts a Miner and Lab replace the converters.
-- One Firewall on a 4+-slot host once it holds 6 hosts.
+- Other hosts: Intel harvester, converter, Intel harvester, converter, Intel harvester (a harvester for each converter). While its workers are short (fewer than one Bot station per two hosts held, stations on order counted) the first slot is a Bot station; a 1-slot host gets a Bot station only then, else a harvester.
+- One Research host once it holds 3 hosts or its nearest target is a rival's: Intel harvester, Miner, Lab on 3 slots; Intel harvester, Miner, Intel harvester, Lab, Intel harvester on 4+.
+- One Firewall (in the fourth slot) on a 4+-slot host once it holds 6 hosts.
+- The main node first, then every other host with a road home; per host the first empty planned slot it can pay for.
 - Converter choice: what its next capture card lacks for two copies, else the emptiest bank. It builds the first planned slot it can pay for and saves for the rest.
 - Retool: when one of Intel, Crypto, Credentials is ≥ 40% full and another \< 15%, it rebuilds one producer of the full kind as the short kind.
 
@@ -693,11 +694,11 @@ Known exploit at once; then Traffic filter, DDoS, 0day, Worm, Packet siphon, Car
 
 #### 3 · Manufacture
 
-The cheapest known capture card that cracks the softest reachable host (up to 3 held); a Patch (2 when one of its hosts is under attack); Response or Filter while a Firewall socket is free; one DDoS or Phishing when a target exists.
+A capture card for its nearest target (the cheapest known for a neutral host, the fastest for a rival's; up to 3 held); Recon (up to 2 held); a Patch (2 when one of its hosts is under attack); Response or Filter while a Firewall socket is free; one DDoS or Phishing when a target exists.
 
 #### 4 · Operate and defend
 
-Launches up to 3 captures at the softest, then nearest, reachable hosts; Phishing and DDoS on the reachable rival host with the most producers; Patch on an intrusion against its hosts; spare Response, Filter and Patch go into free sockets.
+Launches up to 3 captures at reachable hosts, neutral first, then a rival's, main nodes last, nearest first. Before each it sends Recon when one is in hand and keeps that capture copy for the host being scouted; it waits while its Recon flies or one is being made, and attacks at 25% when none is coming or when the attack would resolve after a Recon sent now goes stale. Phishing and DDoS go to the reachable rival host with the most producers its Recon saw; Patch on an intrusion against its hosts; spare Response, Filter and Patch go into free sockets.
 
 Limits worth knowing: the AI never plays Packet siphon, Vault raid, Worm, Sabotage, Cargo cover or Express route (it may research some). When it picks a Phishing or DDoS target it counts only producers its own Recon saw; an unscouted rival host counts as worth a look.
 
@@ -847,6 +848,6 @@ Choices made in the last rounds that are worth a second look.
 9.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
 10. **Packet siphon takes the resource chosen on its Ready card** (Crypto until you pick another), whether it is dragged or clicked onto a host.
 11. **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 5 Credentials and 5 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
-12. **The AI** never plays seven of the fifteen cards and reads rival buildings without Recon when picking theft targets (see [AI](#ai)).
+12. **The AI** never plays six of the fifteen cards (Packet siphon, Vault raid, Worm, Sabotage, Cargo cover, Express route; see [AI](#ai)).
 13. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).
 

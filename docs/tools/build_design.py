@@ -74,7 +74,7 @@ def wait(cost, inc):
 
 _TUNING = open(f"{ROOT}/scripts/botnet_cfg/tuning.gd").read()
 RECON_P, SCOUTED_P, UNSCOUTED_P = (float(re.search(rf"{k} := ([0-9.]+)", _TUNING).group(1)) for k in ("RECON_CHANCE", "SCOUTED_CHANCE", "UNSCOUTED_CHANCE"))
-pc = lambda p: f"{round(p * 100)}%"
+pc = lambda p: f"{p * 100:g}%"
 # ---- what every card does, exactly (checked against scripts/botnet_proto.gd) ----
 D = {}
 D["recon"] = [
@@ -111,7 +111,7 @@ D["worm"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("What it is", f"A capture on up to {n(C['worm']['reach'])} linked hosts, one after the other."),
     ("Timing", f"Travels; each stage executes for {n(C['worm']['exec'])} s ({n(C['worm']['exec_rig'])} s on a main node), and each can be stopped on its own."),
-    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw when unscouted."),
+    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw (" + pc(SCOUTED_P) + " scouted, " + pc(UNSCOUTED_P) + " not). Both stages land " + pc(SCOUTED_P * SCOUTED_P) + " of the time with both hosts scouted, " + pc(UNSCOUTED_P * UNSCOUTED_P) + " with neither."),
     ("Stops when", "A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured."),
 ]
 D["phish"] = [
@@ -178,9 +178,9 @@ D["express"] = [
 
 WHY = {
     "recon": ("Tells you whether an expensive card will pay off: what a host holds, how full its storage is, and whether a Patch waits in its Firewall.", "Before an 0day, Vault raid, Worm or Sabotage, or to find a rival's richest host."),
-    "breach": ("The way to grow: every host adds slots, and holding 51% of all hosts wins.", "On neutral hosts first, as nobody defends them; scouted, so it cannot miss."),
+    "breach": ("The way to grow: every host adds slots, and holding 51% of all hosts wins.", "On neutral hosts first, as nobody defends them; scouted, for " + pc(SCOUTED_P) + " instead of " + pc(UNSCOUTED_P) + "."),
     "exploit": ("A faster capture: 9 s leaves a defender little time to get a Patch there.", "Against a rival's hosts, where a Patch might be sent."),
-    "zeroday": ("The only card that takes databases, ERP systems and main nodes, so the only way to knock a rival out.", "After a Recon shows no Patch waiting, or after a cheaper card has used it up."),
+    "zeroday": ("The fastest capture: 5 s (12 s on a main node) leaves only an armed or loaded Patch in time: the card for a defended host or a rival main node.", "After a Recon shows no Patch waiting, or after a cheaper card has used it up."),
     "worm": ("Two captures in one launch, reaching a host behind a rival's front line.", "When a rival holds a chain of linked hosts; scout both."),
     "phish": ("Hurts a rival without taking ground: you gain exactly what they lose.", "On their best-producing host."),
     "siphon": ("Takes a whole supply line, not one host's output.", "On a host their deliveries cross, set to the resource they need most."),

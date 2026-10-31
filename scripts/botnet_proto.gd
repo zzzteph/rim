@@ -869,9 +869,9 @@ func _op_roll(fac: int, t: int, recipe: String) -> bool:   # one draw per resolv
 func _pct(c: float) -> int: return int(round(c * 100.0))
 
 
-func _miss_why(fac: int, t: int, recipe: String) -> String:   # why a miss could happen: the chance it had, judged now
+func _miss_why(fac: int, t: int, recipe: String, scouted := -1) -> String:   # the chance a miss had: as recorded (scouted 0/1), else judged now
 	if str(CARDS[recipe].effect) == "recon": return "a Recon gets through %d%% of the time" % _pct(RECON_CHANCE)
-	if _recon_fresh(fac, t): return "a %d%% chance even with fresh Recon" % _pct(SCOUTED_CHANCE)
+	if (scouted == 1) if scouted >= 0 else _recon_fresh(fac, t): return "a %d%% chance even with fresh Recon" % _pct(SCOUTED_CHANCE)
 	return "a %d%% chance without fresh Recon" % _pct(UNSCOUTED_CHANCE)
 
 
@@ -3090,13 +3090,13 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 	var ex := _exec_time(recipe, t) if eff in ["capture", "worm", "vault"] else 0.0
 	lines.append(_chance_line(fac, t, recipe, arrive + ex))
 	match eff:
-		"capture": lines.append(["Then executes for %d s. It captures the host unless a Patch, a lost route or a change of owner stops it first." % int(ex), C_TEXT])
+		"capture": lines.append(["Then executes for %d s. If its draw succeeds it captures the host; a Patch, a lost route or a change of owner stops it first." % int(ex), C_TEXT])
 		"worm":
 			lines.append(["Then executes for %d s. After a capture it moves on to the nearest linked %s host you can see (%d hosts in all); a Patch or a lost route ends the chain." % [int(ex), owner_name, int(card.reach)], C_TEXT])
 			var nxt := _worm_next(fac, t, int(hosts[t].owner), [t])
 			lines.append(["Next if it captures: %s." % (str(hosts[nxt].name) if nxt >= 0 else "no eligible host in sight"), C_DIM])
 		"vault":
-			lines.append(["Then executes for %d s and empties up to %d units from this host and its owner's linked hosts; your workers carry them home." % [int(ex), int(card.cargo)], C_TEXT])
+			lines.append(["Then executes for %d s. If its draw succeeds it empties up to %d units from this host and its owner's linked hosts; your workers carry them home." % [int(ex), int(card.cargo)], C_TEXT])
 			lines.append(["Would raid, as far as you can see: %s." % _names(_preview_chain(fac, t, int(card.reach))), C_DIM])
 			lines.append(["Your workers to collect it: %d." % int(_worker_counts(fac).total), C_DIM])
 		"phish":
@@ -3112,7 +3112,7 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 			var res := siphon_res if RES.has(siphon_res) and siphon_res != "bots" else "cash"
 			lines.append(["On arrival, for %d s, %s carried by workers leaving or passing this host is dropped there for yours (up to %d)." % [int(card.dur), RES_NAME[res], int(card.cargo)], C_TEXT])
 			if by_drag: lines.append(["A drag takes Crypto; choose another resource in the host's panel.", C_DIM])
-		"recon": lines.append(["On arrival, shows its installations, storage and Firewall cards; the snapshot is fresh for %d s." % int(card.dur), C_TEXT])
+		"recon": lines.append(["If it gets through, it shows the host's installations, storage and Firewall cards; the snapshot is fresh for %d s." % int(card.dur), C_TEXT])
 	lines.append_array(_known_defences(fac, t, eff, arrive + ex))
 	lines.append(["The card is used only when you launch it.", C_DIM])
 	return {"ok": why == "", "why": why, "lines": lines}
@@ -4140,6 +4140,7 @@ func _ai_scout_first(fac: int, t: int, recipe: String) -> bool:   # true: this a
 	var rt := _attack_route(fac, t)
 	var at := _t + _travel_time(rt) + (_exec_time(recipe, t) if str(CARDS[recipe].effect) in ["capture", "worm", "vault"] else 0.0)
 	if _is_defense(recipe) or _recon_fresh(fac, t, at): return false   # scouted when it resolves: 50%, the best there is
+	if at - _t > float(CARDS.recon.dur): return false   # resolves later than any Recon sent now stays fresh: scouting cannot help
 	if _ai_scouting(fac, t): return true
 	if _held(fac, "recon") > 0 and _can_play(fac, "recon", t) == "":
 		_play_card(fac, "recon", t); return true
@@ -6138,7 +6139,9 @@ func _camp_status() -> String:   # what the game is still resolving for this ste
 			var o: Dictionary = op_outcomes[k]
 			if _t - float(o.t) > 20.0: break
 			if int(o.fac) == PLAYER and str(o.card) == need and int(o.target) == tgt:
-				if str(o.outcome) == "missed": return "Your %s failed: %s. Launch it again." % [nm, _miss_why(PLAYER, tgt, need)]
+				if str(o.outcome) == "missed":
+					var next := "Your next copy is being made." if _held(PLAYER, need) <= 0 and _mq_count(PLAYER, need) > 0 else "Launch it again."
+					return "Your %s failed: %s. %s" % [nm, _miss_why(PLAYER, tgt, need, 1 if bool(o.get("scouted", false)) else 0), next]
 				break
 	var specs = st.get("ui", [])
 	if specs is String: specs = [specs]
@@ -8239,9 +8242,10 @@ func _flight_lines(fl: Dictionary) -> Array:   # what the details beside a packe
 			out.append("Arrives in %ds" % ceili(eta))
 			if _is_defense(recipe): out.append("Loads a Firewall socket on arrival" if bool(fl.get("load", false)) else "Acts on arrival")
 			elif recipe == "recon": out.append("Chance: %d%%" % _pct(RECON_CHANCE))
-			else:
-				var c := _op_chance(PLAYER, int(fl.target), recipe, float(fl.arrive_t))
-				out.append("Chance: %d%% (%s)" % [_pct(c), "scouted" if _recon_fresh(PLAYER, int(fl.target), float(fl.arrive_t)) else "unscouted"])
+			else:   # judged when it draws: on arrival, or when a capture, Worm stage or raid has executed
+				var at := float(fl.arrive_t) + (_exec_time(recipe, int(fl.target)) if str(CARDS[recipe].effect) in ["capture", "worm", "vault"] else 0.0)
+				var c := _op_chance(PLAYER, int(fl.target), recipe, at)
+				out.append("Chance: %d%% (%s)" % [_pct(c), "scouted" if _recon_fresh(PLAYER, int(fl.target), at) else "unscouted"])
 		return out
 	var res := _cargo_res(fl)
 	var origin := int(fl.origin)

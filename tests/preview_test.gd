@@ -73,7 +73,7 @@ func capture_preview() -> void:
 	g.recon[P] = {}
 	s = text(g._target_preview(P, "breach", t))
 	check(s.contains("Route: 1 hop") or s.contains("Route: 2 hops"), "It gives the route: %s" % s.get_slice("\n", 2))
-	check(s.contains("executes for 15 s") and s.contains("unless a Patch, a lost route or a change of owner"), "It gives the execution time and what stops it")
+	check(s.contains("executes for 15 s") and s.contains("If its draw succeeds it captures") and s.contains("a Patch, a lost route or a change of owner stops it first"), "It gives the execution time, that the capture needs its draw, and what stops it")
 	check(s.contains("Defences unknown: no Recon") and s.contains("used only when you launch"), "Unknown defences stay unknown; the card is used only on launch")
 	check(g._mp_hash() == h0 and g.flights.size() == nf and int(g.cards[P].breach) == 1, "Previewing changes nothing: fingerprint, flights and the copy are untouched")
 	var arrive := -1.0
