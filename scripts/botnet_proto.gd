@@ -9458,6 +9458,7 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 		stop_button = Button.new(); stop_button.text = "■"
 		stop_button.add_theme_color_override("font_color", game.C_BAD)
 		stop_button.add_theme_font_size_override("font_size", 12)
+		stop_button.clip_text = true; stop_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		game._fixed_button_style(stop_button, true)
 		stop_button.tooltip_text = "Cancel this project: what was delivered stays here as salvage, and workers take it home."
 		stop_button.pressed.connect(game._cancel_job.bind(host, slot)); add_child(stop_button)
@@ -9500,7 +9501,7 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 			var team: Dictionary = game._teams(host).get(slot, {})
 			var alive := 0
 			for wid in (team.get("w", []) as Array): if int(wid) >= 0: alive += 1
-			footer = "%d of %d workers" % [alive, game.WORKERS_PER_STATION] if not team.is_empty() else "Off: no workers"
+			footer = ("" if alive == game.WORKERS_PER_STATION else "%d of %d workers" % [alive, game.WORKERS_PER_STATION]) if not team.is_empty() else "Off: no workers"
 		if kind in ["cash", "cred", "lab"]:
 			if game._producer_paused(host, slot): footer = "Paused · click"
 			elif game._slot_active(host, slot):
@@ -9511,9 +9512,9 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 			var a: int = game.FIREWALL_SOCKETS * game._wall_seat(host, slot)
 			footer = "%d/%d loaded" % [game._loaded_of((h.sockets as Array).slice(a, a + game.FIREWALL_SOCKETS)).size(), game.FIREWALL_SOCKETS] if bool(h.get("fw_on", true)) else "OFF: no Intel"
 		var waiting: bool = not job.is_empty() and str(job.phase) == "build" and not game._job_funded(job)
-		if not job.is_empty():
+		if not job.is_empty():   # the card says the state (materials, paused); the red button cancels, with the work left on it
 			footer = ""
-			stop_button.text = "■  Paused" if bool(job.get("paused", false)) else ("■  Supplying" if waiting else "■  %.0fs" % float(job.left))
+			stop_button.text = "■  %.0fs" % float(job.left) if not waiting and not bool(job.get("paused", false)) else "■  Cancel"
 		game._draw_building_card(self, kind, footer, not job.is_empty())
 		if not job.is_empty():
 			var total: float = maxf(0.001, float(job.total))
@@ -9523,6 +9524,9 @@ class SlotBox extends Control:   # one installation slot: the compact card (name
 				for r in (job.bill as Dictionary): bill += float(job.bill[r]); here += minf(float(job.bill[r]), float((job.escrow as Dictionary).get(r, 0.0)))
 				draw_rect(Rect2(4, 68, size.x - 8, 20), Color(0.12, 0.07, 0.03))
 				game._fit_text(self, "Materials %d/%d" % [int(here + 0.0001), int(bill + 0.0001)], Rect2(6, 82, size.x - 12, 0), 11, game.C_WARN)
+			if bool(job.get("paused", false)):   # paused by you: said on the card, above the cancel button
+				draw_rect(Rect2(4, 68, size.x - 8, 20), Color(0.12, 0.10, 0.03))
+				game._fit_text(self, "Paused · click", Rect2(6, 82, size.x - 12, 0), 11, game.C_WARN)
 
 
 

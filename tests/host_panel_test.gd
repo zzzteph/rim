@@ -239,4 +239,5 @@ func inspector() -> void:   # compact at 1280×720: your host's panel is its nam
 		for ch in c2.get_children(): stack.append(ch)
 		if "slot" in c2 and "host" in c2 and c2.has_method("_can_drop_data") and not ("first" in c2) and int(c2.slot) == 1: box = c2
 	g._refresh_panel(); await frames()
-	check(box != null and str(box.stop_button.text).contains("Supplying"), "An order waiting for its materials shows it on its slot, not in prose")
+	check(box != null and box.stop_button.visible and str(box.stop_button.text).contains("Cancel") and str(g._slot_tip(n, 1)).contains("Waiting for its materials"),
+		"An order waiting for its materials says so on its slot (and its tooltip), with a cancel button, not in prose")
