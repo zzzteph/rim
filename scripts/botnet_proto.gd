@@ -116,7 +116,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.0"   # round B: no security levels, Recon odds, reusable couriers and supply, travelling defence cards (lobbies match exact versions)
+const GAME_VERSION := "0.6.1"   # workers (2 per station), automatic supply, funded construction, four-place queue, fog (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -4032,7 +4032,7 @@ func _tick_manufacture(dt: float) -> void:
 
 var _mq_done_t := -100.0   # when the player's last copy finished (the strip shows it done for a moment; presentation only)
 # ============================================================ AI BOTNETS
-# One economic AI. It obeys the same income, delivery, research, prices, lane/reserve/room limits and fog as a
+# One economic AI. It obeys the same income, workers, delivery, research, prices, four-place queue, room limits and fog as a
 # person: it develops producers, learns blueprints, manufactures known cards and uses them to capture, steal and
 # defend. It reads only what it can observe (public owners/types, and dated Recon snapshots).
 func _ai_tick(dt: float) -> void:
@@ -4081,14 +4081,14 @@ func _ai_develop(fac: int, mine: Array) -> void:   # every host gets a layout th
 func _ai_plan(fac: int, i: int, held: int) -> Array:   # what each slot of host i should hold
 	var n := int(hosts[i].slots)
 	if i == int(rig[fac]): return ["intel", "bot", _ai_conv(fac, true), "lab", "cred"].slice(0, n)   # converters here use the bank
-	if n == 1: return ["bot"]   # a lone slot: Bots that walk home on their own
+	if n == 1: return ["bot"]   # a lone slot: a station whose 2 workers serve the network
 	var conv := _ai_conv(fac)
-	var plan := ["bot", "intel", conv, conv, "intel"].slice(0, n)   # the station first (its Bots carry everything), then Intel and its converters
+	var plan := ["bot", "intel", conv, conv, "intel"].slice(0, n)   # the station first (its 2 workers fetch and carry), then Intel and its converters
 	var b: Array = hosts[i].builds
 	var near := _ai_capture_targets(fac)
 	var wants_research := held >= 3 or (not near.is_empty() and int(hosts[int(near[0])].owner) != NEUTRAL)   # faster captures against a rival run on Research
 	if n == 3 and wants_research and not _ai_has_lab_host(fac, i) and str(b[0]) in ["", "intel"] and str(b[1]) in ["", "cash"] and str(b[2]) in ["", "lab"]:
-		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; a bank courier fetches it)
+		plan = ["intel", "cash", "lab"]   # no Lab yet: one host makes Research (its Miner feeds the Lab; main-node workers carry it)
 	if n >= 4 and not _ai_has_lab_host(fac, i): plan[2] = "cash"; plan[3] = "lab"   # a Miner beside the Lab feeds it Crypto
 	elif n >= 4 and held >= 6 and not _ai_has_firewall(fac): plan[3] = "wall"   # one guarded host once the network is worth guarding
 	return plan
@@ -7503,6 +7503,15 @@ func _panel_local_stock(i: int) -> void:
 	if rows.is_empty(): _plabel("Nothing stored, used or made here yet.", 12, C_DIM)
 	else: _ptable(["Material", "Here", "On the way", "Needed now"], rows,
 		["", "In this host's storage now.", "Carried here by workers right now.", "What one production cycle here uses, after what this host makes itself. Workers bring it automatically."])
+	var gap := {}   # the uncovered shortage: needed now less what is here and on the way
+	for r in _stock_rows(i):
+		var g0 := float(r[3]) - float(r[1]) - float(r[2])
+		if g0 > 0.05: gap[str(r[0])] = g0
+	if not gap.is_empty():
+		var who := "this host's workers fetch it" if _has_team(i) else ("your main node's workers bring it" if int(_worker_counts(fac, _hub(fac)).total) > 0 else "no workers can bring it: build a Bot station")
+		for r in gap:
+			if _free(fac, str(r)) < 0.999: who = "your main node has no %s to send" % RES_NAME[str(r)]; break
+		_plabel("Still uncovered: %s — %s." % [_res_list(gap), who], 12, C_WARN)
 	var keep := {}; var pile := {}
 	for res in RES:
 		if _earmark(i, res) > 0.05: keep[res] = _earmark(i, res)

@@ -24,16 +24,16 @@ except OSError:
 cards_src = open(f"{ROOT}/scripts/botnet_cfg/cards.gd").read()
 build_src = open(f"{ROOT}/scripts/botnet_cfg/buildings.gd").read()
 
-RES = ["bots", "intel", "cash", "creds", "research"]
-RES_NAME = {"bots": "Bots", "intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}
-RES_SHORT = {"bots": "Bots", "intel": "Intel", "cash": "Crypto", "creds": "Creds", "research": "Research"}
+RES = ["intel", "cash", "creds", "research"]
+RES_NAME = {"intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}
+RES_SHORT = {"intel": "Intel", "cash": "Crypto", "creds": "Creds", "research": "Research"}
 
 cards = {}
-for m in re.finditer(r'\n\t"(\w+)":\s+\{"name": "([^"]+)", "short": "([^"]+)".*?"bank": "(\w+)".*?"known": (true|false)(.*?)"make": \{"bots": (\d+), "intel": (\d+), "cash": (\d+), "creds": (\d+), "research": (\d+)\}, "make_time": ([0-9.]+),\s+"lead": "([^"]+)"', cards_src, re.S):
+for m in re.finditer(r'\n\t"(\w+)":\s+\{"name": "([^"]+)", "short": "([^"]+)".*?"bank": "(\w+)".*?"known": (true|false)(.*?)"make": \{"intel": (\d+), "cash": (\d+), "creds": (\d+), "research": (\d+)\}, "make_time": ([0-9.]+),\s+"lead": "([^"]+)"', cards_src, re.S):
     extra = m.group(6)
     num = lambda k: (re.search(r'"%s": ([0-9.]+)' % k, m.group(0)) or [None, None])[1]
     cards[m.group(1)] = {"name": m.group(2), "short": m.group(3), "bank": m.group(4), "known": m.group(5) == "true",
-                         "make": dict(zip(RES, [int(m.group(i)) for i in range(7, 12)])), "time": float(m.group(12)), "lead": m.group(13),
+                         "make": dict(zip(RES, [int(m.group(i)) for i in range(7, 11)])), "time": float(m.group(11)), "lead": m.group(12),
                          "dur": num("dur"), "exec": num("exec"), "exec_rig": num("exec_rig"), "sec_max": num("sec_max"), "reach": num("reach"),
                          "cargo": num("cargo"), "chance": num("chance")}
 research = {}
@@ -62,8 +62,8 @@ def chips(cost, secs=None):
     return "".join(out)
 
 # reference income (units per minute) for the "price in seconds of income" column
-EARLY = {"bots": 60, "intel": 48, "cash": 36, "creds": 12, "research": 12}
-MID = {"bots": 120, "intel": 84, "cash": 48, "creds": 36, "research": 24}
+EARLY = {"intel": 48, "cash": 36, "creds": 12, "research": 12}
+MID = {"intel": 84, "cash": 48, "creds": 36, "research": 24}
 def wait(cost, inc):
     best, who = 0.0, ""
     for r in RES:
@@ -114,7 +114,7 @@ D["worm"] = [
 D["phish"] = [
     ("Target", "A foreign host (a rival’s; a neutral host makes nothing)."),
     ("Timing", f"Takes effect on arrival, for {n(C['phish']['dur'])} s."),
-    ("Effect", "Everything the host makes is yours: its harvesters and converters work for you from its storage, and its Bot stations’ couriers carry the output to <b>your</b> main node and join your Bots. Units left in its storage for you are fetched by your bank couriers."),
+    ("Effect", "What the host makes is kept there for you: your workers collect it and carry it to <b>your</b> main node. The host and its workers stay the owner's."),
     ("Victim", "Keeps the host but gets nothing from it. Its main-node trickle (if you phish a main node) still goes to them."),
     ("Ends", "After its time, or when Incident response clears it. Your unsent stolen units on the host then go back to the owner."),
 ]
@@ -122,29 +122,29 @@ D["siphon"] = [
     ("In one line", "A tap on one of their hosts: for a while, their deliveries that go through it come to you instead."),
     ("Target", "A rival host their deliveries leave from or pass through (a junction is best). You pick the resource (Intel, Crypto, Credentials or Research) in the host’s Launch panel; a card dragged onto the map takes Crypto."),
     ("Timing", f"Takes effect on arrival, for {n(C['siphon']['dur'])} s."),
-    ("Effect", f"Every courier carrying that resource that leaves or passes the host after the siphon lands turns round and carries it to your main node, along your operation’s route. Up to {n(C['siphon']['cargo'])} couriers. A Bot-station courier joins your Bots too; a bank courier is used up as usual."),
-    ("Not affected", "Covered cargo (Courier cover), empty station Bots, your own cargo."),
-    ("Ends", "After its time, after its last courier, or when Incident response clears it."),
+    ("Effect", f"Every unit of that resource carried by their workers leaving or passing the host after the siphon lands is dropped there for your workers to collect, up to {n(C['siphon']['cargo'])} units. Their workers are not consumed."),
+    ("Not affected", "Covered cargo (Cargo cover), empty workers, your own cargo."),
+    ("Ends", "After its time, after its last unit, or when Incident response clears it."),
 ]
 D["vault"] = [
     ("Target", "Any rival host."),
     ("Timing", f"Travels, then executes for {n(C['vault']['exec'])} s."),
-    ("Effect", f"Takes everything stored on the target and on its {int(n(C['vault']['reach'])) - 1} nearest linked hosts of the same owner, up to {n(C['vault']['cargo'])} units, all resources. It travels home on your Bots, one Bot per unit (used up), so it is also capped by your Bots above the reserve and your free bank room. A main node keeps its output in the bank, so it adds nothing."),
-    ("Best on", "Hosts whose output piles up: no Bot station, no couriers to spare, or no route home."),
+    ("Effect", f"Takes what is stored on the target and on its {int(n(C['vault']['reach'])) - 1} nearest linked hosts of the same owner, up to {n(C['vault']['cargo'])} units, all resources, unconsumed construction materials included (the project's shortage reopens). The loot waits there; your main node's workers collect it, one unit a leg."),
+    ("Best on", "Hosts whose output piles up: no Bot station, busy workers, or no route home."),
     ("Stopped by", "A Patch on the target, or your operation having no way home."),
 ]
 D["ddos"] = [
     ("Target", "Any foreign host."),
     ("Timing", f"Takes effect on arrival, for {n(C['ddos']['dur'])} s."),
     ("Reach", f"The target and its owner’s {int(n(C['ddos']['reach'])) - 1} hosts nearest to it on the map, all at once."),
-    ("Effect", "Each one makes nothing, sends nothing and forwards nothing. New routes go round them. Couriers whose route runs through one and arrive while it is down are lost. Cargo addressed to them still arrives."),
+    ("Effect", "Each one makes nothing, sends nothing and forwards nothing. New routes go round them. Workers whose route runs through one wait there until it is up. Cargo addressed to them still arrives."),
     ("On a main node", "Its one-of-each trickle and its producers stop, and its owner cannot launch any attack card until it ends."),
     ("Blocked by", "Traffic filter, host by host: a host under Filter ignores it; a Filter loaded in its Firewall fires and the DDoS never lands there."),
 ]
 D["sabotage"] = [
     ("Target", "A rival host."),
     ("Timing", f"Takes effect on arrival, for {n(C['sabotage']['dur'])} s."),
-    ("Effect", f"Switches off every producer on the target and on up to {int(n(C['sabotage']['reach'])) - 1} more hosts of the same owner, each the nearest neighbour of the last. Routing, couriers and Firewalls keep working; a main node keeps its trickle."),
+    ("Effect", f"Switches off every producer on the target and on up to {int(n(C['sabotage']['reach'])) - 1} more hosts of the same owner, each the nearest neighbour of the last. Routing, workers and Firewalls keep working; a main node keeps its trickle."),
     ("Cleared by", "Incident response, host by host (a Response loaded in a hit host’s Firewall clears that host at once)."),
 ]
 D["patch"] = [
@@ -164,12 +164,12 @@ D["filter"] = [
 ]
 D["cover"] = [
     ("Target", "One of your hosts."),
-    ("By hand", f"For {n(C['cover']['dur'])} s every courier that host sends (and those already on the road from it) cannot be siphoned anywhere on its way home."),
-    ("Loaded", "Fires when a siphon grabs one of this host’s couriers: that courier is saved, and cover starts for 30 s."),
+    ("By hand", f"For {n(C['cover']['dur'])} s the cargo of every worker that host sends (and those already on the road from it) cannot be siphoned anywhere on its way."),
+    ("Loaded", "Fires when a siphon grabs this host’s cargo: that cargo is saved, and cover starts for 30 s."),
 ]
 D["express"] = [
     ("Target", "One of your hosts."),
-    ("Effect", f"For {n(C['express']['dur'])} s, station couriers, bank couriers and new Bots leaving that host cross each link in half the time (0.5 s instead of 1 s, forwarding 0.125 s instead of 0.25 s)."),
+    ("Effect", f"For {n(C['express']['dur'])} s, workers leaving that host cross each link in half the time (0.5 s instead of 1 s, forwarding 0.125 s instead of 0.25 s)."),
     ("Not loadable", "It cannot go in a Firewall socket."),
 ]
 
@@ -181,13 +181,13 @@ WHY = {
     "worm": ("Two captures in one launch, reaching a host behind a rival's front line.", "When a rival holds a chain of linked hosts; scout both."),
     "phish": ("Hurts a rival without taking ground: you gain exactly what they lose.", "On their best-producing host."),
     "siphon": ("Takes a whole supply line, not one host's output.", "On a host their deliveries cross, set to the resource they need most."),
-    "vault": ("Punishes a network whose output piles up in storage.", "On hosts with no Bot station, no spare couriers or no route home."),
+    "vault": ("Punishes a network whose output piles up in storage.", "On hosts with no Bot station, busy workers or no route home."),
     "ddos": ("The only card that hits logistics: it strands supply lines and, on a main node, stops their attacks.", "Right before your own big attack, or on the hosts their supply lines share."),
     "sabotage": ("Shuts a district's production for a minute without touching its logistics.", "On their production cluster before a long fight."),
     "patch": ("Every capture has a countdown; Patch is the answer to it.", "On a host under intrusion, or loaded at your main node."),
     "response": ("Theft and sabotage last a minute; this ends them.", "On a host being phished, siphoned or sabotaged, or loaded where theft is likely."),
     "filter": ("DDoS is the strongest disruption and needs its own answer.", "Loaded on a junction or on your main node."),
-    "cover": ("Protects a supply line from the sending side.", "On hosts whose couriers cross a siphoned host."),
+    "cover": ("Protects a supply line from the sending side.", "On hosts whose workers cross a siphoned host."),
     "express": ("A shorter road: deliveries arrive sooner and spend less time in reach of siphons and cuts.", "On far producers, or while a siphon threatens your lines."),
 }
 
@@ -209,16 +209,18 @@ def card_sheet(key):
 # ---- buildings table ----
 B_NOTE = {
     "intel": "Feeds the converters on its own host first; the rest is stored.",
-    "bot": "Its 2 Bots leave at once, each carrying 1 unit from the host’s storage (your shipping priority first, then in turn), and join your Bot bank on arrival. With nothing to carry they still come home, if your Bot bank has room. With no route home (or under DDoS) no Bots are made. At the main node they go straight into the bank.",
-    "cash": "Uses Intel from its own host’s storage only (the bank, at the main node).",
+    "bot": "Provides 2 reusable workers that belong to its host. Each carries 1 unit per leg: surplus to the main node, missing inputs and building materials back. A worker lost on the road is replaced after 5 s; capture destroys them all.",
+    "cash": "Uses Intel on its own host (the bank, at the main node); workers bring it when none is made there.",
     "cred": "Uses Intel from its own host’s storage only.",
-    "lab": "Uses Intel and Crypto from its own host only: put a Miner beside it, or build it at the main node.",
+    "lab": "Uses Intel and Crypto on its own host: a Miner beside it, or workers bring them as one bundle.",
     "wall": "Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. It does not make the host harder to capture.",
 }
 def brow(k):
     b = builds[k]
     if k == "wall":
         cyc = '<span class="chip r-intel"><b>−1</b> Intel</span> upkeep'
+    elif k == "bot":
+        cyc = "2 reusable workers"
     else:
         ins = "".join(f'<span class="chip r-{r}"><b>−{n(v)}</b> {RES_SHORT[r]}</span>' for r, v in b["use"].items())
         out = f'<span class="chip r-{b["out"]}"><b>+{n(b["rate"])}</b> {RES_SHORT[b["out"]]}</span>'
@@ -283,26 +285,26 @@ def weights():
         rows.append(f"<tr><th>{v} {'(near starts)' if v == '1' else '(far from every start)' if v == '3' else ''}</th>" + "".join(f"<td class='num'>{int(round(float(w.get(t, 0)) * 100))}%</td>" if w.get(t) else "<td class='num'>·</td>" for t in TYPE_ORDER) + "</tr>")
     rows.append("<tr><th>hub</th>" + "".join("<td class='num'>always</td>" if t == "erp" else "<td class='num'>·</td>" for t in TYPE_ORDER) + "</tr>")
     return "".join(rows)
-MULT_NAME = {"bot": "Bots", "intel": "Intel", "cash": "Crypto", "cred": "Credentials", "research": "Research"}
+MULT_NAME = {"intel": "Intel", "cash": "Crypto", "cred": "Credentials", "research": "Research"}
 def hosttypes():
     rows = []
     for t in TYPE_ORDER:
         nt = TY["NODE_TYPES"][t]
-        mults = [f"{MULT_NAME[k]} ×{n(nt[k])}" for k in ["intel", "cash", "cred", "research", "bot"] if float(nt[k]) != 1.0]
+        mults = [f"{MULT_NAME[k]} ×{n(nt[k])}" for k in ["intel", "cash", "cred", "research"] if float(nt[k]) != 1.0]
         rows.append(f"<tr><th>{html.escape(nt['name'])}</th><td class='num'>{int(nt['slots'])}</td><td>{', '.join(mults) or 'none'}</td></tr>")
     return "".join(rows)
 def ch(d):
     return chips({k: v for k, v in d.items() if v})
 LAYOUTS = [
-    ("Bot station + Intel harvester + Miner", "2 Intel → 1 Intel + 1 Crypto; couriers for this host (up to 4)", "both units, by the host's own couriers", {"intel": 12, "cash": 12}),
-    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; couriers for this host", "both units, by the host's own couriers", {"intel": 12, "creds": 12}),
-    ("Intel harvester + Miner + Lab (Research host)", "2 Intel → 1 Crypto → with 1 Intel, 1 Research", "1 unit by a main-node courier (it comes back)", {"research": 12}),
-    ("Bot station + 2 Intel harvesters", "4 Intel; couriers for this host", "4 units by its 4 couriers, while a round trip takes under 5 s", {"intel": 48}),
-    ("Intel harvester + Miner + Cred. harvester (no station)", "1 Crypto + 1 Credential", "2 units by main-node couriers", {"cash": 12, "creds": 12}),
-    ("Bot station alone (IoT device)", "couriers for this host (up to 4)", "nothing to carry", {}),
-    ("Miner alone, supplied: desired stock 2 Intel", "1 Intel (delivered) → 1 Crypto", "Intel out and Crypto back on the same main-node courier trips", {"intel": -12, "cash": 12}),
-    ("Database: station + harvester + 2 Cred. harvesters", "4 Intel → 1 Intel + 3 Credentials; couriers for this host", "4 units by its 4 couriers", {"intel": 12, "creds": 36}),
-    ("Main node (Server): Intel harvester + Bot station + Miner", "3 Intel → 2 Intel + 1 Crypto; 2 Bots", "straight into the bank, plus the trickle", {"bots": 36, "intel": 36, "cash": 24, "creds": 12, "research": 12}),
+    ("Bot station + Intel harvester + Miner", "2 Intel → 1 Intel + 1 Crypto; 2 workers of its own", "both units, by its own workers", {"intel": 12, "cash": 12}),
+    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 workers", "both units, by its own workers", {"intel": 12, "creds": 12}),
+    ("Intel harvester + Miner + Lab (Research host)", "2 Intel → 1 Crypto → with 1 Intel, 1 Research", "1 unit by the main node's workers", {"research": 12}),
+    ("Bot station + 2 Intel harvesters", "4 Intel; 2 workers", "4 units by its 2 workers while a round trip takes under 2.5 s", {"intel": 48}),
+    ("Intel harvester + Miner + Cred. harvester (no station)", "1 Crypto + 1 Credential", "2 units by the main node's workers", {"cash": 12, "creds": 12}),
+    ("Bot station alone (IoT device)", "2 workers for this host", "nothing to carry", {}),
+    ("Miner alone (no Intel made there)", "1 Intel (delivered) → 1 Crypto", "Intel out and Crypto back on the same worker round trips, automatically", {"intel": -12, "cash": 12}),
+    ("Database: station + harvester + 2 Cred. harvesters", "4 Intel → 1 Intel + 3 Credentials; 2 workers", "4 units by its 2 workers", {"intel": 12, "creds": 36}),
+    ("Main node (Server): Intel harvester + Bot station + Miner", "3 Intel → 2 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 36, "cash": 24, "creds": 12, "research": 12}),
 ]
 def layouts():
     out = []
@@ -323,17 +325,17 @@ def capture_ev():   # what a capture costs: a vector, its times and the reaction
     return "".join(rows)
 PAYBACK = [   # what each building adds and uses; no single "payback" number: the resources are not interchangeable
     ("Intel harvester", {"intel": 12}, "+2 Intel (+3 on a Server, +4 on a database or file server)", "Raw input: everything else converts it."),
-    ("Bot station", {"intel": 12, "cash": 4}, "+2 Bots that carry 2 units home and join the bank", "Saves the 2 bank couriers those units would consume."),
+    ("Bot station", {"intel": 12, "cash": 4}, "2 reusable workers for its host", "Its host stops waiting for the main node's 2 workers: surplus goes home and inputs come in on its own round trips."),
     ("Crypto miner", {"intel": 15}, "+1 Crypto, uses 1 Intel on its host", "Turns Intel into Crypto: worth it only while Crypto limits your plan."),
     ("Credential harvester", {"intel": 15, "cash": 4}, "+1 Credential, uses 1 Intel on its host", "The capture and theft budget early in a match."),
-    ("Research lab", {"intel": 20, "cash": 8}, "+1 Research, uses 1 Intel and 1 Crypto on its host", "Needs a Miner beside it away from the main node; its output usually rides a bank courier."),
+    ("Research lab", {"intel": 20, "cash": 8}, "+1 Research, uses 1 Intel and 1 Crypto on its host", "Needs a Miner beside it, or workers bring both inputs as a bundle."),
     ("Firewall", {"intel": 25, "cash": 15}, "3 sockets; uses 1 Intel on its host", "Returns nothing directly: its value is what its loaded cards stop."),
 ]
 def payback():
     return "".join(f"<tr><th>{html.escape(nm)}</th><td class='nowrap'>{chips(c)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>" for nm, c, a, b in PAYBACK)
 def unused():
     return "".join(f"<tr><th>{f}.gd</th><td><code>{'</code>, <code>'.join(v)}</code></td></tr>" for f, v in UNUSED.items())
-COMMANDS = "build, demolish, job (pause or resume a job), cancel (a job), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), card_action (click a card: research or make it), lane_set, lane_make, lane_repeat, lane_cancel, reserve, priority"
+COMMANDS = "build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause, refill (one cycle of inputs, once), refill_cancel"
 json_txt = json.dumps(DATA, indent=1, ensure_ascii=False)
 
 page = open(os.path.join(HERE, "design.head.html")).read() + open(os.path.join(HERE, "design.body.html")).read()

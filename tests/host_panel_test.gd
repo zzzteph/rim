@@ -226,6 +226,7 @@ func inspector() -> void:   # compact at 1280×720; workers by number; Refill su
 	var use := {"intel": float(g.BUILD_KINDS.lab.use.intel) * m, "cash": float(g.BUILD_KINDS.lab.use.cash) * m}   # the host type scales a Lab's inputs
 	var want := "Refill brings %s Intel + %s Crypto" % [g._amt(use.intel), g._amt(use.cash)]
 	check(items.has("B:Refill supplies") and items.any(func(s): return str(s).contains(want)), "Refill previews its exact quantities: one cycle's gross inputs (%s)" % str(items.filter(func(s): return str(s).contains("Refill"))))
+	check(items.any(func(s): return str(s).begins_with("L:Still uncovered:") and str(s).contains("your main node has no Intel")), "The uncovered shortage is shown apart from what is needed, with why it is not coming")
 	g._refill_click(n)
 	items = panel_items()
 	check(items.has("B:Cancel refill") and items.any(func(s): return str(s).contains("waiting: your main node has no Intel")), "A requested refill says honestly why it waits")
