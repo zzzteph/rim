@@ -72,7 +72,9 @@ def wait(cost, inc):
             best, who = v / inc[r] * 60, RES_NAME[r]
     return best, who
 
-UNSCOUTED = re.search(r"UNSCOUTED_CHANCE := ([0-9.]+)", open(f"{ROOT}/scripts/botnet_cfg/tuning.gd").read()).group(1)
+_TUNING = open(f"{ROOT}/scripts/botnet_cfg/tuning.gd").read()
+RECON_P, SCOUTED_P, UNSCOUTED_P = (float(re.search(rf"{k} := ([0-9.]+)", _TUNING).group(1)) for k in ("RECON_CHANCE", "SCOUTED_CHANCE", "UNSCOUTED_CHANCE"))
+pc = lambda p: f"{round(p * 100)}%"
 # ---- what every card does, exactly (checked against scripts/botnet_proto.gd) ----
 D = {}
 D["recon"] = [
@@ -80,12 +82,13 @@ D["recon"] = [
     ("Timing", "Travels, then takes effect on arrival. No execution."),
     ("Effect", f"Takes a snapshot of the host: what is in each slot, how full its storage is, and which cards wait in its Firewall. You see the snapshot, not later changes, for {n(C['recon']['dur'])} s; then the slots go back to “?”."),
     ("Quiet", "The target gets no red frame and no pulse. It is the only attack card that does not show."),
-    ("Odds", f"While the snapshot is fresh ({n(C['recon']['dur'])} s, and only for the faction that made it), your attacks on that host succeed at their full chance. Without it every other attack card succeeds half the time (UNSCOUTED_CHANCE {UNSCOUTED}). Freshness is judged when the operation resolves. A change of owner voids it."),
+    ("Its own odds", f"A Recon gets through {pc(RECON_P)} of the time (RECON_CHANCE), whatever the host. A miss shows nothing, and only you hear of it."),
+    ("Odds", f"While the snapshot is fresh ({n(C['recon']['dur'])} s, and only for the faction that made it), your other attack cards on that host succeed {pc(SCOUTED_P)} of the time (SCOUTED_CHANCE); without it, {pc(UNSCOUTED_P)} (UNSCOUTED_CHANCE). Freshness is judged when the operation resolves. A change of owner voids it. Defence cards on your own hosts always work."),
 ]
 D["breach"] = [
     ("Target", "Any foreign host your operations can reach, neutral or a rival’s. There are no security levels."),
     ("Timing", f"Travels, then executes for {n(C['breach']['exec'])} s on the host ({n(C['breach']['exec_rig'])} s on a held main node). The owner sees “Breach executing” and has that long to react."),
-    ("Outcome", "When its execution ends: first a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>) or another owner taking it first (<b>owner changed</b>) stop it; then, without fresh Recon of the host, one 50% draw (<b>missed</b>). With fresh Recon nothing is drawn: it is captured."),
+    ("Outcome", "When its execution ends: first a Patch (<b>countered</b>), losing your path to it (<b>route failed</b>) or another owner taking it first (<b>owner changed</b>) stop it; then one draw (<b>missed</b> on a fail): " + pc(SCOUTED_P) + " with fresh Recon of the host, " + pc(UNSCOUTED_P) + " without."),
     ("Effect", "On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots."),
     ("Stopped by", "A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile."),
     ("Limit", "One capture or raid per attacker per host at a time."),
@@ -93,14 +96,14 @@ D["breach"] = [
 D["exploit"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("Timing", f"Travels, then executes for {n(C['exploit']['exec'])} s ({n(C['exploit']['exec_rig'])} s on a held main node): less time for a defender's Patch to travel there."),
-    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured."),
+    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured."),
     ("Effect", "As Credential breach: the host becomes yours, wiped."),
     ("Stopped by", "As Credential breach."),
 ]
 D["zeroday"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("Timing", f"Travels, then executes for {n(C['zeroday']['exec'])} s; {n(C['zeroday']['exec_rig'])} s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time."),
-    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured."),
+    ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured."),
     ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host."),
     ("Stopped by", "As Credential breach."),
 ]

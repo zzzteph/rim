@@ -155,8 +155,8 @@
           "research": 0
         },
         "make_time": 3.0,
-        "lead": "Scout a host: full odds for 45 s.",
-        "rules": "Shows its installations, storage and Firewall cards for 45 s. While that is fresh your attacks on it work every time; unscouted, they work half the time."
+        "lead": "Scout a host: better odds for 45 s.",
+        "rules": "Gets through half the time. Then it shows the host's installations, storage and Firewall cards for 45 s, and your attacks on it work 50% of the time instead of 25%."
       },
       "breach": {
         "name": "Credential breach",
@@ -746,7 +746,9 @@
     "LINK_CAP": 8,
     "MAX_QUEUE": 1.0,
     "EXPRESS_MULT": 0.5,
-    "UNSCOUTED_CHANCE": 0.5,
+    "RECON_CHANCE": 0.5,
+    "SCOUTED_CHANCE": 0.5,
+    "UNSCOUTED_CHANCE": 0.25,
     "FIREWALL_SOCKETS": 3,
     "BUILD_TIME": 10.0,
     "DEMOLISH_TIME": 5.0,
@@ -875,7 +877,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.2",
+    "GAME_VERSION": "0.6.3",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

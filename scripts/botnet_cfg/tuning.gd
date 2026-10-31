@@ -33,9 +33,11 @@ const MAX_QUEUE := 1.0             # a source holds its packet if the first link
 const EXPRESS_MULT := 0.5          # Express route: half per-link travel and forwarding time
 
 # ── Recon and the odds of an attack (there are no security levels: every attack can target any foreign host) ──
-const UNSCOUTED_CHANCE := 0.5      # an offensive card (not Recon) against a host you have no FRESH Recon of succeeds
-                                   # this share of the time (0.5 x its baseline, which is always 1.0); one draw per
-                                   # resolved operation from the match's deterministic RNG, after counters and routes
+# One draw per resolved operation from the match's deterministic RNG, after counters and routes. Defence cards (played
+# on your own hosts) always work.
+const RECON_CHANCE := 0.5          # a Recon gets through this share of the time, whatever the host; a miss shows nothing
+const SCOUTED_CHANCE := 0.5        # every other offensive card, against a host you hold FRESH Recon of
+const UNSCOUTED_CHANCE := 0.25     # ...and against one you do not: half that again
 
 # ── the Firewall ──
 const FIREWALL_SOCKETS := 3        # defence cards one Firewall holds; each fires itself on its trigger

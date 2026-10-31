@@ -67,9 +67,9 @@ func capture_preview() -> void:
 	var pv: Dictionary = g._target_preview(P, "breach", t)
 	var s := text(pv)
 	check(bool(pv.ok) and s.contains("Ready: Credential breach") and not s.contains("ecurity"), "A neighbour: ready, with no security level anywhere")
-	check(s.contains("Chance: 50% without fresh Recon"), "Unscouted, the preview says the chance is 50%")
+	check(s.contains("Chance: 25% without fresh Recon"), "Unscouted, the preview says the chance is 25%")
 	g._mark_scanned(P, t)
-	check(text(g._target_preview(P, "breach", t)).contains("Chance: full"), "Scouted, the preview says the chance is full")
+	check(text(g._target_preview(P, "breach", t)).contains("Chance: 50%"), "Scouted, the preview says the chance is 50%")
 	g.recon[P] = {}
 	s = text(g._target_preview(P, "breach", t))
 	check(s.contains("Route: 1 hop") or s.contains("Route: 2 hops"), "It gives the route: %s" % s.get_slice("\n", 2))

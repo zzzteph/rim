@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.2 · commit 789ea87
+RIM 0.6.3 · commit ad0e652
 
 ## Contents
 
@@ -91,14 +91,14 @@ flowchart LR
 
 The match ends when one network holds the majority for 51 s or is the last with a main node. In single player, losing your main node loses the match; in multiplayer you are out and the others play on. Space pauses a single-player match; multiplayer never pauses.
 
-| Phase     | Typical time | What happens                                                                                                                                                                                                                                     |
-|-----------|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Opening   | 0–1 min      | Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.                                |
-| Expansion | 1–6 min      | Scout and Breach neutral hosts: a scouted Breach that runs its 15 s takes its host. Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.                       |
-| Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch. |
-| End game  | 10 min +     | 0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                           |
+| Phase     | Typical time | What happens                                                                                                                                                                                                                                                                                           |
+|-----------|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Opening   | 0–1 min      | Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.                                                                                      |
+| Expansion | 1–6 min      | Scout and Breach neutral hosts: a Recon gets through half the time, and a scouted Breach that runs its 15 s takes its host half the time (a quarter unscouted). Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price. |
+| Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch.                                                       |
+| End game  | 10 min +     | 0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                                                                                 |
 
-Measured sample (0.6.0): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each. Held hosts grow from 8 to 38–40; 64–74 intrusions resolve per match, 335 in all. On neutral hosts: 156 captured, 81 missed (no fresh Recon), 1 voided. On rival hosts (97): 35 captured, 24 stopped by a Patch, 24 missed, 14 voided by a change of owner or a lost route. After 6 minutes the largest network holds 9–11 of the 21 hosts needed; after 10 minutes 21–26, and no match has ended (the majority must be held 51 s). The AIs scout before most attacks but often attack without Recon when none is in hand, which is why about a third of their attempts miss.
+Measured sample (0.6.3): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10 minutes each, at 5 units a minute per producer. Held hosts grow from 8 to 13–18; 16 intrusions resolve per match, all Credential breaches on neutral hosts. 60 Recons: 29 got through, 31 missed. Scouted breaches: 19 captured, 10 missed. Unscouted: 16 captured, 35 missed. Overall 35 of 80 breaches captured (44%), against 47 of 78 (60%) under 0.6.2's odds (50% unscouted, 100% scouted). After 10 minutes the largest network holds 4–6 of the 21 hosts needed. The economy, not the odds, sets the pace: each AI launches about one capture every 95 s. The AIs scout first and keep the capture copy for the scouted host; when the Recon misses and none is in hand, they attack at 25%.
 
 ## Time model
 
@@ -165,7 +165,7 @@ The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are juncti
 - You see your own hosts and every host linked to one of them. Rival packets, effects and their busy streets show only there.
 - Every main node is visible as a landmark, but nothing around it.
 - Hosts you saw before stay on the map as dim outlines, without owner or contents; fogged hosts cannot be clicked.
-- Host type and slot count are public. What is inside a rival host (buildings, storage, Firewall cards) is shown only by a fresh Recon (45 s), which also gives your attacks on it their full chance.
+- Host type and slot count are public. What is inside a rival host (buildings, storage, Firewall cards) is shown only by a fresh Recon (45 s), which also raises your attacks on it from 25% to 50%. A Recon itself gets through half the time.
 - Territories: each held, visible host claims a round patch; one network's patches merge, and the ground between rivals is split halfway.
 
 ## Resources and banks
@@ -363,7 +363,7 @@ The card flies from your main node along that path. It always arrives (the route
 
 #### When an execution ends
 
-Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (**countered**); a target that changed owner first voids it (**owner changed**; a host can never be captured twice from the same generation); no path left fails it (**route failed**). Only then the odds: without fresh Recon of the host (yours, still fresh at this moment) one draw from the match's seeded dice decides it at 50% (**missed**); with it nothing is drawn. Otherwise it is **captured** (a Vault raid **raids**). Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.
+Intrusions resolve earliest end first, equal end times in launch order. Each ends in exactly one outcome, with its own message: an armed Patch stops it (**countered**); a target that changed owner first voids it (**owner changed**; a host can never be captured twice from the same generation); no path left fails it (**route failed**). Only then the odds: one draw from the match's seeded dice decides it, at 50% with fresh Recon of the host (yours, still fresh at this moment) and 25% without (**missed** on a fail). Otherwise it is **captured** (a Vault raid **raids**). Commands accepted for a step (a manual Patch included) apply before that step's intrusions resolve.
 
 #### The Recon rule
 
@@ -382,7 +382,7 @@ stateDiagram-v2
   Executing --> Countered: Patch by hand or armed
   Executing --> OwnerChanged: target changed owner first
   Executing --> RouteFailed: no route left
-  Executing --> Missed: no fresh Recon and the 50% draw fails
+  Executing --> Missed: the draw fails (50% scouted, 25% not)
   Executing --> Captured: countdown ends
   Captured --> [*]
 ```
@@ -397,7 +397,7 @@ stateDiagram-v2
 
 `ATTACK` `Known from the start`
 
-Scout a host: full odds for 45 s.
+Scout a host: better odds for 45 s.
 
 **Make:** 8 Intel, 3 s (≈ 60 s early · 60 s mid of Intel income)
 
@@ -407,7 +407,8 @@ Scout a host: full odds for 45 s.
 - **Timing:** Travels, then takes effect on arrival. No execution.
 - **Effect:** Takes a snapshot of the host: what is in each slot, how full its storage is, and which cards wait in its Firewall. You see the snapshot, not later changes, for 45 s; then the slots go back to “?”.
 - **Quiet:** The target gets no red frame and no pulse. It is the only attack card that does not show.
-- **Odds:** While the snapshot is fresh (45 s, and only for the faction that made it), your attacks on that host succeed at their full chance. Without it every other attack card succeeds half the time (UNSCOUTED_CHANCE 0.5). Freshness is judged when the operation resolves. A change of owner voids it.
+- **Its own odds:** A Recon gets through 50% of the time (RECON_CHANCE), whatever the host. A miss shows nothing, and only you hear of it.
+- **Odds:** While the snapshot is fresh (45 s, and only for the faction that made it), your other attack cards on that host succeed 50% of the time (SCOUTED_CHANCE); without it, 25% (UNSCOUTED_CHANCE). Freshness is judged when the operation resolves. A change of owner voids it. Defence cards on your own hosts always work.
 
 ### Credential breach
 
@@ -421,7 +422,7 @@ Capture a host in 15 s.
 - **Play it when:** On neutral hosts first, as nobody defends them; scouted, so it cannot miss.
 - **Target:** Any foreign host your operations can reach, neutral or a rival’s. There are no security levels.
 - **Timing:** Travels, then executes for 15 s on the host (30 s on a held main node). The owner sees “Breach executing” and has that long to react.
-- **Outcome:** When its execution ends: first a Patch (**countered**), losing your path to it (**route failed**) or another owner taking it first (**owner changed**) stop it; then, without fresh Recon of the host, one 50% draw (**missed**). With fresh Recon nothing is drawn: it is captured.
+- **Outcome:** When its execution ends: first a Patch (**countered**), losing your path to it (**route failed**) or another owner taking it first (**owner changed**) stop it; then one draw (**missed** on a fail): 50% with fresh Recon of the host, 25% without.
 - **Effect:** On success the host becomes yours. All of its buildings, storage, Firewall cards and running effects are wiped: you start with empty slots.
 - **Stopped by:** A Patch (by hand during execution, armed in advance, or loaded in a Firewall: then it never starts), losing your path to a neighbour of the host, or the host changing owner meanwhile.
 - **Limit:** One capture or raid per attacker per host at a time.
@@ -438,7 +439,7 @@ Capture a host in 9 s.
 - **Play it when:** Against a rival's hosts, where a Patch might be sent.
 - **Target:** Any foreign host your operations can reach.
 - **Timing:** Travels, then executes for 9 s (20 s on a held main node): less time for a defender's Patch to travel there.
-- **Outcome:** As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured.
+- **Outcome:** As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured.
 - **Effect:** As Credential breach: the host becomes yours, wiped.
 - **Stopped by:** As Credential breach.
 
@@ -454,7 +455,7 @@ Capture a host in 5 s.
 - **Play it when:** After a Recon shows no Patch waiting, or after a cheaper card has used it up.
 - **Target:** Any foreign host your operations can reach.
 - **Timing:** Travels, then executes for 5 s; 12 s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time.
-- **Outcome:** As Credential breach: countered, route-failed, owner-changed, missed (unscouted) or captured.
+- **Outcome:** As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured.
 - **Effect:** The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host.
 - **Stopped by:** As Credential breach.
 
@@ -718,7 +719,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 - **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
 - **Sidebar**: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, paused, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings — no prose, never scrolled, the same height every frame. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.
-- **Target preview**: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (full with fresh Recon still fresh when it resolves, else 50%); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
+- **Target preview**: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (50% with fresh Recon still fresh when it resolves, else 25%; 50% for a Recon); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
 - **Logs**: nothing is drawn over the map. A Logs button at the top-left under the HUD counts the new entries (red while something critical is new or still going on) and opens the history, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, no workers at all, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
 - **Cards** (bottom): the queue's four places (the head making, paused or waiting with what it lacks; x removes a copy) with its own Pause button, the cards you hold at a fixed size (the rest behind “+n”) and a button that opens the drawer. The drawer keeps Ready cards (drag onto a host, or click and then click a host) apart from Attack recipes and Defence recipes (each with + Queue and “2 queued · 1 ready”), and holds the Research view: the tree, the selected blueprint with its price, time and action.

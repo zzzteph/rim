@@ -24,6 +24,7 @@ func fresh(seed := 7) -> void:
 	g.theme = load("res://assets/ui_theme.tres")
 	g._opt_size = Vector2i(8, 6); g._opt_enemies = 1; g._opt_seed = seed; g._opt_shape = "grid"
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
+	g.rolls_always_hit = true   # these checks are about what each card does; recon_test covers the odds
 	g._open_menu(false)
 	P = g.PLAYER; R = g.RIVAL
 	for fac in [P, R]: g.bank[fac] = {"bots": 200.0, "intel": 300.0, "cash": 300.0, "creds": 300.0, "research": 300.0}
@@ -282,4 +283,4 @@ func no_probability_text() -> void:   # the one rule about odds is stated by Rec
 		if "chance" in text or "%" in text or "one time in" in text or "odds" in text: bad.append(k)
 	var recon_text := (str(g.CARDS.recon.lead) + " " + str(g.CARDS.recon.rules)).to_lower()
 	check(bad.is_empty(), "No card but Recon states odds (%s)" % str(bad))
-	check("half the time" in recon_text and "full odds" in recon_text, "Recon says what it is for: full odds while fresh, half without")
+	check("half the time" in recon_text and "50%" in recon_text and "25%" in recon_text, "Recon says its own odds and what it is for: attacks 50% while fresh, 25% without")

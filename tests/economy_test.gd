@@ -22,6 +22,7 @@ func fresh() -> void:
 	g.theme = load("res://assets/ui_theme.tres")
 	g._opt_size = Vector2i(8, 6); g._opt_enemies = 1; g._opt_seed = 7; g._opt_shape = "grid"
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
+	g.rolls_always_hit = true   # these checks are about what each card does; recon_test covers the odds
 	g._open_menu(false)
 	P = g.PLAYER
 

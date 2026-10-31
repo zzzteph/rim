@@ -86,6 +86,8 @@ const NODE_ROUTE_DELAY := CfgTuning.NODE_ROUTE_DELAY
 const LINK_CAP := CfgTuning.LINK_CAP
 const MAX_QUEUE := CfgTuning.MAX_QUEUE
 const EXPRESS_MULT := CfgTuning.EXPRESS_MULT
+const RECON_CHANCE := CfgTuning.RECON_CHANCE
+const SCOUTED_CHANCE := CfgTuning.SCOUTED_CHANCE
 const UNSCOUTED_CHANCE := CfgTuning.UNSCOUTED_CHANCE
 const WORKERS_PER_STATION := CfgTuning.WORKERS_PER_STATION
 const WORKER_CARRY := CfgTuning.WORKER_CARRY
@@ -116,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.2"   # one worker pool at the main node, building first, 1 unit per 12 s, build-menu inspector, Logs (lobbies match exact versions)
+const GAME_VERSION := "0.6.3"   # odds: Recon 50%, attacks 50% scouted / 25% unscouted (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -846,16 +848,31 @@ func _pick_type(value: int) -> String:   # weighted by district: soft IoT and PC
 
 
 
-# ---- the odds of an attack: there are no security levels; fresh Recon is what gives an attack its full chance ----
+# ---- the odds of a card: no security levels. A Recon gets through half the time; every other attack works half the
+# time on a host you hold fresh Recon of, a quarter of the time otherwise. Defence cards (your own hosts) always work. ----
+var rolls_always_hit := false   # tests only: every draw succeeds (recon_test covers the odds themselves); never set in play
+
+
 func _op_chance(fac: int, t: int, recipe: String, at := -1.0) -> float:   # success chance of this card on t, judged at time `at`
-	if not CARDS.has(recipe) or _is_defense(recipe) or str(CARDS[recipe].effect) == "recon": return 1.0
-	return 1.0 if _recon_fresh(fac, t, at) else UNSCOUTED_CHANCE
+	if not CARDS.has(recipe) or _is_defense(recipe): return 1.0
+	if str(CARDS[recipe].effect) == "recon": return RECON_CHANCE
+	return SCOUTED_CHANCE if _recon_fresh(fac, t, at) else UNSCOUTED_CHANCE
 
 
 func _op_roll(fac: int, t: int, recipe: String) -> bool:   # one draw per resolved operation, only when the odds are not certain
 	var c := _op_chance(fac, t, recipe)
 	if c >= 1.0: return true
-	return sim_rng.randf() < c
+	var hit := sim_rng.randf() < c   # the draw is taken either way, so a test that forces hits keeps the same RNG sequence
+	return hit or rolls_always_hit
+
+
+func _pct(c: float) -> int: return int(round(c * 100.0))
+
+
+func _miss_why(fac: int, t: int, recipe: String) -> String:   # why a miss could happen: the chance it had, judged now
+	if str(CARDS[recipe].effect) == "recon": return "a Recon gets through %d%% of the time" % _pct(RECON_CHANCE)
+	if _recon_fresh(fac, t): return "a %d%% chance even with fresh Recon" % _pct(SCOUTED_CHANCE)
+	return "a %d%% chance without fresh Recon" % _pct(UNSCOUTED_CHANCE)
 
 
 func _has_firewall(i: int) -> bool: return (hosts[i].builds as Array).has("wall")
@@ -3071,7 +3088,7 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 		lines.append([s + ".", C_DIM])
 	var owner_name := fname(int(hosts[t].owner)) if int(hosts[t].owner) != NEUTRAL else "neutral"
 	var ex := _exec_time(recipe, t) if eff in ["capture", "worm", "vault"] else 0.0
-	if eff != "recon": lines.append(_chance_line(fac, t, recipe, arrive + ex))
+	lines.append(_chance_line(fac, t, recipe, arrive + ex))
 	match eff:
 		"capture": lines.append(["Then executes for %d s. It captures the host unless a Patch, a lost route or a change of owner stops it first." % int(ex), C_TEXT])
 		"worm":
@@ -3104,12 +3121,14 @@ func _target_preview(fac: int, key: String, t: int, siphon_res := "", by_drag :=
 func _chance_line(fac: int, t: int, recipe: String, resolve_in: float) -> Array:   # [text, colour]: the odds when it resolves
 	var at := _t + resolve_in
 	var rec: Dictionary = (recon.get(fac, {}) as Dictionary).get(t, {})
-	if _op_chance(fac, t, recipe, at) >= 1.0:
-		return ["Chance: full. Your Recon is %d s old and still fresh when it resolves (~%d s)." % [_ago(float(rec.get("at", _t))), int(ceil(resolve_in))], C_GOOD]
-	var pct := int(round(UNSCOUTED_CHANCE * 100.0))
+	var hi := _pct(SCOUTED_CHANCE); var lo := _pct(UNSCOUTED_CHANCE)
+	if str(CARDS[recipe].effect) == "recon":
+		return ["Chance: %d%%. A Recon gets through half the time; a miss shows nothing." % _pct(RECON_CHANCE), C_WARN]
+	if _recon_fresh(fac, t, at):
+		return ["Chance: %d%%, the best there is. Your Recon is %d s old and still fresh when it resolves (~%d s)." % [hi, _ago(float(rec.get("at", _t))), int(ceil(resolve_in))], C_GOOD]
 	if _recon_fresh(fac, t):
-		return ["Chance: %d%%. Your Recon goes stale before it resolves (~%d s); scout again for full odds." % [pct, int(ceil(resolve_in))], C_WARN]
-	return ["Chance: %d%% without fresh Recon. Recon this host first for full odds." % pct, C_WARN]
+		return ["Chance: %d%%. Your Recon goes stale before it resolves (~%d s); scout again for %d%%." % [lo, int(ceil(resolve_in)), hi], C_WARN]
+	return ["Chance: %d%% without fresh Recon. Recon this host first for %d%%." % [lo, hi], C_WARN]
 
 
 func _support_preview(recipe: String, t: int) -> Array:   # a defence card on your own host: its trip, then loaded into a socket or used
@@ -3279,7 +3298,9 @@ func _op_land(fac: int, recipe: String, t: int, gen: int, f: Dictionary) -> void
 	var op := {"id": int(f.get("id", 0)), "fac": fac, "card": recipe, "target": t}
 	# an effect that lands on arrival: invalid first (above), then a counter on the target, then the Recon odds, then the effect
 	match eff:
-		"recon": _mark_scanned(fac, t)
+		"recon":   # half the time: a miss shows nothing, and only the side that sent it hears of it
+			if _op_roll(fac, t, recipe): _mark_scanned(fac, t); _recon_outcome(op, "scouted")
+			else: _recon_outcome(op, "missed")
 		"phish", "siphon":
 			if _fire_socket(t, "response", what): _apply_response(t); _op_outcome(op, "countered", "the Firewall's Response")
 			elif not _op_roll(fac, t, recipe): _op_outcome(op, "missed")
@@ -3357,7 +3378,7 @@ func _tick_execs() -> void:
 		var eff := str(e.effect)
 		if not _op_reachable(fac, t):   # the attacker no longer holds a path to it: this capture, raid or Worm stage ends
 			_op_outcome(e, "route_failed")
-		elif not _op_roll(fac, t, str(e.card)):   # only now, after counters and the route: no fresh Recon, half the chance
+		elif not _op_roll(fac, t, str(e.card)):   # only now, after counters and the route: 50% with fresh Recon, 25% without
 			_op_outcome(e, "missed")
 		elif eff == "vault":
 			_op_outcome(e, "raided")
@@ -3375,17 +3396,18 @@ func _tick_execs() -> void:
 
 
 var intrusions_resolved := 0   # intrusions decided so far, whatever the outcome (the lockstep test checks both screens agree)
-var op_outcomes := []          # the last OP_OUTCOME_KEEP intrusion outcomes: {t, fac, card, target, victim, outcome, via} (tests, event log)
+var op_outcomes := []          # the last OP_OUTCOME_KEEP outcomes (intrusions and Recons): {t, fac, card, target, victim, outcome, via, stage, scouted}
 const OP_OUTCOME_KEEP := 256
 const OUTCOME_TEXT := {"captured": "captured", "countered": "stopped by a Patch", "route_failed": "failed: no route to the host any more",
-	"owner_changed": "stopped: the host changed owner first", "missed": "failed: without fresh Recon it had a 50% chance", "raided": "raided"}
+	"owner_changed": "stopped: the host changed owner first", "missed": "failed", "raided": "raided"}
 
 
 func _op_outcome(e: Dictionary, outcome: String, via := "") -> void:   # one intrusion ended: record it and tell both sides
 	var t := int(e.target); var fac := int(e.fac)
 	var victim := int(hosts[t].owner)
 	intrusions_resolved += 1
-	op_outcomes.append({"t": _t, "fac": fac, "card": str(e.card), "target": t, "victim": victim, "outcome": outcome, "via": via, "stage": int(e.get("stage", 1))})
+	op_outcomes.append({"t": _t, "fac": fac, "card": str(e.card), "target": t, "victim": victim, "outcome": outcome, "via": via, "stage": int(e.get("stage", 1)),
+		"scouted": _recon_fresh(fac, t)})   # (before any capture voids the Recon)
 	if op_outcomes.size() > OP_OUTCOME_KEEP: op_outcomes.pop_front()
 	_event_outcome(e, outcome, via, victim)
 	if outcome in ["captured", "raided"]: return   # _capture / _resolve_vault say it
@@ -3393,8 +3415,19 @@ func _op_outcome(e: Dictionary, outcome: String, via := "") -> void:   # one int
 	var how: String = OUTCOME_TEXT[outcome]
 	if outcome == "countered" and via != "": how = "stopped by %s" % via
 	hosts[t].card_result = "%s %s" % [card, how]
+	if outcome == "missed" and fac == PLAYER: how = "failed: %s" % _miss_why(fac, t, str(e.card))   # the victim is not told it was scouted
 	if fac == PLAYER: _flash("Your %s on %s %s" % [card, str(hosts[t].name), how], 1)
 	elif victim == PLAYER: _flash("%s's %s on %s %s" % [fname(fac), card, str(hosts[t].name), how], 0)
+
+
+func _recon_outcome(e: Dictionary, outcome: String) -> void:   # "scouted" or "missed": a Recon is quiet, so only its sender hears
+	var t := int(e.target); var fac := int(e.fac)
+	op_outcomes.append({"t": _t, "fac": fac, "card": "recon", "target": t, "victim": int(hosts[t].owner), "outcome": outcome, "via": "", "stage": 1, "scouted": false})
+	if op_outcomes.size() > OP_OUTCOME_KEEP: op_outcomes.pop_front()
+	if fac != PLAYER or outcome != "missed": return
+	var nm := str(hosts[t].name)
+	_event("op:%d:1" % int(e.get("id", 0)), EV_ACT, "Your Recon on %s failed: %s. Send another." % [nm, _miss_why(fac, t, "recon")], t)
+	_flash("Your Recon on %s failed (%d%% chance): it shows nothing. Send another." % [nm, _pct(RECON_CHANCE)], 1)
 
 
 # ---- event history (Milestone A, brief §17.4): one persistent, deduplicated queue of what happened to you ----
@@ -3516,7 +3549,7 @@ func _event_outcome(e: Dictionary, outcome: String, via: String, victim: int) ->
 			"captured": _event(key, EV_INFO, "Captured %s with %s." % [nm, card], t)
 			"countered": _event(key, EV_ACT, "Your %s on %s was stopped by %s." % [card, nm, via if via != "" else "a Patch"], t)
 			"route_failed": _event(key, EV_ACT, "Your %s on %s failed: you lost the route to it." % [card, nm], t)
-			"missed": _event(key, EV_ACT, "Your %s on %s failed: no fresh Recon, a 50%% chance." % [card, nm], t)
+			"missed": _event(key, EV_ACT, "Your %s on %s failed: %s." % [card, nm, _miss_why(fac, t, str(e.card))], t)
 			"raided": _event(key, EV_INFO, "Your %s on %s went through." % [card, nm], t)
 			_: _event(key, EV_INFO, "Your %s on %s ended: the host changed owner first." % [card, nm], t)
 	elif victim == PLAYER:
@@ -4090,10 +4123,10 @@ func _ai_capture_targets(fac: int) -> Array:   # reachable foreign hosts to take
 	return out.map(func(x): return int(x[2]))
 
 
-func _ai_capture_card(fac: int, t: int, held_only: bool) -> String:   # neutral: the cheapest card; a rival's host: the fastest
+func _ai_capture_card(fac: int, t: int, held_only: bool, kept := {}) -> String:   # neutral: the cheapest card; a rival's host: the fastest
 	var order := ["breach", "exploit", "zeroday"] if int(hosts[t].owner) == NEUTRAL else ["zeroday", "exploit", "breach"]
-	for recipe in order:
-		if (_held(fac, recipe) > 0 if held_only else _known(fac, recipe)): return recipe
+	for recipe in order:   # (kept: copies held back for a host whose Recon is on its way)
+		if (_held(fac, recipe) - int(kept.get(recipe, 0)) > 0 if held_only else _known(fac, recipe)): return recipe
 	return ""
 
 
@@ -4106,11 +4139,12 @@ func _ai_scouting(fac: int, t: int) -> bool:   # a Recon of ours is on its way t
 func _ai_scout_first(fac: int, t: int, recipe: String) -> bool:   # true: this attack waits for (or just launched) a Recon of t
 	var rt := _attack_route(fac, t)
 	var at := _t + _travel_time(rt) + (_exec_time(recipe, t) if str(CARDS[recipe].effect) in ["capture", "worm", "vault"] else 0.0)
-	if _op_chance(fac, t, recipe, at) >= 1.0: return false
+	if _is_defense(recipe) or _recon_fresh(fac, t, at): return false   # scouted when it resolves: 50%, the best there is
 	if _ai_scouting(fac, t): return true
 	if _held(fac, "recon") > 0 and _can_play(fac, "recon", t) == "":
 		_play_card(fac, "recon", t); return true
-	return false   # no Recon to hand: attack at half the odds rather than not at all
+	if _known(fac, "recon") and _mq_count(fac, "recon") > 0 and _mq_head_why(fac) == "": return true   # one is being made: wait for it
+	return false   # no Recon to hand or coming: attack at 25% rather than not at all
 
 
 func _ai_manufacture(fac: int) -> void:
@@ -4120,7 +4154,7 @@ func _ai_manufacture(fac: int) -> void:
 	if not targets.is_empty():
 		var cap_card := _ai_capture_card(fac, int(targets[0]), false)
 		if cap_card != "" and _held(fac, cap_card) < 3: plan.append(cap_card)
-		if _known(fac, "recon") and _held(fac, "recon") < 2: plan.append("recon")   # unscouted attacks work half the time
+		if _known(fac, "recon") and _held(fac, "recon") < 2: plan.append("recon")   # unscouted attacks work half as often (25% vs 50%)
 	var threatened := false   # a hostile capture or raid is executing on one of our hosts
 	for e in _execs:
 		if int(e.fac) != fac and int(hosts[int(e.target)].owner) == fac: threatened = true; break
@@ -4172,11 +4206,12 @@ func _ai_operate(fac: int, mine: Array) -> void:
 	if home < 0 or int(hosts[home].owner) != fac: return
 	# expand: neutral hosts first, then a rival's, nearest first; scout each with Recon first when a copy is in hand
 	var launches := 3
+	var kept := {}   # a host being scouted keeps its capture copy: spending it elsewhere would waste the Recon
 	for t in _ai_capture_targets(fac):
 		if launches <= 0: break
-		var card := _ai_capture_card(fac, t, true)
+		var card := _ai_capture_card(fac, t, true, kept)
 		if card == "" or _intrusion_busy(fac, t) or _can_play(fac, card, t) != "": continue
-		if _ai_scout_first(fac, t, card): launches -= 1; continue
+		if _ai_scout_first(fac, t, card): launches -= 1; kept[card] = int(kept.get(card, 0)) + 1; continue
 		if _play_card(fac, card, t): launches -= 1
 	# pressure: Phishing steals the output of, DDoS stops, the reachable rival host with the most producers
 	for press in ["phish", "ddos"]:
@@ -5958,7 +5993,7 @@ func _camp_steps(chapter: int) -> Array:
 	match chapter:
 		0: return [
 			{"t": "Your main node", "r": "Your main node's stock is what pays for cards and research; its Bot station's 2 workers carry for it.", "a": "Select YOUR MAIN NODE: its stock is the top bar, and its Bot station gives it 2 workers.", "role": "home", "pause": true},
-			{"t": "Scout", "r": "Recon revealed the relay: what it is, its slots and its storage.", "a": "Drag Recon onto the Neighborhood Relay. Until you scout it, it shows only its name.", "role": "relay", "ui": "card:recon", "card": "recon", "pause": true},
+			{"t": "Scout", "r": "Recon revealed the relay: what it is, its slots and its storage.", "a": "Drag Recon onto the Neighborhood Relay. It gets through half the time.", "role": "relay", "ui": "card:recon", "card": "recon", "pause": true},
 			{"t": "Manufacture a card", "r": "A Credential breach copy is in the queue.", "a": "Press C, open Attack recipes and click + Queue on Credential breach.", "role": "", "ui": "card:breach", "pause": true},
 			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When the copy is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
@@ -6099,6 +6134,12 @@ func _camp_status() -> String:   # what the game is still resolving for this ste
 		for f in flights:
 			if str(f.kind) == "op" and int(f.owner) == PLAYER and str(f.get("card", "")) == need and not bool(f.get("returning", false)) and int(f.get("target", f.get("dest", -1))) == tgt:
 				return "%s travelling to %s: arrives in %d s." % [nm, str(hosts[tgt].name), ceili(maxf(0.0, float(f.arrive_t) - _t))]
+		for k in range(op_outcomes.size() - 1, -1, -1):   # it just failed its draw: say so, and that a new copy is in hand
+			var o: Dictionary = op_outcomes[k]
+			if _t - float(o.t) > 20.0: break
+			if int(o.fac) == PLAYER and str(o.card) == need and int(o.target) == tgt:
+				if str(o.outcome) == "missed": return "Your %s failed: %s. Launch it again." % [nm, _miss_why(PLAYER, tgt, need)]
+				break
 	var specs = st.get("ui", [])
 	if specs is String: specs = [specs]
 	for spec in specs:
@@ -6889,7 +6930,7 @@ func _wrapped_tooltip(text: String) -> Control:   # a hover note that wraps at a
 # FOGGED until you scan it (scan is launched from the launch-pad above). Never a build palette.
 func _panel_enemy_slots(i: int) -> void:
 	var scanned := _scanned(PLAYER, i)
-	_plabel("Installations · %d slots" % int(hosts[i].slots) if scanned else "%d slots · Recon to see inside and for full odds" % int(hosts[i].slots), 14, C_DIM)
+	_plabel("Installations · %d slots" % int(hosts[i].slots) if scanned else "%d slots · Recon to see inside and for better odds" % int(hosts[i].slots), 14, C_DIM)
 	var row := GridContainer.new(); row.columns = PANEL_COLS
 	row.add_theme_constant_override("h_separation", PALETTE_GAP); row.add_theme_constant_override("v_separation", 6)
 	for sl in int(hosts[i].slots):
@@ -7477,8 +7518,7 @@ func _panel_inspect() -> void:
 	if not _recon_fresh(PLAYER, i):   # nothing about what it is until a Recon lands
 		if _recon_expired(PLAYER, i): _plabel("Recon expired — send Recon again to inspect it.", 14, C_WARN)
 		else: _plabel("Unknown host — send Recon to inspect. Its buildings and storage are concealed.", 14, C_TEXT)
-		var c0 := _op_chance(PLAYER, i, "breach")
-		_plabel("Your attacks here: %d%% without fresh Recon." % int(round(c0 * 100.0)), 12, C_WARN)
+		_plabel("Your attacks here: %d%% without fresh Recon, %d%% with it." % [_pct(UNSCOUTED_CHANCE), _pct(SCOUTED_CHANCE)], 12, C_WARN)
 		return
 	if _recon_fresh(PLAYER, i):
 		var rec: Dictionary = (recon.get(PLAYER, {}) as Dictionary).get(i, {})
@@ -7490,8 +7530,8 @@ func _panel_inspect() -> void:
 			for r in socks: names.append(str(CARDS[str(r)].short))
 			_plabel("Firewall holds: %s" % (", ".join(names) if not names.is_empty() else "nothing"), 12, C_WARN if not names.is_empty() else C_DIM)
 	_panel_enemy_slots(i)
-	var c := _op_chance(PLAYER, i, "breach")
-	_plabel("Your attacks here: full chance while your Recon is fresh." if c >= 1.0 else "Your attacks here: %d%% without fresh Recon." % int(round(c * 100.0)), 12, C_GOOD if c >= 1.0 else C_WARN)
+	var scouted := _recon_fresh(PLAYER, i)
+	_plabel("Your attacks here: %d%% while your Recon is fresh." % _pct(SCOUTED_CHANCE) if scouted else "Your attacks here: %d%% without fresh Recon, %d%% with it." % [_pct(UNSCOUTED_CHANCE), _pct(SCOUTED_CHANCE)], 12, C_GOOD if scouted else C_WARN)
 
 
 func _panel_attack_diag(t: int, _f: Array, _s: Array) -> void:
@@ -8198,9 +8238,10 @@ func _flight_lines(fl: Dictionary) -> Array:   # what the details beside a packe
 		else:
 			out.append("Arrives in %ds" % ceili(eta))
 			if _is_defense(recipe): out.append("Loads a Firewall socket on arrival" if bool(fl.get("load", false)) else "Acts on arrival")
-			elif recipe != "recon":
+			elif recipe == "recon": out.append("Chance: %d%%" % _pct(RECON_CHANCE))
+			else:
 				var c := _op_chance(PLAYER, int(fl.target), recipe, float(fl.arrive_t))
-				out.append("Chance: full (scouted)" if c >= 1.0 else "Chance: %d%% (unscouted)" % int(round(c * 100.0)))
+				out.append("Chance: %d%% (%s)" % [_pct(c), "scouted" if _recon_fresh(PLAYER, int(fl.target), float(fl.arrive_t)) else "unscouted"])
 		return out
 	var res := _cargo_res(fl)
 	var origin := int(fl.origin)

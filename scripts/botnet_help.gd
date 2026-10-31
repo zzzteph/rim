@@ -80,7 +80,7 @@ const LEADS := {
 	"deliver": ["Each Bot station provides two reusable workers.", "Each carries one unit per leg and returns for another job."],
 	"produce": ["Installations use the materials they need here first.", "Workers take the surplus to your main node."],
 	"build": ["Queue up to four copies, including the one being made.", "They are made in order, one at a time; finished copies go to Ready."],
-	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Send Recon to inspect a host; unscouted attacks work half the time."],
+	"attack": ["Phishing diverts new output. Packet siphon grabs cargo in transit.", "Recon works half the time; attacks 50% scouted, 25% not."],
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {

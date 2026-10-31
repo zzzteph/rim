@@ -13,15 +13,15 @@
 #                 No card costs Bots: Bots are delivery workers, not an ingredient.
 #   exec          execution seconds after travel (capture/raid/worm-stage); exec_rig the same on a rival main node.
 #                 There are no security levels: capture cards differ by price and by how long a defender has to
-#                 answer (a Patch now travels from the defender's main node). Without fresh Recon of the target an
-#                 offensive card succeeds half the time (tuning.gd UNSCOUTED_CHANCE).
+#                 answer (a Patch now travels from the defender's main node). A Recon gets through half the time; every
+#                 other offensive card succeeds 50% with fresh Recon of the target, 25% without (tuning.gd *_CHANCE).
 #   dur           timed-effect seconds (theft/disruption/support)
 #   reach         how many hosts it covers (worm, sabotage, DDoS, Vault raid)
 #   needs_link    the first target must have one of your connections into it
 const CARDS := {
 	"recon":     {"name": "Recon", "short": "Recon", "fam": "recon", "bank": "attack", "effect": "recon", "known": true, "dur": 45.0,
 		"make": {"intel": 8, "cash": 0, "creds": 0, "research": 0}, "make_time": 3.0,
-		"lead": "Scout a host: full odds for 45 s.", "rules": "Shows its installations, storage and Firewall cards for 45 s. While that is fresh your attacks on it work every time; unscouted, they work half the time."},
+		"lead": "Scout a host: better odds for 45 s.", "rules": "Gets through half the time. Then it shows the host's installations, storage and Firewall cards for 45 s, and your attacks on it work 50% of the time instead of 25%."},
 	"breach":    {"name": "Credential breach", "short": "Breach", "fam": "breach", "bank": "attack", "effect": "capture", "known": true, "exec": 15.0, "exec_rig": 30.0,
 		"make": {"intel": 12, "cash": 0, "creds": 12, "research": 0}, "make_time": 12.0,
 		"lead": "Capture a host in 15 s.", "rules": "Travels from your main node, then executes for 15 s, 30 s on a main node. It captures the host unless a Patch, a lost route or a change of owner stops it first."},

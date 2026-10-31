@@ -159,7 +159,7 @@ func no_launch_controls() -> void:
 	check(bad.is_empty(), "No host panel sends or launches a card (%s)" % str(bad))
 	g.sel = {}; g._inspect = foe
 	var txt := "\n".join(PackedStringArray(panel_items()))
-	check(txt.contains("50% without fresh Recon"), "A foreign host's panel says what your attacks' odds are there")
+	check(txt.contains("25% without fresh Recon, 50% with it"), "A foreign host's panel says what your attacks' odds are there")
 
 
 func no_stale_controls() -> void:   # explore a host, change selection, clear it, switch panels: only the current context shows

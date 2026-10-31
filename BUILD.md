@@ -90,7 +90,7 @@ godot --headless --path . --script tests/objective_test.gd   # the majority obje
 godot --headless --path . --script tests/accounting_test.gd  # economic ledger: flows reconcile with banks, measured rates, losses
 godot --headless --path . --script tests/diagnosis_test.gd   # host diagnoses: preview = real cycle, statuses, route home, panel order
 godot --headless --path . --script tests/preview_test.gd     # target preview: legality, route/arrival, execution, fog-safe areas, dated Recon
-godot --headless --path . --script tests/recon_test.gd       # no security levels; unscouted 50% odds, seeded dice, counters first
+godot --headless --path . --script tests/recon_test.gd       # no security levels; Recon 50%, attacks 50%/25%, seeded dice, counters first
 godot --headless --path . --script tests/logistics_test.gd   # workers: supply round trip, conservation, sockets on arrival, held / lost packets
 godot --headless --path . --script tests/workers_test.gd     # 2 workers per station, identities, replacement, capture, local use, escrow, fairness
 godot --headless --path . --script tests/queue_test.gd       # the four-place FIFO queue: capacity, order, waiting head, full hand, pause, cancel
@@ -240,7 +240,7 @@ can see, its route home (green, chevrons pointing home) and a tag with hops and 
 route home rings its cut-off segment (`_cut_off`) in red. None of this changes the simulation.
 
 Target preview (Milestone A). `_target_preview(fac, card, host)` says, before anything is spent: whether the card can
-launch and why not (`_can_play`), the chance (`_chance_line`: full or 50%, with the Recon's age), the route from the main node with arrival time
+launch and why not (`_can_play`), the chance (`_chance_line`: 50% scouted or 25% unscouted, with the Recon's age; 50% for a Recon itself), the route from the main node with arrival time
 and queueing, the execution time and what stops it, the hosts an area or chain effect would hit as far as the player
 can see (`_preview_nearest`, `_preview_chain` — never hosts out of sight), the Worm's next stage (`_worm_next`),
 public defences (an armed Patch, a Filter) and the last Recon snapshot with its age (`_known_defences`; loaded
@@ -294,11 +294,13 @@ empty and crowded inventories, paging, selection and launch, research states, th
 There are **no security levels**: any card may target any foreign host; a host's type decides only its slots
 and production multipliers. Capture cards differ by price and execution time (`exec`, and `exec_rig` on a held
 main node — Breach 15/30 s, Known exploit 9/20 s, 0day 5/12 s, each Worm stage 12/24 s). **Recon** reveals
-installations, storage and Firewall cards for 45 s and gives that faction's attacks on the host their full
-chance: without fresh Recon (`_recon_fresh(fac, t, at)`, judged when the operation resolves, voided by a change
-of owner) every other attack card succeeds at `UNSCOUTED_CHANCE` (0.5) × its baseline of 1.0 (`_op_chance`).
+installations, storage and Firewall cards for 45 s, but itself gets through only `RECON_CHANCE` (0.5) of the time
+(a miss shows nothing and only its sender hears of it). Every other attack card succeeds at `SCOUTED_CHANCE` (0.5)
+with fresh Recon of the host (`_recon_fresh(fac, t, at)`, judged when the operation resolves, voided by a change
+of owner) and `UNSCOUTED_CHANCE` (0.25) without (`_op_chance`); defence cards on your own hosts always work.
 `_op_roll` draws once per resolved operation from `sim_rng` (seeded from the map in `_gen`, part of `_mp_hash`),
 only when the chance is below 1, and only after counters, a void target and the route have been decided.
+`rolls_always_hit` (tests only) forces every draw to succeed while still taking it, for suites about effects.
 
 The idle right sidebar shows compact standings automatically; selecting a node replaces it
 with the host's build menu (its slots and the buildings). Help uses six
@@ -411,7 +413,7 @@ then **execute** on arrival for the card's `exec` seconds before they resolve
 recorded by `_op_outcome` in `op_outcomes` with its own message for both sides: **countered** (a Patch: by
 hand, armed, or loaded in a Firewall), **owner changed** (the target's ownership generation moved first, so
 a host is never captured twice from one generation), **route failed** (no path from the attacker's main
-node when it ends), **missed** (unscouted and the 50% draw failed), **raided** (Vault raid) or **captured**.
+node when it ends), **missed** (the draw failed: 50% scouted, 25% unscouted), **raided** (Vault raid) or **captured**.
 Intrusions resolve earliest end first, equal end times by operation id
 (launch order), and a turn's commands — a manual Patch included — apply before that turn's steps. A Worm
 captures its target, then runs one more stage on the nearest visible linked host of the same original owner

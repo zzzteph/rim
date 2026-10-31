@@ -1,7 +1,8 @@
 # RIM — Milestone A usability tasks
 
-Build: **0.6.2** (one pool of workers working from the main node, two per Bot station, building first and the hosts
-served in turn; 1 unit per producer every 12 s; construction supplied before work; one four-place manufacturing
+Build: **0.6.3** (Recon gets through half the time; attacks work 50% on a scouted host and 25% otherwise; one pool of
+workers working from the main node, two per Bot station, building first and the hosts served in turn; 1 unit per
+producer every 12 s; construction supplied before work; one four-place manufacturing
 queue; your host's panel is a build menu with no prose; a Logs button instead of messages over the map; a research
 bar only while research runs; unscouted hosts that show only their name).
 
@@ -36,7 +37,7 @@ same match.
 | # | Task (read aloud) | What it checks | Done when |
 |---|-------------------|----------------|-----------|
 | 1 | "Start a match against the computer. You don't have to do the tutorial." | Learn is skippable; Skirmish opens at once (brief §17.1) | A Skirmish is running, without finishing Learn |
-| 2 | "Take one neutral host. Before you launch, tell me what could stop it." | Capture, its stop conditions and the Recon odds; target preview | A neutral host is captured, **and** they named at least two of: a Patch, losing the route, the host changing owner, no fresh Recon (half the chance) |
+| 2 | "Take one neutral host. Before you launch, tell me what could stop it." | Capture, its stop conditions and the Recon odds; target preview | A neutral host is captured, **and** they named at least two of: a Patch, losing the route, the host changing owner, the dice (50% scouted, 25% without fresh Recon) |
 | 3 | "How many hosts do you need to win, and how close are you?" | Objective on the HUD (§16.2) | They read the majority needed, their count, and who leads or holds it |
 | 4 | "Increase your Credential income, then show me that it is actually reaching your bank." | The income forecast and the Economy view | A Credential harvester runs with Intel on its host (made there or brought by workers), **and** they point to the Credentials forecast on the HUD or in the Economy overview (E) rising |
 | 5 | "Build a Research lab on its own on one of your other hosts. Is it working? If not, why not?" | Host diagnosis of a starved remote Lab; supply | They hover its Lab slot (or open the Logs) and say whether workers are bringing Intel and Crypto, or what blocks them (no workers, no stock at the main node, no route) |
