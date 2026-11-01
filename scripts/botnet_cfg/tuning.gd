@@ -6,23 +6,24 @@
 #    delivery workers, two per Bot station (WORKERS_PER_STATION), counted as a population, never banked or spent ──
 const RES := ["intel", "cash", "creds", "research"]
 const RES_NAME := {"intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}
-const START := {"intel": 40.0, "cash": 20.0, "creds": 15.0, "research": 10.0}   # a producer or two and a first Breach
-const BASE_CAP := {"intel": 150.0, "cash": 300.0, "creds": 150.0, "research": 150.0}
-const CAP_PER_PRODUCER := 50.0     # each installed producer adds this to its own output resource's cap
+const START := {"intel": 80.0, "cash": 40.0, "creds": 30.0, "research": 20.0}   # a producer or two and a first Breach
+const BASE_CAP := {"intel": 300.0, "cash": 600.0, "creds": 300.0, "research": 300.0}
+const CAP_PER_PRODUCER := 100.0     # each installed producer adds this to its own output resource's cap
 
 # ── production: every host runs one cycle each PROD_CYCLE seconds ──
-const PROD_CYCLE := 12.0           # seconds per production cycle: every producer makes 1 unit per cycle (5 a minute), the Firewall eats 1 Intel
-const STORE_CAP := 10.0            # what a remote host can hold before its producers stop (all resources together)
+const PROD_CYCLE := 6.0           # seconds per production cycle: every producer makes 1 unit per cycle (10 a minute), the Firewall eats 1 Intel (0.6.18: 12 s before; the flow doubled so workers are rarely free, and every price, cap and store with it)
+const STORE_CAP := 20.0            # what a remote host can hold before its producers stop (all resources together)
 
 # ── the main node (rig). While operational it makes one of EACH resource per cycle, delivered locally. ──
-const MAIN_INCOME := 1.0 / 12.0    # per resource per second (one of each every 12 s, 5 a minute): a trickle that keeps a stalled player alive
+const MAIN_INCOME := 2.0 / 12.0    # per resource per second (one of each every 6 s, 10 a minute): a trickle that keeps a stalled player alive
 
 # ── delivery workers ──
 const WORKERS_PER_STATION := 2     # every operational Bot station has exactly this many reusable workers (any host type)
 const WORKER_CARRY := 1.0          # one resource unit of one type per trip leg (a valid final fraction may be less)
 const WORKER_REPLACE := 5.0        # a worker lost on the road is replaced at its surviving, operational station after this
-const PRIORITY_TURNS := 3          # of every PRIORITY_TURNS + 1 new assignments, this many go by purpose (construction,
-                                   # then inputs, then surplus) and then to the host served least recently; the next by host turn alone
+const PRIORITY_TURNS := 3          # of every PRIORITY_TURNS + 1 new assignments, this many go by purpose (while anything is being
+                                   # built: building materials; else inputs, then surplus) and the next keeps every host served (a
+                                   # host about to fill up, what the projects wait for, else the host served least recently)
 const CARD_GIVE_UP := 20.0         # a card held this long on its way heads back to its main node; the copy returns to your hand
 
 # ── routes (unchanged baseline) ──

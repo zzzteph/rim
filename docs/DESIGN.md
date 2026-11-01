@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.8 · commit 3a3f135
+RIM 0.6.19 · commit 8d459a5
 
 ## Contents
 
@@ -44,7 +44,7 @@ RIM is a real-time strategy game about botnets on a generated city network. Two 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
 flowchart LR
-  H["Hosts you hold (slots)"] --> B["Buildings make 1 unit every 12 s"]
+  H["Hosts you hold (slots)"] --> B["Buildings make 1 unit every 6 s"]
   B --> C["Workers carry the surplus home"]
   C --> K["Bank at your main node"]
   K --> B2["Build more"]
@@ -75,7 +75,7 @@ flowchart LR
 
 #### Other modes
 
-**Learn:** never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. Steps whose action is available at once pause the game until you act (or press Space). Continue restarts the saved lesson with what the earlier lessons had you do.
+**Learn:** never required. One continuous session on a small grid town, five lessons in a row: capture, build and deliver, research and manufacture, theft and defence, then open play against an active rival. Nothing is rebuilt between lessons: what you built and earned stays, and a lesson brings in its new situation on top (a rival takes the gateway, a practice host appears). A finished step hands straight on; its result stays as one line above the next instruction. A lesson's first steps, whose action is available at once, pause the game until you act (or press Space); a step that follows something the rival did never pauses, names who did it and points at the host to act on. In open play the banner shrinks after 10 s to one line that keeps the goal in view. Continue restarts the saved lesson with what the earlier lessons had you do.
 
 **Multiplayer:** hidden from the menus for now. The lockstep backend and its tests remain; see [Multiplayer](#multiplayer).
 
@@ -83,7 +83,7 @@ flowchart LR
 
 - A main node: a Server (3 slots) with an Intel harvester and a Bot station already built, one slot free.
 - One empty PC next to it, already yours.
-- Bank: 40 Intel, 20 Crypto, 15 Creds, 10 Research.
+- Bank: 80 Intel, 40 Crypto, 30 Creds, 20 Research.
 - Known recipes: Recon, Credential breach, Phishing, Patch, Incident response.
 - Every other host is neutral: no buildings and no defence.
 
@@ -93,7 +93,7 @@ The match ends when one network holds the majority for 51 s or is the last with 
 
 | Phase     | Typical time | What happens                                                                                                                                                                                                                                                                                           |
 |-----------|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Opening   | 0–1 min      | Fill the main node's free slot (a converter); lay out the PC (Bot station, Intel harvester, converter); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.                                                                                      |
+| Opening   | 0–1 min      | Fill the main node's free slot (a Miner, Credential harvester or Lab: each makes its resource with no input); lay out the PC (Bot station, Intel harvester, a second producer); make the first Breach (24 Intel, 24 Credentials: the start bank covers it) and take a first neutral host.              |
 | Expansion | 1–6 min      | Scout and Breach neutral hosts: a Recon gets through half the time, and a scouted Breach that runs its 15 s takes its host half the time (a quarter unscouted). Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price. |
 | Contact   | 5–10 min     | Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch.                                                       |
 | End game  | 10 min +     | 0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.                                                                                                                                                                 |
@@ -102,20 +102,20 @@ Measured sample (0.6.4): four AIs on a Medium spiral (41 hosts), seeds 1–5, 10
 
 ## Time model
 
-| Clock                       | Value                                 | Notes                                                                                                                                                                                     |
-|-----------------------------|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Simulation step             | 1/30 s                                | Fixed step; the screen draws at up to 60 fps (30 in menus or in the background) and never changes the rules.                                                                              |
-| Production cycle            | 12 s                                  | Per host, each on its own phase (a host's first cycle comes 2.4–12 s after the match starts), so the network does not pulse all at once. Every producer makes 1 unit a cycle: 5 a minute. |
-| Main node trickle           | 1/12 per s each                       | Continuous: 1 of every resource per 12 s (5 a minute).                                                                                                                                    |
-| AI decisions                | every 2.5 s                           | Each AI on its own offset.                                                                                                                                                                |
-| Travel                      | 1 s per link + 0.25 s per host passed | Halved by Express route; queues when a link is full.                                                                                                                                      |
-| Construction                | 10 s (+5 s to replace)                |                                                                                                                                                                                           |
-| Research                    | 30–70 s                               | One at a time.                                                                                                                                                                            |
-| Manufacturing               | 3–26 s per copy                       | One queue of four, one copy at a time.                                                                                                                                                    |
-| Execution (reaction window) | 10–15 s                               | Breach 15, Known exploit 12, 0day 10 (15 on a main node), Worm 12 per stage, Vault raid 10.                                                                                               |
-| Effects                     | 30–60 s                               | Siphon 30, DDoS 45, Phishing 60, Sabotage 60; Filter and Cover 30, Express 45; Recon view 45.                                                                                             |
-| Win hold                    | 51 s                                  | Continuous.                                                                                                                                                                               |
-| Multiplayer turn            | 0.1 s                                 | 3 steps per turn; commands run 2 turns (0.2 s) after they are sent.                                                                                                                       |
+| Clock                       | Value                                 | Notes                                                                                                                                                                                                                                       |
+|-----------------------------|---------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Simulation step             | 1/30 s                                | Fixed step; the screen draws at up to 60 fps (30 in menus or in the background) and never changes the rules.                                                                                                                                |
+| Production cycle            | 6 s                                   | Per host, each on its own phase, so the network does not pulse all at once. Every producer makes 1 unit a cycle: 10 a minute (0.6.18: the flow doubled so workers are rarely free; every price, cap, store and theft haul doubled with it). |
+| Main node trickle           | 1/6 per s each                        | Continuous: 1 of every resource per 6 s (10 a minute).                                                                                                                                                                                      |
+| AI decisions                | every 2.5 s                           | Each AI on its own offset.                                                                                                                                                                                                                  |
+| Travel                      | 1 s per link + 0.25 s per host passed | Halved by Express route; queues when a link is full.                                                                                                                                                                                        |
+| Construction                | 10 s (+5 s to replace)                |                                                                                                                                                                                                                                             |
+| Research                    | 30–70 s                               | One at a time.                                                                                                                                                                                                                              |
+| Manufacturing               | 3–26 s per copy                       | One queue of four, one copy at a time.                                                                                                                                                                                                      |
+| Execution (reaction window) | 5–15 s                                | Breach 15 (30 on a main node), Known exploit 9 (20), 0day 5 (12), Worm 9 (20) per stage, Vault raid 10.                                                                                                                                     |
+| Effects                     | 30–180 s                              | Siphon 60, DDoS 45, Phishing 180, Sabotage 60; Filter and Cover 30, Express 45; Patch recovery 30; Recon view 45.                                                                                                                           |
+| Win hold                    | 51 s                                  | Continuous.                                                                                                                                                                                                                                 |
+| Multiplayer turn            | 0.1 s                                 | 3 steps per turn; commands run 2 turns (0.2 s) after they are sent.                                                                                                                                                                         |
 
 ## Map and network
 
@@ -157,7 +157,7 @@ The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are juncti
 | ERP system  | 5     | Intel ×1.5, Crypto ×1.5, Credentials ×1.5, Research ×1.5 |
 
 - There are no security levels: any capture card can target any host. A held main node takes longer to execute against (each card's main-node time).
-- A multiplier scales a building's input too: a Credential harvester on a web server turns 2 Intel into 2 Credentials per cycle; a Bot station has 2 workers on any host type.
+- A multiplier scales what a building makes: a Credential harvester on a web server makes 2 Credentials per cycle; a Bot station has 2 workers on any host type.
 - When a host changes owner its buildings, storage, Firewall cards and effects are wiped, and its ownership generation counts up: operations aimed at the old owner become void.
 
 ## Sight and fog
@@ -170,19 +170,19 @@ The 2 best-connected mid-town hosts (value 2+, 3+ links, not a start) are juncti
 
 ## Resources and banks
 
-| Resource    | Comes from                                                                 | Is spent on                                                                                                       |
-|-------------|----------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| Workers     | 2 per finished Bot station (the main node starts with one); not a resource | Nothing: workers carry. Each carries 1 unit a leg and returns for another job. No card or building costs workers. |
-| Intel       | Intel harvesters (1 per cycle), the trickle                                | Every building, every card, every converter's input, Firewall upkeep, research.                                   |
-| Crypto      | Crypto miners, the trickle                                                 | Some buildings, most cards, research, the Lab's input.                                                            |
-| Credentials | Credential harvesters, the trickle                                         | Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.                       |
-| Research    | Research labs, the trickle                                                 | Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.                            |
+| Resource    | Comes from                                                                 | Is spent on                                                                                                                                                                 |
+|-------------|----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Workers     | 2 per finished Bot station (the main node starts with one); not a resource | Nothing: workers carry. Each carries 1 unit a leg (an export's last unit takes the fraction left beside it) and returns for another job. No card or building costs workers. |
+| Intel       | Intel harvesters (1 per cycle), the trickle                                | Most cards, the harvesters and Miners, part of other buildings and blueprints, Firewall upkeep.                                                                             |
+| Crypto      | Crypto miners, the trickle                                                 | Most of the Bot station, Lab and Firewall, most blueprints, some cards.                                                                                                     |
+| Credentials | Credential harvesters, the trickle                                         | Breach (its focus), Phishing, Packet siphon, Vault raid, 0day, Sabotage, Incident response.                                                                                 |
+| Research    | Research labs, the trickle                                                 | Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.                                                                                      |
 
 ``` code
-bank cap(resource) = BASE_CAP[resource] + 50 × (your buildings whose output is that resource)
-BASE_CAP = Intel 150, Crypto 300, Credentials 150, Research 150
+bank cap(resource) = BASE_CAP[resource] + 100 × (your buildings whose output is that resource)
+BASE_CAP = Intel 300, Crypto 600, Credentials 300, Research 300
 spendable   = what is in the bank at your main node (nothing else counts)
-income      = main-node trickle (1 of each per 12 s, while the main node is held and not under DDoS)
+income      = main-node trickle (1 of each per 6 s, while the main node is held and not under DDoS)
             + building output that reaches the bank
 ```
 
@@ -195,7 +195,7 @@ Every change to a bank is recorded once, with its cause, in one-second buckets o
 | Kind     | Causes                                                                                                                                                                                                                             |
 |----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Received | trickle (the main node), production (buildings on the main node), delivered (cargo from your hosts), stolen (Phishing, Siphon and Vault-raid loot), returned (a Phishing that ended), refunds (a cancelled build, copy or project) |
-| Spent    | buildings (materials a project takes from the bank), manufacturing, research, supply (a unit a worker takes out to one of your hosts), converters and upkeep (main-node Miners, Labs, Credential harvesters and Firewalls)         |
+| Spent    | buildings (materials a project takes from the bank), manufacturing, research, supply (a unit a worker takes out to one of your hosts: a Firewall's upkeep), upkeep (a main-node Firewall)                                          |
 | Lost     | cap (income that arrived at a full bank), cargo (lost with a host it waited in), site (a project's materials lost with its host), stolen (escrow taken by a Vault raid), siphoned (cargo grabbed by a rival's Packet siphon)       |
 
 ``` code
@@ -210,22 +210,21 @@ Within the window the recorded flows reconcile exactly with the bank. The ledger
 Under each material the HUD shows what will reach your bank per minute with your network as it stands: worked out from the network, not from the ledger, so it is steady while nothing changes and moves as soon as something does (a command, a capture, a full bank, a host's storage filling with output). A full bank reads “full”.
 
 ``` code
-forecast(res) = main-node trickle (5/min while the main node is up)
-              + main-node buildings' output (their inputs come from the bank)
-              + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
-                  inputs  = made on the host, or brought by workers (plenty while the bank holds ≥ 5,
-                            else only what the main node brings in, shared by the hosts in turn), and only
-                            as far as its storage has room for one cycle's inputs next to the output waiting
-                            there (when one cycle's supplies cannot all fit, only the converters whose
-                            bundles fit, in turn); short inputs, less output
-                  trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
-                            the main node): of every 4 assignments, 3 go by purpose, missing inputs before
-                            surplus, the hosts in turn; the 4th goes to the host served least recently, so the
-                            hosts' trips even out (deliveries to construction are left out). Each trip carries
-                            one unit each way (a supply out, output back); short of workers, the pool makes as
-                            many trips as its time allows
+forecast(res) = main-node trickle (10/min while the main node is up)
+              + main-node buildings' output
+              + Σ over hosts whose output is yours: what one cycle there sends home × 10/min, where
+                  inputs  = only a Firewall's upkeep (1 Intel): this cycle's harvest on the host first
+                            (it needs no storage room), then what is stored there, or brought by workers
+                  trips   = the workers' trips a minute, dealt as the dispatcher deals them: supplies and
+                            Firewall upkeep strictly first, then the hosts' trips even out (deliveries to
+                            construction are left out). A trip carries one unit; a supply goes out and the
+                            host's output comes back on the same round trip. Intel a host gives a neighbouring
+                            Firewall rides that host's own trips (0.6.18: shared by every host that may give it,
+                            in proportion to the Intel each one's trips move), and the worker who brings it
+                            carries the Firewall host's output home: one leg, not a round trip. Short of
+                            workers, they make as many trips as their time allows
                   sent    = what those trips carry; a host they cannot keep up with stays full, so it makes
-                            only what leaves, and its converters turn its Intel into their output first
+                            only what leaves, every producer the same share
                   a Firewall's upkeep on a host you phish comes out of your Intel once the owner keeps none there
                   nothing from a host with no route home, under DDoS, whose storage is full of someone else's
                   stock, while your main node is under DDoS (no worker leaves), or into a full bank
@@ -236,65 +235,60 @@ The tooltip and the Economy overview name where it comes from and what holds it 
 ## Production cycle
 
 ``` code
-every 12 s, for each held host h (on its own phase):
+every 6 s, for each held host h (on its own phase):
   beneficiary = the Phishing thief while h is phished, else its owner
-  storage     = the beneficiary's bank if h is their main node, else h's storage (10 units, all resources together)
+  storage     = the beneficiary's bank if h is their main node, else h's storage (20 units, all resources together)
 
-  1. Intel harvesters:  + 1 × m_intel × (active harvesters) Intel into storage, up to its room
+  share = min(1, free storage / this cycle's whole output)      (1 at the main node: the bank)
+  1. Producers, no input (0.6.12): + 1 × m × share of their own resource each
+        (Intel harvester → Intel · Crypto miner → Crypto · Credential harvester → Credentials · Research lab → Research)
   2. Firewalls:         each eats 1 Intel from storage (the owner's first); paid in full → on, else off
-  3. Converters, in order Miner → Credential harvester → Lab, each active one:
-        frac = min(1, inputs available in storage / inputs needed × m)
-        take inputs × m × frac, add 1 × m × frac output
-        (Miner 1 Intel → 1 Crypto · Cred. harvester 1 Intel → 1 Credential · Lab 1 Intel + 1 Crypto → 1 Research)
   (Bot stations make nothing: each provides 2 reusable workers for its host)
 
-converters use only what has ARRIVED in h's storage; supplies on their way do not count
-a remote host runs its converters as far as its plan funds them; a host whose supplies exceed its free storage
-runs a fair subset, in rotation
+a storage that cannot hold the whole cycle gives every producer the same share: none crowds another out
 
-active = built, not under construction, not paused by you, not under DDoS, not sabotaged
+active = built, not under construction, not under DDoS, not sabotaged (a building cannot be paused)
 m      = the host type's multiplier for that resource
 ```
 
-| Layout (on a PC, ×1)                                      | Made each cycle                                | Delivered each cycle                                                    | Net to the bank per minute                  |
-|-----------------------------------------------------------|------------------------------------------------|-------------------------------------------------------------------------|---------------------------------------------|
-| Bot station + Intel harvester + Miner                     | 1 Intel → 1 Crypto; 2 workers for the pool     | 1 unit by your workers                                                  | +5 Crypto                                   |
-| Bot station + Intel harvester + Cred. harvester           | 1 Intel → 1 Credential; 2 workers              | 1 unit by your workers                                                  | +5 Creds                                    |
-| Intel harvester + Miner + Lab (Research host)             | 1 Intel → 1 Crypto; the Lab's Intel is brought | 1 unit in, 1 out                                                        | −5 Intel, +5 Research                       |
-| 2 Intel harvesters + Miner                                | 2 Intel → 1 Intel + 1 Crypto                   | 2 units by your workers                                                 | +5 Intel, +5 Crypto                         |
-| Intel harvester + Miner + Cred. harvester                 | 1 Intel (+1 brought) → 1 Crypto + 1 Credential | 1 unit in, 2 out                                                        | −5 Intel, +5 Crypto, +5 Creds               |
-| Bot station alone (IoT device)                            | 2 workers for the pool                         | nothing to carry                                                        | 0                                           |
-| Miner alone (no Intel made there)                         | 1 Intel (brought) → 1 Crypto                   | Intel out and Crypto back on the same worker round trips, automatically | −5 Intel, +5 Crypto                         |
-| Database: harvester + 2 Cred. harvesters                  | 2 Intel (+1 brought) → 3 Credentials           | 1 unit in, 3 out                                                        | −5 Intel, +15 Creds                         |
-| Main node (Server): Intel harvester + Bot station + Miner | 1.5 Intel → 0.5 Intel + 1 Crypto; 2 workers    | straight into the bank, plus the trickle                                | +7 Intel, +10 Crypto, +5 Creds, +5 Research |
-| \+ a Firewall on the host                                 | uses 1 Intel                                   | —                                                                       | −5 Intel                                    |
+| Layout (on a PC, ×1)                                      | Made each cycle                                                | Delivered each cycle                     | Net to the bank per minute                     |
+|-----------------------------------------------------------|----------------------------------------------------------------|------------------------------------------|------------------------------------------------|
+| Bot station + Intel harvester + Miner                     | 1 Intel + 1 Crypto; 2 workers for the pool                     | 2 units by your workers                  | +10 Intel, +10 Crypto                          |
+| Bot station + Intel harvester + Cred. harvester           | 1 Intel + 1 Credential; 2 workers                              | 2 units by your workers                  | +10 Intel, +10 Creds                           |
+| Intel harvester + Miner + Lab                             | 1 Intel + 1 Crypto + 1 Research                                | 3 units by your workers                  | +10 Intel, +10 Crypto, +10 Research            |
+| 2 Intel harvesters + Miner                                | 2 Intel + 1 Crypto                                             | 3 units by your workers                  | +20 Intel, +10 Crypto                          |
+| Bot station alone (IoT device)                            | 2 workers for the pool                                         | nothing to carry                         | 0                                              |
+| Miner alone                                               | 1 Crypto, no input                                             | 1 unit by your workers                   | +10 Crypto                                     |
+| Database: harvester + 2 Cred. harvesters                  | 2 Intel + 3 Credentials (Database: Intel x2, Credentials x1.5) | 5 units by your workers                  | +20 Intel, +30 Creds                           |
+| Main node (Server): Intel harvester + Bot station + Miner | 1.5 Intel + 1 Crypto; 2 workers                                | straight into the bank, plus the trickle | +25 Intel, +20 Crypto, +10 Creds, +10 Research |
+| \+ a Firewall on the host                                 | uses 1 Intel                                                   | —                                        | −10 Intel                                      |
 
 ### Host status
 
 Your host's panel is only a build menu, with no prose. Its diagnosis is in the tooltip of each of its slots, which lists the host's first two problems in this order. The diagnosis is worked out exactly as the next cycle will run, so it never promises output the host cannot make.
 
-| Status                   | When                                                                                                                 | What the tooltip suggests                                                                               |
-|--------------------------|----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| under DDoS               | a DDoS is active here                                                                                                | nothing is made or sent until it ends                                                                   |
-| sabotaged                | a Sabotage is active here                                                                                            | producers are off; cargo still passes                                                                   |
-| phished                  | a rival's Phishing is active here                                                                                    | output goes to them until it ends (Incident response clears it)                                         |
-| no route                 | no chain of your hosts links it to your main node                                                                    | retake a host between them                                                                              |
-| starved                  | a converter lacks its input here (a remote host cannot use the bank), or a main-node converter's input bank is empty | build the missing harvester or Miner here, or replace the converter                                     |
-| blocked                  | storage full, or the bank for what is stored (or a main-node converter's output) is at its cap                       | spend that resource, or pause the converter; storage that is full of surplus ships as workers come free |
-| waiting for workers      | units are stored and every one of your workers is busy (or you have none)                                            | wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node  |
-| Firewall off             | the next cycle cannot pay the Firewall's Intel                                                                       | build an Intel harvester here                                                                           |
-| paused · building · idle | every producer paused by you · nothing finished yet · nothing installed                                              | —                                                                                                       |
-| operating                | none of the above                                                                                                    | —                                                                                                       |
+| Status              | When                                                                                          | What the tooltip suggests                                                                              |
+|---------------------|-----------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| under DDoS          | a DDoS is active here                                                                         | nothing is made or sent until it ends                                                                  |
+| sabotaged           | a Sabotage is active here                                                                     | producers are off; cargo still passes                                                                  |
+| phished             | a rival's Phishing is active here                                                             | output goes to them until it ends (Incident response clears it)                                        |
+| no route            | no chain of your hosts links it to your main node                                             | retake a host between them                                                                             |
+| starved             | a Firewall lacks its Intel here and none can come                                             | build an Intel harvester here, or a Bot station                                                        |
+| blocked             | storage full, or the bank for what is stored (or a main-node producer's output) is at its cap | spend that resource; storage that is full of surplus ships as workers come free                        |
+| waiting for workers | units are stored and every one of your workers is busy (or you have none)                     | wait, or build a Bot station on any of your hosts: all workers are one pool working from the main node |
+| Firewall off        | the next cycle cannot pay the Firewall's Intel                                                | build an Intel harvester here                                                                          |
+| building · idle     | nothing finished yet · nothing installed                                                      | —                                                                                                      |
+| operating           | none of the above                                                                             | —                                                                                                      |
 
 ## Logistics
 
 #### Workers
 
-Each finished Bot station provides two reusable workers that belong to its host; the main node starts with its station's two. A worker carries 1 unit per leg and returns for another job; delivery does not consume it. States: available, collecting, carrying, blocked. A worker lost on a cut route is replaced after 5 s if its station still stands; a demolished or replaced station's workers retire after their leg; capture destroys every worker of the captured host's stations, even those away. The map shows a loaded worker as a filled dot in its cargo's colour, an empty one as a ring, each direction on its own side.
+Each finished Bot station provides two reusable workers that belong to its host; the main node starts with its station's two. A worker carries 1 unit per leg; delivery does not consume it. States: available (free, wherever it is), collecting, carrying, blocked, heading home. A worker lost on a cut route is replaced after 5 s if its station still stands; a demolished or replaced station's workers retire after their leg; capture destroys every worker of the captured host's stations, even those away. The map shows a loaded worker as a filled dot in its cargo's colour, an empty one as a ring, each direction on its own side.
 
 #### Who carries, and what first
 
-Installations use what is on their host first. A host asks for its net shortfall for the next cycle (after what it makes), its Firewall upkeep and its construction bills; a converter's inputs come as one bundle. Whatever the next cycle does not need is surplus and goes to the main node. All your workers are one pool working from the main node: a new station's workers go there first, then every trip is main node → host → main node, building materials or a missing input out and that host's surplus back. Three of four assignments go by purpose — construction first, then inputs, then surplus and loot — and within a purpose to the host served least recently; every fourth goes to the host served least recently whatever it needs, so the hosts are served in turn. Within one host the resources take turns too: the one moved longest ago goes first, so a Lab's Research leaves even while the same host always has spare Intel. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.
+Installations use what is on their host first. A host asks for its Firewalls' upkeep and its construction bills; producers need no input. Whatever its next cycle does not need is surplus. **Workers go where they are needed, from wherever they are** (0.6.16): a job moves one unit from a source to a destination, and a worker is free where it delivers and takes its next job from there; with nothing to do it heads home. **Building comes strictly first:** every free worker serves construction and upkeep while any of it can go — a Firewall's upkeep first, then Bot stations, then projects in the order given — and their materials come from the nearest place that can spare them (your bank, a host's spare stock, your own salvage) **straight to the site**, never through the main node. What the main node's own projects lack is brought home from the hosts first. Then the surplus goes home: the surplus where a free worker already stands first, so it carries it on instead of walking empty to another host (0.6.18), then the hosts about to fill up (counting what workers are already on their way to collect), the hosts in turn, the resources of one host in turn; stolen goods last. A worker that leaves a host for the main node to fetch supplies takes a unit of that host's surplus along (0.6.18). A host's surplus waits for a worker already on its way there, loaded or still going to its pickup, rather than drawing a second one. A Firewall host that makes no Intel keeps up to three cycles of it: two asked from anywhere, the third only from a neighbour's surplus, which goes to it instead of home when it is no farther. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.
 
 #### No supply settings
 
@@ -302,7 +296,7 @@ Supply is automatic and in the background: there is nothing to set per host. Wha
 
 #### Construction
 
-Ordering is free. A project's materials go into an escrow at its site — separate from the 10-unit storage, so a 16-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. Pause stops work and new deliveries; cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.
+Ordering is free. A project's materials go into an escrow at its site — separate from the 20-unit storage, so a 32-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.
 
 #### Routes
 
@@ -323,41 +317,41 @@ When the way on is cut (a relay taken or under DDoS) a packet waits at the last 
 
 ## Buildings
 
-| Building             | Each cycle                        | Build price         | Bank cap         | Rules                                                                                                                                                                                                                                                                       |
-|----------------------|-----------------------------------|---------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Intel harvester      | +1 Intel                          | 12 Intel            | +50 Intel cap    | Feeds the converters on its own host first; the rest is stored.                                                                                                                                                                                                             |
-| Bot station          | 2 reusable workers                | 12 Intel, 4 Crypto  | —                | Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and missing inputs out, surplus back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are. |
-| Crypto miner         | −1 Intel → +1 Crypto              | 15 Intel            | +50 Crypto cap   | Uses Intel on its own host (the bank, at the main node); workers bring it when none is made there.                                                                                                                                                                          |
-| Credential harvester | −1 Intel → +1 Creds               | 15 Intel, 4 Crypto  | +50 Creds cap    | Uses Intel from its own host’s storage only.                                                                                                                                                                                                                                |
-| Research lab         | −1 Intel, −1 Crypto → +1 Research | 20 Intel, 8 Crypto  | +50 Research cap | Uses Intel and Crypto on its own host: a Miner beside it, or workers bring them as one bundle.                                                                                                                                                                              |
-| Firewall             | −1 Intel upkeep                   | 25 Intel, 15 Crypto | —                | Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. It does not make the host harder to capture.                                                  |
+| Building             | Each cycle         | Build price         | Bank cap          | Rules                                                                                                                                                                                                                                                                           |
+|----------------------|--------------------|---------------------|-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Intel harvester      | +1 Intel           | 24 Intel            | +100 Intel cap    | No input. Its Intel is stored on the host until workers take it home (a Firewall there eats 1 a cycle).                                                                                                                                                                         |
+| Bot station          | 2 reusable workers | 8 Intel, 24 Crypto  | —                 | Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and a Firewall's upkeep out, output back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are. |
+| Crypto miner         | +1 Crypto          | 30 Intel            | +100 Crypto cap   | No input (since 0.6.12): it makes Crypto on its own, like a harvester.                                                                                                                                                                                                          |
+| Credential harvester | +1 Creds           | 30 Intel, 8 Crypto  | +100 Creds cap    | No input (since 0.6.12): it makes Credentials on its own.                                                                                                                                                                                                                       |
+| Research lab         | +1 Research        | 24 Intel, 32 Crypto | +100 Research cap | No input (since 0.6.12): it makes Research on its own.                                                                                                                                                                                                                          |
+| Firewall             | −1 Intel upkeep    | 20 Intel, 60 Crypto | —                 | Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle (workers bring it when none is made there); without it the Firewall is off and its cards wait. It does not make the host harder to capture.                                 |
 
-- Drag a building card from the host panel onto a slot. The full price is paid when the job starts; the job takes 10 s. Replacing a building first demolishes it (5 s).
-- Click a producer to pause or resume it; a job can be paused or cancelled.
-- Every building of a resource's kind adds 50 to that resource's bank cap (the Firewall adds nothing).
+- Click a slot in the host panel and pick a building from the list (each with what it makes or uses and its price, as icons). Ordering is free; workers bring its materials, then the job takes 10 s. Picking a building for an occupied slot replaces it: the old one is demolished first (5 s).
+- A building cannot be paused: it works whenever it can. A project can be cancelled (the red button); right-click demolishes.
+- Every building of a resource's kind adds 100 to that resource's bank cap (the Firewall adds nothing).
 
 ## Research and manufacturing
 
 #### Research (RESEARCH tab)
 
-The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. While it still pays now and then it reads **slowed** (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read **stopped** and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.
+The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. It never takes what your projects still need (building first) or the price of the card at the head of the queue while that card could start; the bar says what is missing and what is kept, and for whom. While it still pays now and then it reads **slowed** (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read **stopped** and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.
 
 #### Manufacturing (ATTACK and DEFENCE tabs)
 
-These tabs hold only the recipes you know. **+ Queue** adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.
+These tabs hold only the recipes you know. **+ Queue** adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it; while the queue runs and the Ready inventory has room, its price is kept for it from research and from supplies. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.
 
-| Blueprint             | Needs             | Price and time                         | Early · mid wait |
-|-----------------------|-------------------|----------------------------------------|------------------|
-| Known exploit         | Credential breach | 24 Intel, 4 Crypto, 20 Research, 40 s  | 240 s · 180 s    |
-| 0day                  | Known exploit     | 48 Intel, 12 Crypto, 50 Research, 70 s | 600 s · 360 s    |
-| Worm                  | Known exploit     | 36 Intel, 8 Crypto, 36 Research, 55 s  | 432 s · 270 s    |
-| DDoS                  | Recon             | 24 Intel, 4 Crypto, 18 Research, 35 s  | 216 s · 180 s    |
-| Supply-chain sabotage | DDoS              | 40 Intel, 12 Crypto, 44 Research, 60 s | 528 s · 300 s    |
-| Packet siphon         | Phishing          | 24 Intel, 4 Crypto, 20 Research, 40 s  | 240 s · 180 s    |
-| Vault raid            | Packet siphon     | 36 Intel, 8 Crypto, 40 Research, 55 s  | 480 s · 270 s    |
-| Traffic filter        | Patch             | 18 Intel, 4 Crypto, 14 Research, 30 s  | 168 s · 135 s    |
-| Cargo cover           | Patch             | 18 Intel, 4 Crypto, 14 Research, 30 s  | 168 s · 135 s    |
-| Express route         | Recon             | 24 Intel, 4 Crypto, 20 Research, 35 s  | 240 s · 180 s    |
+| Blueprint             | Needs             | Price and time                          | Early · mid wait |
+|-----------------------|-------------------|-----------------------------------------|------------------|
+| Known exploit         | Credential breach | 16 Intel, 40 Crypto, 40 Research, 40 s  | 240 s · 120 s    |
+| 0day                  | Known exploit     | 32 Intel, 88 Crypto, 100 Research, 70 s | 600 s · 300 s    |
+| Worm                  | Known exploit     | 24 Intel, 64 Crypto, 72 Research, 55 s  | 432 s · 216 s    |
+| DDoS                  | Recon             | 16 Intel, 40 Crypto, 36 Research, 35 s  | 216 s · 108 s    |
+| Supply-chain sabotage | DDoS              | 28 Intel, 76 Crypto, 88 Research, 60 s  | 528 s · 264 s    |
+| Packet siphon         | Phishing          | 16 Intel, 40 Crypto, 40 Research, 40 s  | 240 s · 120 s    |
+| Vault raid            | Packet siphon     | 24 Intel, 64 Crypto, 80 Research, 55 s  | 480 s · 240 s    |
+| Traffic filter        | Patch             | 12 Intel, 32 Crypto, 28 Research, 30 s  | 168 s · 84 s     |
+| Cargo cover           | Patch             | 12 Intel, 32 Crypto, 28 Research, 30 s  | 168 s · 84 s     |
+| Express route         | Recon             | 16 Intel, 40 Crypto, 40 Research, 35 s  | 240 s · 120 s    |
 
 ## How cards resolve
 
@@ -411,7 +405,7 @@ stateDiagram-v2
 
 Scout a host: better odds for 45 s.
 
-**Make:** 8 Intel, 3 s (≈ 60 s early · 60 s mid of Intel income)
+**Make:** 16 Intel, 3 s (≈ 27 s early · 13 s mid of Intel income)
 
 - **Why it exists:** Tells you whether an expensive card will pay off: what a host holds, how full its storage is, and whether a Patch waits in its Firewall.
 - **Play it when:** Before an 0day, Vault raid, Worm or Sabotage, or to find a rival's richest host.
@@ -428,7 +422,7 @@ Scout a host: better odds for 45 s.
 
 Capture a host in 15 s.
 
-**Make:** 12 Intel, 12 Creds, 12 s (≈ 144 s early · 90 s mid of Credentials income)
+**Make:** 24 Intel, 24 Creds, 12 s (≈ 144 s early · 48 s mid of Credentials income)
 
 - **Why it exists:** The way to grow: every host adds slots, and holding 51% of all hosts wins.
 - **Play it when:** On neutral hosts first, as nobody defends them; scouted, for 50% instead of 25%.
@@ -445,7 +439,7 @@ Capture a host in 15 s.
 
 Capture a host in 9 s.
 
-**Make:** 14 Intel, 12 Research, 14 s (≈ 144 s early · 105 s mid of Research income)
+**Make:** 28 Intel, 24 Research, 14 s (≈ 144 s early · 72 s mid of Research income)
 
 - **Why it exists:** A faster capture: 9 s leaves a defender little time to get a Patch there.
 - **Play it when:** Against a rival's hosts, where a Patch might be sent.
@@ -461,14 +455,14 @@ Capture a host in 9 s.
 
 Capture a host in 5 s.
 
-**Make:** 16 Intel, 12 Crypto, 12 Creds, 16 Research, 26 s (≈ 192 s early · 120 s mid of Research income)
+**Make:** 32 Intel, 24 Crypto, 24 Creds, 32 Research, 26 s (≈ 192 s early · 96 s mid of Research income)
 
 - **Why it exists:** The fastest capture: 5 s (12 s on a main node) leaves only an armed or loaded Patch in time: the card for a defended host or a rival main node.
 - **Play it when:** After a Recon shows no Patch waiting, or after a cheaper card has used it up.
 - **Target:** Any foreign host your operations can reach.
 - **Timing:** Travels, then executes for 5 s; 12 s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time.
 - **Outcome:** As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured.
-- **Effect:** The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host.
+- **Effect:** The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights and workers vanish, and every other host they held becomes **yours with its finished buildings** (storage, sockets, projects and effects cleared; its Bot stations staff themselves for you at once). You keep the old main node as an ordinary host.
 - **Stopped by:** As Credential breach.
 
 ### Worm
@@ -477,28 +471,28 @@ Capture a host in 5 s.
 
 Capture 2 linked hosts in turn.
 
-**Make:** 24 Intel, 24 Research, 22 s (≈ 288 s early · 180 s mid of Research income)
+**Make:** 36 Intel, 36 Research, 22 s (≈ 216 s early · 108 s mid of Research income)
 
 - **Why it exists:** Two captures in one launch, reaching a host behind a rival's front line.
 - **Play it when:** When a rival holds a chain of linked hosts; scout both.
 - **Target:** Any foreign host your operations can reach.
 - **What it is:** A capture on up to 2 linked hosts, one after the other.
-- **Timing:** Travels; each stage executes for 12 s (24 s on a main node), and each can be stopped on its own.
-- **Chain:** Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the **same owner** as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw (50% scouted, 25% not). Both stages land 25% of the time with both hosts scouted, 6.25% with neither.
+- **Timing:** Travels; each stage executes for 9 s (20 s on a main node), and each can be stopped on its own.
+- **Chain:** Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the **same owner** as the first target. It never jumps to another owner. Each stage is its own operation with its own draw (50% scouted, 25% not); if the first host had fresh Recon, the second counts as scouted too. Both stages land 25% of the time with the first host scouted, 6.25% without.
 - **Stops when:** A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured.
 
 ### Phishing
 
 `ATTACK` `Known from the start`
 
-Divert new output for 60 s.
+Divert new output for 180 s.
 
-**Make:** 18 Intel, 6 Crypto, 8 Creds, 4 Research, 12 s (≈ 135 s early · 135 s mid of Intel income)
+**Make:** 36 Intel, 12 Crypto, 16 Creds, 8 Research, 12 s (≈ 96 s early · 32 s mid of Credentials income)
 
 - **Why it exists:** Hurts a rival without taking ground: you gain exactly what they lose.
 - **Play it when:** On their best-producing host.
 - **Target:** A foreign host (a rival’s; a neutral host makes nothing).
-- **Timing:** Takes effect on arrival, for 60 s.
+- **Timing:** Takes effect on arrival, for 180 s.
 - **Effect:** What the host makes is kept there for you: your workers collect it and carry it to **your** main node. The host and its workers stay the owner's.
 - **Victim:** Keeps the host but gets nothing from it. Its main-node trickle (if you phish a main node) still goes to them.
 - **Ends:** After its time, or when Incident response clears it. Your unsent stolen units on the host then go back to the owner.
@@ -509,14 +503,14 @@ Divert new output for 60 s.
 
 Hijack cargo crossing a host.
 
-**Make:** 20 Intel, 6 Crypto, 6 Creds, 5 Research, 12 s (≈ 150 s early · 150 s mid of Intel income)
+**Make:** 40 Intel, 12 Crypto, 12 Creds, 10 Research, 12 s (≈ 72 s early · 32 s mid of Credentials income)
 
 - **Why it exists:** Takes a whole supply line, not one host's output.
 - **Play it when:** On a host their deliveries cross, set to the resource they need most.
 - **In one line:** A tap on one of their hosts: for a while, their deliveries that go through it come to you instead.
 - **Target:** A rival host their deliveries leave from or pass through (a junction is best). You pick the resource (Intel, Crypto, Credentials or Research) in the host’s Launch panel; a card dragged onto the map takes Crypto.
-- **Timing:** Takes effect on arrival, for 30 s.
-- **Effect:** Every unit of that resource carried by their workers leaving or passing the host after the siphon lands is dropped there for your workers to collect, up to 30 units. Their workers are not consumed.
+- **Timing:** Takes effect on arrival, for 60 s.
+- **Effect:** Every unit of that resource carried by their workers leaving or passing the host after the siphon lands is dropped there for your workers to collect, up to 60 units. Their workers are not consumed.
 - **Not affected:** Covered cargo (Cargo cover), empty workers, your own cargo.
 - **Ends:** After its time, after its last unit, or when Incident response clears it.
 
@@ -526,13 +520,13 @@ Hijack cargo crossing a host.
 
 Empty the storage of 3 linked hosts.
 
-**Make:** 24 Intel, 10 Creds, 8 Research, 16 s (≈ 180 s early · 180 s mid of Intel income)
+**Make:** 48 Intel, 20 Creds, 16 Research, 16 s (≈ 120 s early · 48 s mid of Credentials income)
 
 - **Why it exists:** Punishes a network whose output piles up in storage.
 - **Play it when:** On hosts with no Bot station, busy workers or no route home.
 - **Target:** Any rival host.
 - **Timing:** Travels, then executes for 10 s.
-- **Effect:** Takes what is stored on the target and on its 2 nearest linked hosts of the same owner, up to 30 units, all resources, unconsumed construction materials included (the project's shortage reopens). The loot waits there; your main node's workers collect it, one unit a leg.
+- **Effect:** Takes what is stored on the target and on its 2 nearest linked hosts of the same owner, up to 60 units, all resources, unconsumed construction materials included (the project's shortage reopens). The loot waits there; your main node's workers collect it, one unit a leg.
 - **Best on:** Hosts whose output piles up: no Bot station, busy workers, or no route home.
 - **Stopped by:** A Patch on the target, or your operation having no way home.
 
@@ -542,7 +536,7 @@ Empty the storage of 3 linked hosts.
 
 Halt 3 hosts' output for 45 s.
 
-**Make:** 34 Intel, 14 Crypto, 5 Research, 14 s (≈ 255 s early · 255 s mid of Intel income)
+**Make:** 68 Intel, 28 Crypto, 10 Research, 14 s (≈ 113 s early · 54 s mid of Intel income)
 
 - **Why it exists:** The only card that hits logistics: it strands supply lines and, on a main node, stops their attacks.
 - **Play it when:** Right before your own big attack, or on the hosts their supply lines share.
@@ -550,7 +544,7 @@ Halt 3 hosts' output for 45 s.
 - **Timing:** Takes effect on arrival, for 45 s.
 - **Reach:** The target and its owner’s 2 hosts nearest to it on the map, all at once.
 - **Effect:** Each one makes nothing, sends nothing and forwards nothing. New routes go round them. Workers whose route runs through one wait there until it is up. Cargo addressed to them still arrives.
-- **On a main node:** Its one-of-each trickle and its producers stop, and its owner cannot launch any attack card until it ends.
+- **On a main node:** Its one-of-each trickle and its producers stop, and its owner can play no card at all until it ends — no attack, and no defence card on any host, the main node included. Only cards already armed or loaded in a Firewall still act, so a DDoS on a main node opens a window for a capture.
 - **Blocked by:** Traffic filter, host by host: a host under Filter ignores it; a Filter loaded in its Firewall fires and the DDoS never lands there.
 
 ### Supply-chain sabotage
@@ -559,13 +553,13 @@ Halt 3 hosts' output for 45 s.
 
 Shut producers on 3 hosts for 60 s.
 
-**Make:** 36 Intel, 12 Crypto, 8 Creds, 14 Research, 22 s (≈ 270 s early · 270 s mid of Intel income)
+**Make:** 72 Intel, 24 Crypto, 16 Creds, 28 Research, 22 s (≈ 168 s early · 84 s mid of Research income)
 
 - **Why it exists:** Shuts a district's production for a minute without touching its logistics.
 - **Play it when:** On their production cluster before a long fight.
 - **Target:** A rival host.
 - **Timing:** Takes effect on arrival, for 60 s.
-- **Effect:** Switches off every producer on the target and on up to 2 more hosts of the same owner, each the nearest neighbour of the last. Routing, workers and Firewalls keep working; a main node keeps its trickle.
+- **Effect:** Switches off every producer on the target and on up to 2 more hosts of the same owner, each the nearest neighbour of the last, and keeps the workers of their Bot stations from setting out (a leg already under way finishes). Routing and Firewalls keep working; a main node keeps its trickle.
 - **Cleared by:** Incident response, host by host (a Response loaded in a hit host’s Firewall clears that host at once).
 
 ## Defence cards
@@ -576,13 +570,14 @@ Shut producers on 3 hosts for 60 s.
 
 Stop a capture or a raid.
 
-**Make:** 12 Intel, 4 Crypto, 3 Research, 8 s (≈ 90 s early · 90 s mid of Intel income)
+**Make:** 24 Intel, 8 Crypto, 6 Research, 8 s (≈ 40 s early · 19 s mid of Intel income)
 
 - **Why it exists:** Every capture has a countdown; Patch is the answer to it.
 - **Play it when:** On a host under intrusion, or loaded at your main node.
 - **Target:** One of your hosts.
 - **By hand:** Cancels the capture, Worm stage or Vault raid running there that ends first. With nothing running, it arms the host for 30 s: the next one that would finish there in that time is blocked instead.
 - **Loaded:** In a free Firewall socket it waits with no time limit and stops the next capture, Worm stage or Vault raid the moment it starts executing there.
+- **Recovery:** Once a Patch stops something, the host recovers for 30 s: no other Patch can be played there, one on its way goes back to your hand, and the window is shown to everyone who sees the host. A Patch already loaded in its Firewall still fires, and restarts the window.
 
 ### Incident response
 
@@ -590,7 +585,7 @@ Stop a capture or a raid.
 
 Clear theft and sabotage here.
 
-**Make:** 12 Intel, 3 Crypto, 3 Creds, 2 Research, 6 s (≈ 90 s early · 90 s mid of Intel income)
+**Make:** 24 Intel, 6 Crypto, 6 Creds, 4 Research, 6 s (≈ 40 s early · 19 s mid of Intel income)
 
 - **Why it exists:** Theft and sabotage last a minute; this ends them.
 - **Play it when:** On a host being phished, siphoned or sabotaged, or loaded where theft is likely.
@@ -604,12 +599,12 @@ Clear theft and sabotage here.
 
 Clear DDoS and block it for 30 s.
 
-**Make:** 14 Intel, 4 Crypto, 2 Research, 8 s (≈ 105 s early · 105 s mid of Intel income)
+**Make:** 28 Intel, 8 Crypto, 4 Research, 8 s (≈ 47 s early · 22 s mid of Intel income)
 
 - **Why it exists:** DDoS is the strongest disruption and needs its own answer.
 - **Play it when:** Loaded on a junction or on your main node.
 - **Target:** One of your hosts.
-- **By hand:** Clears a DDoS there and makes the host ignore DDoS for 30 s.
+- **By hand:** Clears a DDoS there and makes the host ignore DDoS for 30 s — unless your main node is under DDoS: then no card can be played at all.
 - **Loaded:** Fires when a DDoS lands: the DDoS never takes effect and the host is immune for the same 30 s.
 
 ### Cargo cover
@@ -618,7 +613,7 @@ Clear DDoS and block it for 30 s.
 
 Shield this host's cargo for 30 s.
 
-**Make:** 12 Intel, 4 Crypto, 2 Research, 8 s (≈ 90 s early · 90 s mid of Intel income)
+**Make:** 24 Intel, 8 Crypto, 4 Research, 8 s (≈ 40 s early · 19 s mid of Intel income)
 
 - **Why it exists:** Protects a supply line from the sending side.
 - **Play it when:** On hosts whose workers cross a siphoned host.
@@ -632,7 +627,7 @@ Shield this host's cargo for 30 s.
 
 Halve delivery time for 45 s.
 
-**Make:** 14 Intel, 4 Crypto, 2 Research, 10 s (≈ 105 s early · 105 s mid of Intel income)
+**Make:** 28 Intel, 8 Crypto, 4 Research, 10 s (≈ 47 s early · 22 s mid of Intel income)
 
 - **Why it exists:** A shorter road: deliveries arrive sooner and spend less time in reach of siphons and cuts.
 - **Play it when:** On far producers, or while a siphon threatens your lines.
@@ -652,7 +647,7 @@ Each finished Firewall gives its host 3 sockets (a host may hold several Firewal
 
 #### Power
 
-Each Firewall eats 1 Intel from its own host every cycle, before any converter. Without it the Firewall is off and its cards wait. Sockets are positions: the leftmost finished Firewall holds the first 3, the next one the next 3, and a card loads into the first empty position from the left. A card that fires leaves its position empty; demolishing or replacing a Firewall loses the cards in its own 3 positions as soon as the work starts, and a new Firewall gets 3 empty ones, so no card ever moves to another Firewall. Capturing the host wipes them. A rival's Recon shows what is loaded.
+Each Firewall eats 1 Intel from its own host every cycle (workers bring it when the host makes none). Without it the Firewall is off and its cards wait. Sockets are positions: the leftmost finished Firewall holds the first 3, the next one the next 3, and a card loads into the first empty position from the left. A card that fires leaves its position empty; demolishing or replacing a Firewall loses the cards in its own 3 positions as soon as the work starts, and a new Firewall gets 3 empty ones, so no card ever moves to another Firewall. Capturing the host wipes them. A rival's Recon shows what is loaded.
 
 | Loaded card       | Fires when                                                       | Result                                                       |
 |-------------------|------------------------------------------------------------------|--------------------------------------------------------------|
@@ -681,9 +676,12 @@ majority = ceil(0.51 × all hosts)
 a network that holds ≥ majority hosts for 51 s in a row wins (the timer resets the moment it drops below)
 a network with no hosts left is out; the last network with hosts wins
 the HUD, standings, Help and the result all read one function (_objective) for these numbers
-losing your main node = elimination: your bank, cards, research and flights are cleared,
-                        every other host you held becomes neutral with empty slots,
-                        the captor keeps the old main node as an ordinary host
+losing your main node = elimination: your bank, cards, research and flights are cleared;
+                        the captor inherits every other host you held, with its finished buildings
+                        (projects, storage and sockets are cleared; its Bot stations staff themselves
+                        for the heir), and keeps the old main node as an ordinary host (0.6.13)
+a main node under DDoS takes no card from its owner until it ends; what is armed or loaded
+                        there still fires
 ```
 
 ## AI
@@ -697,9 +695,9 @@ One AI for every rival, no difficulty setting. It plays by the same rules, price
 - Workers: while it has fewer than one Bot station per two hosts held (stations on order counted), it puts a station in the first free slot of the host with the most free slots, ahead of the plans. It uses the host it plans to make Research on only when no other host has room, and then only a slot that keeps that layout (a spare harvester's place).
 - One Research host, on the first host with 4+ slots: Intel harvester, Miner, Intel harvester, Lab, Intel harvester, so its own harvesters feed it. Never on 3 slots: there the Lab would eat Intel the bank does not have yet, and the main node's own Lab covers research until then. A Lab on order counts, so it never plans two.
 - One Firewall (in the fourth slot) on a 4+-slot host once it holds 6 hosts.
-- The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 5 units a minute the card queue would otherwise spend every unit first. A project whose host loses its road home no longer counts as waiting (nothing can bring its bill); after 60 s cut off (longer than a DDoS) the AI cancels it.
+- The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 10 units a minute the card queue would otherwise spend every unit first. A project whose host loses its road home no longer counts as waiting (nothing can bring its bill); after 60 s cut off (longer than a DDoS) the AI cancels it.
 - Converter choice: what its next capture card lacks for two copies, else the emptiest bank.
-- Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least 24 and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind (only a kind it has a producer of on a host with a road home: Crypto piles from the trickle alone); at most one retool every 120 s. A retool ordered on credit waits like any other project from its demolition on.
+- Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least twice a Bot station's Crypto (48) and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind (only a kind it has a producer of on a host with a road home: Crypto piles from the trickle alone); at most one retool every 120 s. A retool ordered on credit waits like any other project from its demolition on.
 
 #### 2 · Research
 
@@ -721,7 +719,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 
 - 2–3 players; lobbies public or by 5-letter code; sizes Small, Medium, Big; players meet only on the same game version.
 - Deterministic lockstep: the server never simulates. Every screen runs the same simulation from the same seed; only commands travel, grouped in turns of 3 steps (0.1 s) and run 2 turns after they are sent.
-- Commands: build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause.
+- Commands: build (order a project: free until its materials arrive), demolish, cancel (a project; its delivered materials stay as salvage), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause.
 - After every turn each screen fingerprints the whole simulation (time, flights, intrusions, every host's owner, buildings, jobs, storage, sockets, Firewall power, cycle phase and timed effects, every bank, every worker and team, claims, inbound supplies, project escrow, the round-robin and fair-dispatch turns, incoming, cards, known recipes, research and the queue) so drift is caught.
 - No pause; a player whose main node falls is out and the others play on.
 
@@ -732,7 +730,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 - **HUD** (top): Workers (busy · free · blocked; workers on their way to the main node count as busy), then the four banks with cap and the forecast income per minute underneath (hover for its sources, what holds it back, and the historical flows); to their right the objective, always visible. At the top right: Research, Economy and Menu. Under the HUD, the Logs button and, while research runs, the research bar.
 - **Economy** (top-bar button, a click on the banks, or **E**): per resource, the stock, net rate, where it came from, what it was spent on, what is on the road with the next arrival and any at risk, and what was lost.
 - **Map**: hosts (with slot counts), territories, roads, packets, effects.
-- **Sidebar**: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, paused, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings — no prose, never scrolled, the same height every frame. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.
+- **Sidebar**: standings when idle; your host's build menu when selected: its name, its slots (each card shows its state: materials n/m while a project waits for them, the work bar, inactive, needs an input; its tooltip says what it is doing and the host's problems) and the six buildings, each with its picture, what it makes and what it uses on that host (“Makes 1 Crypto · from 1 Intel”) and its price — two wide cards a row, or three small ones with the conversion in resource icons when room is short (under Learn's banner); never scrolled, the same height every frame. A building cannot be paused. Every hover note is sized before it is shown, so it stays fully on screen. No card is sent from a host panel. A foreign host you have not scouted shows only its owner and “Unknown host — send Recon to inspect.”; a fresh Recon adds its type, slots, storage and Firewall cards, and an expired one says “Recon expired”.
 - **Target preview**: beside the cursor while a card is dragged over a host: can it launch and why not; its chance (50% with fresh Recon still fresh when it resolves, else 25%; 50% for a Recon); route, hops and arrival time; execution time and what stops it; the hosts a DDoS, Sabotage or Vault raid would hit, and the Worm's next host, as far as you can see; an armed Patch or a Filter in place; the last Recon of its Firewall with its age (loaded cards are otherwise unknown). Nothing is spent until you launch.
 - **Logs**: nothing is drawn over the map. A Logs button at the top-left under the HUD counts the new entries (red while something critical is new or still going on) and opens the history, most urgent first: **!** needs you now (an intrusion on your main node, hosts cut off from it, a rival holding the majority), **›** worth acting on (an intrusion or an attack effect on another host, a Firewall without Intel, no workers at all, research that cannot pay, a lost shipment, your operation stopped), **·** news (a capture, a defence that fired, a blueprint learned, a copy made, a condition that ended). A lasting condition is one entry that counts down and then ends; repeated news counts up. Clicking an entry finds its host; **H** opens the full history (the last 80, with times).
 - **Route inspection**: the selected host's links you can see are drawn; for your own host also its route home (green, chevrons pointing home) with a tag giving hops and seconds, or, with no route, its cut-off hosts ringed in red. Nothing hidden by fog is drawn.
@@ -744,7 +742,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 - Click a host: select (yours) or inspect (foreign). Shift-drag: box-select.
 - Drag empty map: pan · wheel: zoom · middle-drag: pan · **0**: recentre.
 - **C**: open or close the cards drawer · **R**: research · **E**: Economy overview · **H**: event history · **Space**: pause (single player) · **Esc**: menu or clear selection.
-- Drag a card onto a host to play it; drag a building card onto a slot to build.
+- Drag a card onto a host to play it; click a slot in the host panel to build there.
 
 ## Simulation step
 
@@ -756,7 +754,7 @@ every 1/30 s:
   3  research advances (paying as it goes)
   4  the queue's head advances; a waiting head starts when it can pay
   5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
-  6  production: main-node trickle; each host's 12-s cycle when its phase comes round
+  6  production: main-node trickle; each host's 6-s cycle when its phase comes round
   7  workers: teams follow the stations (replacements after 5 s); free workers take jobs — inputs, construction
      materials, surplus and loot, every fourth turn the oldest (Packet siphons take cargo off workers as they leave a
      host); every 0.5 s held packets look for a way on
@@ -769,62 +767,62 @@ every 1/30 s:
 
 Reference networks used for every “seconds of income” figure on this page:
 
-| Network         | Layout                                                                                           | Intel | Crypto | Creds | Res. |
-|-----------------|--------------------------------------------------------------------------------------------------|-------|--------|-------|------|
-| Early (≈ 2 min) | main node \[Intel harvester, Bot station, Miner\] + 1 PC \[Bot station, Intel harvester, Miner\] | 8     | 15     | 5     | 5    |
-| Mid (≈ 6 min)   | the same main node + 2 PCs with a Cred. harvester, 2 with a Miner, 1 Lab host                    | 8     | 20     | 15    | 10   |
+| Network         | Layout                                                                                                           | Intel | Crypto | Creds | Res. |
+|-----------------|------------------------------------------------------------------------------------------------------------------|-------|--------|-------|------|
+| Early (≈ 2 min) | main node \[Intel harvester, Bot station, Miner\] + 1 PC \[Bot station, Intel harvester, Miner\]                 | 36    | 30     | 10    | 10   |
+| Mid (≈ 6 min)   | the same main node + 5 PCs, each with an Intel harvester: 2 with a Cred. harvester, 2 with a Miner, 1 with a Lab | 76    | 40     | 30    | 20   |
 
 per minute; the trickle is included
 
 ### What a capture costs
 
-| Card              | Price per copy                             | Make | Execution (reaction window)                    | Early · mid seconds of income      |
-|-------------------|--------------------------------------------|------|------------------------------------------------|------------------------------------|
-| Credential breach | 12 Intel, 12 Creds                         | 12 s | 15 s (30 s on a main node)                     | 144 s (Credentials) · 90 s (Intel) |
-| Known exploit     | 14 Intel, 12 Research                      | 14 s | 9 s (20 s on a main node)                      | 144 s (Research) · 105 s (Intel)   |
-| 0day              | 16 Intel, 12 Crypto, 12 Creds, 16 Research | 26 s | 5 s (12 s on a main node)                      | 192 s (Research) · 120 s (Intel)   |
-| Worm              | 24 Intel, 24 Research                      | 22 s | 12 s (24 s on a main node) per stage, 2 stages | 288 s (Research) · 180 s (Intel)   |
+| Card              | Price per copy                             | Make | Execution (reaction window)                   | Early · mid seconds of income            |
+|-------------------|--------------------------------------------|------|-----------------------------------------------|------------------------------------------|
+| Credential breach | 24 Intel, 24 Creds                         | 12 s | 15 s (30 s on a main node)                    | 144 s (Credentials) · 48 s (Credentials) |
+| Known exploit     | 28 Intel, 24 Research                      | 14 s | 9 s (20 s on a main node)                     | 144 s (Research) · 72 s (Research)       |
+| 0day              | 32 Intel, 24 Crypto, 24 Creds, 32 Research | 26 s | 5 s (12 s on a main node)                     | 192 s (Research) · 96 s (Research)       |
+| Worm              | 36 Intel, 36 Research                      | 22 s | 9 s (20 s on a main node) per stage, 2 stages | 216 s (Research) · 108 s (Research)      |
 
 ### What buildings add
 
-| Building             | Price               | Each cycle                                                           | What it is worth                                                                      |
-|----------------------|---------------------|----------------------------------------------------------------------|---------------------------------------------------------------------------------------|
-| Intel harvester      | 12 Intel            | +1 Intel a cycle (+1.5 on a Server, +2 on a database or file server) | Raw input: everything else converts it.                                               |
-| Bot station          | 12 Intel, 4 Crypto  | 2 reusable workers for the one pool at the main node                 | More round trips for every host: building materials first, then inputs, then surplus. |
-| Crypto miner         | 15 Intel            | +1 Crypto, uses 1 Intel on its host                                  | Turns Intel into Crypto: worth it only while Crypto limits your plan.                 |
-| Credential harvester | 15 Intel, 4 Crypto  | +1 Credential, uses 1 Intel on its host                              | The capture and theft budget early in a match.                                        |
-| Research lab         | 20 Intel, 8 Crypto  | +1 Research, uses 1 Intel and 1 Crypto on its host                   | Needs a Miner beside it, or workers bring both inputs as a bundle.                    |
-| Firewall             | 25 Intel, 15 Crypto | 3 sockets; uses 1 Intel on its host                                  | Returns nothing directly: its value is what its loaded cards stop.                    |
+| Building             | Price               | Each cycle                                                           | What it is worth                                                             |
+|----------------------|---------------------|----------------------------------------------------------------------|------------------------------------------------------------------------------|
+| Intel harvester      | 24 Intel            | +1 Intel a cycle (+1.5 on a Server, +2 on a database or file server) | Pays for most cards, the harvesters and the Firewalls' upkeep.               |
+| Bot station          | 8 Intel, 24 Crypto  | 2 reusable workers for the one pool at the main node                 | More round trips for every host: building materials first, then output home. |
+| Crypto miner         | 30 Intel            | +1 Crypto a cycle, no input                                          | Buildings and blueprints are paid mostly in Crypto.                          |
+| Credential harvester | 30 Intel, 8 Crypto  | +1 Credential a cycle, no input                                      | The capture and theft budget: a Breach is mostly Credentials.                |
+| Research lab         | 24 Intel, 32 Crypto | +1 Research a cycle, no input                                        | Blueprints and the Known exploit, Worm and 0day cards.                       |
+| Firewall             | 20 Intel, 60 Crypto | 3 sockets; uses 1 Intel on its host                                  | Returns nothing directly: its value is what its loaded cards stop.           |
 
 ### Theft and denial yields
 
 | Card                 | Typical result                                                                                                                                                    | Upper bound                |
 |----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------|
-| Phishing (60 s)      | On a Bot station + Intel harvester + converter PC: 5 cycles × (0 Intel + 1 converted) = 5 units to you, 5 lost to them                                            | A 4-slot ×2 host: ~2× that |
-| Packet siphon (30 s) | Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle | 30 units                   |
-| Vault raid           | Whatever waits in 3 linked storages; near 0 where stations ship every cycle                                                                                       | 30 units                   |
-| DDoS (45 s)          | 3 hosts × ~4 cycles × ~2 units ≈ 20–25 units never made; on a main node also its trickle and its attacks                                                          | plus cargo lost through it |
-| Sabotage (60 s)      | 3 linked hosts × 5 cycles × 1–2 units ≈ 15–30 units never made                                                                                                    |                            |
+| Phishing (180 s)     | On a Bot station + Intel harvester + Miner PC: 30 cycles × (1 Intel + 1 Crypto) = up to 60 units to you, 60 lost to them (what your workers can carry home)       | A 4-slot ×2 host: ~2× that |
+| Packet siphon (60 s) | Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle | 60 units                   |
+| Vault raid           | Whatever waits in 3 linked storages; near 0 where stations ship every cycle                                                                                       | 60 units                   |
+| DDoS (45 s)          | 3 hosts × ~8 cycles × ~2 units ≈ 40–50 units never made; on a main node also its trickle and its attacks                                                          | plus cargo lost through it |
+| Sabotage (60 s)      | 3 linked hosts × 10 cycles × 1–2 units ≈ 30–60 units never made, and their Bot stations' workers idle                                                             |                            |
 
 ## Price table
 
-| Card                  | Intel | Crypto | Creds | Res. | Make                | Early         | Mid |
-|-----------------------|-------|--------|-------|------|---------------------|---------------|-----|
-| Recon                 | ·     | ·      | ·     | 3 s  | 60 s (Intel)        | 60 s (Intel)  |     |
-| Credential breach     | ·     | 12     | ·     | 12 s | 144 s (Credentials) | 90 s (Intel)  |     |
-| Known exploit         | ·     | ·      | 12    | 14 s | 144 s (Research)    | 105 s (Intel) |     |
-| 0day                  | 12    | 12     | 16    | 26 s | 192 s (Research)    | 120 s (Intel) |     |
-| Worm                  | ·     | ·      | 24    | 22 s | 288 s (Research)    | 180 s (Intel) |     |
-| Phishing              | 6     | 8      | 4     | 12 s | 135 s (Intel)       | 135 s (Intel) |     |
-| Packet siphon         | 6     | 6      | 5     | 12 s | 150 s (Intel)       | 150 s (Intel) |     |
-| Vault raid            | ·     | 10     | 8     | 16 s | 180 s (Intel)       | 180 s (Intel) |     |
-| DDoS                  | 14    | ·      | 5     | 14 s | 255 s (Intel)       | 255 s (Intel) |     |
-| Supply-chain sabotage | 12    | 8      | 14    | 22 s | 270 s (Intel)       | 270 s (Intel) |     |
-| Patch                 | 4     | ·      | 3     | 8 s  | 90 s (Intel)        | 90 s (Intel)  |     |
-| Incident response     | 3     | 3      | 2     | 6 s  | 90 s (Intel)        | 90 s (Intel)  |     |
-| Traffic filter        | 4     | ·      | 2     | 8 s  | 105 s (Intel)       | 105 s (Intel) |     |
-| Cargo cover           | 4     | ·      | 2     | 8 s  | 90 s (Intel)        | 90 s (Intel)  |     |
-| Express route         | 4     | ·      | 2     | 10 s | 105 s (Intel)       | 105 s (Intel) |     |
+| Card                  | Intel | Crypto | Creds | Res. | Make                | Early              | Mid |
+|-----------------------|-------|--------|-------|------|---------------------|--------------------|-----|
+| Recon                 | ·     | ·      | ·     | 3 s  | 27 s (Intel)        | 13 s (Intel)       |     |
+| Credential breach     | ·     | 24     | ·     | 12 s | 144 s (Credentials) | 48 s (Credentials) |     |
+| Known exploit         | ·     | ·      | 24    | 14 s | 144 s (Research)    | 72 s (Research)    |     |
+| 0day                  | 24    | 24     | 32    | 26 s | 192 s (Research)    | 96 s (Research)    |     |
+| Worm                  | ·     | ·      | 36    | 22 s | 216 s (Research)    | 108 s (Research)   |     |
+| Phishing              | 12    | 16     | 8     | 12 s | 96 s (Credentials)  | 32 s (Credentials) |     |
+| Packet siphon         | 12    | 12     | 10    | 12 s | 72 s (Credentials)  | 32 s (Intel)       |     |
+| Vault raid            | ·     | 20     | 16    | 16 s | 120 s (Credentials) | 48 s (Research)    |     |
+| DDoS                  | 28    | ·      | 10    | 14 s | 113 s (Intel)       | 54 s (Intel)       |     |
+| Supply-chain sabotage | 24    | 16     | 28    | 22 s | 168 s (Research)    | 84 s (Research)    |     |
+| Patch                 | 8     | ·      | 6     | 8 s  | 40 s (Intel)        | 19 s (Intel)       |     |
+| Incident response     | 6     | 6      | 4     | 6 s  | 40 s (Intel)        | 19 s (Intel)       |     |
+| Traffic filter        | 8     | ·      | 4     | 8 s  | 47 s (Intel)        | 22 s (Intel)       |     |
+| Cargo cover           | 8     | ·      | 4     | 8 s  | 40 s (Intel)        | 19 s (Intel)       |     |
+| Express route         | 8     | ·      | 4     | 10 s | 47 s (Intel)        | 22 s (Intel)       |     |
 
 ## All constants
 
@@ -842,7 +840,7 @@ Constants still defined in the config files that the current game never reads, l
 | cards.gd     | `BANK_NAME`, `FAMILY_NAME`                                                                                                                                                                                                      |
 | factions.gd  | `AI_PROFILE`, `AI_MAX_STREAMS`, `AI_RESERVE`, `AI_PATIENCE`, `AI_SPEED`, `AI_CASH_MULT`, `AI_ASSAULT_PCT`, `AI_CRYPTO_WAIT`, `AI_REACT`, `AI_PRIOR_BOTNET`, `AI_SCOUT_INTEL`, `AI_CHOKE_LEAD`, `AI_EDGE_MEMORY`, `AI_SIEGE_MAX` |
 | town.gd      | `LINK_INTEL`, `TOWN_WORDS`                                                                                                                                                                                                      |
-| tuning.gd    | `MAX_QUEUE`, `RESEARCH_SLOTS`                                                                                                                                                                                                   |
+| tuning.gd    | `PRIORITY_TURNS`, `MAX_QUEUE`, `RESEARCH_SLOTS`                                                                                                                                                                                 |
 
 Also: `BUILD_TIME` and `DEMOLISH_TIME` exist in both tuning.gd and buildings.gd and only the buildings.gd values are used; there is one research slot whatever `RESEARCH_SLOTS` says.
 
@@ -852,15 +850,14 @@ Choices made in the last rounds that are worth a second look.
 
 1.  **Firewall (confirmed):** it does not make a host harder to capture; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.
 2.  **No Bots resource:** workers come only from Bot stations (2 each) and only carry. Nothing costs workers.
-3.  **Deterministic capture (Milestone A):** no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.
-4.  **Patch stops half of all intrusions** in the measured AI sample (98 of 195). With capture now certain when nothing stops it, watch whether Patch loops stall borders before trying the Patch cooldown candidate (brief §13, still off).
-5.  **Milestone A visibility features** (HUD rates and the Economy view, host status and route home, target preview, event history) are checked by tests for correctness and layout only. Whether first-time players understand them is what `docs/PLAYTEST.md` is for; it has not been run yet.
-6.  **Vault raid on storage** only pays where output piles up. A network with Bot stations everywhere keeps little in storage.
-7.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Cargo cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
-8.  **DDoS on a relay holds traffic.** Every packet that has to pass it, workers and cards alike, waits before it until it ends; nothing is destroyed unless the host it waits in is taken.
-9.  **An eliminated network's hosts go neutral** with empty slots; the captor keeps only the old main node.
-10. **Packet siphon takes the resource chosen on its Ready card** (Crypto until you pick another), whether it is dragged or clicked onto a host.
-11. **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 5 Credentials and 5 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
-12. **The AI** never plays six of the fifteen cards (Packet siphon, Vault raid, Worm, Sabotage, Cargo cover, Express route; see [AI](#ai)).
-13. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).
+3.  **Patch recovery (0.6.13):** a Patch that stops an intrusion leaves its host open for 30 s: no Patch can be played, armed or loaded there (one on its way returns to the hand); a Patch already loaded in its Firewall still fires and restarts the window, which every network that sees the host sees. Measured before it: a hand Patch countered 21 of 21 Breaches and Exploits at a border.
+4.  **Milestone A visibility features** (HUD rates and the Economy view, host status and route home, target preview, event history) are checked by tests for correctness and layout only. Whether first-time players understand them is what `docs/PLAYTEST.md` is for; it has not been run yet.
+5.  **Vault raid on storage** only pays where output piles up. A network with Bot stations everywhere keeps little in storage.
+6.  **Loading beats acting.** On a host with a free socket, a Traffic filter or Cargo cover played early is loaded rather than started, so its 30 s of protection begins only when the attack comes.
+7.  **DDoS on a relay holds traffic.** Every packet that has to pass it, workers and cards alike, waits before it until it ends; nothing is destroyed unless the host it waits in is taken.
+8.  **The captor of a main node inherits the network** with its finished buildings (0.6.13), so an elimination counts toward the majority.
+9.  **Packet siphon takes the resource chosen on its Ready card** (Crypto until you pick another), whether it is dragged or clicked onto a host.
+10. **Focus by card:** Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 10 Credentials and 10 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.
+11. **The AI** never plays six of the fifteen cards (Packet siphon, Vault raid, Worm, Sabotage, Cargo cover, Express route; see [AI](#ai)).
+12. **Leftover config:** 20 constants are no longer read (see [Unused config](#unused)).
 

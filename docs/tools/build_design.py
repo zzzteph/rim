@@ -62,8 +62,8 @@ def chips(cost, secs=None):
     return "".join(out)
 
 # reference income (units per minute) for the "price in seconds of income" column
-EARLY = {"intel": 8, "cash": 15, "creds": 5, "research": 5}    # 1 unit per producer per 12-s cycle, the trickle 5/min
-MID = {"intel": 8, "cash": 20, "creds": 15, "research": 10}
+EARLY = {"intel": 36, "cash": 30, "creds": 10, "research": 10}    # 1 unit per producer per 6-s cycle (0.6.18: the flow doubled), the trickle 10/min
+MID = {"intel": 76, "cash": 40, "creds": 30, "research": 20}
 def wait(cost, inc):
     best, who = 0.0, ""
     for r in RES:
@@ -104,14 +104,14 @@ D["zeroday"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("Timing", f"Travels, then executes for {n(C['zeroday']['exec'])} s; {n(C['zeroday']['exec_rig'])} s on an active rival main node, with a countdown the owner sees. Usually only a Patch already armed or loaded in a Firewall is in time."),
     ("Outcome", "As Credential breach: countered, route-failed, owner-changed, missed (the draw failed) or captured."),
-    ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights vanish, and every other host they held becomes neutral with empty slots. You keep the old main node as an ordinary host."),
+    ("Effect", "The host becomes yours, wiped. On a rival main node the rival is eliminated: their banks and cards are cleared, their flights and workers vanish, and every other host they held becomes <b>yours with its finished buildings</b> (storage, sockets, projects and effects cleared; its Bot stations staff themselves for you at once). You keep the old main node as an ordinary host."),
     ("Stopped by", "As Credential breach."),
 ]
 D["worm"] = [
     ("Target", "Any foreign host your operations can reach."),
     ("What it is", f"A capture on up to {n(C['worm']['reach'])} linked hosts, one after the other."),
     ("Timing", f"Travels; each stage executes for {n(C['worm']['exec'])} s ({n(C['worm']['exec_rig'])} s on a main node), and each can be stopped on its own."),
-    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation: its own Recon check and its own draw (" + pc(SCOUTED_P) + " scouted, " + pc(UNSCOUTED_P) + " not). Both stages land " + pc(SCOUTED_P * SCOUTED_P) + " of the time with both hosts scouted, " + pc(UNSCOUTED_P * UNSCOUTED_P) + " with neither."),
+    ("Chain", "Once the first host is captured, the second stage starts on the nearest (by map distance, then host number) visible host linked to it that belongs to the <b>same owner</b> as the first target. It never jumps to another owner. Each stage is its own operation with its own draw (" + pc(SCOUTED_P) + " scouted, " + pc(UNSCOUTED_P) + " not); if the first host had fresh Recon, the second counts as scouted too. Both stages land " + pc(SCOUTED_P * SCOUTED_P) + " of the time with the first host scouted, " + pc(UNSCOUTED_P * UNSCOUTED_P) + " without."),
     ("Stops when", "A stage is countered by a Patch, its route is lost, its host changes owner, or no such neighbour exists. A stopped stage ends the chain; a stage already captured stays captured."),
 ]
 D["phish"] = [
@@ -141,19 +141,20 @@ D["ddos"] = [
     ("Timing", f"Takes effect on arrival, for {n(C['ddos']['dur'])} s."),
     ("Reach", f"The target and its owner’s {int(n(C['ddos']['reach'])) - 1} hosts nearest to it on the map, all at once."),
     ("Effect", "Each one makes nothing, sends nothing and forwards nothing. New routes go round them. Workers whose route runs through one wait there until it is up. Cargo addressed to them still arrives."),
-    ("On a main node", "Its one-of-each trickle and its producers stop, and its owner cannot launch any attack card until it ends."),
+    ("On a main node", "Its one-of-each trickle and its producers stop, and its owner can play no card at all until it ends — no attack, and no defence card on any host, the main node included. Only cards already armed or loaded in a Firewall still act, so a DDoS on a main node opens a window for a capture."),
     ("Blocked by", "Traffic filter, host by host: a host under Filter ignores it; a Filter loaded in its Firewall fires and the DDoS never lands there."),
 ]
 D["sabotage"] = [
     ("Target", "A rival host."),
     ("Timing", f"Takes effect on arrival, for {n(C['sabotage']['dur'])} s."),
-    ("Effect", f"Switches off every producer on the target and on up to {int(n(C['sabotage']['reach'])) - 1} more hosts of the same owner, each the nearest neighbour of the last. Routing, workers and Firewalls keep working; a main node keeps its trickle."),
+    ("Effect", f"Switches off every producer on the target and on up to {int(n(C['sabotage']['reach'])) - 1} more hosts of the same owner, each the nearest neighbour of the last, and keeps the workers of their Bot stations from setting out (a leg already under way finishes). Routing and Firewalls keep working; a main node keeps its trickle."),
     ("Cleared by", "Incident response, host by host (a Response loaded in a hit host’s Firewall clears that host at once)."),
 ]
 D["patch"] = [
     ("Target", "One of your hosts."),
     ("By hand", "Cancels the capture, Worm stage or Vault raid running there that ends first. With nothing running, it arms the host for 30 s: the next one that would finish there in that time is blocked instead."),
     ("Loaded", "In a free Firewall socket it waits with no time limit and stops the next capture, Worm stage or Vault raid the moment it starts executing there."),
+    ("Recovery", f"Once a Patch stops something, the host recovers for {n(C['patch']['dur'])} s: no other Patch can be played there, one on its way goes back to your hand, and the window is shown to everyone who sees the host. A Patch already loaded in its Firewall still fires, and restarts the window."),
 ]
 D["response"] = [
     ("Target", "One of your hosts."),
@@ -162,7 +163,7 @@ D["response"] = [
 ]
 D["filter"] = [
     ("Target", "One of your hosts."),
-    ("By hand", f"Clears a DDoS there and makes the host ignore DDoS for {n(C['filter']['dur'])} s."),
+    ("By hand", f"Clears a DDoS there and makes the host ignore DDoS for {n(C['filter']['dur'])} s — unless your main node is under DDoS: then no card can be played at all."),
     ("Loaded", "Fires when a DDoS lands: the DDoS never takes effect and the host is immune for the same 30 s."),
 ]
 D["cover"] = [
@@ -211,12 +212,12 @@ def card_sheet(key):
 
 # ---- buildings table ----
 B_NOTE = {
-    "intel": "Feeds the converters on its own host first; the rest is stored.",
-    "bot": "Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and missing inputs out, surplus back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are.",
-    "cash": "Uses Intel on its own host (the bank, at the main node); workers bring it when none is made there.",
-    "cred": "Uses Intel from its own host’s storage only.",
-    "lab": "Uses Intel and Crypto on its own host: a Miner beside it, or workers bring them as one bundle.",
-    "wall": "Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle, before any converter; without it the Firewall is off and its cards wait. It does not make the host harder to capture.",
+    "intel": "No input. Its Intel is stored on the host until workers take it home (a Firewall there eats 1 a cycle).",
+    "bot": "Provides 2 reusable workers that join the one pool working from the main node. Each carries 1 unit per leg: building materials and a Firewall's upkeep out, output back. A worker lost on the road is replaced after 5 s; capture of its host destroys them, wherever they are.",
+    "cash": "No input (since 0.6.12): it makes Crypto on its own, like a harvester.",
+    "cred": "No input (since 0.6.12): it makes Credentials on its own.",
+    "lab": "No input (since 0.6.12): it makes Research on its own.",
+    "wall": "Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle (workers bring it when none is made there); without it the Firewall is off and its cards wait. It does not make the host harder to capture.",
 }
 def brow(k):
     b = builds[k]
@@ -265,8 +266,8 @@ def find_unused():   # constants in the config files that the game's scripts nev
     return out
 UNUSED = find_unused()
 T = DATA["tuning"]; TY = DATA["types"]
-def per_min(cost_cycle):   # units per 12-s cycle -> per minute
-    return cost_cycle * 5
+def per_min(cost_cycle):   # units per production cycle -> per minute
+    return cost_cycle * 60.0 / float(T["PROD_CYCLE"])
 
 def start_chips():
     return chips({r: int(T["START"][r]) for r in RES})
@@ -299,22 +300,23 @@ def hosttypes():
 def ch(d):
     return chips({k: v for k, v in d.items() if v})
 LAYOUTS = [
-    ("Bot station + Intel harvester + Miner", "1 Intel → 1 Crypto; 2 workers for the pool", "1 unit by your workers", {"cash": 5}),
-    ("Bot station + Intel harvester + Cred. harvester", "1 Intel → 1 Credential; 2 workers", "1 unit by your workers", {"creds": 5}),
-    ("Intel harvester + Miner + Lab (Research host)", "1 Intel → 1 Crypto; the Lab's Intel is brought", "1 unit in, 1 out", {"intel": -5, "research": 5}),
-    ("2 Intel harvesters + Miner", "2 Intel → 1 Intel + 1 Crypto", "2 units by your workers", {"intel": 5, "cash": 5}),
-    ("Intel harvester + Miner + Cred. harvester", "1 Intel (+1 brought) → 1 Crypto + 1 Credential", "1 unit in, 2 out", {"intel": -5, "cash": 5, "creds": 5}),
+    # (what one cycle makes; the table shows it a minute, per_min, and the main node adds its trickle)
+    ("Bot station + Intel harvester + Miner", "1 Intel + 1 Crypto; 2 workers for the pool", "2 units by your workers", {"intel": 1, "cash": 1}),
+    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 workers", "2 units by your workers", {"intel": 1, "creds": 1}),
+    ("Intel harvester + Miner + Lab", "1 Intel + 1 Crypto + 1 Research", "3 units by your workers", {"intel": 1, "cash": 1, "research": 1}),
+    ("2 Intel harvesters + Miner", "2 Intel + 1 Crypto", "3 units by your workers", {"intel": 2, "cash": 1}),
     ("Bot station alone (IoT device)", "2 workers for the pool", "nothing to carry", {}),
-    ("Miner alone (no Intel made there)", "1 Intel (brought) → 1 Crypto", "Intel out and Crypto back on the same worker round trips, automatically", {"intel": -5, "cash": 5}),
-    ("Database: harvester + 2 Cred. harvesters", "2 Intel (+1 brought) → 3 Credentials", "1 unit in, 3 out", {"intel": -5, "creds": 15}),
-    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel → 0.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 7, "cash": 10, "creds": 5, "research": 5}),
+    ("Miner alone", "1 Crypto, no input", "1 unit by your workers", {"cash": 1}),
+    ("Database: harvester + 2 Cred. harvesters", "2 Intel + 3 Credentials (Database: Intel x2, Credentials x1.5)", "5 units by your workers", {"intel": 2, "creds": 3}),
+    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 1.5, "cash": 1, "trickle": True}),
 ]
 def layouts():
     out = []
-    for nm, made, deliv, net in LAYOUTS:
-        net_txt = "".join(f'<span class="chip r-{r}"><b>{"+" if v > 0 else "−"}{abs(v)}</b> {RES_SHORT[r]}</span>' for r, v in ((r, net.get(r, 0)) for r in RES) if v)
+    for nm, made, deliv, cyc in LAYOUTS:
+        net = {r: round(per_min(float(cyc.get(r, 0))) + (float(T["MAIN_INCOME"]) * 60.0 if cyc.get("trickle") else 0.0), 2) for r in RES}
+        net_txt = "".join(f'<span class="chip r-{r}"><b>{"+" if v > 0 else "−"}{n(abs(v))}</b> {RES_SHORT[r]}</span>' for r, v in ((r, net.get(r, 0)) for r in RES) if v)
         out.append(f"<tr><th>{html.escape(nm)}</th><td>{html.escape(made)}</td><td>{html.escape(deliv)}</td><td class='nowrap'>{net_txt or '0'}</td></tr>")
-    out.append("<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−5</b> Intel</span></td></tr>")
+    out.append(f"<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−{n(round(per_min(1), 2))}</b> Intel</span></td></tr>")
     return "".join(out)
 def inc_row(inc):
     return "".join(f"<td class='num'>{inc[r]}</td>" for r in RES)
@@ -326,25 +328,26 @@ def capture_ev():   # what a capture costs: a vector, its times and the reaction
         ex = f"{n(c['exec'])} s" + (f" ({n(c['exec_rig'])} s on a main node)" if c.get("exec_rig") else "") + (f" per stage, {n(c['reach'])} stages" if k == "worm" else "")
         rows.append(f"<tr><th>{html.escape(c['name'])}</th><td class='nowrap'>{chips(c['make'])}</td><td class='num'>{n(c['time'])} s</td><td class='num'>{ex}</td><td class='num'>{e:.0f} s ({ew}) · {m:.0f} s ({mw})</td></tr>")
     return "".join(rows)
+BC = DATA["buildings"]["BUILD_COSTS"]
 PAYBACK = [   # what each building adds and uses; no single "payback" number: the resources are not interchangeable
-    ("Intel harvester", {"intel": 12}, "+1 Intel a cycle (+1.5 on a Server, +2 on a database or file server)", "Raw input: everything else converts it."),
-    ("Bot station", {"intel": 12, "cash": 4}, "2 reusable workers for the one pool at the main node", "More round trips for every host: building materials first, then inputs, then surplus."),
-    ("Crypto miner", {"intel": 15}, "+1 Crypto, uses 1 Intel on its host", "Turns Intel into Crypto: worth it only while Crypto limits your plan."),
-    ("Credential harvester", {"intel": 15, "cash": 4}, "+1 Credential, uses 1 Intel on its host", "The capture and theft budget early in a match."),
-    ("Research lab", {"intel": 20, "cash": 8}, "+1 Research, uses 1 Intel and 1 Crypto on its host", "Needs a Miner beside it, or workers bring both inputs as a bundle."),
-    ("Firewall", {"intel": 25, "cash": 15}, "3 sockets; uses 1 Intel on its host", "Returns nothing directly: its value is what its loaded cards stop."),
+    ("Intel harvester", BC["intel"], "+1 Intel a cycle (+1.5 on a Server, +2 on a database or file server)", "Pays for most cards, the harvesters and the Firewalls' upkeep."),
+    ("Bot station", BC["bot"], "2 reusable workers for the one pool at the main node", "More round trips for every host: building materials first, then output home."),
+    ("Crypto miner", BC["cash"], "+1 Crypto a cycle, no input", "Buildings and blueprints are paid mostly in Crypto."),
+    ("Credential harvester", BC["cred"], "+1 Credential a cycle, no input", "The capture and theft budget: a Breach is mostly Credentials."),
+    ("Research lab", BC["lab"], "+1 Research a cycle, no input", "Blueprints and the Known exploit, Worm and 0day cards."),
+    ("Firewall", BC["wall"], "3 sockets; uses 1 Intel on its host", "Returns nothing directly: its value is what its loaded cards stop."),
 ]
 def payback():
     return "".join(f"<tr><th>{html.escape(nm)}</th><td class='nowrap'>{chips(c)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>" for nm, c, a, b in PAYBACK)
 def unused():
     return "".join(f"<tr><th>{f}.gd</th><td><code>{'</code>, <code>'.join(v)}</code></td></tr>" for f, v in UNUSED.items())
-COMMANDS = "build (order a project: free until its materials arrive), demolish, job (pause or resume a project), cancel (a project; its delivered materials stay as salvage), produce (pause or resume a producer), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause"
+COMMANDS = "build (order a project: free until its materials arrive), demolish, cancel (a project; its delivered materials stay as salvage), research, cancel_research, card (play a card on a host, with a resource for a siphon), queue (add a copy to the four-place queue, with a command id), unqueue (remove one), queue_pause"
 json_txt = json.dumps(DATA, indent=1, ensure_ascii=False)
 
 page = open(os.path.join(HERE, "design.head.html")).read() + open(os.path.join(HERE, "design.body.html")).read()
 for key, val in {"VERSION": str(DATA["engine"]["GAME_VERSION"]), "SIZES": sizes(), "START": start_chips(), "BASECAP": basecap(),
                  "WEIGHT_HEAD": weight_head(), "WEIGHTS": weights(), "HOSTTYPES": hosttypes(), "LAYOUTS": layouts(),
-                 "COMMANDS": html.escape(COMMANDS), "EARLY": inc_row(EARLY), "MID": inc_row(MID), "CAPTURE_EV": capture_ev(),
+                 "COMMANDS": html.escape(COMMANDS), "CAP_PER_PRODUCER": n(T["CAP_PER_PRODUCER"]), "EARLY": inc_row(EARLY), "MID": inc_row(MID), "CAPTURE_EV": capture_ev(),
                  "PAYBACK": payback(), "UNUSED": unused(), "JSON": html.escape(json_txt), "JSON_KB": str(round(len(json_txt) / 1024))}.items():
     page = page.replace("{{%s}}" % key, val)
 page = page.replace("{{COMMIT}}", COMMIT)

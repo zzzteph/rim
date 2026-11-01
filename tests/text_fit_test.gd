@@ -47,7 +47,7 @@ func run() -> void:
 		await chips(res)
 		await research_tab(res)
 		hud(res)
-		build_cards()
+		host_rows()
 		await map_names(res, "spiral match")
 		await panel_controls(res)
 		await menu_controls(res)
@@ -114,7 +114,7 @@ func chips(res: Vector2i) -> void:   # the strip: the four-place queue, ready ca
 	check(shown >= 3 and game.ready_more.visible and game.ready_more.text == "+%d" % (game.CARD_ORDER.size() - shown), "%d ready chips fit, the rest behind '%s' @%s" % [shown, game.ready_more.text, res])
 	for q in game.lane_strip.get_children():
 		check((q as Control).get_global_rect().end.x <= game.ready_strip.get_global_rect().position.x, "queue stays left of the ready cards @%s" % res)
-	for label in ["Making 100%", "Paused 100%", "Ready full", "Done: 1 ready", "4 · waiting"]:
+	for label in ["Making 100%", "Paused 100%", "Paused", "Ready full", "Done: 1 ready", "4 · waiting"]:
 		check(w(label, 11) <= game.QUEUE_CHIP_W - 30.0 - 22.0, "queue chip line '%s' fits @%s" % [label, res])
 	var worst_short: float = game._draw_cost_row(game, {"intel": 120, "creds": 120}, -1.0, Vector2.ZERO, 11, 11.0, false)
 	check(worst_short <= game.QUEUE_CHIP_W - 30.0 - 22.0, "a waiting head's shortage icons fit (%.0f px) @%s" % [worst_short, res])
@@ -161,29 +161,97 @@ func hud(res: Vector2i) -> void:
 	var total := 0.0
 	for it in items: total += float(it[3])
 	check(total <= game.hud.size.x + 0.5, "HUD columns (%.0f px) fit the bar (%.0f px) @%s" % [total, game.hud.size.x, res])
-	for it in items:   # a bank: "1250/1250" over "+1250/min"; the workers: "Workers 48" over "24 busy · 24 blocked"
+	for it in items:   # a bank: "1250/1250" over its net, "+1250/min" or "−1250/min"; the workers: "Workers 48" over "24 busy · 24 blocked"
 		var room: float = float(it[3]) - 22.0 - float(game.HUD_GAP)
 		var worst := "Workers 48" if str(it[4]) == "workers" else "1250/1250"
-		var second := "24 busy · 24 blocked" if str(it[4]) == "workers" else "+1250/min"
 		var fs: int = game._hud_fs(font, worst, float(it[3]) - 22.0)
 		check(fs >= 12 and w(worst, fs) <= room, "HUD worst case '%s' fits at %d px @%s" % [worst, fs, res])
-		check(w(second, 12) <= room, "HUD second line '%s' fits @%s" % [second, res])
+		for second in (["24 busy · 24 blocked"] if str(it[4]) == "workers" else ["+1250/min", game._net_txt(-1250.0) + "/min", "full"]):
+			check(w(second, 12) <= room, "HUD second line '%s' fits @%s" % [second, res])
+		if str(it[4]) != "workers":   # what the HUD shows now, net of what is used
+			check(w(str(game._hud_rate(str(it[4]))[0]), 12) <= room, "HUD net '%s' fits @%s" % [str(game._hud_rate(str(it[4]))[0]), res])
 	var obj_room: float = game.hud.size.x - total - 8.0 - 12.0 - MARGIN   # the objective lines after the five banks
 	for line in ["MAJORITY 35 / 68 · you 35", "KRAKEN holds it: wins in 51 s", "Leader: KRAKEN with 34", "You lead; 35 more to hold"]:
 		check(w(line, 12) <= obj_room, "HUD objective '%s' fits (%.0f of %.0f px) @%s" % [line, w(line, 12), obj_room, res])
 
 
-# ---- building cards: the palette width the sidebar allows, slots 112 px; titles and effects at >= 10 px with side margins ----
-func build_cards() -> void:
-	for card_w in [game._palette_card_w(), 112.0]:
-		var room: float = card_w - 12.0
+# ---- your host's inspector: its facts, its slot rows and the chooser's rows, for every host type, building and state:
+# names at their full size, every line inside its row with side margins, nothing on a line running into its neighbour ----
+func items_w(items: Array, icon: float, fs: int) -> float: return game._draw_items(game, items, 0.0, 0.0, icon, fs, false)
+
+
+func host_rows() -> void:
+	var P: int = game.PLAYER
+	var row_w: float = float(game.PANEL_W) - 44.0   # a full-width row of the inspector (the panel box's width)
+	var tx: float = game.SLOT_TEXT_X
+	var host := -1   # a remote host of yours, its type set per check so every line reads as it would there
+	for i in game.hosts.size():
+		if host < 0 and int(game.hosts[i].owner) == P and i != int(game.rig[P]): host = i
+	var main: int = int(game.rig[P])
+	var keep := [str(game.hosts[host].type), int(game.hosts[host].slots), (game.hosts[host].builds as Array).duplicate(), (game.hosts[host].store as Dictionary).duplicate(true)]
+	var worst_state := {}   # the longest thing a row may say on the right of its name, for each building
+	var nums := {"workers": [1, 2], "building": [10], "clearing": [5], "removing": [5]}
+	for key in game.SLOT_STATES:
+		var txt := str(game.SLOT_STATES[key])
+		if nums.has(key): txt = txt % (nums[key] if (nums[key] as Array).size() > 1 else nums[key][0])
+		var kinds := []
+		match str(key):
+			"ddos", "phished", "bank_full", "store_full": kinds = ["intel", "cash", "cred", "lab"]
+			"sabotaged": kinds = ["intel", "cash", "cred", "lab", "bot"]   # (a station too: Sabotage keeps its workers home)
+			"no_workers", "workers": kinds = ["bot"]
+			"fw_off": kinds = ["wall"]
+			_: kinds = game.BUILD_KINDS.keys()   # a project of any building
+		for k in kinds: worst_state[k] = maxf(float(worst_state.get(k, 0.0)), w(txt, 11))
+	var chip: float = (row_w - 12.0 - 2.0 * float(game.SocketList.GAP)) / 3.0
+	for tp in game.NODE_TYPES:
+		game.hosts[host].type = tp
 		for kind in game.BUILD_KINDS:
-			var title := str(game.BUILD_KINDS[kind].card)
-			check(fitted(title, 12, room) >= 11, "build card title '%s' >= 11 px at %d" % [title, card_w])
-			for line in game.BUILD_EFFECT.get(kind, []):
-				check(fitted(str(line), 11, room) >= 10, "build card line '%s' >= 10 px at %d" % [line, card_w])
-			var cost_w: float = game._draw_cost_row(game, game._build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
-			check(cost_w <= card_w - 2.0 * MARGIN, "build card '%s' price row fits at %d (%.0f px)" % [kind, card_w, cost_w])
+			var name := str(game.BUILD_KINDS[kind].name)
+			# a slot row: its name at 13 px and its state at 11 px on line 1; what it makes and the stock here on line 2
+			check(w(name, 13) + 8.0 + float(worst_state.get(kind, 0.0)) <= row_w - tx - 8.0, "slot row '%s' (%s): name and its longest state fit line 1" % [name, tp])
+			var flow: Array = game._flow_items(kind, host)
+			var made := str(game.BUILD_KINDS[kind].get("out", ""))
+			var stock: Array = game._stock_items(host, made if made != "" else "intel")   # (a Firewall shows its Intel; a station shows none)
+			stock[2][1] = "9999"   # (the bank at your main node can hold four digits)
+			if kind == "wall":   # a Firewall: a small picture, its name, what it uses and the stock here on line 1; its sockets on line 2
+				check(w(name, 13) + 8.0 + items_w(flow + [["|", ""]] + stock, 13.0, 11) <= row_w - 34.0 - 8.0, "Firewall row (%s): name, upkeep and stock fit line 1" % tp)
+			else:
+				check(items_w(flow, 14.0, 12) + 12.0 + items_w(stock, 14.0, 12) <= row_w - tx - 8.0, "slot row '%s' (%s): what it makes and the stock here fit line 2" % [name, tp])
+			var mats := []
+			for r in game._build_cost(kind):
+				if not mats.is_empty(): mats.append(["|", ""])
+				mats.append([game._COST_ICON[r], ""]); mats.append(["", "88/88"])
+			check(items_w(mats, 13.0, 11) <= row_w - tx - float(game.SlotBox.STOP_W) - 14.0, "project row '%s': its materials fit left of the cancel button" % name)
+			# a chooser row: name and what it makes on line 1, what it is for on line 2, price and a note on line 3
+			var ov: Dictionary = game._option_view(kind, host, 0)
+			check(w(str(ov.name), 13) + 8.0 + items_w(ov.flow, 12.0, 11) <= row_w - 52.0 - 8.0, "chooser row '%s' (%s): name and what it makes fit line 1" % [name, tp])
+			check(str(ov.what).ends_with(".") and w(str(ov.what), 11) <= row_w - 52.0 - 8.0, "chooser row '%s': its line on what it is for is a sentence that fits ('%s')" % [name, ov.what])
+			var price: float = game._draw_cost_row(game, ov.cost, game.BUILD_TIME, Vector2.ZERO, 11, 12.0, false)
+			check(price + 8.0 + maxf(w("Not enough in bank", 11), w("Installed here", 11)) <= row_w - 52.0 - 8.0, "chooser row '%s': its price and a note fit line 3 (%.0f px)" % [name, price])
+	game._set_builds(host, [])
+	var ev: Dictionary = game._slot_view(host, 0)
+	check(bool(ev.empty) and w(str(ev.title), 13) <= row_w - tx - 8.0, "an empty slot's invitation '%s' fits its row" % str(ev.title))
+	for card in ["patch", "response", "filter", "cover"]:
+		var short := str(game.CARDS[card].short)
+		check(fitted(short + " 99s", 11, chip - 24.0) >= 10 and fitted(short + " OFF", 11, chip - 24.0) >= 10, "socket '%s' on its way / off reads at >= 10 px in its %.0f px box" % [short, chip])
+	# the facts under the name: worst cases on the host types, the main node's four-digit bank, five Firewalls
+	for tp in game.NODE_TYPES:
+		game.hosts[host].type = tp; game.hosts[host].slots = 5
+		game._set_builds(host, ["wall", "wall", "wall", "wall", "wall"])
+		game.hosts[host].store = {P: {"intel": 2.5, "cash": 2.5, "creds": 2.5, "research": 2.5}}
+		for fw_on in [true, false]:
+			game.hosts[host].fw_on = fw_on
+			var hv: Dictionary = game._host_info_view(host)
+			check(w(str(hv.line), 13) + 8.0 + w(str(hv.slots), 11) <= row_w - 32.0 - 8.0, "host facts (%s): type, owner and slots used fit line 1" % tp)
+			var sw: float = items_w(hv.store, 13.0, 12) + 8.0 + float(game.FILL_BAR_W) + 6.0 + w(str(hv.fill), 11)
+			check(sw <= row_w - 16.0, "host facts (%s): the storage icons, its bar and x/10 fit line 2 (%.0f of %.0f px)" % [tp, sw, row_w - 16.0])
+			check(items_w(hv.wall, 13.0, 12) <= row_w - 16.0, "host facts: the Firewall line fits ('%s')" % str(hv.wall[1][1]))
+	game.hosts[host].fw_on = true
+	var mv: Dictionary = game._host_info_view(main)
+	var bank_items: Array = (mv.store as Array).map(func(it): return ["", "9999"] if str(it[0]) == "" and str(it[1]).is_valid_int() else it)
+	check(w(str(mv.line), 13) + 8.0 + w(str(mv.slots), 11) <= row_w - 32.0 - 8.0 and items_w(bank_items, 13.0, 12) <= row_w - 16.0, "your main node's facts fit, its bank at four digits too")
+	game.hosts[host].type = keep[0]; game.hosts[host].slots = keep[1]; game.hosts[host].builds = keep[2]; game.hosts[host].store = keep[3]
+	game._sync_teams(host)
 
 
 # ---- map names: none overlaps another or a building; yours, rigs and the focused one are always named ----
@@ -286,6 +354,16 @@ func panel_controls(res: Vector2i) -> void:
 		for b in game.panel_box.find_children("*", "", true, false):
 			if b.get("slot") != null and b.get("sockets_inside") != null: narrow = minf(narrow, (b as Control).size.x)
 		check(narrow >= 100.0 and game.panel_box.get_combined_minimum_size().y <= area.size.y + 0.5, "a 4-slot host's slot cards keep their width (%.0f px) and need no scrolling @%s" % [narrow, res])
+		game._set_builds(remote, ["intel", "cash", "", "wall"])   # the slot chooser: on an empty slot, on a built one (Remove), on a project (Cancel project)
+		for case in [[2, "empty slot"], [0, "built slot"], [2, "project"]]:
+			if str(case[1]) == "project": game._cmd(["build", remote, 2, "lab"])
+			game._open_chooser(remote, int(case[0])); await settle()
+			var opts: Array = game.panel_box.find_children("*", "", true, false).filter(func(c): return c.has_method("choose"))
+			check(game._chooser_slot(remote) == int(case[0]) and opts.size() == game.BUILD_KINDS.size(), "the chooser on a %s lists all %d buildings @%s" % [case[1], game.BUILD_KINDS.size(), res])
+			var hc: float = game.panel_box.get_combined_minimum_size().y
+			check(hc <= visible_area(game.panel_scroll).size.y + 0.5, "the chooser on a %s needs no scrolling: %.0f of %.0f px @%s" % [case[1], hc, visible_area(game.panel_scroll).size.y, res])
+			controls_inside(game.panel_box, visible_area(game.panel_scroll), "slot chooser on a %s @%s" % [case[1], res])
+		game._cmd(["cancel", remote, 2]); game._close_chooser(); await settle()
 		game._set_deck_open(true); await settle()   # the drawer opened after selecting: it takes the right side's room, so the build menu closes
 		check(game.sel.is_empty() and game.panel_box.get_combined_minimum_size().y <= visible_area(game.panel_scroll).size.y + 0.5 or not game.panel.visible,
 			"opening the card drawer closes the build menu instead of squeezing it into a scroll @%s" % res)
@@ -301,9 +379,16 @@ func panel_controls(res: Vector2i) -> void:
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "siphon launch panel @%s" % res)
 	game.sel = {}; game._inspect = -1; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "standings @%s" % res)
+	game.research_job[P] = {"key": "ddos", "progress": 0.0, "paused": false}   # research and a card queue use the banks: the overview lists them
+	game.mq[P] = [{"id": 900, "recipe": "patch", "paid": {}, "progress": 0.0}]
 	for k in 300: game._sim_step(game.SIM_DT)   # ten seconds of play, so the overview has flows to show
 	game._tab = "economy"; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "economy overview @%s" % res)
+	var econ_text := ""
+	for c in game.panel_box.get_children(): if c is Label: econ_text += (c as Label).text + "\n"
+	check(econ_text.contains("Used per minute: "), "economy overview lists what uses the banks @%s" % res)
+	for res_key in game.RES: check(w(str(game._hud_rate(res_key)[0]), 12) <= float(game._hud_col_w()) - 22.0 - float(game.HUD_GAP), "HUD net '%s' with research and cards running fits @%s" % [str(game._hud_rate(res_key)[0]), res])
+	game.research_job[P] = {}; game.mq[P] = []
 	game._event("fit:long", game.EV_CRIT, "NYX's Credential breach on Neighborhood Relay: 14 s left. A Patch on it stops it.", int(game.rig[P]), true)
 	game._event("fit:news", game.EV_INFO, "Firewall on Neighborhood Relay fired Patch against Credential breach; 2 cards left in it.", int(game.rig[P]))
 	game._tab = "events"; game._refresh_panel(); await settle()
@@ -365,8 +450,13 @@ func campaign(res: Vector2i) -> void:
 	game.sel = {game._camp_relay: true}; game._inspect = -1; game._refresh_panel(); await settle()
 	var area := visible_area(game.panel_scroll)
 	var hl: float = game.panel_box.get_combined_minimum_size().y
-	check(hl <= area.size.y + 0.5, "Learn: the relay's build panel (4 slots, 6 buildings) needs no scrolling under the banner: %.0f of %.0f px @%s" % [hl, area.size.y, res])
+	check(hl <= area.size.y + 0.5, "Learn: the relay's panel (its facts and 4 slot rows) needs no scrolling under the banner: %.0f of %.0f px @%s" % [hl, area.size.y, res])
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "Learn build panel @%s" % res)
+	game._open_chooser(game._camp_relay, 0); await settle()
+	var hch: float = game.panel_box.get_combined_minimum_size().y
+	check(game._chooser_slot(game._camp_relay) == 0 and hch <= visible_area(game.panel_scroll).size.y + 0.5, "Learn: the slot chooser needs no scrolling under the banner either: %.0f of %.0f px @%s" % [hch, visible_area(game.panel_scroll).size.y, res])
+	controls_inside(game.panel_box, visible_area(game.panel_scroll), "Learn slot chooser @%s" % res)
+	game._close_chooser(); await settle()
 	var keep_relay: Array = (game.hosts[game._camp_relay].builds as Array).duplicate()
 	game.hosts[game._camp_relay].slots = 5; game._set_builds(game._camp_relay, ["wall", "intel", "cash", "wall", "bot"])
 	game._refresh_panel(); await settle()
