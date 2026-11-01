@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.16"   # workers go where they are needed from wherever they are: building strictly first, materials straight from the nearest stock to the site (lobbies match exact versions)
+const GAME_VERSION := "0.6.17"   # the net change per minute under each bank, a host panel with icons and a building list per slot (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -375,6 +375,7 @@ func _ready() -> void:
 	research_bar = ResearchBar.new(); research_bar.game = self; research_bar.name = "ResearchBar"; add_child(research_bar)
 	panel = Panel.new(); panel.size = Vector2(PANEL_W, sz.y - 70.0)
 	panel.position = Vector2(sz.x - PANEL_W - 16.0, 56.0); add_child(panel)   # a clear gap below the top dashboard
+	panel.gui_input.connect(_on_panel_input)
 	var sc := ScrollContainer.new(); panel_scroll = sc
 	sc.position = Vector2(14, 12); sc.size = panel.size - Vector2(28, 24)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -1230,8 +1231,7 @@ func _room(fac: int, res: String) -> float:   # destination room for a new shipm
 
 func _add_bank(fac: int, res: String, amt: float, cause := "other") -> float:   # credit, clamped to cap; returns what actually fit
 	if not bank.has(fac): return 0.0
-	var held := _incoming(fac, res) if cause in ["trickle", "production"] else 0.0   # (0.6.16) new output never takes the room held for cargo on its way
-	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res) - held))
+	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res)))
 	bank[fac][res] = _avail(fac, res) + fit
 	if fit > 0.0: _ledger_add(fac, "in", cause, res, fit)
 	if amt - fit > 0.000001: _ledger_add(fac, "lost", "cap", res, amt - fit)
@@ -1301,12 +1301,15 @@ func _econ_rates(fac: int, res: String) -> Dictionary:   # per-minute recent rat
 # stock), the couriers that carry it, its route and the bank's room allow. Remote output counts only as fast as it can
 # be delivered (storage that fills stops production); what a host is kept stocked with is counted where it is used.
 # It is presentation only (not in the lockstep fingerprint), recomputed at most every FORECAST_EVERY s or after a command.
+# The net forecast (0.6.17) takes from that income what the bank pays out in the next minute (_bank_use: research, the card queue,
+# building, the Firewalls' upkeep the bank pays): the HUD shows the net, the tooltip the income, each use and the net.
 const FORECAST_EVERY := 0.5
 var _fc_cache := {}   # fac -> {"t", "gen", "data"}
 var _fc_gen := 0      # bumped by every command: a change you make shows at once, even paused
 
 
-func _forecast(fac: int) -> Dictionary:   # {rate: {res: per min}, from: {res: {source: per min}}, limits: {res: [why]}, need, spare, fleet}
+func _forecast(fac: int) -> Dictionary:   # {rate: {res: per min}, from: {res: {source: per min}}, limits: {res: [why]}, need, spare, fleet,
+	                                          #  use: {res: {what: per min}}, net: {res: per min}, full: {res: bool}}
 	var c: Dictionary = _fc_cache.get(fac, {})
 	if not c.is_empty() and int(c.gen) == _fc_gen and absf(_t - float(c.t)) < FORECAST_EVERY: return c.data
 	var d := _forecast_now(fac)
@@ -1466,10 +1469,11 @@ func _fc_throttled(i: int, fac: int, sup: Dictionary, full: Dictionary, target: 
 
 func _forecast_now(fac: int) -> Dictionary:
 	var per := 60.0 / PROD_CYCLE
-	var d := {"rate": {}, "from": {}, "limits": {}, "need": 0.0, "spare": 0.0, "fleet": 0}
-	for res in RES: d.rate[res] = 0.0
+	var d := {"rate": {}, "from": {}, "limits": {}, "need": 0.0, "spare": 0.0, "fleet": 0, "use": {}, "net": {}, "full": {}}
+	for res in RES: d.rate[res] = 0.0; d.use[res] = {}; d.net[res] = 0.0; d.full[res] = false
 	var hub := _hub(fac)
 	if hub < 0 or _eliminated.has(fac): return d
+	d.use = _bank_use(fac)   # (0.6.17) what research, the card queue, building and the main node's Firewalls take from the bank
 	# what the bank can keep sending per cycle to hosts' supplies: plenty while it holds a buffer, else what the
 	# main node itself brings in (its trickle and its Intel harvesters), shared by the hosts in turn
 	var budget := {}
@@ -1516,6 +1520,7 @@ func _forecast_now(fac: int) -> Dictionary:
 	# the purpose turns bring missing inputs first (the hosts in turn); every other turn goes to the host served least
 	# recently, so the hosts' trips even out. A trip carries one unit each way: a supply out, output back. Short of
 	# workers, the pool makes as many trips a minute as its time allows; a host short of supplies makes less in proportion.
+	var given_to := {}   # (Firewall host -> what its neighbours give it a cycle: the bank sends that much less)
 	var given := {}   # (0.6.16) a host's surplus Intel goes straight to a Firewall host no farther from it than the main node (_best_haul):
 	for row in remote:  # it never reaches the bank, and the bank sends that Firewall nothing
 		var need_in := float((row[4] as Dictionary).get("intel", 0.0))
@@ -1528,7 +1533,9 @@ func _forecast_now(fac: int) -> Dictionary:
 			if s2 == dh or spare <= 0.0001: continue
 			var t2 := _leg_time(fac, s2, dh)
 			if t2 <= _leg_time(fac, s2, hub) + 0.0001 and t2 < bt - 0.0001: best = s2; bt = t2; left = spare
-		if best >= 0: given[best] = float(given.get(best, 0.0)) + minf(need_in, left)
+		if best >= 0:
+			given[best] = float(given.get(best, 0.0)) + minf(need_in, left)
+			given_to[dh] = float(given_to.get(dh, 0.0)) + minf(need_in, left)
 	for row in remote:   # what a host gives that way leaves on the Firewall host's own trips: its own trips carry the rest home
 		if given.has(int(row[0])):
 			var sh: Dictionary = (row[1] as Dictionary).duplicate(); sh.intel = maxf(0.0, float(sh.intel) - float(given[int(row[0])])); row[1] = sh
@@ -1556,11 +1563,22 @@ func _forecast_now(fac: int) -> Dictionary:
 			if busy > float(fleet) * 60.0: hi = mid
 			else: lo = mid
 		trips_of = _fc_split(din, dem, lo)
+	for k in remote.size():   # (0.6.17) what the bank sends to remote hosts a minute (a Firewall's upkeep): the supplies that come
+		var row: Array = remote[k]
+		var sf := minf(1.0, float(trips_of[k]) / float(din[k])) if float(din[k]) > 0.0001 else 0.0
+		for res in RES:
+			var what := ("Firewall at %s" if res == "intel" and _count_all(int(row[0]), "wall") > 0 else "supplies to %s") % str(hosts[int(row[0])].name)
+			var from_bank := float(row[4][res]) - (float(given_to.get(int(row[0]), 0.0)) if res == "intel" else 0.0)   # (what a neighbour gives is not the bank's)
+			_use_add(d.use, res, what, maxf(0.0, from_bank) * sf * per)
 	var inflow := {}
 	var cap := {}; var bank_full := {}   # (per material, not per host: counting the producers walks every host)
-	for res in RES:
-		cap[res] = _cap(fac, res)
-		bank_full[res] = _avail(fac, res) >= float(cap[res]) - 0.5 and _room(fac, res) < 1.0
+	var main_in := {}   # what the main node alone brings into each bank a minute: its trickle and its buildings (none has an input)
+	if _main_ok(fac):
+		var mc0 := _fc_cycle(hub, fac, true, {})
+		for res in RES: main_in[res] = MAIN_INCOME * 60.0 + float(mc0.out[res]) * per
+	for res in RES:   # (0.6.17) a full bank takes in again only what is used from it that the main node's own income does not
+		cap[res] = _cap(fac, res)   # refill: while that covers the use, remote output of it waits on its host (and clogs it), as before
+		bank_full[res] = _avail(fac, res) >= float(cap[res]) - 0.5 and _room(fac, res) < 1.0 and float(main_in.get(res, 0.0)) >= _use_sum(d.use, res) - 0.0001
 	for k in remote.size():
 		var row: Array = remote[k]
 		var i: int = row[0]
@@ -1599,11 +1617,74 @@ func _forecast_now(fac: int) -> Dictionary:
 		var mc := _fc_cycle(hub, fac, true, inflow)
 		for res in RES: _fc_add(d, res, "main node buildings", float(mc.out[res]) * per)
 	else: for res in RES: _fc_limit(d, res, "your main node is under DDoS")
-	# a full bank takes nothing more
+	# a full bank takes nothing more; the net is the income less what is used (0.6.17). A full bank whose income keeps up
+	# with what is used stays full ("full": what is not used is lost); one that cannot keep up shows how fast it empties
 	for res in RES:
-		if _avail(fac, res) >= float(cap[res]) - 0.5 and float(d.rate[res]) > 0.0:
+		var used := _use_sum(d.use, res)
+		var at_cap := _avail(fac, res) >= float(cap[res]) - 0.5
+		if at_cap and float(d.rate[res]) > 0.0 and used <= 0.0001:   # (with a use, the income stays: the full bank takes what is used)
 			d.rate[res] = 0.0; d.from[res] = {}; _fc_limit(d, res, "your bank is full")
+		d.net[res] = float(d.rate[res]) - used
+		d.full[res] = at_cap and float(d.net[res]) > -0.5
+		if bool(d.full[res]) and used > 0.0001: _fc_limit(d, res, "your bank is full")
 	return d
+
+
+# ---- the bank's spending in the next minute (0.6.17), for the net forecast: what research, the card queue, building and
+# the main node's Firewalls take from the bank within NET_HORIZON s, as things stand. Research while it runs and is not
+# paused: it pays as it progresses, so its price over its time for the part of the next minute it still runs. The card
+# queue while it runs and is not paused: the price of each copy that STARTS within the next minute (a copy pays once, when
+# it starts; the copy being made is paid for already; an unpaid copy cannot start while the Ready inventory is full), so
+# one short card counts its price once, not its price over its few seconds. Building: what the projects still need from
+# the bank (_build_owed: a project the workers cannot reach holds nothing), all of it within the next minute. A remote
+# host's Firewall upkeep the bank pays is added by _forecast_now (the supplies the workers bring). It only reads.
+const NET_HORIZON := 60.0
+
+
+func _bank_use(fac: int) -> Dictionary:   # {res: {what: units within the next minute}}
+	var use := {}
+	for res in RES: use[res] = {}
+	var hub := _hub(fac)
+	if hub < 0 or _eliminated.has(fac): return use
+	var job: Dictionary = research_job.get(fac, {})
+	if not job.is_empty() and not bool(job.get("paused", false)):
+		var cost := _research_cost(str(job.key))
+		var secs := _research_time(str(job.key))
+		var runs := clampf(secs - float(job.get("progress", 0.0)), 0.0, NET_HORIZON)   # what of the next minute it still runs
+		for r in cost: _use_add(use, str(r), "research", float(cost[r]) * runs / maxf(0.001, secs))
+	var q: Array = mq.get(fac, [])   # (not _mq(): reading must never add a queue to the state)
+	if not q.is_empty() and not bool(mq_paused.get(fac, false)):
+		var t := 0.0   # when the next copy starts, from now
+		var room := READY_SLOTS - _ready_total(fac)   # (the copy being made already holds its ready slot)
+		for e in q:
+			if t >= NET_HORIZON - 0.0001: break
+			var recipe := str(e.recipe)
+			if not (e.get("paid", {}) as Dictionary).is_empty():   # the copy being made: paid when it started
+				t += maxf(0.0, _make_time(recipe) - float(e.get("progress", 0.0)))
+				continue
+			if room <= 0: break   # the Ready inventory is full: nothing more starts until a card is used
+			var cost := _recipe_cost(recipe)
+			for r in cost: _use_add(use, str(r), "card queue", float(cost[r]))
+			room -= 1
+			t += _make_time(recipe)
+	var owed := _build_owed(fac)
+	for r in owed: _use_add(use, str(r), "building", float(owed[r]))
+	var walls := _count_all(hub, "wall") - _walls_building(hub)   # the main node's Firewalls eat from the bank every cycle
+	if walls > 0: _use_add(use, "intel", "main node Firewalls", float(BUILD_KINDS.wall.use.intel) * walls * 60.0 / PROD_CYCLE)
+	return use
+
+
+func _use_add(use: Dictionary, res: String, what: String, v: float) -> void:
+	if v <= 0.0001: return
+	if not use.has(res): use[res] = {}
+	use[res][what] = float((use[res] as Dictionary).get(what, 0.0)) + v
+
+
+func _use_sum(use: Dictionary, res: String) -> float:   # everything used from one bank a minute
+	var s := 0.0
+	var by: Dictionary = use.get(res, {})
+	for k in by: s += float(by[k])
+	return s
 
 
 func _incoming_eta(fac: int, res: String) -> Dictionary:   # cargo on the road for this bank: count, next arrival, how many are at risk
@@ -3105,16 +3186,9 @@ func _job_salvage(i: int, job: Dictionary, frac: float) -> void:   # the unused 
 	job.escrow = {}
 
 
-func _can_drop(i: int, slot: int, kind: String) -> bool:
-	return _can_build(PLAYER, i, slot, kind)
-
-
 func _can_build(fac: int, i: int, slot: int, kind: String) -> bool:   # ownership and a free slot; the materials come after the order
 	if not _owns(fac, i) or not BUILD_KINDS.has(kind): return false
 	return slot >= 0 and slot < (hosts[i].builds as Array).size() and not _slot_busy(i, slot) and str(hosts[i].builds[slot]) != kind
-
-
-func _drop_build(i: int, slot: int, kind: String) -> void: _cmd(["build", i, slot, kind])
 
 
 func _do_build(fac: int, i: int, slot: int, kind: String) -> void:
@@ -3122,16 +3196,6 @@ func _do_build(fac: int, i: int, slot: int, kind: String) -> void:
 	if _start_job(i, kind, slot) and fac == PLAYER:
 		_flash("%s ordered at %s: its %s are on their way" % [str(BUILD_KINDS[kind].name), str(hosts[i].name), _build_cost_text(kind)] if i != _hub(fac) else "%s ordered: %s" % [str(BUILD_KINDS[kind].name), _build_cost_text(kind)], 0)
 		_refresh_panel(); queue_redraw()
-
-
-func _card_click(kind: String) -> void:
-	var i := _build_site()
-	if i >= 0: _cmd(["build", i, _free_slot(i), kind])
-
-
-func _build_site() -> int:
-	if sel.size() == 1 and _mine(int(sel.keys()[0])): return int(sel.keys()[0])
-	return _inspect if _mine(_inspect) else -1
 
 
 func _player_build(i: int, kind: String) -> void:
@@ -4966,6 +5030,7 @@ func _input(event: InputEvent) -> void:
 	if focus is LineEdit or focus is TextEdit: return
 	if event.keycode == KEY_ESCAPE:
 		if not menu_open and _armed != "": _armed = ""; _update_card_banks(); queue_redraw(); get_viewport().set_input_as_handled(); return
+		if not menu_open and not _chooser.is_empty(): _close_chooser(); get_viewport().set_input_as_handled(); return   # the slot chooser first
 		if menu_open: _open_menu(false)
 		elif _camp: _camp_leave()
 		elif _panel_has_context(): _clear_all(); _refresh_panel(); queue_redraw()
@@ -5534,6 +5599,7 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if not (event is InputEventMouseButton): return
 	if _pointer_over_panel(): return   # the sidebar eats wheel/clicks — never zoom or command through it
+	if event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT] and not _chooser.is_empty(): _close_chooser()   # a click on the map closes the slot chooser
 	if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed: _zoom_at(event.position, 1.15); return
 	if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed: _zoom_at(event.position, 1.0 / 1.15); return
 	if event.button_index == MOUSE_BUTTON_MIDDLE:   # middle-drag pans the map
@@ -5719,7 +5785,7 @@ func _apply_options() -> void:   # turn the menu choices into the live grid + fa
 
 func _reset() -> void:   # a NEW town every restart, with the current options
 	won = false; lost = false; _end_shown = false; _end_cause = ""; paused = false; _t = 0.0; _sim_acc = 0.0
-	_panel_t = 0.0; _chosen_attack = ""; _chosen_siphon_res = "cash"
+	_panel_t = 0.0; _chosen_attack = ""; _chosen_siphon_res = "cash"; _chooser = {}
 	_eliminated.clear()
 	_panel_context = ""; _msg_t = 0.0; _msg_priority = 0
 	_tab = ""; _hold = {}; _deck_drag_restore = false; _bank_alert = {}
@@ -6746,7 +6812,7 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When the copy is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
 		1: return [
-			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Drag a Bot station onto a free relay slot: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Click an empty relay slot and choose Bot station: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
 			{"t": "Producers", "r": "Each producer makes 1 unit of its resource every 12 s.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
 			{"t": "Output goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: your workers carry the relay's Intel and Crypto to your main node.", "role": "relay", "pause": false},
 		]
@@ -6762,7 +6828,7 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Scout the target", "r": "The Practice host is scouted.", "a": "Drag Recon onto the Practice host.", "role": "practice", "ui": "card:recon", "card": "recon", "pause": true},
 			{"t": "Steal production", "r": "The Practice host's output now flows to you.", "a": "Launch Phishing on the Practice host.", "role": "practice", "ui": "card:phish", "card": "phish", "pause": false},
 			{"t": "Protect", "r": "The theft on your relay is cleared.", "a": "NYX (red) is phishing your Neighborhood Relay: its output goes to them. Send Incident response there.", "role": "relay", "ui": "card:response", "card": "response", "pause": false, "fire": "ch4_phish"},
-			{"t": "Losses", "r": "A new Bot station is on order: its 2 workers start when it is built.", "a": "NYX (red) took your Outpost and its 2 workers. Drag a Bot station onto {spot} to replace them.", "role": "station_spot", "ui": "build:bot", "more": true, "fire": "ch4_outpost", "pause": false},
+			{"t": "Losses", "r": "A new Bot station is on order: its 2 workers start when it is built.", "a": "NYX (red) took your Outpost and its 2 workers. Click {spot} and choose Bot station to replace them.", "role": "station_spot", "ui": "build:bot", "more": true, "fire": "ch4_outpost", "pause": false},
 		]
 		_: return [
 			{"t": "Your move", "r": "Victory.", "a": "Win the district: hold a majority, or take the rival main node.", "role": "", "pause": false},
@@ -6815,7 +6881,7 @@ func _camp_fill(s: String) -> String:   # {spot}: the host the step points at, b
 	return s.replace("{spot}", ("a free slot of the %s" % str(hosts[i].name)) if i >= 0 else "a free slot of a host of yours")
 
 
-func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck card, a build card, a button), re-found each frame
+func _camp_ui_targets() -> Array:   # the live Controls the step names (a deck card, a slot or a building in its chooser, a button), re-found each frame
 	var st := _camp_step()
 	if st.is_empty() or menu_open or won or lost: return []
 	var specs = st.get("ui", [])
@@ -6864,14 +6930,19 @@ func _camp_card_ctrls(recipe: String) -> Array:   # where the step's card is: it
 	return tiles.map(func(t): return t.queue_button if t.queue_button != null else t)   # its + Queue button
 
 
-func _camp_build_ctrls(kind: String) -> Array:   # the build card, until the order is accepted at the step's host
+func _camp_build_ctrls(kind: String) -> Array:   # an empty slot of the step's host, then the building in its chooser, until the order is accepted
 	var h := _camp_target()
 	if h < 0: h = int(sel.keys()[0]) if sel.size() == 1 else _inspect
 	var ordered := _camp_step_done(_camp_chapter, _tut_stage) if bool(_camp_step().get("more", false)) else _camp_ordered(h, kind)   # ("more": one more than it had)
 	if h < 0 or not _mine(h) or ordered: return []
 	var shown := int(sel.keys()[0]) if sel.size() == 1 else _inspect
 	if shown != h: return []   # the map frames the host to select first
-	return _panel_find(func(c): return c is BuildCard and c.kind == kind)
+	var open := _chooser_slot(h)
+	if open >= 0 and str(hosts[h].builds[open]) == "" and not _slot_busy(h, open):   # the chooser is open on an empty slot: the building in it
+		return _panel_find(func(c): return c is BuildOption and c.kind == kind)
+	if open >= 0: return _panel_find(func(c): return c is Button and c.text == "Close")   # open on a taken slot: back to the slots
+	var free := _free_slot(h)
+	return [] if free < 0 else _panel_find(func(c): return c is SlotBox and c.host == h and c.slot == free)
 
 
 func _camp_ordered(i: int, kind: String) -> bool:   # installed, or a project for it at this host (waiting, paused or in work)
@@ -7425,8 +7496,11 @@ func _refresh_panel() -> void:
 		sel = {_inspect: true}; _inspect = -1; pruned = true
 	if sel.size() == 1 and _deck_open and _armed == "" and not (won or lost):   # however one host became the selection (a capture, a lesson
 		_deck_open = false; _deck_drag_restore = false                          # step, a shift-click, a log entry): its build menu gets the full height
+	if not _chooser.is_empty():   # the slot chooser lives only while its host is your one selection
+		var ch := int(_chooser.host)
+		if won or lost or sel.size() != 1 or not sel.has(ch) or not _mine(ch) or int(_chooser.slot) >= (hosts[ch].builds as Array).size(): _chooser = {}
 	var context := "%s|%s|%d|%s|%s" % [_tab, str(sel.keys()), _inspect, str(won), str(lost)]
-	if not sel.is_empty(): context += "|%s|%s|%d" % [str(_banner_on()), str(_deck_open), int(_camp_banner_h())]   # the build menu's density follows the banner and the drawer
+	if not sel.is_empty(): context += "|%s|%s|%d|%s" % [str(_banner_on()), str(_deck_open), int(_camp_banner_h()), str(_chooser)]   # (the panel's height follows the banner and the drawer)
 	if _tab == "events": context += "|" + ",".join(PackedStringArray(events.map(func(e): return str(e.key))))   # a new order rebuilds the rows, so each still opens its own event
 	var changed := context != _panel_context
 	var keep := 0 if changed else _scroll_pos()
@@ -7609,7 +7683,7 @@ func _refresh_top_tabs() -> void:
 	research_button.pressed.connect(_toggle_research); top_tabs.add_child(research_button)
 	var econ_button := Button.new(); econ_button.text = "Economy"; econ_button.name = "Economy"
 	econ_button.custom_minimum_size = Vector2(104, 36); econ_button.focus_mode = Control.FOCUS_NONE
-	econ_button.tooltip_text = "Your recent income, spending and losses for every bank (E)"
+	econ_button.tooltip_text = "Each bank's income, what uses it, its net per minute and its recent history (E)"
 	econ_button.pressed.connect(_toggle_economy); top_tabs.add_child(econ_button)
 	var menu_button := Button.new(); menu_button.text = "Menu"
 	menu_button.custom_minimum_size = Vector2(88, 36)
@@ -7802,22 +7876,33 @@ func _effects_line(i: int) -> String:
 	return " · ".join(e)
 
 
-const SLOT_H := 112.0      # an installation slot in the inspector (the compact card: name, picture, what it makes, its state)
-const PALETTE_H := 70.0   # a wide building card in the inspector's palette, two a row: picture | name, what it makes, what it uses, price
-const PALETTE_H_MINI := 74.0   # ...three a row when the whole menu would not fit (under Learn's banner): name, picture and conversion, price
-const SLOT_VSEP := 4.0     # between two rows of slots
-
-
-func _panel_avail_h() -> float:   # the build menu's scroll height, from the same layout _layout_ui applies
-	var top := (_camp_banner_h() + 74.0) if _banner_on() else 64.0
-	var bottom := get_viewport_rect().size.y - 24.0 if won or lost else _deck_top() - 12.0
-	return maxf(180.0, bottom - top) - 24.0
-
-
-func _palette_h(i: int) -> float:   # the full palette when the whole build menu fits, else the mini one; never a scrollbar
-	var rows := ceili(float(int(hosts[i].slots)) / float(PANEL_COLS))
-	var need := 32.0 + rows * SLOT_H + (rows - 1) * SLOT_VSEP + 14.0 + 3.0 * PALETTE_H + 2.0 * PALETTE_GAP
-	return PALETTE_H if need <= _panel_avail_h() else PALETTE_H_MINI
+# ---- your host's inspector: its facts, one row per slot, and the slot chooser ----
+# Under its name, HostInfo draws the host's facts: type and owner, slots used, its storage as resource icons (x/10), the
+# Firewall. Then one full-width row per slot (SlotBox): a building's picture and name, what it makes or uses every cycle
+# as icons and the stock of that resource here; a project's state, its materials as icons, its progress and a cancel
+# button; an empty slot that invites a click. A click on a slot opens the chooser in place of the facts and the rows:
+# every building (BuildOption) with what it does, what it makes or uses and its price; a pick orders it into THAT slot
+# through the build command. Close, Esc or a click on the map closes it. All of it only reads the game: _chooser is UI
+# state that nothing in the simulation reads.
+const SLOT_H := 56.0       # one slot row: picture · name and state · what it makes or uses and the stock here (or a project's materials)
+const SLOT_TEXT_X := 54.0  # where a slot row's words start, right of its picture
+const SLOT_VSEP := 4.0     # between two slot rows (and two chooser rows)
+const HOST_INFO_H := 58.0  # the facts under your host's name: three lines
+const OPTION_H := 54.0     # one building in the slot chooser: picture · name and what it makes or uses · what it does · price
+const FILL_BAR_W := 28.0   # the storage bar in your host's facts, left of its x/10
+const BUILD_WHAT := {      # the chooser's one short line on what each building is for
+	"intel": "Intel pays for every building and card.",
+	"bot": "Adds 2 workers who carry your materials.",
+	"cash": "Crypto pays for buildings and cards.",
+	"cred": "Credentials pay for captures and attacks.",
+	"lab": "Research pays for blueprints and cards.",
+	"wall": "Loaded defence cards fire on their own.",
+}
+const SLOT_STATES := {   # what a slot row says on the right of its name (tests/text_fit_test.gd measures every one)
+	"ddos": "Off: DDoS", "sabotaged": "Off: sabotaged", "phished": "Phished", "bank_full": "Bank full", "store_full": "Storage full",
+	"no_workers": "Off: no workers", "workers": "%d of %d workers", "fw_off": "OFF: no Intel",
+	"waiting": "Needs materials", "building": "Building · %d s", "clearing": "Clearing · %d s", "removing": "Removing · %d s"}
+var _chooser := {}   # {"host", "slot"} while the slot chooser is open (UI only: nothing in the simulation reads it)
 
 
 func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is doing, and what holds this host back
@@ -7825,7 +7910,7 @@ func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is d
 	var job: Dictionary = (h.jobs as Dictionary).get(slot, {})
 	var kind := str(h.builds[slot]) if slot < (h.builds as Array).size() else ""
 	if not job.is_empty() and str(job.kind) != "": kind = str(job.kind)
-	if kind == "": return "Empty slot. Drag a building here, or click one of the buildings below."
+	if kind == "": return "Empty slot. Click it to choose a building; workers bring its materials."
 	var out := [_build_desc(kind, i)]
 	if not job.is_empty():
 		match _job_state(job):
@@ -7837,38 +7922,367 @@ func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is d
 					parts.append("%s %s/%s" % [RES_NAME[r], _amt(float((job.escrow as Dictionary).get(r, 0.0))), _amt(float(job.bill[r]))])
 				out.append("Waiting for its materials (%s); workers bring them, then %d s of work." % [", ".join(parts), int(BUILD_TIME)])
 			_: out.append("Building: %d s left." % ceili(float(job.left)))
+	else: out.append("Click it to replace it; a right click removes it.")
 	if _mine(i):
 		var d := _host_diag(i)
 		for line in (d.lines as Array).slice(0, 2): out.append(str(line[0]))
 	return "\n".join(PackedStringArray(out))
 
 
-func _panel_build(i: int) -> void:   # the slots, then the six buildings: both always fully in view, the same height every frame
+func _store_res(i: int) -> Dictionary:   # res -> units on this host now, whoever they belong to (at its owner's main node: the bank)
+	var owner := int(hosts[i].owner)
+	var tot := {}
+	if i == int(rig.get(owner, -1)):
+		for res in RES: tot[res] = _avail(owner, res)
+		return tot
+	for fac in (hosts[i].store as Dictionary):
+		for res in (hosts[i].store[fac] as Dictionary): tot[res] = float(tot.get(res, 0.0)) + float(hosts[i].store[fac][res])
+	return tot
+
+
+func _stock_items(i: int, res: String) -> Array:   # "stock ◎ 3": what of this resource is on the host now (the bank at your main node)
+	var have := float(_store_res(i).get(res, 0.0))
+	var txt := str(int(floor(have + 0.0001))) if i == int(rig.get(int(hosts[i].owner), -1)) else _amt(have)
+	return [["", "stock", C_DIM], [_COST_ICON[res], ""], ["", txt, C_TEXT]]
+
+
+func _flow_items(kind: String, i := -1) -> Array:   # what a building makes (+) or uses (-) every cycle on this host (its type's multiplier), as icon items
+	var spec: Dictionary = BUILD_KINDS[kind]
+	var per := ["", "/ %d s" % int(PROD_CYCLE), C_DIM]
+	match kind:
+		"bot": return [["", "+%d" % WORKERS_PER_STATION, C_GOOD], ["bot", ""], ["", "workers", C_DIM]]
+		"wall": return [["", "-" + _amt(float((spec.use as Dictionary).get("intel", 1.0))), C_BAD], ["intel", ""], per]
+	var out := str(spec.out)
+	var m := _tmult(i, out) if _host_ok(i) else 1.0
+	return [["", "+" + _amt(float(spec.rate) * m), C_GOOD], [_COST_ICON[out], ""], per]
+
+
+func _slot_view(i: int, slot: int) -> Dictionary:   # what one slot row shows; read only (SlotBox draws it, tests/text_fit_test.gd measures it)
 	var h: Dictionary = hosts[i]
-	var cols := PANEL_COLS   # three cards a row, whatever the host: 4 and 5 slots take two rows
-	var w := floorf((PANEL_W - 44.0 - PALETTE_GAP * (cols - 1)) / float(cols))
-	var grid := GridContainer.new(); grid.columns = cols
-	grid.add_theme_constant_override("h_separation", PALETTE_GAP); grid.add_theme_constant_override("v_separation", int(SLOT_VSEP))
+	var owner := int(h.owner)
+	var job: Dictionary = (h.jobs as Dictionary).get(slot, {})
+	var built := str(h.builds[slot]) if slot < (h.builds as Array).size() else ""
+	var v := {"kind": built, "title": "", "state": "", "state_col": C_DIM, "flow": [], "stock": [], "mats": [], "progress": -1.0,
+		"bar": C_DIM, "busy": not job.is_empty(), "empty": false}
+	if not job.is_empty():   # a project: what it becomes, its state, its materials here of its bill, its progress
+		if str(job.kind) != "": v.kind = str(job.kind)
+		v.title = str(BUILD_KINDS[str(v.kind)].name) if str(v.kind) != "" else "Empty slot"
+		var bill := 0.0; var here := 0.0
+		for r in RES:
+			if not (job.bill as Dictionary).has(r): continue
+			var need := float(job.bill[r]); var got := minf(need, float((job.escrow as Dictionary).get(r, 0.0)))
+			bill += need; here += got
+			if not (v.mats as Array).is_empty(): v.mats.append(["|", ""])
+			v.mats.append([_COST_ICON[r], ""]); v.mats.append(["", "%d/%d" % [int(got + 0.0001), int(need + 0.0001)], C_GOOD if got >= need - 0.0001 else C_WARN])
+		match _job_state(job):
+			"demolishing":
+				v.state = str(SLOT_STATES.clearing if str(job.kind) != "" else SLOT_STATES.removing) % ceili(float(job.left))
+				v.progress = 1.0 - float(job.left) / maxf(0.001, float(job.total))
+			"waiting":
+				v.state = SLOT_STATES.waiting; v.state_col = C_WARN; v.bar = C_WARN
+				v.progress = here / maxf(0.001, bill)
+			_:
+				v.state = str(SLOT_STATES.building) % ceili(float(job.left)); v.state_col = C_TEXT; v.bar = C_GOOD
+				v.progress = 1.0 - float(job.left) / maxf(0.001, float(job.total))
+		return v
+	if built == "":
+		v.empty = true; v.title = "Empty slot — click to build"
+		return v
+	v.title = str(BUILD_KINDS[built].name)
+	v.flow = _flow_items(built, i)
+	match built:
+		"bot":   # a station: how many of its two workers are alive, and Sabotage, which keeps them at the station (0.6.13)
+			var team: Dictionary = (h.get("teams", {}) as Dictionary).get(slot, {})   # (read only: never _teams, which adds the key)
+			var alive := 0
+			for wid in (team.get("w", []) as Array): if int(wid) >= 0: alive += 1
+			if team.is_empty(): v.state = SLOT_STATES.no_workers; v.state_col = C_BAD
+			elif _sabotaged(i): v.state = SLOT_STATES.sabotaged; v.state_col = C_BAD
+			elif alive < WORKERS_PER_STATION: v.state = str(SLOT_STATES.workers) % [alive, WORKERS_PER_STATION]; v.state_col = C_WARN
+		"wall":
+			v.stock = _stock_items(i, "intel")
+			if not bool(h.get("fw_on", true)): v.state = SLOT_STATES.fw_off; v.state_col = C_BAD
+		_:
+			var res := str(BUILD_KINDS[built].out)
+			v.stock = _stock_items(i, res)
+			if _ddos_down(i): v.state = SLOT_STATES.ddos; v.state_col = C_BAD
+			elif _sabotaged(i): v.state = SLOT_STATES.sabotaged; v.state_col = C_BAD
+			elif _phished(i): v.state = SLOT_STATES.phished; v.state_col = C_BAD
+			elif i == int(rig.get(owner, -1)) and _avail(owner, res) >= _cap(owner, res) - 0.5: v.state = SLOT_STATES.bank_full; v.state_col = C_WARN
+			elif i != int(rig.get(owner, -1)) and _store_total(i) >= STORE_CAP - 0.5: v.state = SLOT_STATES.store_full; v.state_col = C_WARN
+	return v
+
+
+func _host_info_view(i: int) -> Dictionary:   # the three lines under your host's name; read only (tests/text_fit_test.gd measures them)
+	var h: Dictionary = hosts[i]
+	var main := i == int(rig.get(int(h.owner), -1))
+	var used := 0
+	for k in (h.builds as Array).size():
+		if str(h.builds[k]) != "" or _slot_busy(i, k): used += 1
+	var v := {"type": str(h.get("type", "pc")), "line": "%s · %s" % [str(NODE_TYPES[str(h.get("type", "pc"))].name), "your main node" if main else "yours"],
+		"slots": "%d/%d slots used" % [used, int(h.slots)], "store": [], "fill": "", "fill_col": C_DIM, "frac": 0.0, "wall": []}
+	var tot := _store_res(i)
+	var items := []
+	for res in RES:
+		var have := float(tot.get(res, 0.0))
+		if not main and have < 0.05: continue
+		items.append(["|", ""]); items.append([_COST_ICON[res], ""])
+		items.append(["", str(int(floor(have + 0.0001))) if main else _amt(have), C_TEXT])
+	if main: v.store = [["", "Bank", C_DIM]] + items   # (the main node's stock is your bank)
+	else:
+		v.store = ([["", "Storage", C_DIM]] + items) if not items.is_empty() else [["", "Storage empty", C_DIM]]
+		v.fill = "%s/%d" % [_amt(_store_total(i)), int(STORE_CAP)]
+		v.frac = clampf(_store_total(i) / STORE_CAP, 0.0, 1.0)
+		if _store_total(i) >= STORE_CAP - 0.5: v.fill_col = C_WARN
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	var coming := 0
+	for sk in (h.jobs as Dictionary):
+		if str((h.jobs[sk] as Dictionary).get("kind", "")) == "wall": coming += 1
+	var fw := "Firewall" if walls == 1 else "%d Firewalls" % walls
+	if walls > 0 and bool(h.get("fw_on", true)): v.wall = [["wall", ""], ["", "%s on · %d/%d cards loaded" % [fw, _loaded(i).size(), walls * FIREWALL_SOCKETS], C_TEXT]]
+	elif walls > 0: v.wall = [["wall", ""], ["", "%s OFF: no Intel here" % fw, C_BAD]]
+	elif coming > 0: v.wall = [["wall", "", Color(C_DIM, 0.8)], ["", "Firewall being built", C_DIM]]
+	else: v.wall = [["wall", "", Color(C_DIM, 0.5)], ["", "No Firewall", C_DIM]]
+	return v
+
+
+func _host_info_tip(i: int) -> String:
+	var out := [_type_line(i)]
+	if i == int(rig.get(int(hosts[i].owner), -1)): out.append("Your main node's stock is your bank: the top bar shows it.")
+	else: out.append(_store_text(i))
+	out.append("Click a slot to see the buildings for it.")
+	if _mine(i):
+		for line in (_host_diag(i).lines as Array).slice(0, 2): out.append(str(line[0]))
+	return "\n".join(PackedStringArray(out))
+
+
+func _option_view(kind: String, i: int, slot: int) -> Dictionary:   # one building in the chooser; read only (BuildOption draws it, tests measure it)
+	var cost := _build_cost(kind)
+	var lack := {}
+	for r in cost:
+		if _avail(PLAYER, str(r)) < float(cost[r]) - 0.0001: lack[str(r)] = true
+	var cur := str(hosts[i].builds[slot]) if slot >= 0 and slot < (hosts[i].builds as Array).size() else ""
+	var flow := _flow_items(kind, i)
+	if kind == "wall": flow = [["", "%d sockets" % FIREWALL_SOCKETS, C_TEXT], ["|", ""]] + flow
+	var ok := _can_build(PLAYER, i, slot, kind)
+	var tag := ""
+	if cur == kind and not _slot_busy(i, slot): tag = "Installed here"
+	elif ok and not lack.is_empty(): tag = "Not enough in bank"   # (still orderable: workers bring it as the bank gets it)
+	return {"name": str(BUILD_KINDS[kind].name), "what": str(BUILD_WHAT.get(kind, "")), "flow": flow, "cost": cost, "lack": lack, "tag": tag, "ok": ok}
+
+
+func _option_tip(kind: String, i: int, slot: int) -> String:
+	var out := ["%s\n\nMaterials: %s. Ordering is free: they must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [_build_desc(kind, i), _build_cost_text(kind), int(BUILD_TIME)]]
+	var cur := str(hosts[i].builds[slot]) if slot < (hosts[i].builds as Array).size() else ""
+	var v := _option_view(kind, i, slot)
+	if _slot_busy(i, slot): out.append("Cancel the project in this slot first.")
+	elif cur == kind: out.append("It is already in this slot.")
+	elif cur != "": out.append("It replaces the %s here: %d s to clear the slot first." % [str(BUILD_KINDS[cur].name), int(DEMOLISH_TIME)])
+	if bool(v.ok) and not (v.lack as Dictionary).is_empty(): out.append("Your bank is short of some of it now: the project waits until workers can bring it.")
+	return "\n".join(PackedStringArray(out))
+
+
+# A row of icon items: [kind, "", icon colour?] draws a resource or building icon, ["", text, colour] a word or a number,
+# ["|", ""] a wider gap between two groups. Returns the width; paint = false only measures.
+func _draw_items(c: CanvasItem, items: Array, x: float, cy: float, icon := 14.0, fs := 12, paint := true) -> float:
+	var font := get_theme_default_font()
+	var x0 := x
+	for k in items.size():
+		var it: Array = items[k]
+		var what := str(it[0])
+		if k > 0: x += 3.0
+		if what == "|": x += 4.0; continue
+		if what != "":
+			if paint: _draw_kind_icon(c, what, Vector2(x + icon * 0.5, cy), icon, it[2] if it.size() > 2 else BUILD_KINDS[what].col, font)
+			x += icon
+		else:
+			if paint: _text(c, font, Vector2(x, cy + float(fs) * 0.36), str(it[1]), fs, it[2] if it.size() > 2 else C_TEXT)
+			x += _text_w(font, str(it[1]), fs)
+	return x - x0
+
+
+func _dash_rect(c: CanvasItem, r: Rect2, col: Color) -> void:   # a dashed outline: nothing is here yet
+	var x := r.position.x
+	while x < r.end.x:
+		c.draw_line(Vector2(x, r.position.y), Vector2(minf(x + 5.0, r.end.x), r.position.y), col, 1.0)
+		c.draw_line(Vector2(x, r.end.y), Vector2(minf(x + 5.0, r.end.x), r.end.y), col, 1.0)
+		x += 9.0
+	var y := r.position.y
+	while y < r.end.y:
+		c.draw_line(Vector2(r.position.x, y), Vector2(r.position.x, minf(y + 5.0, r.end.y)), col, 1.0)
+		c.draw_line(Vector2(r.end.x, y), Vector2(r.end.x, minf(y + 5.0, r.end.y)), col, 1.0)
+		y += 9.0
+
+
+func _draw_host_info(c: Control, i: int) -> void:   # HostInfo: type and owner · slots used / storage as icons, x/10 / the Firewall
+	if not _host_ok(i): return
+	var v := _host_info_view(i)
+	var f := c.get_theme_default_font()
+	var w := c.size.x
+	c.draw_rect(Rect2(Vector2.ZERO, c.size), Color(0.1, 0.12, 0.17))
+	c.draw_rect(Rect2(Vector2.ZERO, c.size), Color(C_DIM, 0.35), false, 1.0)
+	_draw_type_glyph(c, str(v.type), Vector2(17, 11), 18.0, fcol(int(hosts[i].owner)).lightened(0.3), Color(0.06, 0.08, 0.12))
+	_text(c, f, Vector2(32, 16), str(v.line), 13, C_TEXT)
+	_text(c, f, Vector2(w - 8.0 - _text_w(f, str(v.slots), 11), 16), str(v.slots), 11, C_DIM)
+	_draw_items(c, v.store, 8.0, 30.0, 13.0, 12)
+	if str(v.fill) != "":
+		var tw := _text_w(f, str(v.fill), 11)
+		_text(c, f, Vector2(w - 8.0 - tw, 34), str(v.fill), 11, v.fill_col)
+		var bar := Rect2(w - 8.0 - tw - 6.0 - FILL_BAR_W, 28.0, FILL_BAR_W, 4.0)
+		c.draw_rect(bar, Color(0.04, 0.05, 0.08))
+		c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * float(v.frac), bar.size.y)), v.fill_col)
+	_draw_items(c, v.wall, 8.0, 47.0, 13.0, 12)
+
+
+func _draw_slot_row(c: Control, i: int, slot: int, hover: bool, sockets: bool) -> void:   # SlotBox: one slot of your host
+	if not _host_ok(i) or slot >= (hosts[i].builds as Array).size(): return   # (the host lost slots: the panel is about to be rebuilt)
+	var v := _slot_view(i, slot)
+	var f := c.get_theme_default_font()
+	var w := c.size.x; var hh := c.size.y
+	var full := Rect2(Vector2.ZERO, c.size)
+	if bool(v.empty):   # an empty slot invites a click
+		c.draw_rect(full, Color(0.13, 0.16, 0.22) if hover else Color(0.09, 0.11, 0.15))
+		_dash_rect(c, full.grow(-0.5), Color(C_TEXT if hover else C_DIM, 0.85))
+		c.draw_rect(Rect2(6, 8, 40, 40), Color(0.05, 0.06, 0.09))
+		_text(c, f, Vector2(6, 37), "+", 26, C_TEXT if hover else C_DIM, 40.0, HORIZONTAL_ALIGNMENT_CENTER)
+		_text(c, f, Vector2(SLOT_TEXT_X, hh * 0.5 + 5.0), str(v.title), 13, C_TEXT if hover else C_DIM.lightened(0.25))
+		return
+	var kind := str(v.kind)
+	var busy := bool(v.busy)
+	var col: Color = BUILD_KINDS[kind].col
+	var tone := col.lerp(Color(0.55, 0.57, 0.62), 0.55) if busy else col
+	c.draw_rect(full, Color(0.15, 0.17, 0.23) if hover else Color(0.12, 0.14, 0.19))
+	c.draw_rect(full, Color(tone, 1.0 if hover else 0.7), false, 2.0 if hover else 1.0)
+	var tx := SLOT_TEXT_X
+	if sockets:   # a finished Firewall: a small picture, then its 3 sockets across the second line (its SocketList)
+		c.draw_rect(Rect2(6, 5, 22, 22), Color(0.04, 0.05, 0.07))
+		_draw_kind_icon(c, kind, Vector2(17, 16), 16.0, tone, f)
+		var items: Array = (v.flow as Array) + [["|", ""]] + (v.stock as Array)
+		var iw := _draw_items(c, items, 0.0, 0.0, 13.0, 11, false)
+		_draw_items(c, items, w - 8.0 - iw, 15.0, 13.0, 11)
+		_text_fit_left(c, f, Vector2(34, 20), str(v.title), 13, C_TEXT, w - 8.0 - iw - 8.0 - 34.0)
+		return
+	c.draw_rect(Rect2(6, 8, 40, 40), Color(0.04, 0.05, 0.07))
+	_draw_kind_icon(c, kind, Vector2(26, 28), 26.0, tone, f)
+	var sw := _text_w(f, str(v.state), 11) if str(v.state) != "" else 0.0
+	_text_fit_left(c, f, Vector2(tx, 22), str(v.title), 13, C_DIM.lightened(0.3) if busy else C_TEXT, w - 8.0 - sw - 8.0 - tx)
+	if sw > 0.0: _text(c, f, Vector2(w - 8.0 - sw, 22), str(v.state), 11, v.state_col)
+	if busy:   # its materials here of its bill, and its progress (the cancel button sits on the right)
+		_draw_items(c, v.mats, tx, 38.0, 13.0, 11)
+		if float(v.progress) >= 0.0:
+			var bw := w - SlotBox.STOP_W - 14.0 - tx
+			c.draw_rect(Rect2(tx, hh - 8.0, bw, 3.0), Color(0.04, 0.05, 0.08))
+			c.draw_rect(Rect2(tx, hh - 8.0, bw * clampf(float(v.progress), 0.0, 1.0), 3.0), v.bar)
+		return
+	_draw_items(c, v.flow, tx, 40.0, 14.0, 12)
+	if not (v.stock as Array).is_empty():
+		var kw := _draw_items(c, v.stock, 0.0, 0.0, 14.0, 12, false)
+		_draw_items(c, v.stock, w - 8.0 - kw, 40.0, 14.0, 12)
+
+
+func _draw_option(c: Control, kind: String, i: int, slot: int, hover: bool) -> void:   # BuildOption: one building in the chooser
+	if not _host_ok(i) or slot >= (hosts[i].builds as Array).size(): return
+	var v := _option_view(kind, i, slot)
+	var f := c.get_theme_default_font()
+	var w := c.size.x
+	var ok := bool(v.ok)
+	var lit := hover and ok
+	var col: Color = BUILD_KINDS[kind].col
+	c.draw_rect(Rect2(Vector2.ZERO, c.size), Color(0.16, 0.19, 0.26) if lit else Color(0.12, 0.14, 0.19))
+	c.draw_rect(Rect2(Vector2.ZERO, c.size), Color(col, 1.0 if lit else 0.65), false, 2.0 if lit else 1.0)
+	c.draw_rect(Rect2(5, 7, 40, 40), Color(0.04, 0.05, 0.07))
+	_draw_kind_icon(c, kind, Vector2(25, 27), 25.0, col, f)
+	_text(c, f, Vector2(52, 19), str(v.name), 13, C_TEXT)
+	var fw := _draw_items(c, v.flow, 0.0, 0.0, 12.0, 11, false)
+	_draw_items(c, v.flow, w - 8.0 - fw, 14.0, 12.0, 11)
+	_text(c, f, Vector2(52, 34), str(v.what), 11, C_DIM.lightened(0.2))
+	_draw_cost_row(c, v.cost, BUILD_TIME, Vector2(52, 45), 11, 12.0, true, v.lack)
+	if not ok: c.draw_rect(Rect2(Vector2.ZERO, c.size), Color(0.07, 0.08, 0.11, 0.6))   # not for this slot now: greyed
+	if str(v.tag) != "":
+		var tw := _text_w(f, str(v.tag), 11)
+		_text(c, f, Vector2(w - 8.0 - tw, 49), str(v.tag), 11, C_GOOD if str(v.tag) == "Installed here" else C_WARN)
+
+
+func _open_chooser(i: int, slot: int) -> void:   # a click on one of your slots: every building for it, in place of the slot rows
+	if won or lost or not _mine(i) or slot < 0 or slot >= (hosts[i].builds as Array).size(): return
+	if sel.size() != 1 or not sel.has(i): sel = {i: true}; _inspect = -1
+	_chooser = {"host": i, "slot": slot}
+	_refresh_panel(); queue_redraw()
+
+
+func _on_panel_input(event: InputEvent) -> void:   # a click on the sidebar that no row or button took (its name, the empty space): elsewhere
+	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT] and not _chooser.is_empty():
+		_close_chooser()
+
+
+func _close_chooser() -> void:
+	if _chooser.is_empty(): return
+	_chooser = {}
+	_refresh_panel(); queue_redraw()
+
+
+func _chooser_slot(i: int) -> int:   # the slot the chooser is open on at host i, or -1
+	if _chooser.is_empty() or int(_chooser.host) != i or not _host_ok(i) or int(_chooser.slot) >= (hosts[i].builds as Array).size(): return -1
+	return int(_chooser.slot)
+
+
+func _choose_build(kind: String) -> void:   # a pick in the chooser: the build command for THAT slot (replacing what is there), then it closes
+	if _chooser.is_empty(): return
+	var i := int(_chooser.host); var slot := int(_chooser.slot)
+	if not _can_build(PLAYER, i, slot, kind): return
+	_chooser = {}
+	_cmd(["build", i, slot, kind])
+	_refresh_panel(); queue_redraw()
+
+
+func _chooser_remove(i: int, slot: int) -> void:   # Remove in the chooser: demolish what is in the slot (the old right click), then close
+	_chooser = {}
+	_demolish(i, slot)
+	_refresh_panel(); queue_redraw()
+
+
+func _small_btn(parent: Control, txt: String, cb: Callable, red: bool, tip: String) -> Button:
+	var b := Button.new(); b.text = txt; b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 14)
+	b.custom_minimum_size = Vector2(_text_w(get_theme_default_font(), txt, 14) + 18.0, 30.0)
+	b.tooltip_text = tip
+	_fixed_button_style(b, red)   # (flat margins: the row stays 30 px tall)
+	for key in ["font_color", "font_hover_color", "font_pressed_color"]: b.add_theme_color_override(key, C_BAD if red else C_TEXT)
+	b.pressed.connect(cb); parent.add_child(b)
+	return b
+
+
+func _panel_chooser(i: int, slot: int) -> void:   # the slot chooser: a title with Close (and Cancel project / Remove), then every building
+	var busy := _slot_busy(i, slot)
+	var cur := str(hosts[i].builds[slot])
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6)
+	panel_box.add_child(row)
+	var title := ("Slot %d: busy" if busy else ("Replace slot %d" if cur != "" else "Slot %d: choose a building")) % (slot + 1)
+	var l := _lbl(row, title, 14, C_TEXT, 0)
+	l.autowrap_mode = TextServer.AUTOWRAP_OFF; l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if busy: _small_btn(row, "Cancel project", _cancel_job.bind(i, slot), true, "Cancel this project: what was delivered stays here as salvage, and workers take it home.")
+	elif cur != "": _small_btn(row, "Remove", _chooser_remove.bind(i, slot), true, "Demolish the %s: the slot is empty again in %d s. Nothing is refunded." % [str(BUILD_KINDS[cur].name), int(DEMOLISH_TIME)])
+	_small_btn(row, "Close", _close_chooser, false, "Back to the slots (Esc).")
+	var list := VBoxContainer.new(); list.add_theme_constant_override("separation", int(SLOT_VSEP))
+	list.mouse_filter = Control.MOUSE_FILTER_STOP   # a click that lands between two rows is a near miss, not "elsewhere": the list stays open
+	for kind in BUILD_KINDS:
+		var o := BuildOption.new(); o.game = self; o.kind = kind; o.host = i; o.slot = slot
+		o.custom_minimum_size = Vector2(0, OPTION_H); o.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		list.add_child(o)
+	panel_box.add_child(list)
+
+
+func _panel_build(i: int) -> void:   # one full-width row per slot, always the same height; a click on a row opens the chooser for it
+	var h: Dictionary = hosts[i]
+	var list := VBoxContainer.new(); list.add_theme_constant_override("separation", int(SLOT_VSEP))
 	for slot in int(h.slots):
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
-		box.custom_minimum_size = Vector2(w, SLOT_H)
-		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 sockets inside its card
+		box.custom_minimum_size = Vector2(0, SLOT_H); box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 sockets across its row
 			var sl := SocketList.new(); sl.game = self; sl.host = i; sl.first = FIREWALL_SOCKETS * _wall_seat(i, slot)
-			sl.mouse_filter = Control.MOUSE_FILTER_PASS   # a building dragged onto it, or a right click, still reaches the slot
-			sl.custom_minimum_size = Vector2(w - 8.0, SocketList.ROW * 3.0); sl.position = Vector2(4.0, 28.0); sl.size = sl.custom_minimum_size
+			sl.mouse_filter = Control.MOUSE_FILTER_PASS   # a click still opens the chooser, a right click still removes the Firewall
 			box.add_child(sl); box.sockets_inside = true
-		grid.add_child(box)
-	panel_box.add_child(grid)
-	_gap(6.0)
-	var ph := _palette_h(i)
-	var wide := ph == PALETTE_H   # two wide cards a row with what each does in words; else three small ones
-	var palette := GridContainer.new(); palette.columns = 2 if wide else PANEL_COLS
-	palette.add_theme_constant_override("h_separation", PALETTE_GAP); palette.add_theme_constant_override("v_separation", PALETTE_GAP)
-	var cw := floorf((PANEL_W - 44.0 - PALETTE_GAP) / 2.0) if wide else _palette_card_w()
-	for kind in BUILD_KINDS:
-		var card := BuildCard.new(); card.game = self; card.kind = kind; card.host = i
-		card.custom_minimum_size = Vector2(cw, ph); palette.add_child(card)
-	panel_box.add_child(palette)
+		list.add_child(box)
+	panel_box.add_child(list)
 
 
 func _amt(x: float) -> String: return "%d" % int(round(x)) if absf(x - round(x)) < 0.05 else "%.1f" % x
@@ -8107,7 +8521,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 			_: line = "Building %s: %d s left." % [what, int(ceil(float(job.left)))]
 		probs.append(["building" if producers == 0 else "", C_DIM, line])
 	if producers == 0 and _count_all(i, "wall") == 0 and (hosts[i].jobs as Dictionary).is_empty():
-		probs.append(["idle", C_DIM, "Nothing installed: drag a building onto an empty slot."])
+		probs.append(["idle", C_DIM, "Nothing installed: click an empty slot to build."])
 	var status := "operating"; var col := C_GOOD
 	for p in probs:
 		if str(p[0]) != "": status = str(p[0]); col = p[1]; break
@@ -8201,19 +8615,26 @@ func _cut_off(i: int) -> Array:   # your hosts that, with i, have no route to yo
 
 
 const PALETTE_GAP := 4
-const PANEL_COLS := 3   # slots and building cards per row in the inspector
+const PANEL_COLS := 3   # a foreign host's slots per row in its inspector
 
 
-func _palette_card_w() -> float:   # three building cards (or slots) side by side within the inspector, never under its scrollbar
+func _palette_card_w() -> float:   # three of a foreign host's slots side by side within the inspector, never under its scrollbar
 	return floorf((PANEL_W - 44.0 - PALETTE_GAP * (PANEL_COLS - 1)) / float(PANEL_COLS))
 
 
-func _panel_selecting() -> void:   # your host: its name, its installations and what you can build there; nothing else
+func _panel_selecting() -> void:   # your host: its name, then its facts and one row per slot, or the slot chooser; nothing else
 	if sel.size() != 1:
 		_plabel("%d hosts selected" % sel.size(), 20, C_TEXT)
 		return
 	var source := int(sel.keys()[0])
 	_plabel(str(hosts[source].name), 20, C_TEXT)
+	var slot := _chooser_slot(source)
+	if slot >= 0:
+		_panel_chooser(source, slot)
+		return
+	var info := HostInfo.new(); info.game = self; info.host = source
+	info.custom_minimum_size = Vector2(0, HOST_INFO_H); info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel_box.add_child(info)
 	_panel_build(source)
 
 
@@ -8306,7 +8727,7 @@ func _do_unwire(_fac: int, _source: int) -> void: pass
 
 
 const _COST_ICON := {"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab", "bots": "bot"}
-func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, fs := 13, icon := 15.0, paint := true) -> float:
+func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, fs := 13, icon := 15.0, paint := true, lack := {}) -> float:   # lack: res -> true, amounts the bank cannot pay now (in red)
 	var font := get_theme_default_font()
 	var x := at.x
 	var items := 0
@@ -8317,7 +8738,7 @@ func _draw_cost_row(c: CanvasItem, cost: Dictionary, secs: float, at: Vector2, f
 		var txt := str(int(cost[res]))
 		if paint:
 			_draw_kind_icon(c, kind, Vector2(x + icon * 0.5, at.y), icon, BUILD_KINDS[kind].col, font)
-			_text(c, font, Vector2(x + icon + 3.0, at.y + fs * 0.38), txt, fs, C_TEXT)
+			_text(c, font, Vector2(x + icon + 3.0, at.y + fs * 0.38), txt, fs, C_BAD if lack.has(res) else C_TEXT)
 		x += icon + 3.0 + _text_w(font, txt, fs)
 		items += 1
 	if secs > 0.0:
@@ -8440,16 +8861,21 @@ func _hud_col_w() -> float:   # a material's column: the four share what the cou
 	return clampf(floorf((w - HUD_BOTS_W - HUD_OBJ_W) / 4.0), 106.0, 150.0)
 
 
-func _hud_rate(res: String) -> Array:   # [the HUD's second line, its colour]: the forecast inflow to the bank; for workers, what they do
+func _hud_rate(res: String) -> Array:   # [the HUD's second line, its colour]: the bank's net forecast (income less use); for workers, what they do
 	var fc := _forecast(PLAYER)
 	if res == "workers":
 		var wc := _worker_counts(PLAYER)
 		var busy := int(wc.collecting) + int(wc.carrying) + int(wc.joining)   # on their way to the main node counts as busy, not free
 		if int(wc.blocked) > 0: return ["%d busy · %d blocked" % [busy, int(wc.blocked)], C_WARN]
 		return ["%d busy · %d free" % [busy, int(wc.idle)], C_DIM]
-	if _res_full(res): return ["full", C_WARN]
-	var v := float(fc.rate[res])
-	return ["+%d/min" % int(round(v)), C_GOOD if v >= 0.5 else C_DIM]
+	if bool(fc.full[res]): return ["full", C_WARN]
+	var n := int(round(float(fc.net[res])))
+	return [_net_txt(float(fc.net[res])) + "/min", C_GOOD if n > 0 else (C_BAD if n < 0 else C_DIM)]
+
+
+func _net_txt(v: float) -> String:   # a signed whole number: "+12", "−8" (a minus sign), "0"
+	var n := int(round(v))
+	return "+%d" % n if n > 0 else ("−%d" % -n if n < 0 else "0")
 
 
 func _rate_txt(v: float) -> String: return "%d/min" % int(round(v))
@@ -8463,7 +8889,8 @@ func _by_txt(by: Dictionary) -> String:   # "research 12, buildings 4" — large
 	return ", ".join(PackedStringArray(items.map(func(it): return "%s %d" % [it[0], int(round(float(it[1])))])))
 
 
-func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast for one bank, where it comes from, what holds it back
+func _forecast_lines(res: String, with_net := true) -> Array:   # [[text, colour]]: one bank's income and where it comes from, what is
+	                                                             # used from it, the net (unless the caller shows it), what holds it back
 	var fc := _forecast(PLAYER)
 	var out := []
 	if res == "workers":
@@ -8473,12 +8900,29 @@ func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast f
 		out.append(["Each carries one unit per leg (an export's last unit takes the fraction left beside it); delivery does not consume them.", C_DIM])
 		out.append(["Building materials and Firewall upkeep go first, straight from the nearest stock; then output home.", C_DIM])
 		return out
-	var full := _res_full(res)
-	out.append(["Forecast: %s reaches your bank per minute." % ("nothing (the bank is full)" if full else "+%d" % int(round(float(fc.rate[res])))), C_WARN if full else C_TEXT])
+	var full := bool(fc.full[res])
+	var used := _use_sum(fc.use, res)
+	var net := float(fc.net[res])
+	var inc := float(fc.rate[res])
+	if full and used <= 0.0001: out.append(["Income: nothing more fits, the bank is full.", C_WARN])
+	elif full: out.append(["Income: %s per minute comes in, but the full bank takes only what is used." % _net_txt(inc), C_WARN])
+	else: out.append(["Income: %s reaches your bank per minute." % _net_txt(inc), C_TEXT])
 	var src: Dictionary = (fc.from as Dictionary).get(res, {})
-	if not src.is_empty(): out.append(["From: " + _by_txt(src), C_DIM])
+	if not src.is_empty(): out.append(["From: " + _by_txt(src) + ".", C_DIM])
+	if used > 0.0001: out.append(["Used per minute: " + _by_txt((fc.use as Dictionary).get(res, {})) + ".", C_DIM])
+	else: out.append(["Used: nothing at the moment.", C_DIM])
+	if with_net:
+		var n := int(round(net))
+		if full: out.append(["Net: the bank stays full; what is not used is lost.", C_WARN])
+		else: out.append(["Net: %s per minute." % _net_txt(net), C_GOOD if n > 0 else (C_BAD if n < 0 else C_DIM)])
 	var lim: Array = (fc.limits as Dictionary).get(res, [])
 	if not lim.is_empty(): out.append(["Held back: " + ", ".join(PackedStringArray(lim)), C_WARN])
+	if net <= -0.5 and not full:   # what the net means for the stock
+		var have := _avail(PLAYER, res)
+		if have < 1.0: out.append(["The bank is empty: what uses it waits until enough comes in.", C_BAD])
+		else:   # (only within the next minute, what the net covers: a card's price is paid once, not again every minute)
+			var secs := have / -net * 60.0
+			if secs <= NET_HORIZON: out.append(["At this rate the bank is empty in about %d s." % int(ceil(secs)), C_WARN])
 	return out
 
 
@@ -8538,15 +8982,16 @@ func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the 
 
 func _panel_economy() -> void:
 	_plabel("Economy", 20, C_TEXT)
-	_plabel("Forecast: what will reach your bank per minute with your network as it is now. Historical: what did over the last %d s." % int(_ledger_window()), 12, C_DIM)
+	_plabel("Net: what each bank gains or loses per minute: the income your network brings in, less what research, cards, building and Firewalls use. Historical: what happened over the last %d s." % int(_ledger_window()), 12, C_DIM)
 	_gap(4.0)
 	_plabel("DELIVERY WORKERS", 14, BUILD_KINDS.bot.col)
 	for l in _forecast_lines("workers"): _plabel(str(l[0]), 12, l[1])
 	for res in RES:
 		_gap(4.0)
 		var col: Color = BUILD_KINDS[str({"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col
-		_plabel("%s  %d / %d   forecast %s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), str(_hud_rate(res)[0])], 14, col)
-		for l in _forecast_lines(res).slice(1): _plabel(str(l[0]), 12, l[1])
+		var net := str(_hud_rate(res)[0])
+		_plabel("%s  %d / %d   %s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), net if net == "full" else "net " + net], 14, col)
+		for l in _forecast_lines(res, false): _plabel(str(l[0]), 12, l[1])   # (the net is on the line above, as in the HUD)
 		for l in _history_lines(res): _plabel(str(l), 12, C_DIM)
 	_gap(4.0)
 	_plabel("E or Esc closes this view.", 11, C_DIM)
@@ -9758,7 +10203,7 @@ class HelpGlyph extends Control:   # a big icon for the Help screen: a building 
 		elif kind != "": game._draw_kind_icon(self, kind, size * 0.5, size.y * 0.58, col, f)
 
 
-class HudBar extends Control:   # the HUD: each bank's stock and its recent net rate, then the objective
+class HudBar extends Control:   # the HUD: each bank's stock and its net forecast a minute, then the objective
 	var game
 
 	func _init() -> void:
@@ -9791,7 +10236,7 @@ class HudBar extends Control:   # the HUD: each bank's stock and its recent net 
 				tx += 22.0
 			var fs: int = game._hud_fs(f, str(it[1]), float(it[3]) - (tx - x))
 			game._text(self, f, Vector2(tx, 26.0), str(it[1]), fs, it[2])
-			var rate: Array = game._hud_rate(str(it[4]))   # recent net flow into this bank, per minute
+			var rate: Array = game._hud_rate(str(it[4]))   # the bank's net forecast a minute: income less what is used
 			game._text(self, f, Vector2(tx, 44.0), str(rate[0]), 12, rate[1], float(it[3]) - (tx - x) - 4.0, HORIZONTAL_ALIGNMENT_LEFT)
 			x += float(it[3])   # a fixed column: the next item never moves when this number grows
 		var obj: Array = game._objective_lines()   # the win, always on screen: needed / total, your count, who holds it
@@ -10262,106 +10707,12 @@ class TypeBadge extends Control:   # "what this building is": its picture, name,
 		game._text(self, f, Vector2(46, 33), str(tp.desc), 12, Color(0.7, 0.8, 0.9), size.x - 50, HORIZONTAL_ALIGNMENT_LEFT)
 
 
-# A building card. A slot (square, three a row): title 4-26 · picture 30-56 · what it makes 68 · what it uses 81 ·
-# state 99. The palette (wide, two a row): the picture on the left; name, what it makes, what it uses and the price on
-# the right. The mini palette (three a row, under Learn's banner): title · what goes in and comes out, in resource
-# icons · price. Every card says what the building does; its tooltip has the rest.
-const RES_WORD := {"intel": "Intel", "cash": "Crypto", "creds": "Cred", "research": "Research"}
-const WIDE_PIC := 36.0   # the wide palette card's picture
-func _build_lines(kind: String, host := -1, wide := false) -> Array:   # [what it makes, what it uses]; on a host, with its type's multiplier
-	var spec: Dictionary = BUILD_KINDS[kind]
-	var out := str(spec.get("out", ""))
-	match kind:
-		"bot": return ["Adds 2 workers", "who carry for you"] if wide else ["2 workers", "carry for you"]
-		"wall": return ["3 defence sockets", "uses 1 Intel"] if wide else ["3 sockets", "uses 1 Intel"]
-	var m := _tmult(host, out) if host >= 0 and _host_ok(host) else 1.0
-	var made := "%s %s" % [_amt(float(spec.rate) * m), RES_WORD[out]]
-	var line1 := ("Makes " + made) if wide else ("+" + made)
-	var ins: Dictionary = spec.get("use", {})
-	if ins.is_empty(): return [line1, "every %d s" % int(PROD_CYCLE)]
-	if ins.size() == 1:
-		var r: String = str(ins.keys()[0])
-		return [line1, "from %s %s" % [_amt(float(ins[r]) * m), RES_WORD[r]]]
-	var names := []
-	for r in ins: names.append(RES_WORD[str(r)])
-	return [line1, ("from " if wide else "") + "+".join(PackedStringArray(names))]   # (a slot is narrow: "Intel+Crypto")
-
-
-func _build_short(kind: String, host := -1) -> String: return str(_build_lines(kind, host)[0])   # its first line: what it makes there
-
-
 func _build_desc(kind: String, host := -1) -> String:   # the building's description with this host's amounts (its type's multiplier)
 	var spec: Dictionary = BUILD_KINDS[kind]
 	var out := str(spec.get("out", ""))
 	if out == "" or host < 0 or not _host_ok(host) or absf(_tmult(host, out) - 1.0) < 0.001: return str(spec.desc)
 	var m := _tmult(host, out)
 	return "Makes %s %s every %d s here." % [_amt(float(spec.rate) * m), {"intel": "Intel", "cash": "Crypto", "creds": "Credentials", "research": "Research"}[out], int(PROD_CYCLE)]
-
-
-func _draw_conversion(c: CanvasItem, kind: String, centre: Vector2, icon: float, host := -1) -> void:   # what goes in → what comes out, as resource icons
-	var font := get_theme_default_font()
-	var spec: Dictionary = BUILD_KINDS[kind]
-	var items := []   # [icon kind or "", text]
-	match kind:
-		"bot": items = [["bot", ""], ["", "2 workers"]]
-		"wall": items = [["wall", ""], ["", "3 sockets"]]
-		_ when (spec.use as Dictionary).is_empty() and str(spec.out) != "":   # a producer: +amount, its resource, every 12 s
-			items = [["", "+" + _amt(float(spec.rate) * (_tmult(host, str(spec.out)) if host >= 0 and _host_ok(host) else 1.0))], [_COST_ICON[str(spec.out)], ""], ["", "/ %d s" % int(PROD_CYCLE)]]
-		_:
-			for r in (spec.use as Dictionary): items.append([_COST_ICON[str(r)], ""])
-			items.append(["", "→"]); items.append([_COST_ICON[str(spec.out)], ""])
-	var widths := []; var total := 0.0
-	for it in items:
-		var wd := icon if str(it[0]) != "" else _text_w(font, str(it[1]), 11)
-		widths.append(wd); total += wd + 3.0
-	var x := centre.x - (total - 3.0) * 0.5
-	for k in items.size():
-		var it: Array = items[k]
-		if str(it[0]) != "": _draw_kind_icon(c, str(it[0]), Vector2(x + icon * 0.5, centre.y), icon, BUILD_KINDS[str(it[0])].col, font)
-		else: _text(c, font, Vector2(x, centre.y + 4.0), str(it[1]), 11, C_TEXT)
-		x += float(widths[k]) + 3.0
-
-
-func _draw_building_card(canvas: Control, kind: String, footer: String, gray := false, show_cost := false, host := -1) -> void:
-	var font := canvas.get_theme_default_font()
-	var w := canvas.size.x; var h := canvas.size.y
-	var colour: Color = BUILD_KINDS[kind].col if not gray else Color(0.6, 0.6, 0.6)
-	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), Color(0.13, 0.15, 0.21) if not gray else Color(0.15, 0.15, 0.15))
-	canvas.draw_rect(Rect2(Vector2.ZERO, canvas.size), colour, false, 2)
-	if show_cost and w > h * 1.6:   # the wide palette card: its name across the top; picture | what it makes · what it uses · price
-		canvas.draw_rect(Rect2(4, 4, w - 8, 19), colour.darkened(0.8))
-		_text_fit_left(canvas, font, Vector2(8, 18), str(BUILD_KINDS[kind].name), 12, C_TEXT, w - 16.0)
-		var pic := WIDE_PIC
-		canvas.draw_rect(Rect2(5, 27, pic, pic), Color(0.04, 0.05, 0.07))
-		_draw_kind_icon(canvas, kind, Vector2(5 + pic * 0.5, 27 + pic * 0.5), pic * 0.66, colour, font)
-		var x := pic + 12.0; var tw := w - x - 5.0
-		var lines := _build_lines(kind, host, true)
-		_text_fit_left(canvas, font, Vector2(x, 38), str(lines[0]), 11, C_TEXT, tw)
-		_text_fit_left(canvas, font, Vector2(x, 51), str(lines[1]), 11, C_DIM.lightened(0.2), tw)
-		_draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2(x, h - 9.0), 11, 12.0)
-		return
-	if h < 90.0:   # the mini palette card: name 4-24 · what goes in and what comes out, in icons 28-50 · price
-		canvas.draw_rect(Rect2(4, 4, w - 8, 20), colour.darkened(0.8))
-		_fit_text(canvas, str(BUILD_KINDS[kind].card), Rect2(6, 19, w - 12, 0), 12, C_TEXT)
-		canvas.draw_rect(Rect2(6, 28, w - 12, 24), Color(0.04, 0.05, 0.07))
-		_draw_conversion(canvas, kind, Vector2(w * 0.5, 40), 14.0, host)   # what goes in and what comes out (here)
-		if show_cost:
-			var cw0 := _draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
-			_draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2((w - cw0) * 0.5, h - 10.0), 11, 12.0)
-		elif footer != "": _fit_text(canvas, footer, Rect2(6, h - 10.0, w - 12, 0), 11, C_DIM)
-		return
-	# the slot card: name 4-26 · picture 30-56 · what it makes 68 · what it uses 81 · its state 99
-	canvas.draw_rect(Rect2(4, 4, w - 8, 22), colour.darkened(0.8))
-	_fit_text(canvas, str(BUILD_KINDS[kind].card), Rect2(6, 20, w - 12, 0), 12, C_TEXT)
-	canvas.draw_rect(Rect2(6, 30, w - 12, 28), Color(0.04, 0.05, 0.07))
-	_draw_kind_icon(canvas, kind, Vector2(w * 0.5, 44), 24, colour, font)
-	var sl := _build_lines(kind, host)
-	_fit_text(canvas, str(sl[0]), Rect2(6, 68, w - 12, 0), 11, C_TEXT)
-	if not gray: _fit_text(canvas, str(sl[1]), Rect2(6, 81, w - 12, 0), 11, C_DIM.lightened(0.2))   # (a project shows its materials there)
-	if show_cost:
-		var cw := _draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2.ZERO, 11, 12.0, false)
-		_draw_cost_row(canvas, _build_cost(kind), -1.0, Vector2((w - cw) * 0.5, 99), 11, 12.0)
-	elif footer != "": _fit_text(canvas, footer, Rect2(6, 99, w - 12, 0), 11, C_DIM)
 
 
 # Text is shaped once and kept. Font.draw_string()/get_string_size() remember only the last 64 strings, and one
@@ -10403,95 +10754,69 @@ func _fit_text(c: CanvasItem, text: String, at: Rect2, fs: int, col: Color) -> v
 	_text(c, font, at.position, text, size, col, at.size.x, HORIZONTAL_ALIGNMENT_CENTER)
 
 
-class SlotBox extends Control:   # one installation slot: the compact card (name 4-26 · picture 30-56 · makes 68 · uses 81 · state 99), a stop button when busy
+class SlotBox extends Control:   # one slot of your host, a full-width row (_draw_slot_row); a click opens the chooser on it, a right click demolishes
 	var game
 	var host := -1
 	var slot := 0
 	var stop_button: Button
-	var sockets_inside := false   # a finished Firewall: its SocketList child covers the picture (the card keeps one height)
+	var sockets_inside := false   # a finished Firewall: its SocketList child runs across the row's second line
+	var hover := false
+	var _down := false
+	const STOP_W := 84.0
 	const STOP_H := 22.0
 	func _init() -> void:
-		custom_minimum_size = Vector2(112, 112)
+		custom_minimum_size = Vector2(0, 56)
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		focus_mode = Control.FOCUS_ALL
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		tooltip_text = " "
 	func _make_custom_tooltip(for_text: String) -> Object:
 		return game._wrapped_tooltip(for_text)
 	func _get_tooltip(_at: Vector2) -> String: return game._slot_tip(host, slot)
 	func _ready() -> void:
-		stop_button = Button.new(); stop_button.text = "■"
+		stop_button = Button.new(); stop_button.text = "■  Cancel"
 		stop_button.add_theme_color_override("font_color", game.C_BAD)
 		stop_button.add_theme_font_size_override("font_size", 12)
 		stop_button.clip_text = true; stop_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		game._fixed_button_style(stop_button, true)
 		stop_button.tooltip_text = "Cancel this project: what was delivered stays here as salvage, and workers take it home."
 		stop_button.pressed.connect(game._cancel_job.bind(host, slot)); add_child(stop_button)
+		mouse_entered.connect(func(): hover = true; queue_redraw())
+		mouse_exited.connect(func(): hover = false; _down = false; queue_redraw())
+		resized.connect(_place)
+		_place()
+	func _place() -> void:   # the cancel button on the second line's right; a Firewall's sockets across the second line
+		stop_button.size = Vector2(STOP_W, STOP_H)
+		stop_button.position = Vector2(size.x - STOP_W - 6.0, 28.0)
+		for c in get_children():
+			if c != stop_button and c is Control:
+				(c as Control).position = Vector2(6.0, 29.0); (c as Control).size = Vector2(maxf(0.0, size.x - 12.0), 22.0)
 	func _process(_dt: float) -> void:
 		if slot >= (game.hosts[host].builds as Array).size(): return   # the host lost slots (a lesson's reset): the panel is about to be rebuilt
-		var busy: bool = game.hosts[host].jobs.has(slot)
-		stop_button.visible = busy
-		stop_button.size = Vector2(size.x, STOP_H)
-		stop_button.position = Vector2(0, size.y - STOP_H)
-		self_modulate = Color(0.72, 0.72, 0.72) if busy else Color.WHITE
-		var kind := str(game.hosts[host].builds[slot])
+		stop_button.visible = (game.hosts[host].jobs as Dictionary).has(slot)
 		queue_redraw()
-	func _can_drop_data(_p: Vector2, data: Variant) -> bool:
-		return data is Dictionary and data.has("kind") and game._can_drop(host, slot, str(data.kind))
-	func _drop_data(_p: Vector2, data: Variant) -> void:
-		game._drop_build(host, slot, str(data.kind))
-	func _gui_input(event: InputEvent) -> void:   # (a building cannot be paused: a click does nothing; right-click demolishes)
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and str(game.hosts[host].builds[slot]) != "":
-			game._demolish(host, slot); accept_event()
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			accept_event()
+			if event.pressed: _down = true
+			elif _down: _down = false; game._open_chooser(host, slot)
+		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT and str(game.hosts[host].builds[slot]) != "":
+			accept_event(); game._demolish(host, slot)
+		elif event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER, KEY_KP_ENTER]:
+			accept_event(); game._open_chooser(host, slot)
 	func _draw() -> void:
-		var font := get_theme_default_font()
-		var h: Dictionary = game.hosts[host]
-		if slot >= (h.builds as Array).size(): return
-		var job: Dictionary = h.jobs.get(slot, {})
-		var kind := str(h.builds[slot])
-		if not job.is_empty() and str(job.phase) == "build": kind = str(job.kind)
-		if kind == "":
-			draw_rect(Rect2(Vector2.ZERO, size), Color(0.1, 0.12, 0.17))
-			draw_rect(Rect2(Vector2.ZERO, size), game.C_DIM, false, 1)
-			game._text(self, font, Vector2(size.x * 0.5 - 8.0, size.y * 0.5 + 10.0), "+", 28, game.C_DIM)
-			return
-		var footer := "" if game._slot_active(host, slot) else "Inactive"
-		if kind == "bot" and job.is_empty():   # a station: how many of its two workers are there
-			var team: Dictionary = game._teams(host).get(slot, {})
-			var alive := 0
-			for wid in (team.get("w", []) as Array): if int(wid) >= 0: alive += 1
-			footer = ("" if alive == game.WORKERS_PER_STATION else "%d of %d workers" % [alive, game.WORKERS_PER_STATION]) if not team.is_empty() else "Off: no workers"
-		if kind in ["cash", "cred", "lab"]:
-			if game._slot_active(host, slot):
-				for input in (game.BUILD_KINDS[kind].use as Dictionary):   # its input must be made on this host (or be in the bank at the main node)
-					if not game._input_here(host, str(input)): footer = "Needs %s here" % game.RES_NAME[str(input)]
-		elif kind == "wall":
-			var a: int = game.FIREWALL_SOCKETS * game._wall_seat(host, slot)
-			footer = "%d/%d loaded" % [game._loaded_of((h.sockets as Array).slice(a, a + game.FIREWALL_SOCKETS)).size(), game.FIREWALL_SOCKETS] if bool(h.get("fw_on", true)) else "OFF: no Intel"
-		var waiting: bool = not job.is_empty() and str(job.phase) == "build" and not game._job_funded(job)
-		if not job.is_empty():   # the card says the state (materials, paused); the red button cancels, with the work left on it
-			footer = ""
-			stop_button.text = "■  %.0fs" % float(job.left) if not waiting else "■  Cancel"
-		if sockets_inside and job.is_empty(): footer = ""   # its sockets say what is loaded, and OFF
-		game._draw_building_card(self, kind, footer, not job.is_empty(), false, host)
-		if sockets_inside and job.is_empty(): draw_rect(Rect2(4, 27, size.x - 8, 70), Color(0.13, 0.15, 0.21))   # under the sockets
-		if not job.is_empty():
-			var total: float = maxf(0.001, float(job.total))
-			if not waiting: draw_rect(Rect2(6, size.y - STOP_H - 5.0, (size.x - 12) * (1 - float(job.left) / total), 3), Color(0.8, 0.8, 0.8))
-			else:   # construction waits for its materials: how much of the bill is here
-				var bill := 0.0; var here := 0.0
-				for r in (job.bill as Dictionary): bill += float(job.bill[r]); here += minf(float(job.bill[r]), float((job.escrow as Dictionary).get(r, 0.0)))
-				draw_rect(Rect2(4, 72, size.x - 8, 17), Color(0.12, 0.07, 0.03))
-				game._fit_text(self, "Materials %d/%d" % [int(here + 0.0001), int(bill + 0.0001)], Rect2(6, 85, size.x - 12, 0), 11, game.C_WARN)
+		game._draw_slot_row(self, host, slot, hover, sockets_inside)
 
 
 
-class SocketList extends Control:   # one finished Firewall's 3 socket positions, under its slot: empty, a card on its way, loaded, or off
+class SocketList extends Control:   # one finished Firewall's 3 socket positions across its slot row: empty, a card on its way, loaded, or off
 	var game
 	var host := -1
 	var first := 0   # this Firewall's first position in hosts[host].sockets (_wall_seat × 3)
-	const ROW := 22.0
+	const ROW := 22.0   # a socket's height
+	const GAP := 4.0
 	func _init() -> void:
-		custom_minimum_size = Vector2(112, ROW * 3.0)
+		custom_minimum_size = Vector2(0, ROW)
 		mouse_filter = Control.MOUSE_FILTER_STOP
 	func _process(_dt: float) -> void: queue_redraw()
 	func state(k: int) -> Array:   # [kind, recipe]: kind = "empty" | "held" | "loaded"
@@ -10506,38 +10831,38 @@ class SocketList extends Control:   # one finished Firewall's 3 socket positions
 		for f in game.flights:
 			if str(f.get("sock", "")) == tok and tok != "": return maxf(0.0, float(f.arrive_t) - game._t)
 		return -1.0
+	func chip(k: int) -> Rect2:   # position k's box, left to right
+		var cw := (size.x - 2.0 * GAP) / 3.0
+		return Rect2(float(k) * (cw + GAP), 0.0, cw, size.y)
 	func _draw() -> void:
 		var f := get_theme_default_font()
 		var on: bool = bool(game.hosts[host].get("fw_on", true))
 		var drag: String = game._dragged_card()
 		var can_drop: bool = drag != "" and game._socketable(game._card_of(drag)) and game._can_play(game.PLAYER, drag, host) == ""
 		for k in 3:
-			var r := Rect2(0, k * ROW, size.x, ROW - 3.0)
+			var r := chip(k)
 			var st := state(k)
 			var a := 1.0 if on else 0.45
+			var mid := r.position.y + r.size.y * 0.5
 			match str(st[0]):
 				"empty":
 					draw_rect(r, Color(0.08, 0.1, 0.14, a), true)
-					var dash := Color(game.C_DIM, 0.6 * a); var x := 0.0
-					while x < r.size.x:   # a dashed outline: nothing loaded here
-						draw_line(Vector2(x, r.position.y), Vector2(minf(x + 4.0, r.size.x), r.position.y), dash, 1.0)
-						draw_line(Vector2(x, r.end.y), Vector2(minf(x + 4.0, r.size.x), r.end.y), dash, 1.0)
-						x += 8.0
-					game._text(self, f, r.position + Vector2(6, 14), "empty" if on else "OFF", 11, Color(game.C_DIM, a) if on else game.C_BAD)
+					game._dash_rect(self, r.grow(-0.5), Color(game.C_DIM, 0.6 * a))
+					game._text(self, f, Vector2(r.position.x + 6.0, mid + 4.0), "empty" if on else "OFF", 11, Color(game.C_DIM, a) if on else game.C_BAD)
 					if can_drop and game._free_socket(host) == first + k: draw_rect(r, game.FAMILY_COL[str(game.CARDS[game._card_of(drag)].fam)], false, 2.0)
 				"held":
 					var cc: Color = game.FAMILY_COL[str(game.CARDS[str(st[1])].fam)]
 					draw_rect(r, Color(cc.r, cc.g, cc.b, 0.12 * a), true); draw_rect(r, Color(cc, 0.7 * a), false, 1.0)
-					game._draw_card_glyph(self, str(st[1]), r.position + Vector2(10, ROW * 0.5 - 1.5), 15.0, Color(1, 1, 1, 0.55 * a), f)
+					game._draw_card_glyph(self, str(st[1]), Vector2(r.position.x + 10.0, mid), 15.0, Color(1, 1, 1, 0.55 * a), f)
 					var e := eta(k)
-					game._text_fit_left(self, f, r.position + Vector2(21, 14), "%s %s" % [str(game.CARDS[str(st[1])].short), ("in %ds" % ceili(e)) if e >= 0.0 else "held"], 11, Color(cc.lightened(0.3), 0.8 * a), size.x - 25.0)
+					game._text_fit_left(self, f, Vector2(r.position.x + 21.0, mid + 4.0), "%s %s" % [str(game.CARDS[str(st[1])].short), ("%ds" % ceili(e)) if e >= 0.0 else "held"], 11, Color(cc.lightened(0.3), 0.8 * a), r.size.x - 24.0)
 				"loaded":
 					var cc2: Color = game.FAMILY_COL[str(game.CARDS[str(st[1])].fam)]
 					draw_rect(r, Color(cc2.r, cc2.g, cc2.b, 0.3 * a), true); draw_rect(r, Color(cc2, a), false, 1.5)
-					game._draw_card_glyph(self, str(st[1]), r.position + Vector2(10, ROW * 0.5 - 1.5), 15.0, Color(1, 1, 1, a), f)
-					game._text_fit_left(self, f, r.position + Vector2(21, 14), str(game.CARDS[str(st[1])].short) if on else "%s · OFF" % str(game.CARDS[str(st[1])].short), 11, Color(game.C_TEXT, a) if on else game.C_BAD, size.x - 25.0)
+					game._draw_card_glyph(self, str(st[1]), Vector2(r.position.x + 10.0, mid), 15.0, Color(1, 1, 1, a), f)
+					game._text_fit_left(self, f, Vector2(r.position.x + 21.0, mid + 4.0), str(game.CARDS[str(st[1])].short) if on else "%s OFF" % str(game.CARDS[str(st[1])].short), 11, Color(game.C_TEXT, a) if on else game.C_BAD, r.size.x - 24.0)
 	func _get_tooltip(at: Vector2) -> String:
-		var k := clampi(int(at.y / ROW), 0, 2)
+		var k := clampi(int(at.x / maxf(1.0, size.x / 3.0)), 0, 2)
 		var st := state(k)
 		var on: bool = bool(game.hosts[host].get("fw_on", true))
 		var off := "" if on else "\nThe Firewall is OFF: no Intel on this host, so loaded cards wait."
@@ -10549,6 +10874,50 @@ class SocketList extends Control:   # one finished Firewall's 3 socket positions
 		return data is Dictionary and (data as Dictionary).has("card") and game._socketable(game._card_of(str(data.card))) and game._can_play(game.PLAYER, str(data.card), host) == ""
 	func _drop_data(_p: Vector2, data: Variant) -> void:
 		game._cmd(["card", str(data.card), host])
+
+
+class HostInfo extends Control:   # the facts under your host's name (_draw_host_info): type and owner, slots used, storage, Firewall; read only
+	var game
+	var host := -1
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _get_tooltip(_at: Vector2) -> String: return game._host_info_tip(host)
+	func _draw() -> void:
+		game._draw_host_info(self, host)
+
+
+class BuildOption extends Control:   # one building in the slot chooser (_draw_option); a click orders it into the chooser's slot
+	var game
+	var kind := ""
+	var host := -1
+	var slot := -1
+	var hover := false
+	var _down := false
+	func _init() -> void:
+		custom_minimum_size = Vector2(0, 54)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		focus_mode = Control.FOCUS_ALL
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		tooltip_text = " "
+	func _ready() -> void:
+		mouse_entered.connect(func(): hover = true; queue_redraw())
+		mouse_exited.connect(func(): hover = false; _down = false; queue_redraw())
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _get_tooltip(_at: Vector2) -> String: return game._option_tip(kind, host, slot)
+	func choose() -> void: game._choose_build(kind)
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			accept_event()
+			if event.pressed: _down = true
+			elif _down: _down = false; choose()
+		elif event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER, KEY_KP_ENTER]:
+			accept_event(); choose()
+	func _draw() -> void:
+		game._draw_option(self, kind, host, slot, hover)
 
 
 class PeekSlot extends Control:   # read-only view of ONE slot of a building you don't own (fogged if unscanned)
@@ -10578,46 +10947,7 @@ class PeekSlot extends Control:   # read-only view of ONE slot of a building you
 			draw_multiline_string(f, Vector2(4, 57), str(game.BUILD_KINDS[kind].name), HORIZONTAL_ALIGNMENT_CENTER, size.x - 8, 12, 2, game.C_TEXT)
 
 
-class DragIcon extends Control:   # the picture that follows the pointer while a card is dragged
-	var game
-	var kind := ""
-
-	func _draw() -> void:
-		game._draw_kind_icon(self, kind, size * 0.5, 36.0, game.BUILD_KINDS[kind].col, get_theme_default_font())
-
-
-class BuildCard extends Control:   # a draggable card for one building kind
-	var game
-	var kind := ""
-	var host := -1   # the host whose menu it is in: what it makes there (the host type's multiplier)
-
-	func _init() -> void:
-		custom_minimum_size = Vector2(72, 94)
-		mouse_filter = Control.MOUSE_FILTER_STOP
-		focus_mode = Control.FOCUS_ALL
-		tooltip_text = " "
-	func _make_custom_tooltip(for_text: String) -> Object:
-		return game._wrapped_tooltip(for_text)
-	func _get_tooltip(_at: Vector2) -> String:
-		return "%s\n\nMaterials: %s. They must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [game._build_desc(kind, host), game._build_cost_text(kind), int(game.BUILD_TIME)]
-
-	func _get_drag_data(_p: Vector2) -> Variant:
-		var icon := DragIcon.new(); icon.game = game; icon.kind = kind
-		icon.custom_minimum_size = Vector2(48, 48); icon.size = Vector2(48, 48)
-		set_drag_preview(icon)
-		return {"kind": kind}
-
-	func _gui_input(ev: InputEvent) -> void:
-		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and not ev.pressed:
-			game._card_click(kind)
-		elif ev is InputEventKey and ev.pressed and ev.keycode == KEY_ENTER:
-			game._card_click(kind); accept_event()
-
-	func _draw() -> void:
-		game._draw_building_card(self, kind, "", false, true, host)   # the price as resource icons
-
-
-class CampSpot extends Control:   # a pulsing gold ring + pointer on the exact UI element a campaign step names (deck card, build card, panel button)
+class CampSpot extends Control:   # a pulsing gold ring + pointer on the exact UI element a campaign step names (deck card, slot row, chooser row, panel button)
 	var game
 	var _scrolled := 0
 
@@ -10631,7 +10961,7 @@ class CampSpot extends Control:   # a pulsing gold ring + pointer on the exact U
 		if not on: return
 		var ts: Array = game._camp_ui_targets()
 		if not ts.is_empty() and game.panel_scroll != null and game.panel_scroll.is_ancestor_of(ts[0]) and ts[0].get_instance_id() != _scrolled:
-			_scrolled = ts[0].get_instance_id(); game.panel_scroll.ensure_control_visible.call_deferred(ts[0])   # a palette card below the fold: scroll it in once
+			_scrolled = ts[0].get_instance_id(); game.panel_scroll.ensure_control_visible.call_deferred(ts[0])   # a panel row below the fold: scroll it in once
 		queue_redraw()
 
 	func _draw() -> void:

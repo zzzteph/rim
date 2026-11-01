@@ -96,9 +96,10 @@ godot --headless --path . --script tests/logistics_test.gd   # workers: supply r
 godot --headless --path . --script tests/workers_test.gd     # 2 workers per station, identities, replacement, capture, local use, escrow, fairness
 godot --headless --path . --script tests/queue_test.gd       # the four-place FIFO queue: capacity, order, waiting head, full hand, pause, cancel
 godot --headless --path . --script tests/fog_test.gd         # unscouted hosts reveal nothing; Recon reveals, expiry collapses; AI uses Recon
-godot --headless --path . --script tests/host_panel_test.gd  # host panels: socket seating and states, no launch controls, no stale controls
+godot --headless --path . --script tests/host_panel_test.gd  # host panels: facts, slot rows, the slot chooser, socket seating, no launch controls, no stale controls
 godot --headless --path . --script tests/cards_ui_test.gd    # cards strip and drawer, selection and launch, research bar, queue strip, + Queue
 godot --headless --path . --script tests/forecast_test.gd    # income forecast vs a steady simulation; workers, routes, starvation, caps
+godot --headless --path . --script tests/net_forecast_test.gd # the HUD's net: income less research, cards, building, upkeep vs the bank
 godot --headless --path . --script tests/events_test.gd      # event history: priorities, one entry per condition, outcomes, strip, history
 godot --headless --path . --script tests/sim_smoke_test.gd   # 90 s four-faction match (3 AIs): no error, banks stay sane
 godot --headless --path . --script tests/ai_test.gd          # AIs research, manufacture and capture ground (not idle)
@@ -228,9 +229,9 @@ per botnet; `_econ_rates(fac, res)` turns them into per-minute received/spent/lo
 overview and tooltips say "Historical, last 30 s"). The ledger is presentation only: it is not part of the
 lockstep fingerprint (`_mp_hash`).
 
-Income forecast (round B). The HUD's second line under each material is a **forecast**: what will reach the
+Income forecast (round B). The income forecast is what will reach the
 main node's bank per minute with the network as it stands (`_forecast`, recomputed every 0.5 s or after any
-command). It is worked out from the network, never extrapolated from early ledger events: the main node's
+command); since 0.6.17 the HUD shows it net of what the bank pays out (below). It is worked out from the network, never extrapolated from early ledger events: the main node's
 trickle and buildings (with their bank inputs), then each host whose output is yours (`_fc_cycle`: its active
 producers, inputs made there or supplied by workers from a shared budget — plenty while the bank holds
 a buffer, else what the main node itself brings in — Firewall upkeep), limited by its route
@@ -243,21 +244,58 @@ a phished host whose storage is full of the owner's stock ("storage full at …"
 node is under DDoS. "Not enough workers" names each material the shortage cuts, even to nothing, and never one it
 frees (0.6.8). The full-bank test is once per material, not per host (it walks every host's producers). A host the trips cannot keep up with
 stays full, so it makes only what leaves, every producer the same share (`_fc_throttled` scales them together).
-A full bank shows "full". The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
+The tooltip and the Economy overview name the sources and what holds the forecast back ("not enough
 workers", "no route home from …", "your bank is full"), and each bank's tooltip says how much is stored at hosts, in
-transit (`_where_is`). The **Workers** column is the worker population, not an income:
+transit (`_where_is`).
+
+Net forecast (0.6.17). The HUD's second line under each material is ONE signed number a minute: the income forecast
+less what the bank pays out in the next minute, as things stand (`_forecast` returns `use: {res: {what: units}}`, `net`
+and `full` beside `rate`). `_bank_use(fac)` (it only reads) adds research while it runs and is not paused (it pays as it
+progresses: `_research_cost` × the part of the next minute it still runs / `_research_time`), the card queue while it
+runs and is not paused (each copy pays its `_recipe_cost` once, when it starts: the price of every copy that starts
+within the next minute — not the copy being made, already paid, and none while a full Ready inventory keeps it from
+starting — so one Recon counts 8 Intel, not 8 over its 3 s), building (`_build_owed`: what the projects still need from
+the bank, all of it within the next minute; a project the workers cannot reach holds nothing) and the main node's
+Firewalls' upkeep; `_forecast_now` adds what the bank sends to remote hosts (a Firewall's upkeep on a host that does not
+make enough Intel), as far as the workers' trips bring it. A full bank takes in again only what is used from it that the
+main node's own income (trickle and buildings) does not refill: then a remote host's output of it is counted; while the
+main node covers the use, remote output waits on its host and clogs it, as with a full bank nothing uses. It shows
+"full" only while its income keeps up with what is used (`full`: what is not used is lost), else the negative net. `_hud_rate` shows "+N/min" (green), "−N/min" (red, a minus
+sign) or "0/min" (dim); `_forecast_lines` (the tooltip, and the Economy overview under each bank's "net …" heading)
+lists the income and its sources, each use in the next minute ("Used per minute: research 14, card queue 48, …"), the net, what
+holds the income back, and when the net is negative whether the bank is empty or runs empty within the minute. `tests/net_forecast_test.gd` checks the
+net against the next 60 s of play with research and a card queue running (each bank within 20%) and with one Recon, the
+next-minute rules (a paid copy, three of four 26 s copies, a nearly full Ready inventory, research with 10 s left), a
+network that uses nothing (net = income, 120 s), each use on its own (paused research and queue, a full Ready inventory,
+a project, an unreachable one, main-node and supplied Firewalls), full banks (also a full Intel bank a main-node Firewall
+uses while a remote host's Intel clogs its storage), the HUD's sign and colour, the tooltip's order and the overview. The **Workers** column is the worker population, not an income:
 "Workers N" over "B busy · F free" (or "· K blocked"). `tests/forecast_test.gd` checks the forecast against 120 s of
 steady play and against no workers (including hosts whose Firewall runs only on supplied upkeep), a cut route, upkeep
 supplied or starved, a full bank, a File server whose storage cannot hold a whole cycle (its producers share the room), a phished host with a
 Firewall and one with a full storage, and a main node under DDoS, and, with two workers for six hosts, each material
 within 30% of what arrives.
 
-Host panels (0.6.3). Your host's panel is a **build menu**: its name, its slots (`SlotBox`, compact `SLOT_H` 112 px
-cards in rows of three; a finished Firewall shows its three sockets inside its own card, so a row never grows) and
-the six buildings (`BuildCard`, 0.6.9: `PALETTE_H` 70 px wide cards two a row — name across the top, picture, what it
-makes and what it uses on this host from `_build_lines`, price — or `PALETTE_H_MINI` 74 px three a row — name, the
-conversion in resource icons (`_draw_conversion`), price — when `_palette_h` finds the full menu would not fit
-`_panel_avail_h`, as under Learn's banner). The same height every frame, so it never scrolls or jumps at 1280×720.
+Host panels (0.6.3; since reworked around the slot chooser). Your host's panel is its name, then **its facts**
+(`HostInfo`, `HOST_INFO_H` 58 px, from `_host_info_view`: type and owner, slots used/total, its storage as resource icons
+with their amounts and x/10 — at your main node its bank — and the Firewall: on with n/m cards loaded, OFF, being built,
+or none), then **one full-width row per slot** (`SlotBox`, `SLOT_H` 56 px, from `_slot_view`): a building's picture and
+name, its state on the right (`SLOT_STATES`: off under DDoS or Sabotage, phished, bank or storage full, a station's
+missing workers or its workers held by Sabotage, a Firewall OFF), and as icons with numbers what it makes or uses every cycle on this host (`_flow_items`:
++1.5 Intel on a Server, a Firewall's -1 Intel, a station's +2 workers) next to the stock of that resource here
+(`_stock_items`; at the main node, the bank); a project shows its state, its materials here of its bill as icons
+(n/m), a progress bar and a red cancel button; an empty slot is dashed and reads "Empty slot — click to build". A
+finished Firewall's row has a small picture and its three sockets across the second line, so every row keeps one
+height. A **click on a slot opens the chooser** (`_open_chooser`; `_chooser` is UI state the simulation never reads) in
+place of the facts and the rows: a title with Close (and Cancel project on a running project, Remove on a built slot),
+then every building (`BuildOption`, `OPTION_H` 54 px, from `_option_view`): picture, name, what it makes or uses as
+icons, one short line on what it is for (`BUILD_WHAT`), its price as resource icons with the build time (amounts the
+bank cannot pay now in red with "Not enough in bank" — still orderable, since ordering is free and workers bring the
+materials), the building already there marked "Installed here". A pick sends the build command for THAT slot
+(`_choose_build` → `_cmd(["build", host, slot, kind])`, replacing what is there: demolish, then build) and closes the
+chooser; Close, Esc, a click on the map or elsewhere in the sidebar (not in the 4 px between two of its rows: a near
+miss), another selection or the card drawer close it too. There is no palette and no
+dragging of buildings. Everything fits without scrolling at 1280×720 and 1366×768, under Learn's banner as well
+(`tests/text_fit_test.gd`).
 Hover notes (`_wrapped_tooltip`) measure their wrapped height before they are shown and set their lines at the text
 font's own height (the symbols fallback makes the theme font's lines 28 px at 13 px), so Godot places them fully on
 screen; `TooltipPanel` in `assets/ui_theme.tres` gives them an opaque bordered panel. Selecting your host closes the card drawer, and
@@ -267,19 +305,23 @@ an inspection (if you still see it) without moving your view; a host you inspect
 selection in the same refresh, and an inspection the fog drops leaves the narrower sidebar without sliding the map
 (0.6.8: `_refresh_panel` treats every change the sim makes to the sidebar like a prune), and the drawer's state is part of the panel's context only
 while the build menu shows, so opening it keeps your place in the Logs or the Economy view.
-A slot card says what it makes and uses on that host (`_build_lines`: the type multiplier, e.g. +1.5 Intel on a Server); a click does nothing (nothing can be paused), a right click demolishes. A slot shows its state on the card (materials n/m while a project waits
-for them, its work bar, inactive, needs an input) and a red stop button while busy; its tooltip
-(`_slot_tip`) says what it is, what it is doing and the host's first two problems from `_host_diag`.
+A slot row's tooltip (`_slot_tip`) says what it is, what it is doing and the host's first two problems from
+`_host_diag`; a right click on a row still demolishes (nothing can be paused). The facts' tooltip (`_host_info_tip`)
+gives the type's multipliers and the storage in words; a chooser row's (`_option_tip`) the materials and what replacing
+costs. Learn's build steps cue an empty slot of the step's host first, then the building in that slot's chooser
+(`_camp_build_ctrls`).
 No card is sent or launched from a host panel: cards go through the card UI and drag and drop. A foreign host's
 panel shows only its owner and "Unknown host — send Recon to inspect." until a fresh Recon adds its type, slots,
-storage and Firewall cards; when the Recon goes stale it says "Recon expired". Under every finished Firewall a
-`SocketList` shows its 3 socket positions: empty, a card on its way (with its arrival time), loaded (by name and
-art), or off. Sockets are positional (`hosts[i].sockets`: "" empty, a recipe, or "@recipe#flight" held for a card
+storage and Firewall cards; when the Recon goes stale it says "Recon expired". In every finished Firewall's row a
+`SocketList` shows its 3 socket positions side by side: empty, a card on its way (with its arrival time), loaded (by
+name and art), or off. Sockets are positional (`hosts[i].sockets`: "" empty, a recipe, or "@recipe#flight" held for a card
 on its way) and seated on the finished Firewalls in slot order, 3 each (`_wall_seat`): a card loads into the first
 empty position from the left; a card that fires leaves its position empty; a Firewall that is demolished or
 replaced takes its own 3 positions and their cards away when the work starts (`_seat_out`), and one that is
 finished gets 3 empty positions at its seat (`_seat_in`), so every card stays in the Firewall it was loaded into.
-`tests/host_panel_test.gd` covers this and checks that no control outlives its context.
+`tests/host_panel_test.gd` covers this and the slot chooser (opens on a click, lists every building, orders into that
+slot, replaces, cancels, closes on Esc, the map, another selection; none on rival or neutral hosts; the lockstep
+fingerprint unchanged by it), and checks that no control outlives its context.
 
 Host diagnoses and route inspection (Milestone A). `_cycle_preview(i)` works the next cycle out exactly
 as `_run_cycle` will, on copies (`_pv_add`/`_pv_take`), so "Next cycle in 2.4 s: …" shows feasible output;
@@ -361,7 +403,7 @@ only when the chance is below 1, and only after counters, a void target and the 
 `rolls_always_hit` (tests only) forces every draw to succeed while still taking it, for suites about effects.
 
 The idle right sidebar shows compact standings automatically; selecting a node replaces it
-with the host's build menu (its slots and the buildings). Help uses six
+with the host's panel (its facts and its slots; a click on a slot chooses its building). Help uses six
 illustrated pages with examples; the tutorial colours its keywords like the things they name
 (ATTACK red, DEFENCE blue, your pieces green).
 
@@ -466,8 +508,8 @@ is the card's hover tooltip, so keep each rules sentence short (about two card l
 placed after every building by `_place_names`: the first free spot of eight round the building, clear
 of other names, pictograms and warning lines, in priority order (selected, hovered, campaign hosts,
 main nodes, yours, others); a minor name with no free spot shows on hover instead. The sidebar
-content sits in `panel_gutter`, 6 px clear of its scrollbar, and the build palette sizes its cards
-from `PANEL_W` (`_palette_card_w`).
+content sits in `panel_gutter`, 6 px clear of its scrollbar; your host's rows fill its width, and a foreign host's
+slots size from `PANEL_W` (`_palette_card_w`).
 
 Operations (cards do all the fighting; `cards.gd` `CARDS`, resolved in `_play_card` /
 `_op_land` / `_tick_execs` / `_apply_support`). Playing an ATTACK card launches an **operation

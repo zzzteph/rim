@@ -870,7 +870,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.16",
+    "GAME_VERSION": "0.6.17",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

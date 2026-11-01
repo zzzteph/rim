@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.16 · commit a963bb8
+RIM 0.6.17 · commit dbee954
 
 ## Contents
 
@@ -324,7 +324,7 @@ When the way on is cut (a relay taken or under DDoS) a packet waits at the last 
 | Research lab         | +1 Research        | 12 Intel, 16 Crypto | +50 Research cap | No input (since 0.6.12): it makes Research on its own.                                                                                                                                                                                                                          |
 | Firewall             | −1 Intel upkeep    | 10 Intel, 30 Crypto | —                | Not a producer. 3 sockets for defence cards per Firewall. Eats 1 Intel from its own host each cycle (workers bring it when none is made there); without it the Firewall is off and its cards wait. It does not make the host harder to capture.                                 |
 
-- Drag a building card from the host panel onto a slot. The full price is paid when the job starts; the job takes 10 s. Replacing a building first demolishes it (5 s).
+- Click a slot in the host panel and pick a building from the list (each with what it makes or uses and its price, as icons). Ordering is free; workers bring its materials, then the job takes 10 s. Picking a building for an occupied slot replaces it: the old one is demolished first (5 s).
 - A building cannot be paused: it works whenever it can. A project can be cancelled (the red button); right-click demolishes.
 - Every building of a resource's kind adds 50 to that resource's bank cap (the Firewall adds nothing).
 
@@ -740,7 +740,7 @@ Not offered in the menus at present. The backend below is kept and still tested.
 - Click a host: select (yours) or inspect (foreign). Shift-drag: box-select.
 - Drag empty map: pan · wheel: zoom · middle-drag: pan · **0**: recentre.
 - **C**: open or close the cards drawer · **R**: research · **E**: Economy overview · **H**: event history · **Space**: pause (single player) · **Esc**: menu or clear selection.
-- Drag a card onto a host to play it; drag a building card onto a slot to build.
+- Drag a card onto a host to play it; click a slot in the host panel to build there.
 
 ## Simulation step
 

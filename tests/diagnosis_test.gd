@@ -303,22 +303,22 @@ func dfs_text(n: Node) -> String:
 	return out
 
 
-func panel_order() -> void:   # your host's panel is a build menu: its name, its slots, the buildings; no status prose
+func panel_order() -> void:   # your host's panel: its name, its facts drawn as icons, one row per slot; no status prose
 	fresh()
 	g.bank[P] = {"intel": 60.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
 	var n := own_pc(["cash"])
 	g.sel = {n: true}; g._inspect = -1
 	g._refresh_panel()
-	var labels := []; var slots := 0; var cards := 0
+	var labels := []; var slots := 0; var options := 0
 	var stack: Array = [g.panel_box]
 	while not stack.is_empty():
 		var c: Node = stack.pop_back()
 		for ch in c.get_children(): stack.append(ch)
 		if c is Label: labels.append(str((c as Label).text))
-		elif c.get_class() == "Control" and c.has_method("_can_drop_data") and "slot" in c: slots += 1
-		elif "kind" in c and c.has_method("_get_drag_data"): cards += 1
-	check(labels == [str(g.hosts[n].name)], "The only text is the host's name (%s)" % str(labels))
-	check(slots == int(g.hosts[n].slots) and cards == g.BUILD_KINDS.size(), "Then its %d slots and the %d buildings (%d, %d)" % [int(g.hosts[n].slots), g.BUILD_KINDS.size(), slots, cards])
+		elif "stop_button" in c and "slot" in c: slots += 1
+		elif c.has_method("choose"): options += 1
+	check(labels == [str(g.hosts[n].name)], "The only text label is the host's name; its facts and slots are drawn (%s)" % str(labels))
+	check(slots == int(g.hosts[n].slots) and options == 0, "Then one row for each of its %d slots, and the buildings only in a slot's chooser (%d, %d)" % [int(g.hosts[n].slots), slots, options])
 	var d: Dictionary = g._host_diag(n)
 	var crypto := "+%s %s" % [g._amt(float(g.BUILD_KINDS.cash.rate) * g._tmult(n, "cash")), g.RES_NAME.cash]
 	check(str(d.status) == "operating" and str(d.next).contains(crypto), "The diagnosis still exists for the Logs and the Economy view (%s: %s)" % [str(d.status), str(d.next)])

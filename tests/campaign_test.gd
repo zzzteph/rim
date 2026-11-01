@@ -30,9 +30,42 @@ func make(recipe: String) -> void:   # + Queue, through the command path
 	g._enqueue(g._card_key(recipe, "linked"))
 
 
-func build(host: int, kind: String) -> void:
+var chooser_builds := 0   # orders placed through the slot chooser, as a player does
+var chooser_ok := true       # ...each one opened on an empty slot, listed every building, started its project in THAT slot and closed
+
+
+func panel_nodes(pred: Callable) -> Array:
+	var out := []
+	var stack: Array = [g.panel_box]
+	while not stack.is_empty():
+		var c: Node = stack.pop_front()
+		for ch in c.get_children(): stack.append(ch)
+		if pred.call(c): out.append(c)
+	return out
+
+
+func click(c: Control) -> void:   # a press and a release on the control, as the GUI delivers them
+	for down in [true, false]:
+		var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = down
+		c._gui_input(ev)
+
+
+func build(host: int, kind: String) -> void:   # select the host, click an empty slot, pick the building in the chooser
 	var slot: int = g._free_slot(host)
-	if slot >= 0: g._cmd(["build", host, slot, kind])
+	if slot < 0: return
+	g.sel = {host: true}; g._inspect = -1; g._refresh_panel()
+	var rows := panel_nodes(func(c): return "stop_button" in c and int(c.get("host")) == host and int(c.get("slot")) == slot)
+	if rows.is_empty(): chooser_ok = false; return
+	click(rows[0])
+	var opts := panel_nodes(func(c): return c.has_method("choose"))
+	var ok: bool = g._chooser_slot(host) == slot and opts.map(func(o): return str(o.kind)) == g.BUILD_KINDS.keys()
+	var pick := opts.filter(func(o): return str(o.kind) == kind)
+	if pick.is_empty(): chooser_ok = false; return
+	click(pick[0])
+	var job: Dictionary = (g.hosts[host].jobs as Dictionary).get(slot, {})
+	ok = ok and str(job.get("kind", "")) == kind and g._chooser.is_empty() and panel_nodes(func(c): return c.has_method("choose")).is_empty()
+	chooser_ok = chooser_ok and ok
+	chooser_builds += 1
 
 
 func once(key: String) -> bool:   # true the first time only (for build/research/select-type actions)
@@ -52,7 +85,17 @@ func do_action(ch: int, st: int) -> void:
 		"0:1": play_when_held("recon", g._camp_relay)
 		"0:2": if once(key): make("breach")
 		"0:3": play_when_held("breach", g._camp_relay)
-		"1:0": if once(key): build(g._camp_relay, "bot")
+		"1:0":
+			if once(key):   # the cue: an empty relay slot, then the Bot station in that slot's chooser
+				g.sel = {g._camp_relay: true}; g._inspect = -1; g._refresh_panel()
+				var t0: Array = g._camp_ui_targets()
+				var free: int = g._free_slot(g._camp_relay)
+				var first_cue: bool = t0.size() == 1 and "stop_button" in t0[0] and int(t0[0].slot) == free
+				if not t0.is_empty(): click(t0[0])
+				var t1: Array = g._camp_ui_targets()
+				cue_checks["slot_cue"] = first_cue and t1.size() == 1 and t1[0].has_method("choose") and str(t1[0].kind) == "bot"
+				g._close_chooser()
+				build(g._camp_relay, "bot")
 		"1:1":
 			if once(key + "i"): build(g._camp_relay, "intel")
 			if once(key + "c"): build(g._camp_relay, "cash")
@@ -140,6 +183,8 @@ func run() -> void:
 	check(bool(cue_checks.get("workers", false)), "The relay's finished Bot station has exactly 2 workers")
 	check(bool(cue_checks.get("lost", false)), "The lost Outpost is explained: 2 station workers destroyed")
 	check(bool(cue_checks.get("losses_step", false)), "The loss step does not pause, says who took it (NYX, red), names a host of yours with a free slot, selects it and cues the Bot station")
+	check(bool(cue_checks.get("slot_cue", false)), "A build step cues an empty slot of its host first, then the building in that slot's chooser")
+	check(chooser_ok and chooser_builds >= 5, "Every lesson building is ordered through the slot chooser: it opens on an empty slot, lists every building, starts the project in that slot and closes (%d orders)" % chooser_builds)
 	var t0: float = g._t
 	pump(2.0)
 	check(g._camp_chapter == g.CAMP_OPEN and not g._camp_paused and not g.paused and g._t > t0 + 1.5, "Free play runs without Space (%.1f s passed)" % (g._t - t0))
