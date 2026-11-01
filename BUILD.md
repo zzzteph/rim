@@ -259,7 +259,7 @@ and `full` beside `rate`). `_bank_use(fac)` (it only reads) adds research while 
 progresses: `_research_cost` × the part of the next minute it still runs / `_research_time`), the card queue while it
 runs and is not paused (each copy pays its `_recipe_cost` once, when it starts: the price of every copy that starts
 within the next minute — not the copy being made, already paid, and none while a full Ready inventory keeps it from
-starting — so one Recon counts 8 Intel, not 8 over its 3 s), building (`_build_owed`: what the projects still need from
+starting — so one Recon counts 16 Intel, not 16 over its 3 s), building (`_build_owed`: what the projects still need from
 the bank, all of it within the next minute; a project the workers cannot reach holds nothing) and the main node's
 Firewalls' upkeep; `_forecast_now` adds what the bank sends to remote hosts (a Firewall's upkeep on a host that does not
 make enough Intel), as far as the workers' trips bring it. A full bank takes in again only what is used from it that the
@@ -282,7 +282,7 @@ within 30% of what arrives.
 
 Host panels (0.6.3; since reworked around the slot chooser). Your host's panel is its name, then **its facts**
 (`HostInfo`, `HOST_INFO_H` 58 px, from `_host_info_view`: type and owner, slots used/total, its storage as resource icons
-with their amounts and x/10 — at your main node its bank — and the Firewall: on with n/m cards loaded, OFF, being built,
+with their amounts and x/STORE_CAP (20) — at your main node its bank — and the Firewall: on with n/m cards loaded, OFF, being built,
 or none), then **one full-width row per slot** (`SlotBox`, `SLOT_H` 56 px, from `_slot_view`): a building's picture and
 name, its state on the right (`SLOT_STATES`: off under DDoS or Sabotage, phished, bank or storage full, a station's
 missing workers or its workers held by Sabotage, a Firewall OFF), and as icons with numbers what it makes or uses every cycle on this host (`_flow_items`:

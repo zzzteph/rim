@@ -163,6 +163,8 @@ func run() -> void:
 	full_bank()
 	no_early_spike()
 	short_of_workers()
+	bank_feeds_firewall("mixed")
+	bank_feeds_firewall("clog")
 	full_storage()
 	phished()
 	main_node_down()
@@ -411,6 +413,7 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 	var fc_host := {}; var got_host := {}           # ...and per host (by name), all materials together
 	for res in g.RES: fc_by[res] = 0.0; got_by[res] = 0.0
 	var off := 0   # seconds a Firewall was off: its upkeep was not brought in time
+	var fw_fc := 0.0; var fw_got := 0.0   # (0.6.19) the bank's Intel for the Firewalls: forecast, and what workers took out of it
 	var secs := 600   # (0.6.16: workers go on from where they deliver, so the far hosts are served in no fixed rhythm: a slow material
 	for sec in secs:  # such as the Lab's Research, about a unit a minute here, reads only a handful of units in any 300 s, so it is measured over 600)
 		step(1.0)
@@ -423,9 +426,11 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 				if str(src).begins_with("main node"): continue
 				fc_by[r] = float(fc_by[r]) + float(fc.from[r][src])
 				fc_host[str(src)] = float(fc_host.get(str(src), 0.0)) + float(fc.from[r][src])
+		for what in (fc.use.get("intel", {}) as Dictionary): if str(what).begins_with("Firewall at"): fw_fc += float(fc.use.intel[what])
 		n += 1
 		if sec % 30 == 29:   # the ledger keeps 30 s: "from:<host>:<res>" is what each host delivered
 			var sums: Dictionary = g._ledger_sums(P)
+			fw_got += float(sums.get("out:supply:intel", 0.0))
 			for key in sums:
 				var parts := str(key).split(":")
 				if parts[0] != "from": continue
@@ -448,11 +453,63 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 		hsaid.append("%s %.1f/%.1f" % [hn, fh, mh])
 		if absf(fh - mh) > SHORT_TOL * mh: hbad.append(hn)
 	check(hbad.is_empty(), "...and each host is within %d%% of what arrives from it, all materials, forecast/measured per minute: %s %s" % [int(SHORT_TOL * 100.0), ", ".join(PackedStringArray(hsaid)), str(hbad)])
+	var fwf := fw_fc / n; var fwm := fw_got * 60.0 / float(secs)
+	check(absf(fwf - fwm) <= maxf(2.5, SHORT_TOL * fwm), "...and the bank's Intel for those Firewalls (what their neighbours' trips do not bring) is forecast within %d%%: %.1f/min forecast, %.1f/min taken out"
+		% [int(SHORT_TOL * 100.0), fwf, fwm])
 	check(not walled.is_empty() and off == 0, "...while the %d Firewalls on hosts that make no Intel get their upkeep first: never off (%d s off)" % [walled.size(), off])
 	var homes := 0
 	for l in legs: if str(l.trip) == "home": homes += 1
 	check(free_s <= 0.01 * (busy_s + free_s) and homes == 0,
 		"...and with more work than workers, they are never left free: %.1f of %.0f worker-seconds free, %d empty legs home" % [free_s, busy_s + free_s, homes])
+
+
+func bank_feeds_firewall(scen: String) -> void:   # (0.6.19) a Firewall host's upkeep its neighbours' trips do not bring comes from the bank,
+	fresh()                                       # and the forecast says so: "mixed", the workers are short; "clog", the neighbour that
+	var home: int = int(g.rig[P])                 # could give stops whole, its Crypto unwanted by a full Crypto bank
+	var hs := []
+	var frontier := [home]; var seen := {home: true}
+	while hs.size() < 7 and not frontier.is_empty():
+		var nxt := []
+		for f0 in frontier:
+			for nb in g.hosts[int(f0)].links:
+				if seen.has(int(nb)): continue
+				seen[int(nb)] = true
+				if hs.size() < 7 and int(g.hosts[int(nb)].owner) == g.NEUTRAL: hs.append(int(nb)); g._capture(int(nb), P); nxt.append(int(nb))
+		frontier = nxt
+	for h in hs: g.hosts[h].type = "pc"; g.hosts[h].slots = 3
+	var fw := -1; var giver := -1   # a Firewall host farther from home than a neighbour that may give it Intel
+	for a in hs:
+		for b in hs:
+			if fw >= 0 or a == b or not (g.hosts[a].links as Array).has(b): continue
+			if g._leg_time(P, b, a) <= g._leg_time(P, b, home) + 0.0001 and g._leg_time(P, a, home) > g._leg_time(P, b, home): fw = a; giver = b
+	var lay := {}
+	if scen == "mixed": lay[fw] = ["wall", "wall", "cash"]; lay[giver] = ["intel", "cash", "cred"]
+	else: lay[fw] = ["wall", "wall"]; lay[giver] = ["intel", "intel", "cash"]
+	var fill := [["cash", "cred", "lab"], ["intel", "cash", "lab"], ["cred", "cash", "intel"], ["lab", "cash", "cred"], ["cash", "cash", "cred"]]
+	if scen == "clog": fill = [["cred", "lab", "cred"], ["lab", "cred", "lab"]]
+	var fi := 0
+	for h in hs:
+		if not lay.has(h): lay[h] = fill[fi % fill.size()]; fi += 1
+		g._set_builds(h, lay[h])
+	var b0: Array = (g.hosts[home].builds as Array).duplicate()
+	for k in b0.size(): if str(b0[k]) == "" and b0.count("bot") < 2: b0[k] = "bot"
+	g._set_builds(home, b0); g._tick_teams(0.0)
+	var feed := func() -> void:
+		stock_bank()
+		if scen == "clog": g.bank[P].cash = g._cap(P, "cash")
+	feed.call()
+	for k in 8: step(30.0); feed.call()
+	var fcs := 0.0; var got := 0.0; var n := 0; var secs := 300
+	var line := "Firewall at %s" % str(g.hosts[fw].name)
+	for sec in secs:
+		step(1.0); feed.call()
+		g._fc_gen += 1
+		fcs += float((g._forecast(P).use.get("intel", {}) as Dictionary).get(line, 0.0)); n += 1
+		if sec % 30 == 29: got += float(g._ledger_sums(P).get("out:supply:intel", 0.0))
+	var f := fcs / n; var m := got * 60.0 / float(secs)
+	check(fw >= 0 and m > 2.5 and absf(f - m) <= maxf(2.5, SHORT_TOL * m),
+		"%s: the bank's Intel for a Firewall host's upkeep that its neighbours' trips do not bring is in the forecast (%.1f/min forecast, %.1f/min taken out of the bank)"
+		% ["Workers short" if scen == "mixed" else "The neighbour that could give stops whole", f, m])
 
 
 func host_rates(secs: int) -> Dictionary:   # {fc, got}: what the remote hosts are forecast to deliver and do deliver, per material per minute

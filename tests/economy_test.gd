@@ -85,6 +85,7 @@ func run() -> void:
 	ready_full_head_holds_nothing()
 	crumbs_bound_in_one_pass()
 	phished_plan_keeps_upkeep()
+	upkeep_room_reserve()
 	station_works_where_it_stands()
 	one_host_flow()
 	upkeep_first_during_building()
@@ -491,6 +492,30 @@ func phished_plan_keeps_upkeep() -> void:   # (0.6.15) a phished host's harvest 
 	check(absf(float(pl.reserve.intel) - keep) < 0.001 and absf(claimed - g.WORKER_CARRY) < 0.001 and bool(g.hosts[n].fw_on) and g._claimed(n, P, "intel") <= st + 0.001,
 		"Phished, your stock there keeps the Firewall's %s Intel for %s cycles (kept %s): one pass takes only the %s spare unit, the Firewall stays on, and your workers' claims never exceed what is left"
 		% [g._amt(need), g._amt(g.UPKEEP_KEEP), g._amt(float(pl.reserve.intel)), g._amt(claimed)])
+
+
+func upkeep_room_reserve() -> void:   # (0.6.19) a host whose Firewalls live on brought-in Intel keeps room for UPKEEP_KEEP cycles of it
+	fresh()                            # in its storage, phished too, and it is 'about to fill up' before that room stops its producers
+	var keep: float = g.UPKEEP_KEEP * float(g.BUILD_KINDS.wall.use.intel)   # one Firewall, no harvester: it lacks all of its upkeep
+	var n := own_pc()
+	g._set_builds(n, ["wall", "cash", "cred"]); g.hosts[n].fw_on = false
+	var gross := one_cycle(n, "cash") + one_cycle(n, "cred")
+	g.hosts[n].steal_by = g.RIVAL; g.hosts[n].steal_until = g._t + 120.0   # phished: the cycle's output is the thief's
+	g.hosts[n].store = {g.RIVAL: {"cash": g.STORE_CAP - keep - gross}}       # room for one cycle beyond what the upkeep keeps
+	g._run_cycle(n)
+	var r1: float = g._store_room(n)
+	g._run_cycle(n)
+	check(absf(r1 - keep) < 0.001 and absf(g._store_room(n) - keep) < 0.001,
+		"Phished, a Firewall host that makes no Intel keeps room for %s cycles of its upkeep: the thief's output fills only the rest (room %s, then %s)"
+		% [g._amt(g.UPKEEP_KEEP), g._amt(r1), g._amt(g._store_room(n))])
+	fresh()
+	var m := own_pc()
+	g._set_builds(m, ["wall", "wall", "cash"]); g.hosts[m].fw_on = false
+	var keep2: float = g.UPKEEP_KEEP * 2.0 * float(g.BUILD_KINDS.wall.use.intel)
+	g.hosts[m].store = {P: {"cash": g.STORE_CAP - keep2}}   # exactly the room its two Firewalls keep: the Miner would make nothing
+	var share := float(g._cycle_split(m, P).share)
+	check(share < 0.001 and g._tight_now(m), "Two Firewalls and a Miner, no Intel there: at %s stored the Miner stops (share %s), and the host is already 'about to fill up', so its surplus goes first"
+		% [g._amt(g.STORE_CAP - keep2), g._amt(share)])
 
 
 # ---- 0.6.16: every leg P's workers set off on ----

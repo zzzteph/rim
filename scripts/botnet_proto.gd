@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.18"   # twice the flow at twice the prices, so workers are rarely free; a worker carries on from where it stands (lobbies match exact versions)
+const GAME_VERSION := "0.6.19"   # review fixes for 0.6.18: upkeep room kept on phished hosts too, the forecast's bank upkeep (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1617,10 +1617,15 @@ func _forecast_now(fac: int) -> Dictionary:
 		moved.append(made)
 	var given := {}   # (0.6.18) who gives each Firewall host its upkeep: the hosts that may, in proportion to the Intel their trips move
 	var k_of := {}
-	for k in remote.size(): k_of[int(remote[k][0])] = k
+	var stops := {}   # (0.6.19) a host whose output a full bank cannot take stops whole: it gives nothing
+	for k in remote.size():
+		var i1 := int(remote[k][0])
+		k_of[i1] = k
+		for res in RES:
+			if res != "intel" and bool(bank_full[res]) and float(moved[k][res]) > 0.0001 and _store_room(i1) < 1.0 + _cycle_gross(i1): stops[i1] = true
 	for dh in given_to:
 		var want := float(given_to[dh])
-		var el: Array = (elig_of.get(dh, []) as Array).duplicate()
+		var el: Array = (elig_of.get(dh, []) as Array).filter(func(x): return not stops.has(int(x)))
 		while want > 0.0001 and not el.is_empty():
 			var tot := 0.0
 			for s2 in el: tot += maxf(0.0, float(moved[int(k_of[s2])].intel) - float(given.get(s2, 0.0)))
@@ -1634,6 +1639,9 @@ func _forecast_now(fac: int) -> Dictionary:
 			want -= took
 			if more.size() == el.size(): break
 			el = more
+		if want > 0.0001:   # (0.6.19) what its neighbours' trips do not bring, the bank sends (upkeep goes strictly first)
+			_use_add(d.use, "intel", "Firewall at %s" % str(hosts[int(dh)].name), want * per)
+	bank_full["intel"] = _avail(fac, "intel") >= float(cap["intel"]) - 0.5 and _room(fac, "intel") < 1.0 and float(main_in.get("intel", 0.0)) >= _use_sum(d.use, "intel") - 0.0001
 	for k in remote.size():
 		var row: Array = remote[k]
 		var i: int = row[0]
@@ -1917,13 +1925,20 @@ func _cycle_split(i: int, benef: int) -> Dictionary:   # {share, direct, need, o
 	res.on = on; res.direct = direct
 	var gross := _cycle_gross(i) - direct
 	var room := maxf(0.0, _store_room(i)) + (need - direct if on else 0.0)
-	if walls > 0 and owner == benef and not _st_local(i, owner):   # (0.6.18) a host that does not make all its upkeep keeps room for
-		var harvest2 := float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _cycle_kinds(i, "intel")   # UPKEEP_KEEP cycles of the Intel it
-		var lack := maxf(0.0, need - harvest2)                                                               # lacks: its output stops first,
-		var after := _st_get(i, owner, "intel") - (need - direct if on else 0.0)                            # so the upkeep never waits for room
-		room = maxf(0.0, room - maxf(0.0, UPKEEP_KEEP * lack - after - _inbound(i, "intel")))
+	if walls > 0 and not _st_local(i, owner):   # (0.6.18) a host that does not make all its upkeep keeps room for it: its output stops
+		var eaten := minf(need - direct, _st_get(i, owner, "intel")) if on else 0.0   # first, so the upkeep never waits for room (0.6.19:
+		room = maxf(0.0, room - _upkeep_reserve(i, eaten))                          #  phished too: the thief's output stops first)
 	if gross > 0.0001: res.share = clampf(room / gross, 0.0, 1.0)
 	return res
+
+
+func _upkeep_reserve(i: int, eaten := 0.0) -> float:   # (0.6.18) the room a remote host keeps for UPKEEP_KEEP cycles of the Firewall upkeep
+	var owner := int(hosts[i].owner)                     # it does not make, less the owner's Intel there after `eaten` and what is coming
+	if owner == NEUTRAL or _st_local(i, owner): return 0.0
+	var walls := _count_all(i, "wall") - _walls_building(i)
+	if walls <= 0: return 0.0
+	var lack := maxf(0.0, float(BUILD_KINDS.wall.use.intel) * walls - float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _cycle_kinds(i, "intel"))
+	return maxf(0.0, UPKEEP_KEEP * lack - (_st_get(i, owner, "intel") - eaten) - _inbound(i, "intel"))
 
 
 func _walls_building(i: int) -> int:   # installed Firewalls a job is taking down (no upkeep, no sockets): a new one counts only when finished
@@ -2539,6 +2554,7 @@ func _claims_total(i: int) -> float:
 func _tight_now(i: int) -> bool:   # its next cycle would not fit, counting what workers are already on their way to collect
 	var walls := _count_all(i, "wall") - _walls_building(i)   # (and the room its Firewalls' upkeep needs, when its own harvest falls short)
 	var upkeep_in := maxf(0.0, float(BUILD_KINDS.wall.use.intel) * walls - float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel"))
+	upkeep_in = maxf(upkeep_in, _upkeep_reserve(i))   # (0.6.19) and the room its producers leave for upkeep: tight before they stop
 	return STORE_CAP - (_store_total(i) - _claims_total(i)) - _inbound_total(i) < 1.0 + _cycle_gross(i) + upkeep_in
 
 
@@ -7189,15 +7205,15 @@ func _camp_enter(chapter: int, announce := true) -> void:
 			if _camp_support >= 0: hosts[_camp_support].name = "Support"
 			if _camp_relay >= 0: hosts[_camp_relay].name = "Neighborhood Relay"
 			if _camp_gateway >= 0: hosts[_camp_gateway].name = "Corporate Gateway"
-			_camp_grant(20, 40, 20, 20, 10)
+			_camp_grant(40, 80, 40, 40, 20)
 		1:
 			_camp_slots(_camp_relay, 4)
-			_camp_grant(20, 60, 20, 15, 10)
+			_camp_grant(40, 120, 40, 30, 20)
 		2:
 			if _camp_gateway >= 0 and int(hosts[_camp_gateway].owner) == NEUTRAL:   # a rival moves in next door
 				hosts[_camp_gateway].owner = RIVAL; hosts[_camp_gateway].gen += 1; hosts[_camp_gateway].type = "server"
 				if announce: _flash("NYX has taken the Corporate Gateway next to your network.", 3)
-			_camp_grant(30, 80, 40, 40, 50)
+			_camp_grant(60, 160, 80, 80, 100)
 		3:
 			if _camp_practice >= 0 and int(hosts[_camp_practice].owner) == NEUTRAL:
 				var p := _camp_practice
@@ -7206,12 +7222,12 @@ func _camp_enter(chapter: int, announce := true) -> void:
 			if _camp_practice2 >= 0 and int(hosts[_camp_practice2].owner) == NEUTRAL:   # lesson fixture: an outpost of yours with a staffed station
 				var o := _camp_practice2
 				_camp_own(o); _camp_slots(o, 3); _set_builds(o, ["bot"]); hosts[o].name = "Outpost"
-			_camp_grant(30, 80, 40, 40, 40)
+			_camp_grant(60, 160, 80, 80, 80)
 			for recipe in ["phish", "response"]: _camp_supply(recipe)
 		CAMP_OPEN:
 			_ai_paused = false
 			_camp_paused = false   # free play runs: only the lesson's own pause is cleared; a pause you chose stays yours
-			_camp_grant(40, 80, 50, 40, 40)
+			_camp_grant(80, 160, 100, 80, 80)
 	_refresh_sight()
 
 
@@ -7951,7 +7967,7 @@ func _effects_line(i: int) -> String:
 
 
 # ---- your host's inspector: its facts, one row per slot, and the slot chooser ----
-# Under its name, HostInfo draws the host's facts: type and owner, slots used, its storage as resource icons (x/10), the
+# Under its name, HostInfo draws the host's facts: type and owner, slots used, its storage as resource icons (x/STORE_CAP), the
 # Firewall. Then one full-width row per slot (SlotBox): a building's picture and name, what it makes or uses every cycle
 # as icons and the stock of that resource here; a project's state, its materials as icons, its progress and a cancel
 # button; an empty slot that invites a click. A click on a slot opens the chooser in place of the facts and the rows:
@@ -7963,7 +7979,7 @@ const SLOT_TEXT_X := 54.0  # where a slot row's words start, right of its pictur
 const SLOT_VSEP := 4.0     # between two slot rows (and two chooser rows)
 const HOST_INFO_H := 58.0  # the facts under your host's name: three lines
 const OPTION_H := 54.0     # one building in the slot chooser: picture · name and what it makes or uses · what it does · price
-const FILL_BAR_W := 28.0   # the storage bar in your host's facts, left of its x/10
+const FILL_BAR_W := 28.0   # the storage bar in your host's facts, left of its x/STORE_CAP
 const BUILD_WHAT := {      # the chooser's one short line on what each building is for
 	"intel": "Intel pays for every building and card.",
 	"bot": "Adds 2 workers who carry your materials.",
@@ -8187,7 +8203,7 @@ func _dash_rect(c: CanvasItem, r: Rect2, col: Color) -> void:   # a dashed outli
 		y += 9.0
 
 
-func _draw_host_info(c: Control, i: int) -> void:   # HostInfo: type and owner · slots used / storage as icons, x/10 / the Firewall
+func _draw_host_info(c: Control, i: int) -> void:   # HostInfo: type and owner · slots used / storage as icons, x/STORE_CAP / the Firewall
 	if not _host_ok(i): return
 	var v := _host_info_view(i)
 	var f := c.get_theme_default_font()

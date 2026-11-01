@@ -300,21 +300,23 @@ def hosttypes():
 def ch(d):
     return chips({k: v for k, v in d.items() if v})
 LAYOUTS = [
-    ("Bot station + Intel harvester + Miner", "1 Intel + 1 Crypto; 2 workers for the pool", "2 units by your workers", {"intel": 5, "cash": 5}),
-    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 workers", "2 units by your workers", {"intel": 5, "creds": 5}),
-    ("Intel harvester + Miner + Lab", "1 Intel + 1 Crypto + 1 Research", "3 units by your workers", {"intel": 5, "cash": 5, "research": 5}),
-    ("2 Intel harvesters + Miner", "2 Intel + 1 Crypto", "3 units by your workers", {"intel": 10, "cash": 5}),
+    # (what one cycle makes; the table shows it a minute, per_min, and the main node adds its trickle)
+    ("Bot station + Intel harvester + Miner", "1 Intel + 1 Crypto; 2 workers for the pool", "2 units by your workers", {"intel": 1, "cash": 1}),
+    ("Bot station + Intel harvester + Cred. harvester", "1 Intel + 1 Credential; 2 workers", "2 units by your workers", {"intel": 1, "creds": 1}),
+    ("Intel harvester + Miner + Lab", "1 Intel + 1 Crypto + 1 Research", "3 units by your workers", {"intel": 1, "cash": 1, "research": 1}),
+    ("2 Intel harvesters + Miner", "2 Intel + 1 Crypto", "3 units by your workers", {"intel": 2, "cash": 1}),
     ("Bot station alone (IoT device)", "2 workers for the pool", "nothing to carry", {}),
-    ("Miner alone", "1 Crypto, no input", "1 unit by your workers", {"cash": 5}),
-    ("Database: harvester + 2 Cred. harvesters", "2 Intel + 3 Credentials (Database: Intel x2, Credentials x1.5)", "5 units by your workers", {"intel": 10, "creds": 15}),
-    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 13, "cash": 10, "creds": 5, "research": 5}),
+    ("Miner alone", "1 Crypto, no input", "1 unit by your workers", {"cash": 1}),
+    ("Database: harvester + 2 Cred. harvesters", "2 Intel + 3 Credentials (Database: Intel x2, Credentials x1.5)", "5 units by your workers", {"intel": 2, "creds": 3}),
+    ("Main node (Server): Intel harvester + Bot station + Miner", "1.5 Intel + 1 Crypto; 2 workers", "straight into the bank, plus the trickle", {"intel": 1.5, "cash": 1, "trickle": True}),
 ]
 def layouts():
     out = []
-    for nm, made, deliv, net in LAYOUTS:
-        net_txt = "".join(f'<span class="chip r-{r}"><b>{"+" if v > 0 else "−"}{abs(v)}</b> {RES_SHORT[r]}</span>' for r, v in ((r, net.get(r, 0)) for r in RES) if v)
+    for nm, made, deliv, cyc in LAYOUTS:
+        net = {r: round(per_min(float(cyc.get(r, 0))) + (float(T["MAIN_INCOME"]) * 60.0 if cyc.get("trickle") else 0.0), 2) for r in RES}
+        net_txt = "".join(f'<span class="chip r-{r}"><b>{"+" if v > 0 else "−"}{n(abs(v))}</b> {RES_SHORT[r]}</span>' for r, v in ((r, net.get(r, 0)) for r in RES) if v)
         out.append(f"<tr><th>{html.escape(nm)}</th><td>{html.escape(made)}</td><td>{html.escape(deliv)}</td><td class='nowrap'>{net_txt or '0'}</td></tr>")
-    out.append("<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−5</b> Intel</span></td></tr>")
+    out.append(f"<tr><th>+ a Firewall on the host</th><td>uses 1 Intel</td><td>—</td><td class='nowrap'><span class='chip r-intel'><b>−{n(round(per_min(1), 2))}</b> Intel</span></td></tr>")
     return "".join(out)
 def inc_row(inc):
     return "".join(f"<td class='num'>{inc[r]}</td>" for r in RES)
@@ -345,7 +347,7 @@ json_txt = json.dumps(DATA, indent=1, ensure_ascii=False)
 page = open(os.path.join(HERE, "design.head.html")).read() + open(os.path.join(HERE, "design.body.html")).read()
 for key, val in {"VERSION": str(DATA["engine"]["GAME_VERSION"]), "SIZES": sizes(), "START": start_chips(), "BASECAP": basecap(),
                  "WEIGHT_HEAD": weight_head(), "WEIGHTS": weights(), "HOSTTYPES": hosttypes(), "LAYOUTS": layouts(),
-                 "COMMANDS": html.escape(COMMANDS), "EARLY": inc_row(EARLY), "MID": inc_row(MID), "CAPTURE_EV": capture_ev(),
+                 "COMMANDS": html.escape(COMMANDS), "CAP_PER_PRODUCER": n(T["CAP_PER_PRODUCER"]), "EARLY": inc_row(EARLY), "MID": inc_row(MID), "CAPTURE_EV": capture_ev(),
                  "PAYBACK": payback(), "UNUSED": unused(), "JSON": html.escape(json_txt), "JSON_KB": str(round(len(json_txt) / 1024))}.items():
     page = page.replace("{{%s}}" % key, val)
 page = page.replace("{{COMMIT}}", COMMIT)

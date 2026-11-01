@@ -60,7 +60,7 @@ flowchart LR
   <div class="tablebox"><table>
     <thead><tr><th>Phase</th><th>Typical time</th><th>What happens</th></tr></thead>
     <tbody>
-      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a Miner, Credential harvester or Lab: each makes its resource with no input); lay out the PC (Bot station, Intel harvester, a second producer); make the first Breach (12 Intel, 12 Credentials: the start bank covers it) and take a first neutral host.</td></tr>
+      <tr><th>Opening</th><td class="num">0–1 min</td><td>Fill the main node's free slot (a Miner, Credential harvester or Lab: each makes its resource with no input); lay out the PC (Bot station, Intel harvester, a second producer); make the first Breach (24 Intel, 24 Credentials: the start bank covers it) and take a first neutral host.</td></tr>
       <tr><th>Expansion</th><td class="num">1–6 min</td><td>Scout and Breach neutral hosts: a Recon gets through half the time, and a scouted Breach that runs its 15 s takes its host half the time (a quarter unscouted). Credentials run short first, so Credential harvesters come next; research Known exploit (40 s) and build a Lab for its Research price.</td></tr>
       <tr><th>Contact</th><td class="num">5–10 min</td><td>Borders meet. Theft (Phishing, Packet siphon, Vault raid), DDoS and Sabotage on rival hosts; Firewalls with loaded Patch, Response and Filter on key hosts; Known exploit (9 s) and Worm against rival hosts, where a defender may send a Patch.</td></tr>
       <tr><th>End game</th><td class="num">10 min +</td><td>0day (5 s, 12 s on a main node) against defended hosts and rival main nodes (elimination); the race to hold 51% of all hosts for 51 s.</td></tr>
@@ -145,7 +145,7 @@ flowchart LR
       <tr><th class="r-research">Research</th><td>Research labs, the trickle</td><td>Research projects, Known exploit and Worm (their focus), 0day and most advanced cards.</td></tr>
     </tbody>
   </table></div>
-  <pre class="code">bank cap(resource) = BASE_CAP[resource] + 50 × (your buildings whose output is that resource)
+  <pre class="code">bank cap(resource) = BASE_CAP[resource] + {{CAP_PER_PRODUCER}} × (your buildings whose output is that resource)
 BASE_CAP = {{BASECAP}}
 spendable   = what is in the bank at your main node (nothing else counts)
 income      = main-node trickle (1 of each per 6 s, while the main node is held and not under DDoS)
@@ -257,7 +257,7 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
   <ul class="plain">
     <li>Click a slot in the host panel and pick a building from the list (each with what it makes or uses and its price, as icons). Ordering is free; workers bring its materials, then the job takes 10 s. Picking a building for an occupied slot replaces it: the old one is demolished first (5 s).</li>
     <li>A building cannot be paused: it works whenever it can. A project can be cancelled (the red button); right-click demolishes.</li>
-    <li>Every building of a resource's kind adds 50 to that resource's bank cap (the Firewall adds nothing).</li>
+    <li>Every building of a resource's kind adds {{CAP_PER_PRODUCER}} to that resource's bank cap (the Firewall adds nothing).</li>
   </ul>
 </section>
 
@@ -379,7 +379,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
       <li>Workers: while it has fewer than one Bot station per two hosts held (stations on order counted), it puts a station in the first free slot of the host with the most free slots, ahead of the plans. It uses the host it plans to make Research on only when no other host has room, and then only a slot that keeps that layout (a spare harvester's place).</li>
       <li>One Research host, on the first host with 4+ slots: Intel harvester, Miner, Intel harvester, Lab, Intel harvester, so its own harvesters feed it. Never on 3 slots: there the Lab would eat Intel the bank does not have yet, and the main node's own Lab covers research until then. A Lab on order counts, so it never plans two.</li>
       <li>One Firewall (in the fourth slot) on a 4+-slot host once it holds 6 hosts.</li>
-      <li>The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 5 units a minute the card queue would otherwise spend every unit first. A project whose host loses its road home no longer counts as waiting (nothing can bring its bill); after 60 s cut off (longer than a DDoS) the AI cancels it.</li>
+      <li>The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 10 units a minute the card queue would otherwise spend every unit first. A project whose host loses its road home no longer counts as waiting (nothing can bring its bill); after 60 s cut off (longer than a DDoS) the AI cancels it.</li>
       <li>Converter choice: what its next capture card lacks for two copies, else the emptiest bank.</li>
       <li>Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least twice a Bot station's Crypto (48) and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind (only a kind it has a producer of on a host with a road home: Crypto piles from the trickle alone); at most one retool every 120 s. A retool ordered on credit waits like any other project from its demolition on.</li></ul></div>
     <div class="rule"><h4>2 · Research</h4>
@@ -508,7 +508,6 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
   <ol class="review">
     <li><b>Firewall (confirmed):</b> it does not make a host harder to capture; it holds defence cards that fire against enemy cards. A host can hold more than one Firewall; each adds 3 sockets and 1 Intel of upkeep.</li>
     <li><b>No Bots resource:</b> workers come only from Bot stations (2 each) and only carry. Nothing costs workers.</li>
-    <li><b>Deterministic capture (Milestone A):</b> no capture roll. An eligible capture that runs its execution succeeds unless countered, route-failed or owner-changed. Breach 12 Intel + 12 Credentials, Known exploit 14 Intel + 12 Research, 0day 16/12/12/16, Worm 2 stages: these are experimental starting values to playtest, not measured balance.</li>
     <li><b>Patch recovery (0.6.13):</b> a Patch that stops an intrusion leaves its host open for 30 s: no Patch can be played, armed or loaded there (one on its way returns to the hand); a Patch already loaded in its Firewall still fires and restarts the window, which every network that sees the host sees. Measured before it: a hand Patch countered 21 of 21 Breaches and Exploits at a border.</li>
     <li><b>Milestone A visibility features</b> (HUD rates and the Economy view, host status and route home, target preview, event history) are checked by tests for correctness and layout only. Whether first-time players understand them is what <code>docs/PLAYTEST.md</code> is for; it has not been run yet.</li>
     <li><b>Vault raid on storage</b> only pays where output piles up. A network with Bot stations everywhere keeps little in storage.</li>
@@ -516,7 +515,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
     <li><b>DDoS on a relay holds traffic.</b> Every packet that has to pass it, workers and cards alike, waits before it until it ends; nothing is destroyed unless the host it waits in is taken.</li>
     <li><b>The captor of a main node inherits the network</b> with its finished buildings (0.6.13), so an elimination counts toward the majority.</li>
     <li><b>Packet siphon takes the resource chosen on its Ready card</b> (Crypto until you pick another), whether it is dragged or clicked onto a host.</li>
-    <li><b>Focus by card:</b> Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 5 Credentials and 5 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.</li>
+    <li><b>Focus by card:</b> Breach is paid in Credentials and Intel, Known exploit in Research and Intel, 0day in everything. An early network makes 10 Credentials and 10 Research a minute, so each capture card asks for its own building: a Credential harvester or a Lab.</li>
     <li><b>The AI</b> never plays six of the fifteen cards (Packet siphon, Vault raid, Worm, Sabotage, Cargo cover, Express route; see <a href="#ai">AI</a>).</li>
     <li><b>Leftover config:</b> 20 constants are no longer read (see <a href="#unused">Unused config</a>).</li>
   </ol>
