@@ -393,7 +393,7 @@ func causes_match_legs() -> void:   # a busy network: the ledger's delivered inc
 	var odd := 0.0
 	for res in g.RES: odd += led("in:returned:" + res) + led("lost:cargo:" + res)
 	check(host_to_host >= 1.0 and odd == 0.0 and bank_gap(before) < 0.001, "...%s units went host to host and are booked nowhere; nothing returned or lost; every bank reconciles" % g._amt(host_to_host))
-	check(fw_off_s == 0.0 and led("out:upkeep:intel") == 0.0 and g._count_all(w, "wall") == 1, "A remote Firewall fed by workers is never off, and its upkeep is never booked as bank spending (%.1f s off)" % fw_off_s)
+	check(led("out:upkeep:intel") == 0.0 and g._count_all(w, "wall") == 1, "A remote Firewall fed by workers: its upkeep is never booked as bank spending (0.6.20: building goes first, so it waited %.1f s while the project's bill went out)" % fw_off_s)
 
 
 func bank_unit_returned() -> void:   # 0.6.16: a bank unit leaves the bank when its job starts; if its worker never collects it, it goes back

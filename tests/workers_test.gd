@@ -154,6 +154,7 @@ func run() -> void:
 	always_busy()
 	builds_first()
 	building_first_rules()
+	priority_order()
 	storage_fair()
 	construction()
 	cancel_and_pause()
@@ -649,7 +650,8 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 	var j0: Dictionary = f0.get("job", {})
 	check(lack.has("cash") and g._tight_now(t) and str(f0.get("trip", "")) == "fetch" and int(j0.get("src", -1)) == m and int(j0.get("dst", -1)) == home and str(j0.get("res", "")) == "cash",
 		"Crypto a main-node project waits for, not in the bank, is fetched from a host first, before a full host's export (lack %s; job %s)" % [str(lack), str(j0)])
-	# a Firewall fed from the bank stays on while you build, and a project the workers cannot reach holds no stock
+	# (0.6.20) building goes first: a Firewall fed from the bank waits while the bills go out, then is fed again;
+	# and a project the workers cannot reach holds no stock
 	fresh()
 	var w := near(); own(w, ["wall", "", ""])   # no Intel harvester: its upkeep comes from the bank
 	g.hosts[w].sockets = ["filter", "", ""]
@@ -661,11 +663,17 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 	for r in ["intel", "cash"]:   # every project's bill in the bank, twice over: spare Intel beyond what they owe
 		g.bank[P][r] = 2.0 * others.size() * (float(g.BUILD_COSTS.cred.get(r, 0.0)) + float(g.BUILD_COSTS.lab.get(r, 0.0)))
 	for o in others: g._cmd(["build", o, 1, "cred"]); g._cmd(["build", o, 2, "lab"])
-	var off := 0.0
-	for k in 120:
-		step(0.5)
+	var off := 0.0; var waited := 0.0
+	for k in 1200:   # until every bill is out (at most 600 s)
+		step(0.5); waited += 0.5
 		if not bool(g.hosts[w].get("fw_on", true)): off += 0.5
-	check(off <= 0.01, "A Firewall whose upkeep comes from the bank never goes off while you build (off %.1f s of 60)" % off)
+		if g._build_owed(P).is_empty(): break
+	var back := -1.0
+	for k in int(ceilf((3.0 * g.PROD_CYCLE + 2.0 * g._leg_time(P, int(g.rig[P]), w)) / 0.5)):
+		step(0.5)
+		if bool(g.hosts[w].get("fw_on", false)) and float(g._store_of(w, P).get("intel", 0.0)) + g._inbound(w, "intel") > 0.0001: back = float(k + 1) * 0.5; break
+	check(g._build_owed(P).is_empty() and back >= 0.0,
+		"Building first: a Firewall whose upkeep comes from the bank waits while the bills go out (off %.1f s of %.1f), then is fed again (%.1f s after)" % [off, waited, back])
 	fresh()
 	var far := -1   # a host whose only road home runs through b
 	for cand_b in g.hosts[int(g.rig[P])].links:
@@ -711,6 +719,34 @@ func builds_first() -> void:   # construction first, then inputs, then surplus; 
 	check(str(first.get("purpose", "")).begins_with("build:"), "A building order is served before surplus (%s)" % str(first.get("purpose", "")))
 	step(60.0)
 	check(led("from:%d:intel" % a) >= 1.0 and led("from:%d:intel" % b) >= 1.0, "Once the building is supplied, both hosts' surplus is collected in turn, not one host's only (%.0f, %.0f)" % [led("from:%d:intel" % a), led("from:%d:intel" % b)])
+
+
+func priority_order() -> void:   # (0.6.20) the workers' order, as in Settlers: 1 building, 2 what the running research lacks, 3 a Firewall's
+	var got := {}                   # upkeep, 4 output home. One free worker and one source of Intel (spare on a host), each need added in turn
+	for case in ["build", "research", "upkeep", "export"]:
+		fresh()
+		var home: int = int(g.rig[P])
+		var m := near(); own(m, ["intel"]); g.hosts[m].store = {P: {"intel": 6.0}}   # the only Intel there is: spare on a host
+		var fw := near([m]); own(fw, ["wall"] if case != "export" else []); g.hosts[fw].store = {}; g.hosts[fw].fw_on = true
+		var site := near([m, fw])
+		if site < 0:   # (the main node has only two neutral neighbours: the site is one link further out, beside the harvester)
+			for nb in g.hosts[m].links: if site < 0 and int(g.hosts[int(nb)].owner) == g.NEUTRAL: site = int(nb)
+		own(site, [])
+		for r in g.RES: g.bank[P][r] = 0.5 * g._cap(P, r)
+		g.bank[P].intel = 0.0
+		if case == "build": g._cmd(["build", site, 0, "intel"])   # a project whose bill is Intel
+		if case in ["build", "research"]: g._cmd(["research", "exploit"])   # a research that pays Intel as it runs
+		var w0: int = ids(home)[0]
+		g._dispatch(P, home, [w0])
+		var j: Dictionary = g._flight_of(w0).get("job", {})
+		var to := int(j.get("dst", -1))
+		got[case] = "%s -> %s%s" % [str(g.hosts[int(j.get("src", m))].name), "site" if to == site else ("Firewall" if to == fw else ("main node" if to == home else str(to))), (" (%s)" % str(j.get("purpose", ""))) if str(j.get("purpose", "")) != "" else ""]
+		var want := {"build": site, "research": home, "upkeep": fw, "export": home}
+		var ok: bool = int(j.get("src", -1)) == m and to == int(want[case]) and (case != "research" or not (g.research_job.get(P, {}) as Dictionary).is_empty())
+		got[case + "_ok"] = ok
+	check(bool(got.build_ok) and bool(got.research_ok) and bool(got.upkeep_ok) and bool(got.export_ok),
+		"The workers' order is building, then research, then supplies, then output home: with a project, research and a Firewall waiting, the Intel goes to the project (%s); without the project, home for the research (%s); without the research, to the Firewall (%s); with nothing else, home (%s)"
+		% [str(got.build), str(got.research), str(got.upkeep), str(got.export)])
 
 
 func storage_fair() -> void:   # 0.6.12: a storage short of room for a whole cycle gives every producer the same share of its output

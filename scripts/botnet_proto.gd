@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.19"   # review fixes for 0.6.18: upkeep room kept on phished hosts too, the forecast's bank upkeep (lobbies match exact versions)
+const GAME_VERSION := "0.6.20"   # the workers' order as in Settlers: building, research, supplies, output home (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -2316,7 +2316,9 @@ func _host_plan(i: int, fac: int, budget: Dictionary, upkeep_extra := 0.0) -> Di
 
 
 # ---- requests: what each host needs brought in and has to send out, keeping their age ----
-const REQ_CLASS := {"build": 0, "upkeep": 0, "input": 1, "export": 2, "salvage": 2, "loot": 3}   # purpose order: building (and the Firewalls' upkeep) first
+const REQ_CLASS := {"build": 0, "lack": 0, "rlack": 1, "upkeep": 2, "room": 2, "input": 2, "export": 3, "salvage": 3, "loot": 4}   # (0.6.20) the
+# workers' order: 1 building (a project's materials; a main-node project's, brought home), 2 research (what the running
+# research lacks in the bank, brought home), 3 supplies (a Firewall's upkeep and the room for it), 4 output home; stolen goods last
 
 
 func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, since, host, purpose, res, qty, dir}] in a stable order
@@ -2377,7 +2379,7 @@ func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, sin
 	return out
 
 
-func _req_class(r: Dictionary) -> int: return int(REQ_CLASS.get(str(r.purpose).split(":")[0], 2))
+func _req_class(r: Dictionary) -> int: return int(REQ_CLASS.get(str(r.purpose).split(":")[0], 3))
 
 
 # Building comes first for the workers (0.6.10): a project's materials go out before anything else, the bank's stock
@@ -2409,8 +2411,8 @@ func _supply_budget(fac: int, owed := {}) -> Dictionary:   # {res: bank stock su
 	return out
 
 
-func _upkeep_extra(fac: int, owed: Dictionary) -> float:   # bank Intel held for projects and the queue that a Firewall's upkeep may still use
-	return float(owed.get("intel", 0.0)) + float(_head_owed(fac).get("intel", 0.0))
+func _upkeep_extra(fac: int, _owed: Dictionary) -> float:   # bank Intel held for the card queue's head that a Firewall's upkeep may still use
+	return float(_head_owed(fac).get("intel", 0.0))            # (0.6.20: not what the projects need: building goes before supplies)
 
 
 func _head_owed(fac: int) -> Dictionary:   # the unpaid price of the card queue's first copy (0.6.12): research and supplies leave it alone,
@@ -2426,6 +2428,21 @@ func _research_hold(fac: int) -> Dictionary:   # bank stock research leaves alon
 	var head := _head_owed(fac)
 	for r in head: hold[r] = float(hold.get(r, 0.0)) + float(head[r])
 	return hold
+
+
+func _research_lack(fac: int, taken := {}) -> Dictionary:   # (0.6.20) {res: what the running research will pay within NET_HORIZON s that
+	var out := {}                                             # the bank cannot give it (beyond what research leaves alone) and is not on its
+	var job: Dictionary = research_job.get(fac, {})           # way, less what building already brings home (`taken`)}
+	if job.is_empty() or bool(job.get("paused", false)): return out
+	var cost := _research_cost(str(job.key))
+	var secs := _research_time(str(job.key))
+	var runs := clampf(secs - float(job.get("progress", 0.0)), 0.0, NET_HORIZON)
+	var hold := _research_hold(fac)
+	for r in cost:
+		var need := float(cost[r]) * runs / maxf(0.001, secs)
+		var q := need - maxf(0.0, _avail(fac, str(r)) - float(hold.get(r, 0.0))) - _incoming(fac, str(r)) - float(taken.get(r, 0.0))
+		if q > 0.0001: out[str(r)] = q
+	return out
 
 
 func _build_lack(fac: int, owed := {}) -> Dictionary:   # {res: what the projects wait for that is neither in the bank nor on its way there}
@@ -2449,7 +2466,7 @@ func _amount(fac: int, hub: int, r: Dictionary, owed := {}) -> float:   # what o
 			if not _build_room(i, str(r.purpose).trim_prefix("build:"), res, amt): return 0.0
 		else:
 			if _store_room(i) < amt - 0.0001: return 0.0                   # no room at the host for it
-			if str(r.purpose) != "upkeep" and _free(fac, res) - float(owed.get(res, 0.0)) < amt - 0.0001: return 0.0   # the projects need it: building first
+			if _free(fac, res) - float(owed.get(res, 0.0)) < amt - 0.0001: return 0.0   # the projects need it: building first (0.6.20: upkeep too)
 	else:
 		var have := _pile_free(i, fac, res) if bool(r.get("pile", false)) else _store_free(i, fac, res)
 		amt = minf(amt, have)
@@ -2521,17 +2538,20 @@ func _mark_res(fac: int, r: Dictionary) -> void:   # this host's resource was ju
 # ---- dispatch (0.6.16): every free worker, wherever it is, takes the most useful job it can start soonest ----
 # A job moves one unit from a source to a destination. A project's material or a Firewall's upkeep comes from the
 # nearest place that can spare it - your bank, a host's spare stock, your own salvage - straight to the site; a host's
-# surplus, your salvage and stolen goods go to your bank. Building and upkeep come strictly first (a Firewall's upkeep,
-# then Bot stations, then the projects in the order given); then the surplus of the hosts about to fill up, the hosts in
-# turn; stolen goods last. A worker is free where it delivers and goes on from there; with nothing to do, it heads home.
+# surplus, your salvage and stolen goods go to your bank. The order (0.6.20, REQ_CLASS): building strictly first (Bot
+# stations, then the projects in the order given), then what the running research lacks, then the Firewalls' upkeep,
+# then the surplus home (the hosts about to fill up first, the hosts in turn); stolen goods last. A worker is free where
+# it delivers and goes on from there; with nothing to do, it heads home.
 func _pick_rank(fac: int, r: Dictionary) -> Array:   # how urgent one request is (smaller first)
 	var cls := _req_class(r)
 	var h := int(r.host)
 	if str(r.purpose) == "lack": return [0, 1, 0, 0, 0]   # (a main-node project's material, brought home)
-	if str(r.purpose) == "room": return [0, -1, -1, h, 0]   # (room for a Firewall's upkeep)
+	if str(r.purpose) == "rlack": return [1, 0, 0, 0, 0]   # (what the running research lacks, brought home)
+	if str(r.purpose) == "room": return [2, -1, -1, h, 0]   # (room for a Firewall's upkeep, just before it)
+	if str(r.purpose) == "upkeep": return [2, 0, 0, int(r.id), 0]
 	if cls == 0:
 		var job := _job_for(h, str(r.purpose).trim_prefix("build:"))
-		return [0, -1 if str(r.purpose) == "upkeep" else (0 if str(job.get("kind", "")) == "bot" else 1), int(job.get("id", 0)), int(r.id), 0]
+		return [0, 0 if str(job.get("kind", "")) == "bot" else 1, int(job.get("id", 0)), int(r.id), 0]
 	if str(r.dir) == "out": return [cls, 0 if _tight_now(h) else 1, _served_at(fac, h), _served_res_at(fac, h, str(r.res)), int(r.id)]
 	return [cls, 1, _served_at(fac, h), -1, int(r.id)]
 
@@ -2596,6 +2616,11 @@ func _dispatch(fac: int, hub: int, free: Array) -> void:   # deal the jobs to th
 	var lack := _build_lack(fac, _build_owed(fac, true))   # what the main node's projects wait for that is neither in the bank nor coming:
 	for res in lack:                                       # brought home from the hosts, as building
 		ins.append({"key": "%d:lack:%s" % [hub, res], "id": 0, "since": 0.0, "host": hub, "purpose": "lack", "res": str(res), "qty": float(lack[res]), "dir": "in"})
+	var rlack := _research_lack(fac, lack)   # (0.6.20) then what the running research lacks: brought home before any supply
+	for res in rlack:
+		ins.append({"key": "%d:rlack:%s" % [hub, res], "id": 0, "since": 0.0, "host": hub, "purpose": "rlack", "res": str(res), "qty": float(rlack[res]), "dir": "in"})
+	var upkeep_left := {}   # (0.6.20) bank stock a Firewall's upkeep may take: not what the projects still need (building first)
+	for res in RES: upkeep_left[res] = maxf(0.0, _free(fac, res) - float(owed.get(res, 0.0)))
 	for d in hosts.size():   # a Firewall whose next upkeep cannot fit its full storage: that host's surplus goes first, as urgently as upkeep
 		if d == hub or int(hosts[d].owner) != fac or _routing_down(d): continue
 		var walls := _count_all(d, "wall") - _walls_building(d)
@@ -2616,7 +2641,7 @@ func _dispatch(fac: int, hub: int, free: Array) -> void:   # deal the jobs to th
 		var short2 := lack2 * (UPKEEP_KEEP + 1.0) - _store_free(d2, fac, "intel") - _inbound(d2, "intel")
 		if short2 > 0.0001: topup[d2] = short2
 	while not free.is_empty():
-		var job := _best_delivery(fac, hub, free, ins, srcs, outs, bank_left, supply_left)
+		var job := _best_delivery(fac, hub, free, ins, srcs, outs, bank_left, supply_left, upkeep_left)
 		if job.is_empty(): job = _best_haul(fac, hub, free, outs, owed, topup)
 		if job.is_empty(): break
 		_start_haul(fac, hub, job)
@@ -2638,7 +2663,7 @@ func _nearest_worker(fac: int, free: Array, at: int) -> Array:   # [wid, time to
 	return [best, bt]
 
 
-func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, outs: Array, bank_left: Dictionary, supply_left: Dictionary) -> Dictionary:
+func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, outs: Array, bank_left: Dictionary, supply_left: Dictionary, upkeep_left := {}) -> Dictionary:
 	for d in ins:   # the most urgent site first (strictly); for it, the source and worker that get a unit there soonest
 		if float(d.qty) <= 0.0001: continue
 		var dst := int(d.host); var res := str(d.res); var purpose := str(d.purpose)
@@ -2653,9 +2678,9 @@ func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, ou
 				return room_job
 			continue
 		var best := {}; var bt := INF
-		var pool: Dictionary = bank_left if purpose != "input" else supply_left
+		var pool: Dictionary = supply_left if purpose == "input" else (upkeep_left if purpose == "upkeep" and not upkeep_left.is_empty() else bank_left)
 		var from_bank := minf(amt, float(pool.get(res, 0.0)))
-		if purpose == "lack": from_bank = 0.0   # (it is not in the bank: that is the point)
+		if purpose == "lack" or purpose == "rlack": from_bank = 0.0   # (it is not in the bank: that is the point)
 		if from_bank > 0.0001 and (from_bank >= amt - 0.0001 or from_bank >= float(d.qty) - 0.0001):
 			var nw := _nearest_worker(fac, free, hub)
 			var t := float(nw[1]) + _leg_time(fac, hub, dst)
@@ -2682,7 +2707,7 @@ func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, ou
 		var a2 := float(best.amt)
 		if purpose.begins_with("build:"):
 			if not _build_room(dst, purpose.trim_prefix("build:"), res, a2): continue
-		elif purpose == "lack":
+		elif purpose == "lack" or purpose == "rlack":
 			if _room(fac, res) < a2 - 0.0001: continue
 			purpose = ""
 		elif _store_room(dst) < a2 - 0.0001: continue
@@ -8988,7 +9013,7 @@ func _forecast_lines(res: String, with_net := true) -> Array:   # [[text, colour
 		out.append(["Workers %d — %d working, %d free%s%s (2 per Bot station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), (", %d heading home" % int(wc.joining)) if int(wc.joining) > 0 else "", (", %d blocked" % int(wc.blocked)) if int(wc.blocked) > 0 else ""], C_TEXT])
 		out.append(["They serve every host from wherever they are; keeping up with your hosts needs about %d." % int(ceil(float(fc.need) - 0.05)), C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
 		out.append(["Each carries one unit per leg (an export's last unit takes the fraction left beside it); delivery does not consume them.", C_DIM])
-		out.append(["Building materials and Firewall upkeep go first, straight from the nearest stock; then output home.", C_DIM])
+		out.append(["Their order: building materials, then what research lacks, then Firewall upkeep, then output home; materials go straight from the nearest stock.", C_DIM])
 		return out
 	var full := bool(fc.full[res])
 	var used := _use_sum(fc.use, res)
