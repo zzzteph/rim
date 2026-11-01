@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.14"   # review fixes: Firewalls eat their host's harvest first, research leaves the projects their bills, a dead thief steals nothing, piles claimed once (lobbies match exact versions)
+const GAME_VERSION := "0.6.15"   # review fixes: crumbs within what the plan spares, a phished host keeps its upkeep, Vault raids cap claims, honest Firewall notes (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -2083,6 +2083,10 @@ func _host_plan(i: int, fac: int, budget: Dictionary, upkeep_extra := 0.0) -> Di
 		stock[res] = maxf(0.0, float(_store_of(i, fac).get(res, 0.0)) - _claimed(i, fac, res))
 		made[res] = 0.0; local_used[res] = 0.0; out.short[res] = 0.0
 	made.intel = float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel")
+	var thief := _benef(i)
+	if thief != fac and botnets.has(thief) and not _eliminated.has(thief):   # (0.6.15, as _cycle_split) phished: the harvest is the
+		var need0 := float(BUILD_KINDS.wall.use.intel) * (_count_all(i, "wall") - _walls_building(i))   # thief's; your stock pays
+		made.intel = clampf(need0 - float(stock.intel), 0.0, float(made.intel))                         # the Firewalls first
 	for res in RES: pool[res] = float(stock[res]) + float(made[res]) + _inbound(i, res)
 	var room := maxf(0.0, _store_room(i))
 	var take := func(res: String, amt: float) -> void:   # amt from the local pool first, the rest asked of the main node
@@ -2279,6 +2283,17 @@ func _makes_here(i: int, res: String) -> bool:   # an active producer on host i 
 	return false
 
 
+func _cap_claims(i: int) -> void:   # no claim on host i beyond what is there: storage claims to the storage, pile claims to the pile
+	for field in ["claim", "pclaim"]:
+		var cl: Dictionary = hosts[i].get(field, {})
+		for f in cl.keys():
+			for res in (cl[f] as Dictionary).keys():
+				if not cl.has(f) or not (cl[f] as Dictionary).has(res): continue
+				var there := _loot(i, int(f), str(res)) if field == "pclaim" else float(_store_of(i, int(f)).get(res, 0.0))
+				var ex := float(cl[f][res]) - there
+				if ex > 0.0001: _add_to(i, field, int(f), str(res), -ex)
+
+
 func _pile_free(i: int, fac: int, res: String) -> float:   # fac's pile on host i, less what its workers are already on their way for
 	return maxf(0.0, _loot(i, fac, res) - float(((hosts[i].get("pclaim", {}) as Dictionary).get(fac, {}) as Dictionary).get(res, 0.0)))
 
@@ -2395,7 +2410,7 @@ func _join(fac: int, hub: int, wid: int, reqs: Array, owed := {}) -> void:   # a
 		_take_req(at, fac, str(outr.res), float(outr.amt), bool(outr.get("pile", false))); _reserve_incoming(fac, str(outr.res), float(outr.amt))
 		cargo[str(outr.res)] = float(outr.amt)
 		for q in reqs:
-			if str(q.key) == str(outr.key): q.qty = float(q.qty) - float(outr.amt)
+			if str(q.key) == str(outr.key): q.qty = float(q.qty) - float(outr.amt); q.max = float(q.get("max", q.qty)) - float(outr.amt)
 	var f := _launch(fac, wid, at, hub, cargo, at, {}, _travel_route(fac, at, hub))
 	f.trip = "join"
 	f.covered = float(hosts[at].get("cover_until", 0.0)) > _t
@@ -2423,7 +2438,7 @@ func _assign(fac: int, hub: int, wid: int, reqs: Array, owed := {}) -> bool:   #
 	for r in [inr, outr]:   # what this trip took is no longer open for the next worker in the same step
 		if r.is_empty(): continue
 		for q in reqs:
-			if str(q.key) == str(r.key): q.qty = float(q.qty) - float(r.amt)
+			if str(q.key) == str(r.key): q.qty = float(q.qty) - float(r.amt); q.max = float(q.get("max", q.qty)) - float(r.amt)   # (the crumbs bound too, 0.6.15)
 	return true
 
 
@@ -4131,6 +4146,7 @@ func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the targ
 			if n2 <= 0: continue
 			_add_to(int(h), "loot", victim, res, -float(n2)); _add_to(t, "loot", fac, res, float(n2))
 			left -= n2; took += n2
+		_cap_claims(int(h))   # (0.6.15) workers already on their way for what it took find what is left
 		for slot in (hosts[int(h)].jobs as Dictionary):   # and so is construction material not yet built in (the worked share is the building)
 			var job: Dictionary = hosts[int(h)].jobs[slot]
 			var unused := 1.0
@@ -7896,12 +7912,13 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 		var need_fw := _amt(float(pv.fw.need))
 		if _inbound(i, "intel") >= 0.999: pass   # a worker is bringing it: it lands before it is missed
 		elif main: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel and your bank has none." % need_fw])
+		elif _free(owner, "intel") < 0.999 and _count_all(i, "intel") > 0 and _count(i, "intel") == 0: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here; its Intel harvester is stopped and your main node has none to send." % need_fw])
 		elif _free(owner, "intel") < 0.999 and _count(i, "intel") > 0: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here; it makes %s here and your main node has none to send. Build another Intel harvester here." % [need_fw, _amt(float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel"))]])
 		elif _free(owner, "intel") < 0.999: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here; none is made here and your main node has none to send. Build an Intel harvester here." % need_fw])
 		elif not _route_ok(owner, _hub(owner), i): probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, and no worker can reach this host." % need_fw])
 		elif int(_worker_counts(owner).total) == 0: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, but you have no workers to bring it. Build a Bot station." % need_fw])
 		elif _store_room(i) < 0.999: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, and this host's storage is full. It can come once some cargo ships." % need_fw])
-		elif _sabot_stopped(owner) >= int(_worker_counts(owner).total): probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, but Sabotage keeps your workers at their stations." % need_fw])
+		elif _can_carry(owner) <= 0: probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, but Sabotage stops your workers once their leg ends." % need_fw])
 		elif not _upkeep_asked(owner, i): probs.append(["Firewall off", C_WARN, "Firewall OFF next cycle: it needs %s Intel here, and none can be sent this cycle." % need_fw])
 		else: probs.append(["Firewall off", C_WARN, "Firewall needs %s Intel here: your workers are bringing it from your main node." % need_fw])
 	if not main and not _ddos_down(i):

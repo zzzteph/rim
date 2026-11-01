@@ -65,6 +65,7 @@ func run() -> void:
 	statuses()
 	firewall_upkeep()
 	honest_producer_notes()
+	firewall_notes_0615()
 	upkeep_notes_tell_the_truth()
 	sabotaged_workers_note()
 	route_inspection()
@@ -393,3 +394,24 @@ func sabotaged_workers_note() -> void:   # (0.6.14) workers Sabotage keeps at th
 	var d := diag(n)
 	check(int(wc.idle) == 0 and int(wc.blocked) == int(wc.total) and lines_have(d, "Sabotage") and not lines_have(d, "busy"),
 		"With Sabotage holding all %d workers at their stations, the full host says so, not that they are busy (%s)" % [int(wc.total), str(d.lines)])
+
+
+func firewall_notes_0615() -> void:   # (0.6.15) a stopped harvester is not a missing one; Sabotage holds workers still out on a leg
+	for how in ["sabotage", "ddos"]:
+		fresh()
+		var home: int = int(g.rig[P])
+		g._set_builds(home, ["bot"]); g.bank[P].intel = 0.0
+		var w := own_pc(["intel", "wall", "cash"])
+		if how == "sabotage": g.hosts[w].sabot_until = g._t + 60.0
+		else: g.hosts[w].ddos_until = g._t + 60.0
+		var d := diag(w)
+		check(lines_have(d, "harvester is stopped") and not lines_have(d, "Build an Intel harvester"), "Under %s, a Firewall host whose harvester is stopped does not say to build one" % how)
+	fresh()
+	var hub: int = int(g.rig[P])
+	g._set_builds(hub, ["bot", "bot"]); g._tick_teams(0.0); g.bank[P].intel = 30.0
+	step(1.0)
+	var w2 := own_pc(["wall"])
+	for wid in g.workers: g.workers[wid].state = "trip"   # every worker is out on a leg (none free)
+	g.hosts[hub].sabot_until = g._t + 60.0
+	var d2 := diag(w2)
+	check(not lines_have(d2, "bringing it") and lines_have(d2, "Sabotage"), "While Sabotage holds every worker (even those still on a leg), the Firewall note says so, not that Intel is coming")

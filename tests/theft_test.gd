@@ -131,6 +131,7 @@ func run() -> void:
 	vault()
 	ddos()
 	piles_claimed_once()
+	vault_leaves_no_claims()
 	salvage_is_not_loot()
 	loot_last_on_every_turn()
 	worm_snapshot_after_patch()
@@ -345,3 +346,16 @@ func worm_preview_scouting() -> void:   # (0.6.14) "scouted like this one" only 
 		seen.append([line, scouted2])
 	check(str(seen[0][0]).contains("scouted") and int(seen[0][1]) == 1 and not str(seen[1][0]).contains("scouted") and int(seen[1][1]) == 0,
 		"The Worm preview promises a scouted second stage only when the Recon is still fresh as the first resolves, as it then runs (%s)" % str(seen))
+
+
+func vault_leaves_no_claims() -> void:   # (0.6.15) a Vault raid takes stock the owner's workers were on their way for: their claims shrink
+	fresh()                               # to what is left, so new output there is collected again at once
+	var v := rival_outpost()
+	g.hosts[v].store = {R: {"intel": 3.0}}
+	g._add_to(v, "loot", R, "creds", 3.0)
+	g._add_to(v, "claim", R, "intel", 3.0); g._add_to(v, "pclaim", R, "creds", 1.0)   # its workers are on their way
+	g._resolve_vault(P, v)
+	var left_claims := 0.0
+	for field in ["claim", "pclaim"]:
+		for res in ((g.hosts[v].get(field, {}) as Dictionary).get(R, {}) as Dictionary): left_claims += float(g.hosts[v][field][R][res])
+	check(left_claims <= 0.001 and g._loot(v, P, "intel") >= 3.0 - 0.001, "A Vault raid takes the stock the owner's workers were coming for, and leaves no claim on what is gone (%.1f left)" % left_claims)

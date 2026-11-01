@@ -77,6 +77,8 @@ func run() -> void:
 	crumbs_ride_home()
 	stolen_goods_last_on_every_turn()
 	ready_full_head_holds_nothing()
+	crumbs_bound_in_one_pass()
+	phished_plan_keeps_upkeep()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -377,3 +379,65 @@ func ready_full_head_holds_nothing() -> void:   # (0.6.14) a queue head that can
 	check(g._head_owed(P).is_empty() and float(g.research_job[P].get("progress", 0.0)) > 1.0 and not g._research_stall(P).contains("price"),
 		"With the Ready inventory full (%d) the waiting Recon copy holds none of its price: research of %s uses the bank (%.0f s done; '%s')"
 		% [g.READY_SLOTS, str(g.CARDS[rk].name), float(g.research_job[P].get("progress", 0.0)), g._research_stall(P)])
+
+
+func idle_workers() -> Array:
+	var out := []
+	for wid in g.workers:
+		if int(g.workers[wid].fac) == P and str(g.workers[wid].state) == "idle": out.append(int(wid))
+	out.sort()
+	return out
+
+
+func plan_of(n: int) -> Dictionary:
+	var owed: Dictionary = g._build_owed(P)
+	return g._host_plan(n, P, g._supply_budget(P, owed), g._upkeep_extra(P, owed))
+
+
+func firewall_host(kind: String, builds: Array, stock: float) -> int:   # a host next to your main node, its cycle held off, with this stock
+	var home: int = int(g.rig[P])
+	g._set_builds(home, ["bot", "bot"]); g._tick_teams(0.0)
+	var n := own_pc()
+	g.hosts[n].type = kind; g._set_builds(n, [])
+	for k in int(round(25.0 / g.SIM_DT)):   # the workers gather at the main node
+		g.hosts[n].cyc = 11.0
+		g._sim_step(g.SIM_DT)
+	g._set_builds(n, builds)
+	g.hosts[n].store = {P: {"intel": stock}}
+	g.hosts[n].fw_on = true; g.hosts[n].cyc = 11.0
+	return n
+
+
+func crumbs_bound_in_one_pass() -> void:   # (0.6.15) workers sent in one dispatch pass take no more than the plan spares:
+	fresh()                                 # the crumbs ride with the last unit only out of what the Firewalls do not need
+	g.bank[P] = {"intel": 0.0, "cash": 10.0, "creds": 10.0, "research": 10.0}
+	var n := firewall_host("server", ["intel", "wall", "wall"], 2.5)
+	var pl := plan_of(n)
+	var hub: int = int(g.rig[P])
+	var reqs: Array = g._open_requests(P, hub)
+	var owed: Dictionary = g._build_owed(P)
+	for wid in idle_workers():
+		if not g._assign(P, hub, wid, reqs, owed): break
+	var claimed: float = g._claimed(n, P, "intel")
+	g._run_cycle(n)
+	var st: float = float(g._store_of(n, P).get("intel", 0.0))
+	check(float(pl.reserve.intel) > 0.0 and claimed <= float(pl.export.intel) + 0.001 and bool(g.hosts[n].fw_on) and g._claimed(n, P, "intel") <= st + 0.001,
+		"Workers sent in one pass take %s of the %s Intel the plan spares, leaving the %s its Firewalls need: they stay on and no claim exceeds the stock" % [g._amt(claimed), g._amt(float(pl.export.intel)), g._amt(float(pl.reserve.intel))])
+
+
+func phished_plan_keeps_upkeep() -> void:   # (0.6.15) a phished host's harvest is the thief's: your Intel there feeds its Firewall first,
+	fresh()                                  # so your workers leave that much of it
+	g.bank[P] = {"intel": 30.0, "cash": 30.0, "creds": 30.0, "research": 30.0}
+	var n := firewall_host("pc", ["intel", "wall", ""], 2.0)
+	g.hosts[n].steal_by = g.RIVAL; g.hosts[n].steal_until = g._t + 60.0
+	var pl := plan_of(n)
+	var need := float(g.BUILD_KINDS.wall.use.intel)
+	var hub: int = int(g.rig[P])
+	var reqs: Array = g._open_requests(P, hub)
+	var owed: Dictionary = g._build_owed(P)
+	for wid in idle_workers():
+		if not g._assign(P, hub, wid, reqs, owed): break
+	g._run_cycle(n)
+	var st: float = float(g._store_of(n, P).get("intel", 0.0))
+	check(float(pl.reserve.intel) >= need - 0.001 and bool(g.hosts[n].fw_on) and g._claimed(n, P, "intel") <= st + 0.001,
+		"Phished, your stock there keeps the Firewall's %s Intel (kept %s): it stays on, and your workers' claims never exceed what is left" % [g._amt(need), g._amt(float(pl.reserve.intel))])

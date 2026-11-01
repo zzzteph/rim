@@ -150,7 +150,10 @@ rule `_run_cycle`, `_cycle_preview` and the plans share). A remote host keeps wh
 **storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary); a storage that
 cannot hold a whole cycle gives every producer the same share (`_cycle_share`, from `_store_room`: never the room held
 for cargo on its way), and full storage stops them. An export's last whole unit also takes the crumbs such a shared
-cycle leaves when the host's plan spares them and the bank has room (`_amount`, the request's exact `max`); crumbs of a
+cycle leaves when the host's plan spares them and the bank has room (`_amount`, the request's exact `max`, lowered by
+every pickup of the same pass like `qty`, 0.6.15); a phished host's plan counts the thief's harvest only past your own
+stock there, so your Intel keeps its Firewall's upkeep (as `_cycle_split`); a Vault raid caps the claims on what it
+took (`_cap_claims`); crumbs of a
 material nothing on the host makes any more leave on their own once the host is not short of room. Production uses only what has **arrived** on the host. Each bank has a
 cap of `BASE_CAP[res]` plus `CAP_PER_PRODUCER` for every producer of that resource you own (`_cap`);
 anything on its way reserves its room at the destination (`incoming` for a bank, `hosts[i].inbound` for a
