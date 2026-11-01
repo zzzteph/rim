@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.15"   # review fixes: crumbs within what the plan spares, a phished host keeps its upkeep, Vault raids cap claims, honest Firewall notes (lobbies match exact versions)
+const GAME_VERSION := "0.6.16"   # workers go where they are needed from wherever they are: building strictly first, materials straight from the nearest stock to the site (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1230,7 +1230,8 @@ func _room(fac: int, res: String) -> float:   # destination room for a new shipm
 
 func _add_bank(fac: int, res: String, amt: float, cause := "other") -> float:   # credit, clamped to cap; returns what actually fit
 	if not bank.has(fac): return 0.0
-	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res)))
+	var held := _incoming(fac, res) if cause in ["trickle", "production"] else 0.0   # (0.6.16) new output never takes the room held for cargo on its way
+	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res) - held))
 	bank[fac][res] = _avail(fac, res) + fit
 	if fit > 0.0: _ledger_add(fac, "in", cause, res, fit)
 	if amt - fit > 0.000001: _ledger_add(fac, "lost", "cap", res, amt - fit)
@@ -1425,7 +1426,7 @@ func _fc_split(din: Array, dem: Array, a: float) -> Array:   # a assignments a m
 	var zero := []
 	var sum_in := 0.0
 	for v in din: zero.append(0.0); sum_in += float(v)
-	var p := _fc_fill(zero, din, minf(sum_in, a * float(PRIORITY_TURNS) / float(PRIORITY_TURNS + 1)))   # purpose turns: missing inputs, hosts in turn
+	var p := _fc_fill(zero, din, minf(sum_in, a))   # (0.6.16) supplies first, strictly: the Firewalls' upkeep, hosts in turn
 	var used := 0.0
 	for v in p: used += float(v)
 	return _fc_fill(p, dem, a - used)   # every other turn goes to the host served least recently: the least served catch up
@@ -1515,6 +1516,22 @@ func _forecast_now(fac: int) -> Dictionary:
 	# the purpose turns bring missing inputs first (the hosts in turn); every other turn goes to the host served least
 	# recently, so the hosts' trips even out. A trip carries one unit each way: a supply out, output back. Short of
 	# workers, the pool makes as many trips a minute as its time allows; a host short of supplies makes less in proportion.
+	var given := {}   # (0.6.16) a host's surplus Intel goes straight to a Firewall host no farther from it than the main node (_best_haul):
+	for row in remote:  # it never reaches the bank, and the bank sends that Firewall nothing
+		var need_in := float((row[4] as Dictionary).get("intel", 0.0))
+		if need_in <= 0.0001: continue
+		var dh := int(row[0])
+		var best := -1; var bt := INF; var left := 0.0
+		for row2 in remote:
+			var s2 := int(row2[0])
+			var spare := float(row2[1].intel) - float(given.get(s2, 0.0))
+			if s2 == dh or spare <= 0.0001: continue
+			var t2 := _leg_time(fac, s2, dh)
+			if t2 <= _leg_time(fac, s2, hub) + 0.0001 and t2 < bt - 0.0001: best = s2; bt = t2; left = spare
+		if best >= 0: given[best] = float(given.get(best, 0.0)) + minf(need_in, left)
+	for row in remote:   # what a host gives that way leaves on the Firewall host's own trips: its own trips carry the rest home
+		if given.has(int(row[0])):
+			var sh: Dictionary = (row[1] as Dictionary).duplicate(); sh.intel = maxf(0.0, float(sh.intel) - float(given[int(row[0])])); row[1] = sh
 	var stopped := _sabot_held(fac)   # (0.6.14: workers of a sabotaged station carry nothing once their leg ends)
 	var fleet: int = int(_worker_counts(fac).total) - stopped
 	var din := []; var dem := []; var cost := []
@@ -1551,10 +1568,15 @@ func _forecast_now(fac: int) -> Dictionary:
 		var made: Dictionary = row[1]
 		if x < float(din[k]) - 0.0001:   # short of supply trips: the supplies that come
 			made = _fc_cycle(i, fac, false, {}, _fc_scaled(row[4], x / float(din[k]))).out
+			if given.has(i): made.intel = maxf(0.0, float(made.intel) - float(given[i]))
 		# its trips bring everything home while they keep up. Else its storage stays full: its Intel harvesters only make
 		# as much as leaves, and its converters, in their order, turn that Intel into their own output first
-		if _fc_units(made) * per > x * WORKER_CARRY + 0.0001:
-			made = _fc_throttled(i, fac, _fc_scaled(row[4], minf(1.0, x / maxf(0.0001, float(din[k])))), made, x * WORKER_CARRY / per)
+		if _fc_units(made) * per > x * WORKER_CARRY + 0.0001:   # (what it gives a Firewall host leaves on that host's trips: it is room too)
+			var gv := float(given.get(i, 0.0))
+			var full := made
+			if gv > 0.0: full = full.duplicate(); full.intel = float(full.intel) + gv
+			made = _fc_throttled(i, fac, _fc_scaled(row[4], minf(1.0, x / maxf(0.0001, float(din[k])))), full, x * WORKER_CARRY / per + gv)
+			if gv > 0.0: made = made.duplicate(); made.intel = maxf(0.0, float(made.intel) - gv)
 		if x < float(dem[k]) - 0.001:   # what the shortage cuts, even to nothing (not what it frees: a starved Lab leaves its Intel)
 			for res in RES: if float(row[1][res]) > float(made[res]) + 0.0001: _fc_limit(d, res, "not enough workers" if stopped == 0 else "Sabotage stops %d of your workers" % stopped)
 		var clog := ""   # (0.6.14) an output its bank cannot take stays on the host: its storage fills, and then the whole host stops
@@ -1866,6 +1888,8 @@ var _plan_cache := {}    # host -> its plan for this step (rebuilt every step)
 var _logi_dirty := {}    # fac -> true: something that can create work happened (an arrival, a cycle, a command...): plan this step
 var _logi_next := {}     # fac -> when it plans again anyway (time-based changes: a trickle, a route reopening)
 const LOGI_EVERY := 0.25
+const PART_MIN := 0.25   # the least part of a unit a worker sets off for when no source can give a whole one (0.6.16)
+const UPKEEP_KEEP := 2.0   # cycles of Firewall upkeep a host that does not make its own keeps within reach (0.6.16)
 
 
 func _logi_poke(fac := -1) -> void:   # plan at the next step (fac -1: everyone)
@@ -1988,6 +2012,14 @@ func _worker_counts(fac: int, home := -2) -> Dictionary:   # {total, idle, joini
 	return out
 
 
+func _spare_total(i: int, fac: int) -> float:   # what host i's plan lets go home (it only reads)
+	var owed := _build_owed(fac)
+	var ex: Dictionary = _host_plan(i, fac, _supply_budget(fac, owed), _upkeep_extra(fac, owed)).export
+	var n := 0.0
+	for r in ex: n += float(ex[r])
+	return n
+
+
 func _upkeep_asked(fac: int, i: int) -> bool:   # host i's plan asks the main node for its Firewalls' upkeep (it only reads)
 	var owed := _build_owed(fac)
 	return float(_host_plan(i, fac, _supply_budget(fac, owed), _upkeep_extra(fac, owed)).upkeep) > 0.0001
@@ -2012,17 +2044,16 @@ func _sabot_stopped(fac: int) -> int:   # free workers Sabotage keeps at their s
 	return n
 
 
-func _worker_state(wid: int) -> String:   # idle (free at the main node) · joining (not there yet) · collecting · carrying · blocked
+func _worker_state(wid: int) -> String:   # idle (free, wherever it is) · joining (heading home, nothing to do) · collecting · carrying · blocked
 	var w: Dictionary = workers.get(wid, {})
 	if w.is_empty(): return "idle"
-	var hub := _hub(int(w.fac))
 	if str(w.state) == "idle":
 		if _sabotaged(int(w.home)): return "blocked"   # (0.6.13: a sabotaged host's station sends no worker out until it ends)
-		return "idle" if int(w.get("base", w.home)) == hub else "joining"   # waiting at its station for a route
+		return "idle"   # (0.6.16: free wherever it is)
 	var f := _flight_of(wid)
 	if f.is_empty(): return "idle"
 	if bool(f.get("blocked", false)): return "blocked"
-	if str(f.trip) == "join": return "joining"
+	if str(f.trip) == "home": return "joining"   # on its way home with nothing to do
 	return "carrying" if not (f.cargo as Dictionary).is_empty() else "collecting"
 
 
@@ -2096,11 +2127,13 @@ func _host_plan(i: int, fac: int, budget: Dictionary, upkeep_extra := 0.0) -> Di
 	var walls := _count_all(i, "wall") - _walls_building(i)
 	if walls > 0:
 		var need := float(BUILD_KINDS.wall.use.intel) * walls
-		var can := float(pool.intel) + minf(float(budget.get("intel", 0.0)) + upkeep_extra, room)
+		var keep := need + (UPKEEP_KEEP - 1.0) * maxf(0.0, need - float(made.intel))   # (0.6.16) a host that does not make all its upkeep
+		var can := float(pool.intel) + minf(float(budget.get("intel", 0.0)) + upkeep_extra, room)   # keeps more cycles' worth within reach
 		if can >= need - 0.0001:
-			var ext := maxf(0.0, need - float(pool.intel)); room -= ext
+			var want := need + minf(keep - need, floorf(can - need + 0.0001))   # (the buffer beyond the next cycle in whole units: no slivers)
+			var ext := maxf(0.0, want - float(pool.intel)); room -= ext
 			out.upkeep = ext
-			take.call("intel", need)
+			take.call("intel", want)
 		else: out.wall = false
 	var inst := []   # the active converters in cycle order: [kind, slot]
 	for kind in CONVERT_ORDER:
@@ -2129,8 +2162,11 @@ func _host_plan(i: int, fac: int, budget: Dictionary, upkeep_extra := 0.0) -> Di
 		var o := float(spec.rate) * m * f
 		pool[str(spec.out)] = float(pool[str(spec.out)]) + o; made[str(spec.out)] = float(made[str(spec.out)]) + o
 		out.frac[int(it[1])] = f
+	var keep_more := 0.0   # (0.6.16) such a host keeps UPKEEP_KEEP + 1 cycles of what it lacks: the last one only from a nearer host's surplus
+	if walls > 0 and _benef(i) == fac: keep_more = (UPKEEP_KEEP + 1.0) * maxf(0.0, float(BUILD_KINDS.wall.use.intel) * walls - float(made.intel))   # (not while phished)
 	for res in RES:   # what this cycle takes from the current stock (beyond what it makes and what is coming) stays; the rest may go
 		var from_stock := clampf(float(local_used[res]) - float(made[res]) - _inbound(i, res), 0.0, float(stock[res]))
+		if res == "intel" and keep_more > 0.0: from_stock = maxf(from_stock, minf(float(stock[res]), keep_more - _inbound(i, res)))
 		out.reserve[res] = from_stock
 		out.export[res] = maxf(0.0, float(stock[res]) - float(out.reserve[res]))
 	return out
@@ -2145,13 +2181,19 @@ func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, sin
 	var owed_all := _build_owed(fac)
 	var budget := _supply_budget(fac, owed_all)   # (supplies get what the projects do not need; a Firewall's upkeep may use their stock)
 	var n := hosts.size()
+	var spare_intel := 0.0   # (0.6.16) a Firewall's upkeep may also come straight from another host's spare Intel
+	var spare_of := {}
+	for i0 in n:
+		if i0 == hub or int(hosts[i0].owner) != fac or _routing_down(i0): continue
+		var p0 := _host_plan(i0, fac, {}, 0.0)
+		if bool(p0.wall) or _count_all(i0, "wall") == 0: spare_of[i0] = maxf(0.0, float(p0.export.intel)); spare_intel += float(spare_of[i0])
 	var start := posmod(int(ship_cursor.get(fac, 0)), maxi(1, n))   # the hosts share a short main node in turn
 	for k in n:
 		var i := (start + k) % n
 		if i == hub or (only >= 0 and i != only): continue
 		var own := int(hosts[i].owner) == fac
 		if own:
-			var plan := _host_plan(i, fac, budget, _upkeep_extra(fac, owed_all))
+			var plan := _host_plan(i, fac, budget, _upkeep_extra(fac, owed_all) + spare_intel - float(spare_of.get(i, 0.0)))
 			_plan_cache[i] = plan; hosts[i].plan_frac = plan.frac; hosts[i].plan_limited = bool(plan.limited)
 			var upkeep := minf(float(plan.upkeep), float(plan.short.intel))   # a Firewall's Intel keeps its defence on: it goes with building
 			if upkeep > 0.0001: want["%d:upkeep:intel" % i] = [i, "upkeep", "intel", upkeep, "in"]
@@ -2333,42 +2375,50 @@ func _mark_res(fac: int, r: Dictionary) -> void:   # this host's resource was ju
 	_served_res[fac][int(r.host)][str(r.res)] = int(_serve_n.get(fac, 0))
 
 
-func _pick_first(fac: int, r: Dictionary, lack: Dictionary) -> int:   # 0: a project's materials · 1: surplus of a host about to fill up
-	if _req_class(r) == 0: return 0                                     # (its producers would stop) or what the projects wait for · -1: else
-	if str(r.purpose) == "loot": return -1   # (0.6.13: stolen goods are collected last; theft never displaces your own deliveries)
-	if str(r.dir) == "out" and (float(lack.get(str(r.res), 0.0)) > 0.0001 or _storage_tight(int(r.host))): return 1
-	return -1
+# ---- dispatch (0.6.16): every free worker, wherever it is, takes the most useful job it can start soonest ----
+# A job moves one unit from a source to a destination. A project's material or a Firewall's upkeep comes from the
+# nearest place that can spare it - your bank, a host's spare stock, your own salvage - straight to the site; a host's
+# surplus, your salvage and stolen goods go to your bank. Building and upkeep come strictly first (a Firewall's upkeep,
+# then Bot stations, then the projects in the order given); then the surplus of the hosts about to fill up, the hosts in
+# turn; stolen goods last. A worker is free where it delivers and goes on from there; with nothing to do, it heads home.
+func _pick_rank(fac: int, r: Dictionary) -> Array:   # how urgent one request is (smaller first)
+	var cls := _req_class(r)
+	var h := int(r.host)
+	if str(r.purpose) == "lack": return [0, 1, 0, 0, 0]   # (a main-node project's material, brought home)
+	if str(r.purpose) == "room": return [0, -1, -1, h, 0]   # (room for a Firewall's upkeep)
+	if cls == 0:
+		var job := _job_for(h, str(r.purpose).trim_prefix("build:"))
+		return [0, -1 if str(r.purpose) == "upkeep" else (0 if str(job.get("kind", "")) == "bot" else 1), int(job.get("id", 0)), int(r.id), 0]
+	if str(r.dir) == "out": return [cls, 0 if _tight_now(h) else 1, _served_at(fac, h), _served_res_at(fac, h, str(r.res)), int(r.id)]
+	return [cls, 1, _served_at(fac, h), -1, int(r.id)]
 
 
-func _pick_request(fac: int, cands: Array, turn: int, lack := {}) -> Dictionary:   # building first: three of four assignments take a project's
-	var fair: bool = turn % (PRIORITY_TURNS + 1) == PRIORITY_TURNS                 # materials (a Bot station's first - its workers carry for every
-	var tight := {}                                                               # other one - then the one ordered first) or a Firewall's upkeep;
-	for r in cands:                                                               # the fourth keeps every host going: the surplus of a host about
-		if str(r.dir) == "out" and _storage_tight(int(r.host)): tight[int(r.host)] = true   # to fill up or what the projects wait for,
-	var best := {}; var bk := []                                                  # else the host served least recently, whatever it needs.
-	var building := cands.any(func(r): return _req_class(r) == 0)                 # With nothing to build, what the projects wait for comes first.
-	for pass_n in 2:
-		var want := 1 if (fair or not building) == (pass_n == 0) else 0
-		for r in cands:
-			if _pick_first(fac, r, lack) != want or (want == 1 and not building and float(lack.get(str(r.res), 0.0)) <= 0.0001): continue
-			var h := int(r.host)
-			var k := []
-			if want == 0:   # (a Firewall's upkeep first: one unit a cycle keeps its loaded defence on)
-				var job := _job_for(h, str(r.purpose).trim_prefix("build:"))
-				k = [-1 if str(r.purpose) == "upkeep" else (0 if str(job.get("kind", "")) == "bot" else 1), int(job.get("id", 0)), int(r.id)]
-			else: k = [0 if tight.has(h) else 1, _served_at(fac, h), int(r.id)]
-			if best.is_empty() or k < bk: best = r; bk = k
-		if not best.is_empty(): return best
-		if fair and building and pass_n == 0:   # nothing urgent on the fourth turn: the host served least recently, whatever it needs
-			for r in cands:
-				var k2 := [1 if str(r.purpose) == "loot" else 0, _served_at(fac, int(r.host)), _served_res_at(fac, int(r.host), str(r.res)), int(r.id)]   # (stolen goods last, 0.6.14)
-				if best.is_empty() or k2 < bk: best = r; bk = k2
-			return best
-	for r in cands:   # nothing to build: inputs before other surplus, hosts in turn; every fourth to the host served least recently
-		var h := int(r.host); var rs := _served_res_at(fac, h, str(r.res))   # (within a host, the resource moved longest ago)
-		var k := [1 if str(r.purpose) == "loot" else 0, _served_at(fac, h), rs, int(r.id)] if fair else [_req_class(r), _served_at(fac, h), rs, int(r.id)]
+func _pick_request(fac: int, cands: Array, _turn := 0, _lack := {}) -> Dictionary:   # the most urgent of these requests
+	var best := {}; var bk := []
+	for r in cands:
+		var k := _pick_rank(fac, r)
 		if best.is_empty() or k < bk: best = r; bk = k
 	return best
+
+
+func _claims_total(i: int) -> float:
+	var n := 0.0
+	for f in (hosts[i].get("claim", {}) as Dictionary):
+		for res in (hosts[i].claim[f] as Dictionary): n += float(hosts[i].claim[f][res])
+	return n
+
+
+func _tight_now(i: int) -> bool:   # its next cycle would not fit, counting what workers are already on their way to collect
+	var walls := _count_all(i, "wall") - _walls_building(i)   # (and the room its Firewalls' upkeep needs, when its own harvest falls short)
+	var upkeep_in := maxf(0.0, float(BUILD_KINDS.wall.use.intel) * walls - float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _count(i, "intel"))
+	return STORE_CAP - (_store_total(i) - _claims_total(i)) - _inbound_total(i) < 1.0 + _cycle_gross(i) + upkeep_in
+
+
+func _leg_time(fac: int, a: int, b: int) -> float:   # how long a worker at a takes to reach b (INF: it cannot)
+	if a == b: return 0.0
+	if _routing_down(a): return INF
+	var rt := _travel_route(fac, a, b)
+	return _travel_time(rt) if rt.size() >= 2 else INF
 
 
 func _tick_logistics() -> void:   # every step: free workers take the most useful feasible job (nothing waits for a planning pulse)
@@ -2377,90 +2427,208 @@ func _tick_logistics() -> void:   # every step: free workers take the most usefu
 		if _eliminated.has(fac): continue
 		var hub := _hub(fac)
 		if hub < 0: continue
-		var idle := []; var joiners := []   # free at the main node / free at their station's host, not yet at the main node
+		var free := []
 		for wid in workers:
 			var w: Dictionary = workers[wid]
 			if int(w.fac) != fac or str(w.state) != "idle": continue
 			if _sabotaged(int(w.home)): continue   # Sabotage stops the workers of the stations on the hosts it hits (0.6.13)
-			if int(w.get("base", w.home)) == hub: idle.append(int(wid))
-			elif not _routing_down(int(w.get("base", w.home))): joiners.append(int(wid))
-		if idle.is_empty() and joiners.is_empty(): continue
+			if _routing_down(int(w.get("base", w.home))): continue   # it cannot leave a host under DDoS
+			free.append(int(wid))
+		if free.is_empty(): continue
 		if not bool(_logi_dirty.get(fac, true)) and _t < float(_logi_next.get(fac, 0.0)): continue   # nothing new since the last look
 		_logi_dirty[fac] = false; _logi_next[fac] = _t + LOGI_EVERY
-		idle.sort(); joiners.sort()
-		var reqs := _open_requests(fac, hub)
-		var owed := _build_owed(fac)
-		for wid in joiners: _join(fac, hub, wid, reqs, owed)
-		for wid in idle:
-			if not _assign(fac, hub, wid, reqs, owed): break
+		free.sort()
+		_dispatch(fac, hub, free)
 
 
-func _join(fac: int, hub: int, wid: int, reqs: Array, owed := {}) -> void:   # a new worker goes to the main node, with its host's surplus if any
+func _dispatch(fac: int, hub: int, free: Array) -> void:   # deal the jobs to the free workers, the most urgent first, each to the worker who starts it soonest
+	var reqs := _open_requests(fac, hub)
+	var owed := _build_owed(fac)
+	var bank_left := {}   # bank stock this pass may still send to a site (building first; supplies to production only what the projects leave)
+	var supply_left := _supply_budget(fac, owed)
+	for res in RES: bank_left[res] = _free(fac, res)
+	var ins := reqs.filter(func(r): return str(r.dir) == "in")
+	var outs := reqs.filter(func(r): return str(r.dir) == "out")
+	var lack := _build_lack(fac, _build_owed(fac, true))   # what the main node's projects wait for that is neither in the bank nor coming:
+	for res in lack:                                       # brought home from the hosts, as building
+		ins.append({"key": "%d:lack:%s" % [hub, res], "id": 0, "since": 0.0, "host": hub, "purpose": "lack", "res": str(res), "qty": float(lack[res]), "dir": "in"})
+	for d in hosts.size():   # a Firewall whose next upkeep cannot fit its full storage: that host's surplus goes first, as urgently as upkeep
+		if d == hub or int(hosts[d].owner) != fac or _routing_down(d): continue
+		var walls := _count_all(d, "wall") - _walls_building(d)
+		if walls <= 0: continue
+		var need := float(BUILD_KINDS.wall.use.intel) * walls
+		var have := minf(need, float(BUILD_KINDS.intel.rate) * _tmult(d, "intel") * _count(d, "intel")) + _store_free(d, fac, "intel") + _inbound(d, "intel")
+		if need - have > 0.0001 and _store_room(d) < minf(WORKER_CARRY, need - have) - 0.0001:
+			ins.append({"key": "%d:room" % d, "id": 0, "since": 0.0, "host": d, "purpose": "room", "res": "intel", "qty": 1.0, "dir": "in"})
+	ins.sort_custom(func(a, b): return _pick_rank(fac, a) < _pick_rank(fac, b))
+	var srcs := outs.filter(func(r): return str(r.purpose) in ["export", "salvage"] and int(hosts[int(r.host)].owner) == fac)   # spare stock that may go to a site directly
+	var topup := {}   # Firewall hosts that do not make their own upkeep: room for one more cycle, filled only from a nearer host's surplus
+	for d2 in hosts.size():
+		if d2 == hub or int(hosts[d2].owner) != fac or _routing_down(d2) or _benef(d2) != fac: continue
+		var w2 := _count_all(d2, "wall") - _walls_building(d2)
+		if w2 <= 0: continue
+		var lack2 := float(BUILD_KINDS.wall.use.intel) * w2 - float(BUILD_KINDS.intel.rate) * _tmult(d2, "intel") * _count(d2, "intel")
+		if lack2 <= 0.0001: continue
+		var short2 := lack2 * (UPKEEP_KEEP + 1.0) - _store_free(d2, fac, "intel") - _inbound(d2, "intel")
+		if short2 > 0.0001: topup[d2] = short2
+	while not free.is_empty():
+		var job := _best_delivery(fac, hub, free, ins, srcs, outs, bank_left, supply_left)
+		if job.is_empty(): job = _best_haul(fac, hub, free, outs, owed, topup)
+		if job.is_empty(): break
+		_start_haul(fac, hub, job)
+		free.erase(int(job.wid))
+	for wid in free:   # nothing it can do: a worker away from the main node heads home
+		var at := int(workers[wid].get("base", workers[wid].home))
+		if at == hub: continue
+		var rt := _travel_route(fac, at, hub)
+		if rt.size() < 2: continue
+		var f := _launch(fac, int(wid), at, hub, {}, at, {}, rt)
+		f.trip = "home"
+
+
+func _nearest_worker(fac: int, free: Array, at: int) -> Array:   # [wid, time to reach at] of the free worker who gets there first
+	var best := -1; var bt := INF
+	for wid in free:
+		var t := _leg_time(fac, int(workers[wid].get("base", workers[wid].home)), at)
+		if t < bt - 0.0001: best = int(wid); bt = t
+	return [best, bt]
+
+
+func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, outs: Array, bank_left: Dictionary, supply_left: Dictionary) -> Dictionary:
+	for d in ins:   # the most urgent site first (strictly); for it, the source and worker that get a unit there soonest
+		if float(d.qty) <= 0.0001: continue
+		var dst := int(d.host); var res := str(d.res); var purpose := str(d.purpose)
+		if _routing_down(dst): continue
+		var amt := minf(WORKER_CARRY, float(d.qty))
+		if purpose == "room" or (purpose == "upkeep" and _store_room(dst) < amt - 0.0001):   # no room for the Firewall's Intel: its host's surplus goes first, as urgently
+			var making := float(d.get("room_made", 0.0)) + _claims_total(dst)   # (only as many workers as the room needs: what is being collected
+			if _store_room(dst) + making >= amt - 0.0001: continue                #  counts, so the next free one takes the next job)
+			var room_job := _best_haul(fac, hub, free, outs.filter(func(r): return int(r.host) == dst), {})
+			if not room_job.is_empty():
+				d["room_made"] = making + float(room_job.amt)
+				return room_job
+			continue
+		var best := {}; var bt := INF
+		var pool: Dictionary = bank_left if purpose != "input" else supply_left
+		var from_bank := minf(amt, float(pool.get(res, 0.0)))
+		if purpose == "lack": from_bank = 0.0   # (it is not in the bank: that is the point)
+		if from_bank > 0.0001 and (from_bank >= amt - 0.0001 or from_bank >= float(d.qty) - 0.0001):
+			var nw := _nearest_worker(fac, free, hub)
+			var t := float(nw[1]) + _leg_time(fac, hub, dst)
+			if int(nw[0]) >= 0 and t < bt: best = {"wid": int(nw[0]), "src": hub, "bank": true, "pile": false, "amt": from_bank, "sreq": {}}; bt = t
+		for part in 2:   # whole units (or the site's last fraction) first; only if none, a part of one (at least PART_MIN) from where it is
+			if part == 1 and not best.is_empty(): break
+			if part == 1 and from_bank >= PART_MIN:
+				var nwb := _nearest_worker(fac, free, hub)
+				var tb := float(nwb[1]) + _leg_time(fac, hub, dst)
+				if int(nwb[0]) >= 0 and tb < bt: best = {"wid": int(nwb[0]), "src": hub, "bank": true, "pile": false, "amt": from_bank, "sreq": {}}; bt = tb
+			for sr in srcs:
+				if str(sr.res) != res or int(sr.host) == dst or float(sr.get("max", sr.qty)) <= 0.0001: continue
+				var s := int(sr.host)
+				var have := minf(float(sr.get("max", sr.qty)), _pile_free(s, fac, res) if bool(sr.get("pile", false)) else _store_free(s, fac, res))
+				var a := minf(amt, have)
+				var whole := a >= amt - 0.0001 or a >= float(d.qty) - 0.0001
+				if (part == 0 and not whole) or (part == 1 and a < PART_MIN): continue
+				var leg := _leg_time(fac, s, dst)
+				if leg >= INF: continue
+				var nw2 := _nearest_worker(fac, free, s)
+				var t2 := float(nw2[1]) + leg
+				if int(nw2[0]) >= 0 and t2 < bt - 0.0001: best = {"wid": int(nw2[0]), "src": s, "bank": false, "pile": bool(sr.get("pile", false)), "amt": a, "sreq": sr}; bt = t2
+		if best.is_empty(): continue
+		var a2 := float(best.amt)
+		if purpose.begins_with("build:"):
+			if not _build_room(dst, purpose.trim_prefix("build:"), res, a2): continue
+		elif purpose == "lack":
+			if _room(fac, res) < a2 - 0.0001: continue
+			purpose = ""
+		elif _store_room(dst) < a2 - 0.0001: continue
+		best.merge({"dst": dst, "res": res, "purpose": purpose, "dreq": d, "pool": pool})
+		return best
+	return {}
+
+
+func _best_haul(fac: int, hub: int, free: Array, outs: Array, owed: Dictionary, topup := {}) -> Dictionary:   # surplus, salvage and stolen goods home
+	var best := {}; var bk := []
+	var due := _arriving(fac)   # (a worker already on its way to a host takes that host's surplus when it gets there: no second one is sent)
+	for r in outs:
+		if float(r.qty) <= 0.0001: continue
+		var s := int(r.host)
+		if _routing_down(s) or _leg_time(fac, s, hub) >= INF: continue
+		var amt := _amount(fac, hub, r, owed)
+		if amt <= 0.0001: continue
+		var nw := _nearest_worker(fac, free, s)
+		if int(nw[0]) < 0: continue
+		var soon := 0
+		for eta in (due.get(s, []) as Array): if float(eta) <= float(nw[1]) + 0.0001: soon += 1
+		if soon > 0 and float(r.qty) <= float(soon) * WORKER_CARRY + 0.0001: continue
+		var k := _pick_rank(fac, r)
+		if best.is_empty() or k < bk:
+			best = {"wid": int(nw[0]), "src": s, "dst": hub, "res": str(r.res), "purpose": "", "amt": amt, "bank": false, "pile": bool(r.get("pile", false)), "sreq": r, "dreq": {}}
+			bk = k
+	if not best.is_empty() and str(best.res) == "intel" and not topup.is_empty() and not bool(best.pile):   # (0.6.16) surplus Intel goes to a
+		var s2 := int(best.src); var to := -1; var tt := _leg_time(fac, s2, hub) + 0.0001   # Firewall host that does not make its own,
+		for dh in topup:                                                                     # when it is no farther than the main node
+			if int(dh) == s2 or float(topup[dh]) < float(best.amt) - 0.0001 or _store_room(int(dh)) < float(best.amt) - 0.0001: continue
+			var t3 := _leg_time(fac, s2, int(dh))
+			if t3 <= tt: to = int(dh); tt = t3
+		if to >= 0:
+			topup[to] = float(topup[to]) - float(best.amt)
+			best.dst = to; best.purpose = "upkeep"
+	return best
+
+
+func _arriving(fac: int) -> Dictionary:   # host -> [seconds until each loaded worker on its way there arrives and is free there]
+	var out := {}
+	for f in flights:
+		if str(f.kind) != "courier" or int(f.owner) != fac or str(f.get("trip", "")) != "carry" or bool(f.get("blocked", false)): continue
+		if str((workers.get(int(f.get("wid", -1)), {}) as Dictionary).get("state", "")) == "retiring": continue
+		var d := int(f.dest)
+		if not out.has(d): out[d] = []
+		(out[d] as Array).append(maxf(0.0, float(f.arrive_t) - _t))
+	return out
+
+
+func _start_haul(fac: int, hub: int, j: Dictionary) -> void:   # reserve the unit at its source and its room at its destination, and send the worker
+	var wid := int(j.wid); var s := int(j.src); var d := int(j.dst); var res := str(j.res); var amt := float(j.amt)
 	var at := int(workers[wid].get("base", workers[wid].home))
-	if not _route_ok(fac, hub, at): return
-	var cands := []
-	for r in reqs:
-		if int(r.host) != at or str(r.dir) != "out": continue
-		var amt := _amount(fac, hub, r, owed)
-		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
-	var cargo := {}
-	var outr := _pick_request(fac, cands, 0, _build_lack(fac, owed))
-	_mark_res(fac, outr)
-	if not outr.is_empty():
-		_take_req(at, fac, str(outr.res), float(outr.amt), bool(outr.get("pile", false))); _reserve_incoming(fac, str(outr.res), float(outr.amt))
-		cargo[str(outr.res)] = float(outr.amt)
-		for q in reqs:
-			if str(q.key) == str(outr.key): q.qty = float(q.qty) - float(outr.amt); q.max = float(q.get("max", q.qty)) - float(outr.amt)
-	var f := _launch(fac, wid, at, hub, cargo, at, {}, _travel_route(fac, at, hub))
-	f.trip = "join"
-	f.covered = float(hosts[at].get("cover_until", 0.0)) > _t
+	var sreq: Dictionary = j.get("sreq", {}); var dreq: Dictionary = j.get("dreq", {})
+	if not sreq.is_empty(): sreq.qty = float(sreq.qty) - amt; sreq.max = float(sreq.get("max", sreq.qty)) - amt
+	if not dreq.is_empty(): dreq.qty = float(dreq.qty) - amt
+	_mark_served(fac, s if d == hub else d)
+	if not sreq.is_empty(): _mark_res(fac, sreq)
+	elif not dreq.is_empty(): _mark_res(fac, dreq)
+	if d == hub: _reserve_incoming(fac, res, amt)   # room at the destination is held now
+	else: _hold_dest(d, str(j.purpose), res, amt, "inbound")
+	var job := {"src": s, "dst": d, "res": res, "amt": amt, "purpose": str(j.purpose), "pile": bool(j.pile), "bank": bool(j.bank)}
+	if bool(j.bank):   # from the bank: it leaves the bank now (a dropped job puts it back)
+		_spend(fac, res, amt, "supply")
+		var pool: Dictionary = j.get("pool", {})
+		if pool.has(res): pool[res] = float(pool[res]) - amt
+	elif at == s:   # the worker is there: it takes the unit at once
+		_take_req(s, fac, res, amt, bool(j.pile))
+	else: _add_to(s, "pclaim" if bool(j.pile) else "claim", fac, res, amt)   # what it will collect there is claimed for it now
+	if at == s: _set_off_loaded(fac, wid, job, at)
+	else:
+		var f := _launch(fac, wid, at, s, {}, at, job, _travel_route(fac, at, s))
+		f.trip = "fetch"
 
 
-func _assign(fac: int, hub: int, wid: int, reqs: Array, owed := {}) -> bool:   # one new trip for this worker, or false if nothing is feasible
-	var cands := []
-	for r in reqs:
-		if not _route_ok(fac, hub, int(r.host)): continue
-		var amt := _amount(fac, hub, r, owed)
-		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
-	if cands.is_empty(): return false
-	var lack := _build_lack(fac, owed)
-	var turn := int(_pool_turn.get(fac, 0))
-	var pick := _pick_request(fac, cands, turn, lack)
-	_pool_turn[fac] = turn + 1
-	var i := int(pick.host)
-	_mark_served(fac, i)
-	var other := "out" if str(pick.dir) == "in" else "in"   # the other leg carries something too when it can
-	var comp := _pick_request(fac, cands.filter(func(c): return int(c.host) == i and str(c.dir) == other and str(c.key) != str(pick.key)), 0, lack)
-	var inr: Dictionary = pick if str(pick.dir) == "in" else comp
-	var outr: Dictionary = pick if str(pick.dir) == "out" else comp
-	_mark_res(fac, inr); _mark_res(fac, outr)
-	_send_from_hub(fac, hub, wid, i, inr, outr)
-	for r in [inr, outr]:   # what this trip took is no longer open for the next worker in the same step
-		if r.is_empty(): continue
-		for q in reqs:
-			if str(q.key) == str(r.key): q.qty = float(q.qty) - float(r.amt); q.max = float(q.get("max", q.qty)) - float(r.amt)   # (the crumbs bound too, 0.6.15)
-	return true
-
-
-func _send_from_hub(fac: int, hub: int, wid: int, i: int, inr: Dictionary, outr: Dictionary) -> void:   # main node -> host -> main node
-	var cargo := {}; var purpose := ""
-	if not inr.is_empty():   # the supply leaves the bank with the worker
-		_spend(fac, str(inr.res), float(inr.amt), "supply")
-		_hold_dest(i, str(inr.purpose), str(inr.res), float(inr.amt), "inbound")
-		cargo[str(inr.res)] = float(inr.amt); purpose = str(inr.purpose)
-	var job := {}
-	if not outr.is_empty():   # what it collects there is claimed for it now
-		var pile := bool(outr.get("pile", false))
-		_add_to(i, "pclaim" if pile else "claim", fac, str(outr.res), float(outr.amt)); _reserve_incoming(fac, str(outr.res), float(outr.amt))
-		job = {"purpose": str(outr.purpose), "res": str(outr.res), "amt": float(outr.amt), "src": i, "pile": pile}
-	var f := _launch(fac, wid, hub, i, cargo, hub, job, _travel_route(fac, hub, i))
-	f.purpose = purpose
+func _set_off_loaded(fac: int, wid: int, job: Dictionary, at: int) -> void:   # with the unit, from where it picked it up to where it goes
+	var d := int(job.dst)
+	var rt := _travel_route(fac, at, d)
+	var own_here := int(hosts[at].owner) == fac   # a rival's Express or Cargo cover on its own host never helps your workers
+	var f := _launch(fac, wid, at, d, {str(job.res): float(job.amt)}, at, {}, rt if rt.size() >= 2 else [at])
+	f.trip = "carry"; f.purpose = str(job.purpose); f.src = at; f.dest = d
+	f.pickup = -1 if own_here else at
+	f.express = own_here and float(hosts[at].get("express_until", 0.0)) > _t
+	f.covered = own_here and float(hosts[at].get("cover_until", 0.0)) > _t
+	if rt.size() < 2 or _routing_down(at): _block(f, at)   # the way on is cut, or this host cannot send: it waits here with what it collected
 
 
 func _launch(fac: int, wid: int, home: int, dest: int, cargo: Dictionary, src: int, job: Dictionary, rt: Array) -> Dictionary:
-	var express := float(hosts[home].get("express_until", 0.0)) > _t
-	var covered := float(hosts[home].get("cover_until", 0.0)) > _t
-	var f := _schedule(rt, _t, fac, "courier", express, {"wid": wid, "origin": home, "dest": dest, "trip": "out", "cargo": cargo,
+	var express := _owns(fac, home) and float(hosts[home].get("express_until", 0.0)) > _t   # (a rival's Express or Cover never helps you)
+	var covered := _owns(fac, home) and float(hosts[home].get("cover_until", 0.0)) > _t
+	var f := _schedule(rt, _t, fac, "courier", express, {"wid": wid, "origin": home, "dest": dest, "trip": "carry", "cargo": cargo,
 		"src": src, "job": job, "purpose": "", "covered": covered, "dest_own": _owns(fac, dest)})
 	flights.append(f)
 	workers[wid].state = "trip"; workers[wid].fid = int(f.id)
@@ -2479,19 +2647,22 @@ func _release_dest(i: int, purpose: String, res: String, amt: float, field: Stri
 
 func _drop_job(f: Dictionary) -> void:   # the pickup this worker was going to make is released (its cargo stays with it)
 	var job: Dictionary = f.get("job", {})
-	if job.is_empty() or str(f.trip) != "out": return
+	if job.is_empty() or str(f.trip) != "fetch": return
 	var fac := int(f.owner)
-	if job.has("src"):   # a worker going to collect at a host
-		_add_to(int(job.src), "pclaim" if bool(job.get("pile", false)) else "claim", fac, str(job.res), -float(job.amt)); _release_incoming(fac, str(job.res), float(job.amt))
+	var res := str(job.res); var amt := float(job.amt)
+	if bool(job.get("bank", false)): _add_bank(fac, res, amt, "returned")   # the unit it was to take from the bank goes back
+	else: _add_to(int(job.src), "pclaim" if bool(job.get("pile", false)) else "claim", fac, res, -amt)
+	if int(job.dst) == _hub(fac): _release_incoming(fac, res, amt)   # and the room held for it where it was going
+	else: _release_dest(int(job.dst), str(job.purpose), res, amt, "inbound")
 	f.job = {}
 
 
 func _end_ok(f: Dictionary, d: int) -> bool:   # may this packet enter its destination d right now?
 	var fac := int(f.owner)
 	match str(f.kind):
-		"courier":
-			if d == int(f.origin): return _owns(fac, d)        # home: must still be home
-			return not bool(f.get("dest_own", false)) or _owns(fac, d)   # a host of yours must still be yours
+		"courier":   # (0.6.16) a pickup may be on a rival's host (stolen goods); every delivery and the way home end on yours
+			if str(f.get("trip", "")) == "fetch": return not bool(f.get("dest_own", false)) or _owns(fac, d)
+			return _owns(fac, d)
 		"op":
 			if bool(f.get("returning", false)) or _is_defense(_card_of(str(f.get("card", "")))): return _owns(fac, d)
 			return true   # an attack may end at a foreign host; a target taken meanwhile is void on landing
@@ -2543,7 +2714,7 @@ func _tick_blocked() -> void:   # held packets: on when a route opens; turned ba
 			if not bool(f.get("returning", false)) and (giving_up or not _end_ok(f, dest)): _card_turn_home(f)
 			dest = int(f.dest)
 		elif str(f.kind) == "courier":
-			if str(f.trip) == "out" and not _end_ok(f, dest): _courier_turn_home(f)
+			if not _end_ok(f, dest): _courier_turn_home(f)
 			dest = int(f.dest)
 		if dest < 0: _lose(f, at, "stranded"); continue
 		if dest == at:   # already where it has to be (it was held at its own end)
@@ -2571,18 +2742,18 @@ func _card_turn_home(f: Dictionary) -> void:   # a card that cannot go on heads 
 	if bool(f.get("load", false)): _release_socket(int(f.get("target", -1)), str(f.get("sock", ""))); f.load = false
 
 
-func _courier_turn_home(f: Dictionary) -> void:   # its destination is gone: back home with what it carries; its pickup is released
+func _courier_turn_home(f: Dictionary) -> void:   # its destination is gone: home to the bank with what it carries; its pickup is released
 	var fac := int(f.owner)
-	_drop_job(f)
-	var home := int(f.origin)
 	var hub := _hub(fac)
-	for res in (f.cargo as Dictionary):   # cargo for the lost destination: its room there is released, room at home is held
+	if str(f.trip) == "fetch":
+		_drop_job(f); f.trip = "home"; f.dest = hub; return
+	for res in (f.cargo as Dictionary):   # cargo for the lost destination: its room there is released, room at the bank is held
 		var q := float(f.cargo[res])
 		if int(f.dest) == hub: _release_incoming(fac, str(res), q)
 		else: _release_dest(int(f.dest), str(f.get("purpose", "")), str(res), q, "inbound")
-		if home == hub: _reserve_incoming(fac, str(res), q)
-		else: _hadd(home, "inbound", str(res), q)
-	f.purpose = "input"; f.trip = "back"; f.dest = home
+		if hub >= 0: _reserve_incoming(fac, str(res), q)
+	f.purpose = ""; f.dest = hub
+	if (f.cargo as Dictionary).is_empty(): f.trip = "home"
 
 
 func _settle_lost(f: Dictionary, at: int, why: String) -> void:   # the worker and its cargo are gone: every reservation it held is released once
@@ -2630,65 +2801,45 @@ func _siphon_grab(f: Dictionary, here: int) -> void:   # a Packet siphon on this
 	if int(sp.left) == 0 and thief == PLAYER: _flash("Packet siphon on %s: full haul taken" % str(hosts[here].name), 0)
 
 
-func _courier_arrive(f: Dictionary) -> bool:   # true: the worker goes on (back home); false: it is home (free) or retired
+func _courier_arrive(f: Dictionary) -> bool:   # true: the worker goes on with what it collected; false: it is free here (or retired)
 	var fac := int(f.owner); var at := int(f.route[f.route.size() - 1])
-	var hub := _hub(fac)
 	var wid := int(f.get("wid", -1))
 	for res in (f.cargo as Dictionary): _drop_unit(fac, at, str(res), float(f.cargo[res]), f)
 	f.cargo = {}
 	var retiring := str((workers.get(wid, {}) as Dictionary).get("state", "")) == "retiring"
 	if retiring or not workers.has(wid):   # a retiring worker's last leg ends here
 		_drop_job(f); workers.erase(wid); return false
-	if str(f.trip) == "join":   # a new worker reached the main node: from now on it works from there
-		workers[wid].base = at
-		workers[wid].state = "idle"; workers[wid].fid = -1
-		_logi_poke(fac)
-		return false
-	if str(f.trip) == "out":
-		var home := int(f.origin)   # the main node
+	if str(f.trip) == "fetch":   # at the source: it takes the unit (the bank's left with it already) and sets off for its destination
 		var job: Dictionary = f.get("job", {})
-		f.job = {}; f.purpose = ""
-		if not job.is_empty():   # at the host: what it came for, else anything that may go
-			var pile := bool(job.get("pile", false))
-			_add_to(at, "pclaim" if pile else "claim", fac, str(job.res), -float(job.amt))
-			var got := minf(float(job.amt), _pile_free(at, fac, str(job.res)) if pile else _store_free(at, fac, str(job.res)))
-			if got > 0.0001: _take_req(at, fac, str(job.res), got, pile); f.cargo = {str(job.res): got}; f.src = at
-			if float(job.amt) - got > 0.0001: _release_incoming(fac, str(job.res), float(job.amt) - got)
-		elif at != home: _backhaul(fac, hub, f, at)
-		f.trip = "back"; f.dest = home
-		var own_here := int(hosts[at].owner) == fac   # a rival's Express or Cargo cover on its own host never helps your workers
-		f.pickup = -1 if own_here else at
-		f.express = own_here and float(hosts[at].get("express_until", 0.0)) > _t   # Express on this host speeds what leaves it
-		if (f.cargo as Dictionary).size() > 0: f.covered = own_here and float(hosts[at].get("cover_until", 0.0)) > _t   # so does Cargo cover
-		var rt := _travel_route(fac, at, home)
-		if rt.size() >= 2 and _end_ok(f, home): _reroute(f, rt)
-		else: _block(f, at)
-		return true
-	# home again: free for the next job at once (the same step's dispatch sees it)
+		f.job = {}
+		if not job.is_empty():
+			var res := str(job.res); var amt := float(job.amt)
+			var got := amt
+			if not bool(job.get("bank", false)):
+				var pile := bool(job.get("pile", false))
+				_add_to(at, "pclaim" if pile else "claim", fac, res, -amt)
+				got = minf(amt, _pile_free(at, fac, res) if pile else _store_free(at, fac, res))
+				if got > 0.0001: _take_req(at, fac, res, got, pile)
+			if amt - got > 0.0001:   # less than it came for: the rest of the room held for it is released
+				if int(job.dst) == _hub(fac): _release_incoming(fac, res, amt - got)
+				else: _release_dest(int(job.dst), str(job.purpose), res, amt - got, "inbound")
+			if got > 0.0001:
+				job.amt = got
+				f.dead = true   # this leg ends here; the loaded leg is a new packet from here
+				_set_off_loaded(fac, wid, job, at)
+				return false
+	# delivered (or nothing to collect): free here, for the next job at once (the same step's dispatch sees it)
+	workers[wid].base = at
 	workers[wid].state = "idle"; workers[wid].fid = -1
 	_logi_poke(fac)
 	return false
-
-
-func _backhaul(fac: int, hub: int, f: Dictionary, i: int) -> void:   # an empty return leg takes the host's surplus if any may go
-	var cands := []
-	var owed := _build_owed(fac)
-	for r in _open_requests(fac, hub, i):
-		if str(r.dir) != "out": continue
-		var amt := _amount(fac, hub, r, owed)
-		if amt > 0.0001: var c: Dictionary = r.duplicate(); c.amt = amt; cands.append(c)
-	var r := _pick_request(fac, cands, 0, _build_lack(fac, owed))
-	if r.is_empty(): return
-	_mark_res(fac, r)
-	_take_req(i, fac, str(r.res), float(r.amt), bool(r.get("pile", false))); _reserve_incoming(fac, str(r.res), float(r.amt))
-	f.cargo = {str(r.res): float(r.amt)}; f.src = i
 
 
 func _drop_unit(fac: int, at: int, res: String, q: float, f: Dictionary) -> void:   # carried cargo lands: the bank at the main node, a host's storage or escrow elsewhere
 	if at == _hub(fac):
 		_release_incoming(fac, res, q)
 		var src := int(f.get("src", -1))
-		var stolen := src >= 0 and src != at and int(hosts[src].owner) != fac
+		var stolen := src >= 0 and src != at and int(f.get("pickup", -1)) == src   # (picked up on a host that was not yours then)
 		_bank_put(fac, res, q, "stolen" if stolen else ("returned" if src == at else "delivered"))
 		if src >= 0 and src != at: _ledger_add(fac, "from", str(src), res, q)
 		_delivered[fac] = int(_delivered.get(fac, 0)) + 1
@@ -2702,8 +2853,10 @@ func _drop_unit(fac: int, at: int, res: String, q: float, f: Dictionary) -> void
 
 func _bank_put(fac: int, res: String, amt: float, cause: String) -> void:   # credit what was carried in (its room was held on the way)
 	if not bank.has(fac): return
-	bank[fac][res] = _avail(fac, res) + amt
-	_ledger_add(fac, "in", cause, res, amt)
+	var fit := minf(amt, maxf(0.0, _cap(fac, res) - _avail(fac, res)))   # (0.6.16: cargo turned home from a lost site had no room held)
+	bank[fac][res] = _avail(fac, res) + fit
+	if fit > 0.0: _ledger_add(fac, "in", cause, res, fit)
+	if amt - fit > 0.0001: _ledger_add(fac, "lost", "cap", res, amt - fit)
 
 
 func _res_list(d: Dictionary) -> String:   # "1 Intel + 0.5 Crypto"
@@ -3364,6 +3517,9 @@ func _capture(t: int, fac: int) -> void:
 	var prev := int(hosts[t].owner)
 	var nm := str(hosts[t].name)
 	var dead := _kill_home_workers(t, fac) if prev != NEUTRAL else 0   # its stations' workers die wherever they are, first
+	for wid in workers.keys():   # (0.6.16) the former owner's free workers waiting there are lost with it
+		var w: Dictionary = workers[wid]
+		if int(w.fac) == prev and str(w.state) == "idle" and int(w.get("base", w.home)) == t: _worker_lost(int(wid))
 	_logi_poke()
 	if prev != NEUTRAL:
 		for slot in (hosts[t].jobs as Dictionary):   # the former owner's site materials are destroyed with it
@@ -7936,7 +8092,7 @@ func _host_diag(i: int) -> Dictionary:   # {role, status, col, lines [[text, col
 			elif int(wc.idle) == 0: why += " " + waits
 			probs.append(["blocked", C_WARN, why])
 		elif not bank_full.is_empty(): probs.append(["blocked", C_WARN, "Your main node's %s is full: what is stored here waits." % " and ".join(bank_full)])
-		elif _store_total(i) >= 1.0 and int(wc.idle) == 0 and not _attack_route_none(owner, i):
+		elif _spare_total(i, owner) >= 0.999 and int(wc.idle) == 0 and not _attack_route_none(owner, i):   # (only stock that may leave: not a Firewall's kept upkeep)
 			probs.append(["waiting for workers", C_WARN, waits])
 	for slot_key in (hosts[i].jobs as Dictionary):
 		var job: Dictionary = hosts[i].jobs[slot_key]
@@ -8092,7 +8248,7 @@ func _worker_line(wid: int) -> Array:   # [text, colour]: one worker, by number,
 	var w: Dictionary = workers[wid]
 	var f := _flight_of(wid)
 	var st := _worker_state(wid)
-	var txt := "available at %s" % str(hosts[int(w.home)].name)
+	var txt := "available at %s" % str(hosts[int(w.get("base", w.home))].name)
 	var col := C_DIM
 	match st:
 		"blocked":
@@ -8100,12 +8256,12 @@ func _worker_line(wid: int) -> Array:   # [text, colour]: one worker, by number,
 		"collecting":
 			var job: Dictionary = f.get("job", {})
 			col = C_TEXT
-			if job.has("src"): txt = "collecting %s %s at %s" % [_amt(float(job.amt)), RES_NAME[str(job.res)], str(hosts[int(job.src)].name)]
-			elif job.has("dest"): txt = "fetching %s %s from your main node" % [_amt(float(job.amt)), RES_NAME[str(job.res)]]
-			else: txt = "returning to %s" % str(hosts[int(w.home)].name); col = C_DIM
+			if job.has("src"): txt = "collecting %s %s at %s for %s" % [_amt(float(job.amt)), RES_NAME[str(job.res)], str(hosts[int(job.src)].name), str(hosts[int(job.dst)].name)]
+			else: txt = "on its way to %s" % str(hosts[int(f.dest)].name); col = C_DIM
+		"joining":
+			txt = "heading home: nothing to do"; col = C_DIM
 		"carrying":
-			var to := int(f.dest) if str(f.trip) == "out" else int(f.origin)
-			txt = "carrying %s → %s" % [_res_list(f.cargo), str(hosts[to].name)]; col = C_TEXT
+			txt = "carrying %s → %s" % [_res_list(f.cargo), str(hosts[int(f.dest)].name)]; col = C_TEXT
 	if str(w.state) == "retiring": txt = "retiring after this leg · " + txt
 	return ["#%d  %s" % [wid, txt], col]
 
@@ -8312,10 +8468,10 @@ func _forecast_lines(res: String) -> Array:   # [[text, colour]]: the forecast f
 	var out := []
 	if res == "workers":
 		var wc := _worker_counts(PLAYER)
-		out.append(["Workers %d — %d working, %d free at your main node%s%s (2 per Bot station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), (", %d on their way to it" % int(wc.joining)) if int(wc.joining) > 0 else "", (", %d blocked" % int(wc.blocked)) if int(wc.blocked) > 0 else ""], C_TEXT])
-		out.append(["All of them work from your main node and serve every host; keeping up with your hosts needs about %d." % int(ceil(float(fc.need) - 0.05)), C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
-		out.append(["Each carries one unit per leg (an export's last unit takes the fraction left beside it) and returns for another job; delivery does not consume them.", C_DIM])
-		out.append(["Building materials and Firewall upkeep go first, then output home; every fourth trip serves the host waiting longest.", C_DIM])
+		out.append(["Workers %d — %d working, %d free%s%s (2 per Bot station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), (", %d heading home" % int(wc.joining)) if int(wc.joining) > 0 else "", (", %d blocked" % int(wc.blocked)) if int(wc.blocked) > 0 else ""], C_TEXT])
+		out.append(["They serve every host from wherever they are; keeping up with your hosts needs about %d." % int(ceil(float(fc.need) - 0.05)), C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
+		out.append(["Each carries one unit per leg (an export's last unit takes the fraction left beside it); delivery does not consume them.", C_DIM])
+		out.append(["Building materials and Firewall upkeep go first, straight from the nearest stock; then output home.", C_DIM])
 		return out
 	var full := _res_full(res)
 	out.append(["Forecast: %s reaches your bank per minute." % ("nothing (the bank is full)" if full else "+%d" % int(round(float(fc.rate[res])))), C_WARN if full else C_TEXT])
@@ -8935,11 +9091,12 @@ func _flight_lines(fl: Dictionary) -> Array:   # what the details beside a packe
 	var station := int((workers.get(int(fl.get("wid", -1)), {}) as Dictionary).get("home", origin))
 	out.append("Worker #%d (station on %s)" % [int(fl.get("wid", 0)), str(hosts[station].name)])
 	if bool(fl.get("blocked", false)): out.append("Held at %s: the way on is cut" % str(hosts[int(fl.at)].name))
-	if str(fl.trip) == "join": out.append("Joining your workers at the main node" + ((", with 1 %s" % str(RES_NAME[res])) if res != "" else ""))
-	elif str(fl.trip) == "out":
-		if res != "": out.append("Carrying 1 %s to %s" % [str(RES_NAME[res]), dname])
-		else: out.append("Going to collect from " + dname)
-	else: out.append(("Bringing 1 %s home" % str(RES_NAME[res])) if res != "" else "Coming home empty")
+	if str(fl.trip) == "home": out.append("Heading home: nothing to do")
+	elif str(fl.trip) == "fetch":
+		var jb: Dictionary = fl.get("job", {})
+		out.append(("Going to %s for 1 %s for %s" % [dname, str(RES_NAME[str(jb.res)]), str(hosts[int(jb.dst)].name)]) if not jb.is_empty() else "Going to " + dname)
+	elif res != "": out.append(("Bringing 1 %s home" % str(RES_NAME[res])) if int(fl.dest) == _hub(int(fl.owner)) else "Carrying 1 %s to %s" % [str(RES_NAME[res]), dname])
+	else: out.append("Going to " + dname)
 	if not bool(fl.get("blocked", false)): out.append("Arrives in %ds" % ceili(eta))
 	return out
 

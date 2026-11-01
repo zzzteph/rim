@@ -167,30 +167,37 @@ station survives (cargo lost on a cut route) is replaced after `WORKER_REPLACE` 
 (`_tick_teams`); a demolished or replaced station's workers **retire** after the leg they are on; **capture**
 destroys every worker of the captured host's stations, including those away (`_kill_home_workers`), and the former
 owner gets one event ("Host 7 lost to NYX — 2 station workers destroyed."). States: available, collecting,
-carrying, blocked (`_worker_state`).
+carrying, blocked, heading home (`_worker_state`; 0.6.16: "available" means free wherever the worker is).
 
 Demand is automatic (`_host_plan`, `_open_requests`). Installations use what is on their host first; a host asks
 only for its Firewalls' upkeep for the next cycle (after the Intel it makes itself) and the bills of its construction
 (the converter-bundle and `plan_rr` paths stay for a future converter). What is not
-needed for the next cycle is **surplus** and goes to the main node. **All of a botnet's workers are one pool working
-from the main node**: a new station's workers first make a one-way trip to the main node (`_join`, carrying their
-host's surplus if any) and from then on every trip is main node → host → main node (`_send_from_hub`): out with
-building materials or a missing input, back with that host's surplus or a theft / salvage pile. Dispatch
-(`_tick_logistics`, event-driven with a 0.25 s fallback; `_pick_request`, `_served`/`_serve_n`/`_pool_turn`, part of the
-lockstep fingerprint) puts **building first** (0.6.10): while a project's materials can go, three of four assignments
-carry them — Bot stations first (their workers carry for everything else), then by order (job id) — together with the
-Firewalls' upkeep (its own `upkeep` request from `_host_plan`'s `upkeep`, never held back), and the fourth relieves a
-host about to fill up (`_storage_tight`), collects what the projects wait for, or else serves the host served least
-recently whatever it needs. `_build_owed` is the bank stock the projects the workers can reach still need (a cut-off
-or DDoSed site holds none): supplies to production only get `_supply_budget` (the rest, in whole units), in requests,
-in `_amount` and in each host's own cycle plan, and `_build_lack` (what they wait for that is neither in the bank nor
-on its way) is collected from the hosts first. With nothing to build, the
-old turns hold: three of four by purpose (inputs, then surplus, then loot — 0.6.13: stolen goods come last, class 3,
-on the fair turns too, and never jump the queue as a host about to fill up; a pile on your own host is your
-`salvage`, class 2, collected first when a project waits for it, 0.6.14) to the host served least recently, every
-fourth to the host served least recently whatever it needs, so the hosts are served in turn. Benchmark (6 projects,
-130 units, 5 producing hosts, 3 seeds, 2 and 4 workers): all built 11–17% sooner than 0.6.9 with more income meanwhile;
-no change without construction. A collection **claims** its unit (`claim`) and the
+needed for the next cycle is **surplus** and goes to the main node. **Workers go where they are needed, from
+wherever they are** (0.6.16, `_tick_logistics` → `_dispatch`, event-driven with a 0.25 s fallback): a job moves one
+unit from a **source** to a **destination** (`_start_haul`). A project's material or a Firewall's upkeep comes from
+the nearest place that can spare it — your bank at the main node, a host's spare stock (its plan's `export`), your
+own salvage — **straight to the site** (`_best_delivery`: the source and free worker that get a unit there soonest,
+`_nearest_worker`, `_leg_time`); a host's surplus, your salvage and stolen goods go to your bank (`_best_haul`). A
+worker first travels empty to the source (`trip` "fetch", the unit claimed there: `claim`/`pclaim`, or taken from
+the bank at once and put back if the job is dropped), then carries it (`trip` "carry", `_set_off_loaded`); it is
+free where it delivers (`workers[wid].base`) and takes its next job from there, so a delivery to a site is usually
+followed by that host's own surplus home. With nothing it can do, a worker away from the main node heads home
+(`trip` "home"). New stations' workers start working where their station is. **Building comes strictly first**
+(0.6.16): every free worker serves construction and upkeep while any of it can go — a Firewall's upkeep first (and,
+when its host's full storage leaves no room for it, that host's surplus as urgently: `room` demands), then Bot
+stations, then projects in the order given; what the main node's projects wait for that is neither in the bank nor
+coming (`_build_lack`) is brought home from the hosts as building too. Then the surplus of the hosts about to fill
+up (`_tight_now`: its next cycle and its Firewalls' incoming upkeep would not fit, counting what workers are already
+on their way to collect), the hosts in turn (`_served`, `_served_res`); stolen goods last (`_pick_rank`,
+`_pick_request`). A host that does not make all its upkeep asks for the next cycle plus `UPKEEP_KEEP` - 1 (1) more
+cycles of what it lacks, in whole units beyond the next cycle, and keeps one cycle more than that, which only a nearer
+host's surplus Intel fills: such a surplus goes to a Firewall host no farther from it than the main node instead of
+home (`_best_haul`'s top-up). A host's surplus waits for a loaded worker already on its way there rather than drawing
+a second worker (`_arriving`); a source that cannot give a whole unit is used only when none can, and then at least
+`PART_MIN` (0.25) of one. Room for a Firewall's upkeep in a full storage is made as urgently as the upkeep, by only as
+many workers as it needs.
+`_build_owed` is the bank stock the projects the workers can reach still need (a cut-off or DDoSed site holds none);
+supplies to production only get `_supply_budget` (the rest, in whole units). A collection **claims** its unit (`claim`) and the
 destination holds room for what is coming (`inbound`), so two workers never take the same last unit or the same last
 room. Supplies leave the bank with their worker. There is no Refill or any other supply setting: input supply is
 automatic, in the background.

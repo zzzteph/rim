@@ -1,7 +1,12 @@
 extends SceneTree
 ## RIM research–manufacture–deliver model: main-node income, 5-s production cycles with host storage,
 ## Bot stations, bank caps, research unlock, manufacture into ready copies, no security levels,
-## Firewall sockets that fire on their own, and a card capture end to end.
+## Firewall sockets that fire on their own, and a card capture end to end. 0.6.16 (a job moves one unit from its source
+## straight to its destination, building strictly first): a station's workers start where it is and are free where they
+## deliver; one dispatch pass takes exactly what a host's plan spares (a Firewall host that makes no upkeep keeps
+## UPKEEP_KEEP cycles of it); a producing host's whole output reaches the bank with nobody free while a unit waits;
+## a Firewall elsewhere is fed in every cycle while the workers ferry a site's bill, and no surplus leaves for the bank
+## while the site lacks a unit; a Firewall fed by the trickle alone goes dark only when its Intel could not arrive.
 ## godot --headless --path . --script tests/economy_test.gd
 var g
 var P := 1
@@ -79,6 +84,10 @@ func run() -> void:
 	ready_full_head_holds_nothing()
 	crumbs_bound_in_one_pass()
 	phished_plan_keeps_upkeep()
+	station_works_where_it_stands()
+	one_host_flow()
+	upkeep_first_during_building()
+	trickle_fed_firewall()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -149,14 +158,18 @@ func stations() -> void:
 	var n := own_pc()
 	g._set_builds(n, ["intel", "intel", "cash", "bot"])   # nothing used (0.6.12): 2 Intel and 1 Crypto to send each cycle
 	g._set_builds(int(g.rig[P]), [])
+	var based := 0   # (0.6.16) a new station's workers start working where their station is
+	for wid in g.workers:
+		if int(g.workers[wid].fac) == P and int(g.workers[wid].home) == n and int(g.workers[wid].get("base", -1)) == n: based += 1
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	step(g.PROD_CYCLE * 4.0 + 6.0)   # four cycles plus the trip home
 	var trickle: float = (g.PROD_CYCLE * 4.0 + 6.0) * g.MAIN_INCOME
 	var per_intel: float = 2.0 * one_cycle(n, "intel"); var per_cash: float = one_cycle(n, "cash")   # each cycle's output
-	check(g._worker_counts(P, n).total == 2 and g._worker_counts(P).total == 2, "A Bot station's two workers have it as their station (%d here, %d in all)" % [int(g._worker_counts(P, n).total), int(g._worker_counts(P).total)])
+	check(g._worker_counts(P, n).total == g.WORKERS_PER_STATION and g._worker_counts(P).total == g.WORKERS_PER_STATION and based == g.WORKERS_PER_STATION,
+		"A Bot station's %d workers have it as their station and start there (%d here, %d in all, %d started there)" % [g.WORKERS_PER_STATION, int(g._worker_counts(P, n).total), int(g._worker_counts(P).total), based])
 	check(float(g.bank[P].intel) - float(before.intel) - trickle >= 4.0 * per_intel - 1.0 and float(g.bank[P].cash) - float(before.cash) - trickle >= 4.0 * per_cash - 1.0,
-		"... and, working from the main node, carry the host's %s Intel and %s Crypto per cycle home (four cycles' worth, but for a unit on its way)" % [g._amt(per_intel), g._amt(per_cash)])
-	check(g._store_total(n) < 1.0, "With a station nothing waits in storage, even with no bank couriers")
+		"... and, free wherever they deliver, carry the host's %s Intel and %s Crypto per cycle home (four cycles' worth, but for a unit on its way)" % [g._amt(per_intel), g._amt(per_cash)])
+	check(g._store_total(n) < 1.0, "With a station nothing waits in storage, even with no station at the main node")
 
 
 func caps() -> void:
@@ -347,8 +360,8 @@ func crumbs_ride_home() -> void:   # (0.6.14) a shared cycle's fractions leave w
 	check(split and crumbs < 0.001, "After a cycle that left a third of a unit of each material, the crumbs ride home with the next whole units (%s; fractions left %s)" % [g._store_text(n), g._amt(crumbs)])
 
 
-func stolen_goods_last_on_every_turn() -> void:   # (0.6.14) loot never wins an assignment, the fair fourth one included
-	fresh()
+func stolen_goods_last_on_every_turn() -> void:   # (0.6.14) loot never wins an assignment; (0.6.16) the old fair fourth turn is gone:
+	fresh()                                          # the turn no longer matters, building wins every pick it is in
 	var a := own_pc()
 	g._set_builds(a, ["cash"])
 	var b := neutral_neighbour("pc")
@@ -356,10 +369,12 @@ func stolen_goods_last_on_every_turn() -> void:   # (0.6.14) loot never wins an 
 	var lo := {"key": "l", "id": 1, "since": 0.0, "host": b, "purpose": "loot", "res": "intel", "qty": 3.0, "dir": "out"}
 	var ex := {"key": "e", "id": 2, "since": 0.0, "host": a, "purpose": "export", "res": "cash", "qty": 1.0, "dir": "out"}
 	var bl := {"key": "c", "id": 3, "since": 0.0, "host": a, "purpose": "build:1", "res": "intel", "qty": 1.0, "dir": "in"}
-	var picks := []
-	for turn in g.PRIORITY_TURNS + 1: picks.append(str(g._pick_request(P, [lo, ex], turn).purpose))
-	for turn in g.PRIORITY_TURNS + 1: picks.append(str(g._pick_request(P, [lo, ex, bl], turn).purpose))
-	check(not picks.has("loot"), "Stolen goods are the workers' last job on every turn, the fourth (fair) one too, with or without a project (%s)" % ", ".join(PackedStringArray(picks)))
+	var picks := []; var want := []
+	var turns := 4   # (the old rule's cycle of three purpose turns and one fair turn)
+	for turn in turns: picks.append(str(g._pick_request(P, [lo, ex], turn).purpose)); want.append("export")
+	for turn in turns: picks.append(str(g._pick_request(P, [lo, ex, bl], turn).purpose)); want.append("build:1")
+	check(not picks.has("loot"), "Stolen goods are the workers' last job on every turn, with or without a project (%s)" % ", ".join(PackedStringArray(picks)))
+	check(picks == want, "Building strictly first: with a project in the candidates every pick is the project, whatever the turn; without one, the surplus (%s)" % ", ".join(PackedStringArray(picks)))
 
 
 func ready_full_head_holds_nothing() -> void:   # (0.6.14) a queue head that cannot start for a full Ready inventory keeps no price from research
@@ -389,6 +404,11 @@ func idle_workers() -> Array:
 	return out
 
 
+func dispatch_pass() -> void:   # one dispatch pass (0.6.16): every free worker takes the most useful job it can start soonest
+	g._plan_cache = {}
+	g._dispatch(P, int(g.rig[P]), idle_workers())
+
+
 func plan_of(n: int) -> Dictionary:
 	var owed: Dictionary = g._build_owed(P)
 	return g._host_plan(n, P, g._supply_budget(P, owed), g._upkeep_extra(P, owed))
@@ -411,33 +431,250 @@ func firewall_host(kind: String, builds: Array, stock: float) -> int:   # a host
 func crumbs_bound_in_one_pass() -> void:   # (0.6.15) workers sent in one dispatch pass take no more than the plan spares:
 	fresh()                                 # the crumbs ride with the last unit only out of what the Firewalls do not need
 	g.bank[P] = {"intel": 0.0, "cash": 10.0, "creds": 10.0, "research": 10.0}
-	var n := firewall_host("server", ["intel", "wall", "wall"], 2.5)
+	var n := firewall_host("server", ["intel", "wall", "wall"], 0.0)
+	# (0.6.16) a Server's harvester makes 1.5 Intel a cycle, its two Firewalls eat 2: it does not make its own upkeep, so
+	# it keeps UPKEEP_KEEP cycles of it within reach, its harvest and the rest of the stock (a fraction: the crumbs are
+	# the Firewalls'); two whole units more are spare, fewer than the free workers
+	var need := float(g.BUILD_KINDS.wall.use.intel) * 2.0
+	var kept: float = (g.UPKEEP_KEEP + 1.0) * (need - one_cycle(n, "intel"))   # (UPKEEP_KEEP + 1 cycles of what it lacks)
+	var spare: float = 2.0 * g.WORKER_CARRY
+	g.hosts[n].store = {P: {"intel": kept + spare}}
 	var pl := plan_of(n)
-	var hub: int = int(g.rig[P])
-	var reqs: Array = g._open_requests(P, hub)
-	var owed: Dictionary = g._build_owed(P)
-	for wid in idle_workers():
-		if not g._assign(P, hub, wid, reqs, owed): break
+	var free := idle_workers().size()
+	track_reset()
+	dispatch_pass()
+	track()
+	var sent := 0   # workers sent to the host for its units
+	for wid in legs:
+		for l in legs[wid]:
+			if str(l.trip) == "fetch" and int((l.job as Dictionary).get("src", -1)) == n: sent += 1
 	var claimed: float = g._claimed(n, P, "intel")
 	g._run_cycle(n)
 	var st: float = float(g._store_of(n, P).get("intel", 0.0))
-	check(float(pl.reserve.intel) > 0.0 and claimed <= float(pl.export.intel) + 0.001 and bool(g.hosts[n].fw_on) and g._claimed(n, P, "intel") <= st + 0.001,
-		"Workers sent in one pass take %s of the %s Intel the plan spares, leaving the %s its Firewalls need: they stay on and no claim exceeds the stock" % [g._amt(claimed), g._amt(float(pl.export.intel)), g._amt(float(pl.reserve.intel))])
+	check(kept - floorf(kept) > 0.001 and free > roundi(spare) and absf(float(pl.reserve.intel) - kept) < 0.001 and absf(float(pl.export.intel) - spare) < 0.001
+		and absf(claimed - spare) < 0.001 and sent == roundi(spare / g.WORKER_CARRY) and idle_workers().size() == free - sent and bool(g.hosts[n].fw_on) and g._claimed(n, P, "intel") <= st + 0.001,
+		"%d free workers in one pass take all %s Intel the plan spares and no crumb more, leaving the %s its Firewalls keep (%s cycles of the %s a cycle it lacks): one worker per unit goes (%d), they stay on and no claim exceeds the stock (took %s)"
+		% [free, g._amt(float(pl.export.intel)), g._amt(float(pl.reserve.intel)), g._amt(g.UPKEEP_KEEP + 1.0), g._amt(need - one_cycle(n, "intel")), sent, g._amt(claimed)])
 
 
 func phished_plan_keeps_upkeep() -> void:   # (0.6.15) a phished host's harvest is the thief's: your Intel there feeds its Firewall first,
 	fresh()                                  # so your workers leave that much of it
 	g.bank[P] = {"intel": 30.0, "cash": 30.0, "creds": 30.0, "research": 30.0}
-	var n := firewall_host("pc", ["intel", "wall", ""], 2.0)
+	var need := float(g.BUILD_KINDS.wall.use.intel)
+	var keep: float = need * g.UPKEEP_KEEP   # (0.6.16) the harvest is the thief's, so the host makes none of its upkeep: it keeps UPKEEP_KEEP cycles
+	var n := firewall_host("pc", ["intel", "wall", ""], keep + g.WORKER_CARRY)   # and one unit more is spare
 	g.hosts[n].steal_by = g.RIVAL; g.hosts[n].steal_until = g._t + 60.0
 	var pl := plan_of(n)
-	var need := float(g.BUILD_KINDS.wall.use.intel)
-	var hub: int = int(g.rig[P])
-	var reqs: Array = g._open_requests(P, hub)
-	var owed: Dictionary = g._build_owed(P)
-	for wid in idle_workers():
-		if not g._assign(P, hub, wid, reqs, owed): break
+	dispatch_pass()
+	var claimed: float = g._claimed(n, P, "intel")
 	g._run_cycle(n)
 	var st: float = float(g._store_of(n, P).get("intel", 0.0))
-	check(float(pl.reserve.intel) >= need - 0.001 and bool(g.hosts[n].fw_on) and g._claimed(n, P, "intel") <= st + 0.001,
-		"Phished, your stock there keeps the Firewall's %s Intel (kept %s): it stays on, and your workers' claims never exceed what is left" % [g._amt(need), g._amt(float(pl.reserve.intel))])
+	check(absf(float(pl.reserve.intel) - keep) < 0.001 and absf(claimed - g.WORKER_CARRY) < 0.001 and bool(g.hosts[n].fw_on) and g._claimed(n, P, "intel") <= st + 0.001,
+		"Phished, your stock there keeps the Firewall's %s Intel for %s cycles (kept %s): one pass takes only the %s spare unit, the Firewall stays on, and your workers' claims never exceed what is left"
+		% [g._amt(need), g._amt(g.UPKEEP_KEEP), g._amt(float(pl.reserve.intel)), g._amt(claimed)])
+
+
+# ---- 0.6.16: every leg P's workers set off on ----
+var legs := {}   # wid -> [{id, trip, from, to, cargo, purpose, job, t}]
+var seen_legs := {}
+
+
+func track_reset() -> void:   # from now on, record every new leg (legs already under way are not recorded)
+	legs = {}; seen_legs = {}
+	for f in g.flights: seen_legs[int(f.id)] = true
+
+
+func track() -> void:
+	for f in g.flights:
+		if str(f.kind) != "courier" or int(f.owner) != P or seen_legs.has(int(f.id)): continue
+		seen_legs[int(f.id)] = true
+		var wid := int(f.wid)
+		if not legs.has(wid): legs[wid] = []
+		legs[wid].append({"id": int(f.id), "trip": str(f.trip), "from": int(f.route[0]), "to": int(f.dest), "cargo": (f.cargo as Dictionary).duplicate(),
+			"purpose": str(f.get("purpose", "")), "job": (f.get("job", {}) as Dictionary).duplicate(), "t": float(g._t)})
+
+
+func units(d: Dictionary) -> float:
+	var n := 0.0
+	for r in d: n += float(d[r])
+	return n
+
+
+func on_road(src: int) -> float:   # units riding P's couriers right now that left host src
+	var n := 0.0
+	for f in g.flights:
+		if str(f.kind) == "courier" and int(f.owner) == P and int(f.get("src", -1)) == src: n += units(f.cargo)
+	return n
+
+
+func my_workers() -> Array:
+	var out := []
+	for wid in g.workers:
+		if int(g.workers[wid].fac) == P: out.append(int(wid))
+	out.sort()
+	return out
+
+
+func station_works_where_it_stands() -> void:   # (0.6.16) a new station's workers start where it is; each is free where it delivers
+	fresh()
+	var hub: int = int(g.rig[P])
+	g._set_builds(hub, [])   # no other workers
+	var n := own_pc()
+	g.hosts[n].store = {P: {"intel": g.WORKER_CARRY, "cash": g.WORKER_CARRY}}   # a unit waiting for each of its two workers
+	g.hosts[n].cyc = g.PROD_CYCLE   # (its next cycle is a whole cycle away)
+	g._set_builds(n, ["intel", "cash", "bot"])
+	var ids := my_workers()
+	var at_station: bool = ids.size() == g.WORKERS_PER_STATION
+	for wid in ids: at_station = at_station and int(g.workers[wid].home) == n and int(g.workers[wid].get("base", -1)) == n
+	track_reset()
+	step(g.SIM_DT)
+	track()
+	var first_ok := true
+	for wid in ids:
+		var ls: Array = legs.get(wid, [])
+		first_ok = first_ok and ls.size() == 1 and str(ls[0].trip) == "carry" and int(ls[0].from) == n and int(ls[0].to) == hub and absf(units(ls[0].cargo) - g.WORKER_CARRY) < 0.001
+	check(at_station and first_ok and g._claims_total(n) < 0.001 and g._store_total(n) < 0.001,
+		"A new Bot station's %d workers start at their station and leave it loaded on the first step: no empty leg from the main node, nothing left there (%s)"
+		% [ids.size(), g._store_text(n)])
+	step(g._leg_time(P, n, hub) + 1.0)
+	track()
+	var home_ok := true
+	for wid in ids: home_ok = home_ok and str(g.workers[wid].state) == "idle" and int(g.workers[wid].get("base", -1)) == hub and (legs.get(wid, []) as Array).size() == 1
+	var got: float = float(g._ledger_sums(P).get("from:%d:intel" % n, 0.0)) + float(g._ledger_sums(P).get("from:%d:cash" % n, 0.0))
+	check(home_ok and absf(got - ids.size() * g.WORKER_CARRY) < 0.001,
+		"Each is free where it delivered, at the main node, and waits there while nothing is ready (no leg back empty): %s units reached the bank" % g._amt(got))
+
+
+func one_host_flow() -> void:   # (0.6.16) a Credential harvester, a Miner and an Intel harvester on one host, one station at the main node:
+	fresh()                       # the workers circulate between the two, nobody stays free while a unit waits, nothing is lost or made twice
+	var hub: int = int(g.rig[P])
+	g._set_builds(hub, ["bot"]); g._tick_teams(0.0)
+	var n := own_pc()
+	var kinds := ["cred", "cash", "intel"]
+	g._set_builds(n, kinds)
+	var gross := 0.0
+	for kind in kinds: gross += one_cycle(n, kind)
+	var ids := my_workers()
+	var trips_needed: float = gross / g.WORKER_CARRY * 2.0 * g._leg_time(P, n, hub)   # worker-seconds a cycle's output takes home
+	track_reset()
+	var secs := 120.0
+	var cycles := 0; var most := 0.0; var streak := {}; var worst := 0.0; var waited := 0.0; var busy := 0.0
+	for k in int(round(secs / g.SIM_DT)):
+		var left := float(g.hosts[n].cyc)
+		g._sim_step(g.SIM_DT)
+		if float(g.hosts[n].cyc) > left: cycles += 1
+		most = maxf(most, g._store_total(n))
+		track()
+		var waiting: bool = g._spare_total(n, P) >= 0.999   # a whole unit nobody is on the way for
+		for wid in ids:
+			if str(g.workers[wid].state) != "idle": busy += g.SIM_DT; streak[wid] = 0.0; continue
+			if waiting: streak[wid] = float(streak.get(wid, 0.0)) + g.SIM_DT; waited += g.SIM_DT
+			else: streak[wid] = 0.0
+			worst = maxf(worst, float(streak[wid]))
+	var off_path := 0; var taken := 0.0; var empty_back := 0; var loaded := 0; var wasted := 0; var homes := 0
+	for wid in legs:
+		var ls: Array = legs[wid]
+		for k in ls.size():
+			var l: Dictionary = ls[k]
+			if not ((int(l.from) == n and int(l.to) == hub) or (int(l.from) == hub and int(l.to) == n)): off_path += 1
+			if str(l.trip) == "carry" and int(l.from) == n: taken += units(l.cargo); loaded += 1
+			if str(l.trip) == "home": homes += 1
+			if str(l.trip) == "fetch" and int(l.to) == n:
+				empty_back += 1
+				if k + 1 < ls.size() and not (str(ls[k + 1].trip) == "carry" and int(ls[k + 1].from) == n and units(ls[k + 1].cargo) > 0.0001): wasted += 1   # it found nothing
+	var made: float = cycles * gross
+	var lost: float = 0.0
+	for res in g.RES: lost += float(g._ledger_sums(P).get("lost:cargo:%s" % res, 0.0))
+	check(cycles >= int(secs / g.PROD_CYCLE) - 1 and most < g.STORE_CAP - 0.001,
+		"Production never stops: the host's storage never fills in %d cycles (most %s of %d)" % [cycles, g._amt(most), int(g.STORE_CAP)])
+	check(off_path == 0 and loaded >= 1 and wasted == 0 and homes == 0 and absf(made - taken - g._store_total(n)) < 0.001 and lost < 0.001,
+		"Every leg runs between the host and the main node, loaded on the way home (%d loaded legs, %d back for more, %d that found nothing, %d home empty): the %s units made are the %s taken plus the %s still stored (%s on the road), none lost"
+		% [loaded, empty_back, wasted, homes, g._amt(made), g._amt(taken), g._amt(g._store_total(n)), g._amt(on_road(n))])
+	var limit: float = g.LOGI_EVERY + 2.0 * g.SIM_DT   # (a free worker is dealt a job the step a unit is made, or at the next planning pass)
+	check(worst <= limit,
+		"No worker stays free more than %.2f s while a unit waits (longest %.2f s, %.1f worker-s in all); the %d workers are on the road %.0f%% of the time for the %.1f worker-s a cycle's output takes"
+		% [limit, worst, waited, ids.size(), 100.0 * busy / (secs * ids.size()), trips_needed])
+
+
+func upkeep_first_during_building() -> void:   # (0.6.16) building comes strictly first, but a Firewall's upkeep ranks before it
+	fresh(); fat_bank()
+	var hub: int = int(g.rig[P])
+	g._set_builds(hub, ["bot"]); g._tick_teams(0.0)   # one station: two workers for a big bill and an upkeep
+	var e := own_pc()
+	g._set_builds(e, ["cash", "wall"])   # a Miner and a Firewall, no Intel made there: its upkeep is brought
+	g.hosts[e].store = {}; g.hosts[e].fw_on = true
+	var b := own_pc()
+	g._set_builds(b, [])
+	g._start_job(b, "wall", 0); g._start_job(b, "lab", 1)   # a big bill the bank holds: building for several cycles
+	var bill := 0.0
+	for kind in ["wall", "lab"]: bill += units(g._build_cost(kind))
+	var ids := my_workers()
+	track_reset()
+	var t0: float = g._t
+	var covered := -1.0; var cycles := 0; var fed := 0; var worst := 0.0; var streak := {}; var exports := 0
+	for k in int(round(150.0 / g.SIM_DT)):
+		var left := float(g.hosts[e].cyc)
+		g._sim_step(g.SIM_DT)
+		track()
+		var short := false   # a unit of the site's bill nobody is on the way with, that the bank has
+		for slot in (g.hosts[b].jobs as Dictionary):
+			for res in g.RES:
+				if g._job_short(g.hosts[b].jobs[slot], res) > 0.0001 and g._free(P, res) >= g.WORKER_CARRY: short = true
+		if not short: covered = g._t; break
+		if float(g.hosts[e].cyc) > left:
+			cycles += 1
+			if bool(g.hosts[e].fw_on): fed += 1
+		for wid in legs:
+			var ls: Array = legs[wid]
+			var l: Dictionary = ls[ls.size() - 1]
+			if absf(float(l.t) - g._t) > 0.0001: continue
+			if int((l.job as Dictionary).get("dst", -1)) == hub or (str(l.trip) == "carry" and int(l.to) == hub): exports += 1   # surplus on its way to the bank
+		for wid in ids:
+			if g.workers.has(wid) and str(g.workers[wid].state) == "idle": streak[wid] = float(streak.get(wid, 0.0)) + g.SIM_DT
+			else: streak[wid] = 0.0
+			worst = maxf(worst, float(streak[wid]))
+	var upkeep_legs := 0; var e_to_site := 0.0
+	for wid in legs:
+		for l in legs[wid]:
+			if str(l.trip) == "carry" and int(l.to) == e and float(l.cargo.get("intel", 0.0)) > 0.0: upkeep_legs += 1
+			if str(l.trip) == "carry" and int(l.from) == e and int(l.to) == b: e_to_site += float(l.cargo.get("cash", 0.0))
+	check(covered >= 0.0 and cycles >= 3 and fed == cycles and upkeep_legs >= cycles - 1,
+		"While the %d workers ferry a %s-unit bill to a site (%.0f s until all of it was there or on its way), the Firewall elsewhere is brought its Intel (%d legs) and eats its upkeep in each of its %d cycles (%d)"
+		% [ids.size(), g._amt(bill), covered - t0, upkeep_legs, cycles, fed])
+	var limit: float = g.LOGI_EVERY + 2.0 * g.SIM_DT   # (a free worker is dealt a job the step it is free, or at the next planning pass)
+	check(covered >= 0.0 and exports == 0 and worst <= limit,
+		"Building strictly first: no surplus set off for the bank while the site lacked a unit the bank had (%d did; the Miner's Crypto went only to the site, %s of it, or waits: %s), and no worker stayed free more than %.2f s meanwhile (longest %.2f s)"
+		% [exports, g._amt(e_to_site), g._store_text(e), limit, worst])
+
+
+func trickle_fed_firewall() -> void:   # (0.6.16) a Firewall fed by the main node's trickle alone goes dark only in a cycle its Intel could not reach
+	fresh()
+	var hub: int = int(g.rig[P])
+	g._set_builds(hub, ["bot"]); g._tick_teams(0.0)   # no Intel harvester anywhere: the bank's Intel is the trickle, MAIN_INCOME x PROD_CYCLE a cycle
+	g.bank[P].intel = 0.0
+	var n := own_pc()
+	g._set_builds(n, ["cash", "cash", "wall"])   # two Miners and a Firewall: no Intel made there
+	g.hosts[n].fw_on = true
+	var need := float(g.BUILD_KINDS.wall.use.intel)
+	var lead: float = 2.0 * g._leg_time(P, hub, n) + 0.5   # (time a free worker needs to reach the bank and bring the unit, with a margin)
+	var cycles := 0; var fed := 0; var avoidable := 0; var could := -1.0; var first := ""
+	for k in int(round(120.0 / g.SIM_DT)):
+		var left := float(g.hosts[n].cyc)
+		g._sim_step(g.SIM_DT)
+		if float(g.hosts[n].cyc) > left:
+			cycles += 1
+			if bool(g.hosts[n].fw_on): fed += 1
+			elif could >= 0.0:
+				avoidable += 1
+				if first == "": first = "dark at %.1f s, a cycle's Intel within reach and a worker free since %.1f s" % [g._t, could]
+			could = -1.0
+			continue
+		var within: float = g._store_free(n, P, "intel") + g._inbound(n, "intel") + g._free(P, "intel")   # its storage, on its way, the bank
+		if could < 0.0 and within >= need - 0.0001 and float(g.hosts[n].cyc) >= lead and int(g._worker_counts(P).idle) > 0: could = g._t
+	# GAME BUG (0.6.16): _open_requests adds every host's plan export under an EMPTY budget to spare_intel, and with no budget
+	# this host's own Firewall cannot run, so its own stock is "spare": its upkeep request becomes the bank's Intel PLUS its
+	# own stock (always above what the bank holds), a fraction of the bank can never serve it (_best_delivery wants a whole
+	# unit or the request's last fraction), and the two free workers wait for a whole unit that comes too late
+	check(cycles >= int(120.0 / g.PROD_CYCLE) - 1 and avoidable == 0,
+		"A Firewall fed only by the trickle (%s Intel a cycle, its upkeep %s) goes dark only in a cycle its Intel could not reach: fed in %d of %d cycles, %d dark although its storage and the bank held a cycle's Intel and a worker was free %.1f s before (%s)"
+		% [g._amt(g.MAIN_INCOME * g.PROD_CYCLE), g._amt(need), fed, cycles, avoidable, lead, first if first != "" else "none"])

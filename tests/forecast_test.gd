@@ -4,7 +4,10 @@ extends SceneTree
 ## against a long controlled simulation, and against the conditions that cut income: no free workers, a cut route,
 ## a Miner with no input beside a Firewall whose upkeep workers bring (0.6.12: the one input left), a building that
 ## cannot be paused, a full bank, a full storage its producers share evenly, a phished host, a main node under DDoS.
-## Workers show activity, not an income.
+## Workers show activity, not an income. 0.6.16: a job moves one unit from a source straight to its destination and a
+## worker is free where it delivers, so the forecast is checked against that too: a Firewall's upkeep from a nearer
+## host's spare Intel never reaches the bank, the worker that brings a host its upkeep takes that host's output home
+## (one round trip, as the forecast's workers needed say), and workers short of work are never left free.
 ## godot --headless --path . --script tests/forecast_test.gd
 var g
 var P := 1
@@ -28,33 +31,64 @@ func fresh() -> void:
 	g._open_menu(false)
 	P = g.PLAYER
 	g.bank[P] = {"intel": 60.0, "cash": 30.0, "creds": 30.0, "research": 30.0}
-	watch = -1
+	watch = -1; recording = false
 
 
 var watch := -1    # a host whose production step() follows (-1: none, see watch_host):
 var cycles := 0    # ...the production cycles it ran,
 var fed := 0       # ...those after which its Firewalls were on (each ate its upkeep),
-var picked := {}   # ...and what workers picked up there to take home, per material
-var _seen := {}    # (the flights whose pickup is already counted)
+var picked := {}   # ...and what workers picked up there and carried off, per material
+var _seen := {}    # (the loaded legs whose pickup is already counted)
+
+
+func loaded_leg_from(f: Dictionary, i: int) -> bool:   # (0.6.16) one of P's workers setting off from host i with what it collected
+	return str(f.kind) == "courier" and int(f.owner) == P and str(f.get("trip", "")) == "carry" and int(f.get("src", -1)) == i
 
 
 func watch_host(i: int) -> void:   # start following host i from now on
 	watch = i; cycles = 0; fed = 0; picked = {}; _seen = {}
 	for res in g.RES: picked[res] = 0.0
 	for f in g.flights:   # (what is already on its way was picked up before)
-		if int(f.get("src", -1)) == i and str(f.get("trip", "")) == "back": _seen[int(f.id)] = true
+		if loaded_leg_from(f, i): _seen[int(f.id)] = true
+
+
+var recording := false   # (0.6.16, see record) step() also keeps every new leg of P's workers and how they spend their time:
+var legs := []           # ...{id, wid, trip, route, dest, cargo, job} in launch order (a loaded leg is a packet of its own)
+var _leg_ids := {}
+var busy_s := 0.0        # ...worker-seconds on a leg (empty to a pickup, loaded, heading home, held on the way)
+var free_s := 0.0        # ...worker-seconds free
+
+
+func record() -> void:   # from now on (until fresh()), every new leg and the workers' time
+	recording = true; legs = []; _leg_ids = {}; busy_s = 0.0; free_s = 0.0
+	for f in g.flights: _leg_ids[int(f.id)] = true   # (legs already under way are not recorded)
+
+
+func next_leg(k: int) -> Dictionary:   # the leg the same worker set off on after legs[k] ({} if none yet)
+	for j in range(k + 1, legs.size()):
+		if int(legs[j].wid) == int(legs[k].wid): return legs[j]
+	return {}
 
 
 func step(secs: float) -> void:
 	for k in int(round(secs / g.SIM_DT)):
 		var left := float(g.hosts[watch].cyc) if watch >= 0 else 0.0
 		g._sim_step(g.SIM_DT)
+		if recording:
+			for f in g.flights:
+				if str(f.kind) != "courier" or int(f.owner) != P or _leg_ids.has(int(f.id)): continue
+				_leg_ids[int(f.id)] = true
+				legs.append({"id": int(f.id), "wid": int(f.wid), "trip": str(f.trip), "route": (f.route as Array).duplicate(), "dest": int(f.dest),
+					"cargo": (f.cargo as Dictionary).duplicate(), "job": (f.get("job", {}) as Dictionary).duplicate()})
+			var wc: Dictionary = g._worker_counts(P)
+			busy_s += float(int(wc.collecting) + int(wc.carrying) + int(wc.joining) + int(wc.blocked)) * g.SIM_DT
+			free_s += float(wc.idle) * g.SIM_DT
 		if watch < 0: continue
 		if float(g.hosts[watch].cyc) > left:   # its timer wrapped: the host ran a cycle
 			cycles += 1
 			if bool(g.hosts[watch].fw_on): fed += 1
-		for f in g.flights:   # a worker leaving it for home: what it picked up there, counted once
-			if str(f.kind) != "courier" or int(f.owner) != P or int(f.get("src", -1)) != watch or str(f.get("trip", "")) != "back" or _seen.has(int(f.id)): continue
+		for f in g.flights:   # a worker leaving it loaded (0.6.16: its loaded leg is a packet of its own): what it picked up there, counted once
+			if not loaded_leg_from(f, watch) or _seen.has(int(f.id)): continue
 			_seen[int(f.id)] = true
 			for res in (f.cargo as Dictionary): picked[res] = float(picked.get(res, 0.0)) + float(f.cargo[res])
 
@@ -82,7 +116,7 @@ func received(res: String) -> float:   # a running total of "in" entries, kept b
 
 
 func track(secs: float) -> Dictionary:   # per-minute received per resource over secs, from the ledger's 1-s buckets
-	var got := {}                        # (and "supply:<res>": what left the bank to supply hosts)
+	var got := {}                        # (and "supply:<res>": what left the bank to supply hosts; "from:<host>:<res>": what each host delivered)
 	for res in g.RES: got[res] = 0.0; got["supply:" + res] = 0.0
 	var n := int(round(secs))
 	for k in n:
@@ -95,6 +129,7 @@ func track(secs: float) -> Dictionary:   # per-minute received per resource over
 			var parts := str(key).split(":")
 			if parts[0] == "in" and not (parts[1] in ["returned", "refunds"]): got[parts[2]] = float(got[parts[2]]) + float(L.data[slot][key])
 			if parts[0] == "out" and parts[1] == "supply": got["supply:" + parts[2]] = float(got["supply:" + parts[2]]) + float(L.data[slot][key])
+			if parts[0] == "from": got[str(key)] = float(got.get(str(key), 0.0)) + float(L.data[slot][key])
 	for res in got: got[res] = float(got[res]) * 60.0 / float(n)
 	return got
 
@@ -119,6 +154,7 @@ func run() -> void:
 	no_workers()
 	cut_route()
 	no_input_and_upkeep()
+	direct_upkeep()
 	paused()
 	full_bank()
 	no_early_spike()
@@ -175,6 +211,10 @@ func no_workers() -> void:
 		"No workers for it: the far host's Credentials leave the forecast at once (%.0f → %.0f), and it says why" % [with, rate("creds")])
 	var hud := str(g._hud_rate("workers")[0])
 	check(hud.contains("busy") and not hud.contains("/min"), "The Workers column shows what workers do, not an income: '%s'" % hud)
+	var tip := " ".join(PackedStringArray(g._forecast_lines("workers").map(func(l): return str(l[0]))))   # (0.6.16) and its tooltip tells the rules as they are:
+	var stale := []                                                                                      # no pool at the main node, no fourth-trip turn
+	for words in ["every fourth trip", "free at your main node", "work from your main node"]: if tip.contains(words): stale.append(words)
+	check(stale.is_empty(), "The Workers tooltip describes the 0.6.16 dispatch (building and upkeep strictly first, a worker free where it delivers), not the old main-node pool: stale %s in '%s'" % [str(stale), tip])
 	step(10.0)   # the retiring workers finish their legs
 	var got := track(60.0)
 	check(float(got.creds) <= trickle() + 2.5, "...and none arrive (%.1f/min: the trickle only)" % float(got.creds))
@@ -208,6 +248,7 @@ func cut_route() -> void:
 
 func no_input_and_upkeep() -> void:   # 0.6.12: a Miner needs no input; the one input left is a Firewall's Intel, which the workers bring
 	fresh()                             # to a host that makes none: it is spending, not income, and it rides out on the trip that brings output back
+	                                    # (0.6.16: the worker that delivers it is free there and takes the host's output home)
 	var home: int = int(g.rig[P])
 	g._set_builds(home, ["bot"])   # workers, and no Intel made at the main node beyond its trickle
 	var h: int = neighbours_of(home)[0]
@@ -226,13 +267,28 @@ func no_input_and_upkeep() -> void:   # 0.6.12: a Miner needs no input; the one 
 		"A Firewall beside it, its %s Intel a cycle brought by workers: the Miner still adds %.0f Crypto/min, the supplied Intel is not income (%.0f, %.0f), and one round trip takes the upkeep out and the Crypto back (%.2f workers needed, as without it)"
 		% [g._amt(upkeep), miner, rate("cash"), rate("intel"), need1])
 	step(30.0)
-	watch_host(h)
+	watch_host(h); record()
 	var secs := 180.0
 	var got := track(secs)
 	var sent: float = float(got["supply:intel"]) * secs / 60.0; var eaten: float = fed * upkeep   # (units over the run)
-	check(absf(float(got.cash) - rate("cash")) <= 2.5 and cycles > 0 and fed == cycles and absf(sent - eaten) <= 2.0 * upkeep + 0.001,
-		"...which the simulation delivers (%.1f Crypto/min vs %.0f), the Firewall on in all %d cycles: %s Intel sent for the %s it ate (a cycle's upkeep may wait at the host or on its way at either end)"
-		% [float(got.cash), rate("cash"), cycles, g._amt(sent), g._amt(eaten)])
+	var kept: float = g.UPKEEP_KEEP * upkeep   # (0.6.16) what a host that makes no Intel keeps within reach: it may differ at either end
+	check(absf(float(got.cash) - rate("cash")) <= 2.5 and cycles > 0 and fed == cycles and absf(sent - eaten) <= kept + 0.001,
+		"...which the simulation delivers (%.1f Crypto/min vs %.0f), the Firewall on in all %d cycles: %s Intel sent for the %s it ate (the %s cycles' upkeep the host keeps within reach may differ at either end)"
+		% [float(got.cash), rate("cash"), cycles, g._amt(sent), g._amt(eaten), g._amt(g.UPKEEP_KEEP)])
+	var ups := 0; var chained := 0; var empty_home := 0; var sent_for := 0   # (0.6.16) each delivery of upkeep to it, and what that worker did next
+	for k in legs.size():
+		var l: Dictionary = legs[k]
+		if str(l.trip) == "home" and int(l.route[0]) == h: empty_home += 1
+		if str(l.trip) == "fetch" and int((l.job as Dictionary).get("src", -1)) == h: sent_for += 1   # a worker sent there empty to collect
+		if str(l.trip) != "carry" or int(l.dest) != h or not (l.cargo as Dictionary).has("intel"): continue
+		var nx := next_leg(k)
+		if nx.is_empty(): continue   # (the last one, still under way)
+		ups += 1
+		if str(nx.trip) == "carry" and int(nx.route[0]) == h and int(nx.dest) == home and (nx.cargo as Dictionary).has("cash"): chained += 1
+	var busy := busy_s / secs   # workers busy on average
+	check(ups > 0 and chained == ups and empty_home == 0 and absf(busy - need1) <= 0.2 * need1,
+		"...on one round trip a cycle: the worker that brings the upkeep takes the Crypto home (%d of %d deliveries; %d workers sent there empty to collect it, %d empty legs home), so the workers are busy %.2f on average, as the forecast's %.2f needed"
+		% [chained, ups, sent_for, empty_home, busy, need1])
 	g.bank[P].intel = 0.0; g._fc_gen += 1
 	check(absf(rate("cash") - trickle() - miner) < 0.01 and absf(float(g._forecast(P).need) - need1) < 0.001,
 		"With the bank's Intel gone the forecast stands: the trickle brings in the upkeep (%s a cycle) and the Miner needs none (%.0f)" % [g._amt(g.MAIN_INCOME * g.PROD_CYCLE), rate("cash")])
@@ -246,6 +302,45 @@ func no_input_and_upkeep() -> void:   # 0.6.12: a Miner needs no input; the one 
 	step(g.PROD_CYCLE * 2.5)   # what was already on its way is eaten first
 	check(down <= 0.01 and fed < cycles and not bool(g.hosts[h].fw_on),
 		"With no Intel to send at all the Firewall is starved again: off (on in %d of %d cycles), and nothing from the host is forecast (%.0f)" % [fed, cycles, down])
+
+
+func direct_upkeep() -> void:   # (0.6.16) a Firewall's upkeep comes from the nearest place that can spare it, straight to its host: here
+	fresh()                       # a host with twice the Intel the Firewall eats, between it and the main node. That Intel never reaches the
+	var home: int = int(g.rig[P])   # bank (host -> site, not host -> main node -> site), and the forecast leaves it out of the bank's income
+	g._set_builds(home, ["bot"])   # workers, and no Intel made at the main node beyond its trickle
+	var a: int = neighbours_of(home)[0]
+	g._capture(a, P); g.hosts[a].type = "pc"; g.hosts[a].slots = 3
+	g._set_builds(a, ["intel", "intel"])
+	var b := far_host(a)
+	g._capture(b, P); g.hosts[b].type = "pc"; g.hosts[b].slots = 3
+	g._set_builds(b, ["cash", "wall"])   # a Miner and a Firewall: no Intel of its own
+	var upkeep: float = float(g.BUILD_KINDS.wall.use.intel)
+	var harvest: float = 2.0 * float(g.BUILD_KINDS.intel.rate) * g._tmult(a, "intel")   # a's Intel a cycle
+	var miner: float = float(g.BUILD_KINDS.cash.rate) * g._tmult(b, "cash")              # b's Crypto a cycle
+	var an := str(g.hosts[a].name); var bn := str(g.hosts[b].name)
+	g._fc_gen += 1
+	var fc: Dictionary = g._forecast(P)
+	var fa := float((fc.from.get("intel", {}) as Dictionary).get(an, 0.0)); var fb := float((fc.from.get("cash", {}) as Dictionary).get(bn, 0.0))
+	check(g._leg_time(P, a, b) < g._leg_time(P, home, b) and absf(fa - per_cycle() * (harvest - upkeep)) < 0.01 and absf(fb - per_cycle() * miner) < 0.01,
+		"%s is nearer %s's Firewall than the main node: the forecast has it give the upkeep straight there, so its Intel at the bank is its harvest less the upkeep (%.0f/min) beside %s's %.0f Crypto/min"
+		% [an, bn, fa, bn, fb])
+	step(60.0)   # past the start
+	watch_host(b); record()
+	var secs := 240.0
+	var got := track(secs)
+	var ups := 0; var direct := 0; var via := 0   # Intel delivered to b: straight from a, or by way of the main node
+	for l in legs:
+		if str(l.trip) != "carry" or int(l.dest) != b or not (l.cargo as Dictionary).has("intel"): continue
+		ups += 1
+		if (l.route as Array).has(home): via += 1
+		elif int(l.route[0]) == a: direct += 1
+	check(ups > 0 and direct == ups and float(got["supply:intel"]) == 0.0 and cycles > 0 and fed == cycles,
+		"...and so the workers take it: %d of %d units of upkeep went %s → %s straight (%d by way of the main node), %.1f Intel/min left the bank for it, the Firewall on in %d of %d cycles"
+		% [direct, ups, an, bn, via, float(got["supply:intel"]), fed, cycles])
+	var ma := float(got.get("from:%d:intel" % a, 0.0))
+	check(absf(ma - fa) <= maxf(2.5, 0.12 * fa) and absf(float(got.get("from:%d:cash" % b, 0.0)) - fb) <= maxf(2.5, 0.12 * fb),
+		"...and what reaches the bank from them is what the forecast says: %s's Intel %.1f/min (forecast %.0f), %s's Crypto %.1f/min (forecast %.0f)"
+		% [an, ma, fa, bn, float(got.get("from:%d:cash" % b, 0.0)), fb])
 
 
 func paused() -> void:   # a building cannot be paused: the old order is ignored and the forecast stays
@@ -277,9 +372,15 @@ func no_early_spike() -> void:   # the old reading extrapolated the first second
 	check(not str(g._hud_rate("intel")[0]).begins_with("~"), "No early-estimate tilde: it is a forecast, not a measurement")
 
 
-func short_of_workers() -> void:   # two workers for six hosts: the forecast follows the dispatcher (the Firewalls' upkeep on three
-	fresh()                          # turns of four, every other turn to the host served least recently, supplies only where they
-	                                 # fit), material by material, not one even share for everything
+# (0.6.16) With two workers for six hosts the dispatcher also spends worker time the forecast's round trips do not count:
+# a Firewall host's upkeep carried straight from a neighbour, room made for it, a worker's leg to the host it is sent
+# from. The total stays within 20%; each material and each host within SHORT_TOL.
+const SHORT_TOL := 0.4
+
+
+func short_of_workers() -> void:   # two workers for six hosts: the forecast follows the dispatcher (0.6.16: the Firewalls' upkeep strictly
+	fresh()                          # first, from the nearest place that can spare it; then the hosts about to fill up, the hosts in turn;
+	                                 # supplies only where they fit), material by material and host by host, not one even share for everything
 	var home: int = int(g.rig[P])
 	var hs := []
 	var frontier := [home]; var seen := {home: true}
@@ -296,34 +397,54 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 	var walled := []                                                                                       # Intel of their own, for supplies)
 	for k in hs.size(): if g._count_all(hs[k], "wall") > 0: walled.append(hs[k])
 	for res in g.RES: g.bank[P][res] = 100.0
-	for k in int(240.0 / g.SIM_DT): g._sim_step(g.SIM_DT)   # settle
+	step(240.0)   # settle
+	record()
 	var fc_by := {}; var got_by := {}; var n := 0   # what the remote hosts deliver, per material
+	var fc_host := {}; var got_host := {}           # ...and per host (by name), all materials together
 	for res in g.RES: fc_by[res] = 0.0; got_by[res] = 0.0
 	var off := 0   # seconds a Firewall was off: its upkeep was not brought in time
-	for sec in 300:
-		for k in int(round(1.0 / g.SIM_DT)): g._sim_step(g.SIM_DT)
+	var secs := 600   # (0.6.16: workers go on from where they deliver, so the far hosts are served in no fixed rhythm: a slow material
+	for sec in secs:  # such as the Lab's 1.3 Research/min reads 6 to 7 units in any 300 s, so it is measured over 600)
+		step(1.0)
 		for i in walled: if not bool(g.hosts[i].fw_on): off += 1
 		for res in g.RES: g.bank[P][res] = 100.0   # nothing caps, nothing starves
 		g._fc_gen += 1
 		var fc: Dictionary = g._forecast(P)
 		for r in g.RES:
 			for src in (fc.from.get(r, {}) as Dictionary):
-				if not str(src).begins_with("main node"): fc_by[r] = float(fc_by[r]) + float(fc.from[r][src])
+				if str(src).begins_with("main node"): continue
+				fc_by[r] = float(fc_by[r]) + float(fc.from[r][src])
+				fc_host[str(src)] = float(fc_host.get(str(src), 0.0)) + float(fc.from[r][src])
 		n += 1
 		if sec % 30 == 29:   # the ledger keeps 30 s: "from:<host>:<res>" is what each host delivered
 			var sums: Dictionary = g._ledger_sums(P)
 			for key in sums:
 				var parts := str(key).split(":")
-				if parts[0] == "from": got_by[parts[2]] = float(got_by[parts[2]]) + float(sums[key])
+				if parts[0] != "from": continue
+				got_by[parts[2]] = float(got_by[parts[2]]) + float(sums[key])
+				var hn := str(g.hosts[int(parts[1])].name)
+				got_host[hn] = float(got_host.get(hn, 0.0)) + float(sums[key])
 	var f := 0.0; var m := 0.0; var bad := []; var said := []
 	for r in g.RES:
-		var fr := float(fc_by[r]) / n; var mr := float(got_by[r]) / 5.0
+		var fr := float(fc_by[r]) / n; var mr := float(got_by[r]) * 60.0 / float(secs)
 		f += fr; m += mr
 		said.append("%s %.1f/%.1f" % [g.RES_NAME[r], fr, mr])
-		if absf(fr - mr) > 0.3 * mr: bad.append(g.RES_NAME[r])
+		if absf(fr - mr) > SHORT_TOL * mr: bad.append(g.RES_NAME[r])
 	check(absf(f - m) <= 0.2 * m, "Two workers for six hosts: the forecast of what the hosts deliver (%.1f/min) is within 20%% of what arrives (%.1f/min)" % [f, m])
-	check(bad.is_empty(), "...and each material is within 30%% of what arrives, forecast/measured per minute: %s %s" % [", ".join(PackedStringArray(said)), str(bad)])
+	check(bad.is_empty(), "...and each material is within %d%% of what arrives, forecast/measured per minute: %s %s" % [int(SHORT_TOL * 100.0), ", ".join(PackedStringArray(said)), str(bad)])
+	var hbad := []; var hsaid := []   # (0.6.16) and each host (the "From:" line): Intel it gives a Firewall host straight leaves on that Firewall's trips,
+	                                  # so it is not taken off what its own trips bring home
+	for k in hs.size():
+		var hn := str(g.hosts[hs[k]].name)
+		var fh := float(fc_host.get(hn, 0.0)) / n; var mh := float(got_host.get(hn, 0.0)) * 60.0 / float(secs)
+		hsaid.append("%s %.1f/%.1f" % [hn, fh, mh])
+		if absf(fh - mh) > SHORT_TOL * mh: hbad.append(hn)
+	check(hbad.is_empty(), "...and each host is within %d%% of what arrives from it, all materials, forecast/measured per minute: %s %s" % [int(SHORT_TOL * 100.0), ", ".join(PackedStringArray(hsaid)), str(hbad)])
 	check(not walled.is_empty() and off == 0, "...while the %d Firewalls on hosts that make no Intel get their upkeep first: never off (%d s off)" % [walled.size(), off])
+	var homes := 0
+	for l in legs: if str(l.trip) == "home": homes += 1
+	check(free_s <= 0.01 * (busy_s + free_s) and homes == 0,
+		"...and with more work than workers, they are never left free: %.1f of %.0f worker-seconds free, %d empty legs home" % [free_s, busy_s + free_s, homes])
 
 
 func host_rates(secs: int) -> Dictionary:   # {fc, got}: what the remote hosts are forecast to deliver and do deliver, per material per minute
@@ -447,7 +568,7 @@ func sabotaged_stations() -> void:   # (0.6.14) workers Sabotage keeps at their 
 	g._fc_gen += 1
 	var before := float((g._forecast(P).from.get("creds", {}) as Dictionary).get(src, 0.0))
 	g.hosts[home].sabot_until = g._t + 60.0
-	step(6.0)   # the workers that were out come home, and stop there
+	step(6.0)   # the workers that were out finish their legs and stop where they are (0.6.16: free where they deliver)
 	g._fc_gen += 1
 	var fc: Dictionary = g._forecast(P)
 	var f := float((fc.from.get("creds", {}) as Dictionary).get(src, 0.0))
