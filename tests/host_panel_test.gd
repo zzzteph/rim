@@ -32,10 +32,22 @@ func fresh() -> void:
 	root.add_child(g); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER; R = g.RIVAL
-	g.bank[P] = {"intel": 200.0, "cash": 200.0, "creds": 100.0, "research": 100.0}
+	g.bank[P] = {}   # (0.6.18) a well-stocked bank, half the base caps: the caps scale with the prices, so it stays plenty after a rescale
+	for res in g.RES: g.bank[P][res] = 0.5 * float(g.BASE_CAP[res])
 
 
-func until_built(n: int, limit := 180.0) -> void:   # construction waits for its materials: run until the host's projects are done
+func until_built(n: int) -> void:   # construction waits for its materials: run until the host's projects are done
+	# (0.6.18: no fixed 180 s, which the doubled bills outgrew: a Firewall two links out took 189 s.) The time it takes if
+	# every unit still owed makes a round trip from the main node, the workers carrying WORKER_CARRY a leg, then the
+	# demolition and the work; half as much again for dispatch, and the loop ends the moment the projects are done
+	var owed := 0.0
+	for k in (g.hosts[n].jobs as Dictionary):
+		var job: Dictionary = g.hosts[n].jobs[k]
+		for r in (job.bill as Dictionary): owed += maxf(0.0, float(job.bill[r]) - float((job.escrow as Dictionary).get(r, 0.0)))
+	var trip: float = 2.0 * g._leg_time(P, int(g.rig[P]), n)
+	var workers := maxf(1.0, float(g._worker_counts(P).total))
+	var carry: float = owed / (workers * g.WORKER_CARRY) * trip if is_finite(trip) else 0.0
+	var limit: float = 1.5 * (carry + float(g.DEMOLISH_TIME) + float(g.BUILD_TIME))
 	var t := 0.0
 	while t < limit and not (g.hosts[n].jobs as Dictionary).is_empty():
 		step(0.5); t += 0.5
@@ -270,27 +282,34 @@ func inspector() -> void:   # compact at 1280×720: your host's panel is its nam
 	check(not items.any(func(s): return str(s).contains("Refill") or str(s).contains("LOCAL STOCK") or str(s).contains("WORKERS")), "No Refill, no stock table, no worker list in words")
 	check(rows().size() == int(g.hosts[n].slots) and options().is_empty() and infos().size() == 1, "Its facts, then one row per slot, and no always-open palette (%d rows, %d buildings)" % [rows().size(), options().size()])
 	var facts: Dictionary = g._host_info_view(n)
-	check(str(facts.line).begins_with(str(g.NODE_TYPES[str(g.hosts[n].type)].name)) and str(facts.line).contains("yours") and str(facts.slots) == "1/%d slots used" % int(g.hosts[n].slots) and str(facts.fill) == "0/10",
-		"The facts: type, owner, slots used and the storage as x/10 (%s · %s · %s)" % [facts.line, facts.slots, facts.fill])
+	check(str(facts.line).begins_with(str(g.NODE_TYPES[str(g.hosts[n].type)].name)) and str(facts.line).contains("yours") and str(facts.slots) == "1/%d slots used" % int(g.hosts[n].slots) and str(facts.fill) == "0/%d" % int(g.STORE_CAP),
+		"The facts: type, owner, slots used and the storage as x/%d (%s · %s · %s)" % [int(g.STORE_CAP), facts.line, facts.slots, facts.fill])
 	var lab: Dictionary = g._slot_view(n, 0)
 	check(str(lab.flow[0][1]) == "+" + g._amt(g._tmult(n, "research")) and str(lab.flow[1][0]) == "lab" and str(lab.stock[1][0]) == "lab" and str(lab.stock[2][1]) == "0", "A Research lab's row: what it makes a cycle on this host with the Research icon, and the Research stock here as an icon with its amount")
 	g._cmd(["build", n, 1, "intel"])
 	g._refresh_panel(); await frames()
 	var box = row_of(n, 1)
 	var proj: Dictionary = g._slot_view(n, 1)
+	var none_of := "0/%d" % int(g._build_cost("intel").intel)   # none of the harvester's Intel bill is here yet
 	check(box != null and box.stop_button.visible and str(box.stop_button.text).contains("Cancel") and str(g._slot_tip(n, 1)).contains("Waiting for its materials")
-		and str(proj.state) == "Needs materials" and (proj.mats as Array).any(func(it): return str(it[1]) == "0/12"),
-		"An order waiting for its materials says so on its row (and its tooltip), its materials as icons (0/12), with a cancel button, not in prose")
+		and str(proj.state) == "Needs materials" and (proj.mats as Array).any(func(it): return str(it[1]) == none_of),
+		"An order waiting for its materials says so on its row (and its tooltip), its materials as icons (%s), with a cancel button, not in prose" % none_of)
 
 
 func typed_rates_and_lost_selection() -> void:
 	fresh()
 	var home: int = int(g.rig[P])   # a Server: Intel x1.5
-	check(str(g._flow_items("intel", home)[0][1]) == "+1.5" and str(g._flow_items("intel")[0][1]) == "+1", "A slot row gives what it makes on THIS host (%s on a Server; %s without a host)" % [g._flow_items("intel", home)[0][1], g._flow_items("intel")[0][1]])
+	var made := func(kind: String, type := "") -> String:   # one producer's output a cycle: its rate x the host type's multiplier (none without a host)
+		return "+" + g._amt(float(g.BUILD_KINDS[kind].rate) * (float(g.NODE_TYPES[type].get(kind, 1.0)) if type != "" else 1.0))
+	var srv := str(g.hosts[home].type)
+	check(float(g.NODE_TYPES[srv].intel) != 1.0 and str(g._flow_items("intel", home)[0][1]) == made.call("intel", srv) and str(g._flow_items("intel")[0][1]) == made.call("intel"),
+		"A slot row gives what it makes on THIS host (%s on a %s; %s without a host)" % [g._flow_items("intel", home)[0][1], g.NODE_TYPES[srv].name, g._flow_items("intel")[0][1]])
 	var n := neighbour(g.NEUTRAL)
 	g._capture(n, P); g.hosts[n].type = "db"; g.hosts[n].slots = 4; g._set_builds(n, ["intel", "cred", "", ""])
-	check(str(g._flow_items("intel", n)[0][1]) == "+2" and str(g._flow_items("cred", n)[0][1]) == "+1.5" and str(g._option_view("cred", n, 2).flow[0][1]) == "+1.5", "...+2 Intel and +1.5 Credentials on a Database, in its rows and its chooser")
-	check(str(g._flow_items("wall", n)[0][1]) == "-1" and str(g._flow_items("wall", n)[1][0]) == "intel", "A Firewall's row says it uses 1 Intel a cycle, as an icon")
+	check(str(g._flow_items("intel", n)[0][1]) == made.call("intel", "db") and str(g._flow_items("cred", n)[0][1]) == made.call("cred", "db") and str(g._option_view("cred", n, 2).flow[0][1]) == made.call("cred", "db"),
+		"...%s Intel and %s Credentials on a Database, in its rows and its chooser" % [made.call("intel", "db"), made.call("cred", "db")])
+	var upkeep: String = g._amt(float(g.BUILD_KINDS.wall.use.intel))
+	check(str(g._flow_items("wall", n)[0][1]) == "-" + upkeep and str(g._flow_items("wall", n)[1][0]) == "intel", "A Firewall's row says it uses %s Intel a cycle, as an icon" % upkeep)
 	g.sel = {n: true}; g._inspect = -1; g._refresh_panel()
 	g._capture(n, R); g._set_builds(n, ["wall", "lab", "", ""])   # a rival takes the host you are looking at, and builds
 	var txt := "\n".join(PackedStringArray(panel_items()))

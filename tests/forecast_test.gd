@@ -30,8 +30,12 @@ func fresh() -> void:
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER
-	g.bank[P] = {"intel": 60.0, "cash": 30.0, "creds": 30.0, "research": 30.0}
+	g.bank[P] = (g.START as Dictionary).duplicate()   # a match's opening bank (it scales with the economy)
 	watch = -1; recording = false
+
+
+func stock_bank() -> void:   # the bank half full of everything: nothing caps, nothing starves (half its cap, whatever the scale)
+	for res in g.RES: g.bank[P][res] = 0.5 * g._cap(P, res)
 
 
 var watch := -1    # a host whose production step() follows (-1: none, see watch_host):
@@ -258,7 +262,7 @@ func no_input_and_upkeep() -> void:   # 0.6.12: a Miner needs no input; the one 
 	g._fc_gen += 1
 	var need0 := float(g._forecast(P).need)
 	step(30.0)
-	var got0 := track(60.0)   # (with input to make, its Intel would go out to it from the bank's 60)
+	var got0 := track(60.0)   # (with input to make, its Intel would go out to it from the bank's stock)
 	check(absf(rate("cash") - trickle() - miner) < 0.01 and float(got0["supply:intel"]) == 0.0,
 		"A lone Miner needs no input: with no Intel on its host and none sent to it (%.1f/min) it adds its %.0f Crypto/min to the forecast (%.0f)" % [float(got0["supply:intel"]), miner, rate("cash")])
 	g._set_builds(h, ["cash", "wall"]); g._fc_gen += 1   # a Firewall beside it: its upkeep must be brought
@@ -396,7 +400,11 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 	for k in hs.size(): g._set_builds(hs[k], (lays[k] as Array).slice(0, int(g.hosts[hs[k]].slots)))   # (0.6.12: two Firewalls with no
 	var walled := []                                                                                       # Intel of their own, for supplies)
 	for k in hs.size(): if g._count_all(hs[k], "wall") > 0: walled.append(hs[k])
-	for res in g.RES: g.bank[P][res] = 100.0
+	var b0: Array = (g.hosts[home].builds as Array).duplicate()   # (0.6.18: the flow doubled, so the same shortage takes twice the workers: two
+	for k in b0.size():                                           #  Bot stations at the main node, four workers for six hosts)
+		if str(b0[k]) == "" and b0.count("bot") < 2: b0[k] = "bot"
+	g._set_builds(home, b0); g._tick_teams(0.0)
+	stock_bank()
 	step(240.0)   # settle
 	record()
 	var fc_by := {}; var got_by := {}; var n := 0   # what the remote hosts deliver, per material
@@ -404,10 +412,10 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 	for res in g.RES: fc_by[res] = 0.0; got_by[res] = 0.0
 	var off := 0   # seconds a Firewall was off: its upkeep was not brought in time
 	var secs := 600   # (0.6.16: workers go on from where they deliver, so the far hosts are served in no fixed rhythm: a slow material
-	for sec in secs:  # such as the Lab's 1.3 Research/min reads 6 to 7 units in any 300 s, so it is measured over 600)
+	for sec in secs:  # such as the Lab's Research, about a unit a minute here, reads only a handful of units in any 300 s, so it is measured over 600)
 		step(1.0)
 		for i in walled: if not bool(g.hosts[i].fw_on): off += 1
-		for res in g.RES: g.bank[P][res] = 100.0   # nothing caps, nothing starves
+		stock_bank()   # nothing caps, nothing starves
 		g._fc_gen += 1
 		var fc: Dictionary = g._forecast(P)
 		for r in g.RES:
@@ -432,8 +440,8 @@ func short_of_workers() -> void:   # two workers for six hosts: the forecast fol
 		if absf(fr - mr) > SHORT_TOL * mr: bad.append(g.RES_NAME[r])
 	check(absf(f - m) <= 0.2 * m, "Two workers for six hosts: the forecast of what the hosts deliver (%.1f/min) is within 20%% of what arrives (%.1f/min)" % [f, m])
 	check(bad.is_empty(), "...and each material is within %d%% of what arrives, forecast/measured per minute: %s %s" % [int(SHORT_TOL * 100.0), ", ".join(PackedStringArray(said)), str(bad)])
-	var hbad := []; var hsaid := []   # (0.6.16) and each host (the "From:" line): Intel it gives a Firewall host straight leaves on that Firewall's trips,
-	                                  # so it is not taken off what its own trips bring home
+	var hbad := []; var hsaid := []   # (0.6.16) and each host (the "From:" line). (0.6.18) Intel it gives a Firewall host rides its own trips, so it is
+	                                  # taken off what they bring home; the worker who brings it carries that host's output home
 	for k in hs.size():
 		var hn := str(g.hosts[hs[k]].name)
 		var fh := float(fc_host.get(hn, 0.0)) / n; var mh := float(got_host.get(hn, 0.0)) * 60.0 / float(secs)
@@ -452,7 +460,7 @@ func host_rates(secs: int) -> Dictionary:   # {fc, got}: what the remote hosts a
 	for res in g.RES: fc_by[res] = 0.0; got_by[res] = 0.0
 	for sec in secs:
 		step(1.0)
-		for res in g.RES: g.bank[P][res] = 100.0
+		stock_bank()
 		g._fc_gen += 1
 		var fc: Dictionary = g._forecast(P)
 		for r in g.RES:
@@ -482,10 +490,10 @@ func full_storage() -> void:   # (0.6.12) one Bot station's workers for a far Fi
 	var lay := ["intel", "lab", "cash", "cred"]
 	g.hosts[h].type = "file"; g.hosts[h].slots = int(g.NODE_TYPES.file.slots)
 	g._capture(h, P); g._set_builds(h, lay)
-	for res in g.RES: g.bank[P][res] = 100.0
+	stock_bank()
 	for k in 8:
 		step(30.0)
-		for res in g.RES: g.bank[P][res] = 100.0
+		stock_bank()
 	var st0 := stored(h)
 	watch_host(h)
 	var r: Dictionary = host_rates(300)
@@ -587,8 +595,9 @@ func clogged_host() -> void:   # (0.6.14) one output its bank cannot take fills 
 	var h: int = neighbours_of(home)[0]
 	g.hosts[h].type = "pc"; g.hosts[h].slots = 3
 	g._capture(h, P); g._set_builds(h, ["intel", "intel", "cash"])
-	for k in int(round(g.PROD_CYCLE * 20.0 / g.SIM_DT)):   # the Crypto bank stays full: the host's Crypto piles up until its storage is full
-		g.bank[P].cash = g._cap(P, "cash"); g.bank[P].intel = 20.0
+	var fill: float = g.STORE_CAP / (float(g.BUILD_KINDS.cash.rate) * g._tmult(h, "cash"))   # the cycles its Crypto alone takes to fill the storage
+	for k in int(round(g.PROD_CYCLE * 2.0 * fill / g.SIM_DT)):   # the Crypto bank stays full: the host's Crypto piles up until its storage is full (twice over)
+		g.bank[P].cash = g._cap(P, "cash"); g.bank[P].intel = 0.5 * g._cap(P, "intel")   # (the Intel bank never fills)
 		g._sim_step(g.SIM_DT)
 	var src := str(g.hosts[h].name)
 	g._fc_gen += 1

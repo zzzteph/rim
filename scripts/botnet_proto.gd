@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.17"   # the net change per minute under each bank, a host panel with icons and a building list per slot (lobbies match exact versions)
+const GAME_VERSION := "0.6.18"   # twice the flow at twice the prices, so workers are rarely free; a worker carries on from where it stands (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -1516,40 +1516,56 @@ func _forecast_now(fac: int) -> Dictionary:
 			continue
 		var hub_x := float(hosts[hub].get("express_until", 0.0)) > _t; var host_x := float(hosts[i].get("express_until", 0.0)) > _t
 		remote.append([i, ship, trips, _travel_time(rt, hub_x) + _travel_time(rt, host_x), sup])   # out leg leaves the main node, back leg the host
-	# workers: one pool at the main node, dealt out as the dispatcher deals its assignments. Of every PRIORITY_TURNS + 1,
-	# the purpose turns bring missing inputs first (the hosts in turn); every other turn goes to the host served least
-	# recently, so the hosts' trips even out. A trip carries one unit each way: a supply out, output back. Short of
-	# workers, the pool makes as many trips a minute as its time allows; a host short of supplies makes less in proportion.
+	# workers' trips, dealt as the dispatcher deals them: supplies and Firewall upkeep strictly first, then the hosts'
+	# trips even out. A trip carries one unit: a supply out and the host's output back on the same round trip. Short of
+	# workers, they make as many trips a minute as their time allows; a host short of supplies makes less in proportion.
 	var given_to := {}   # (Firewall host -> what its neighbours give it a cycle: the bank sends that much less)
-	var given := {}   # (0.6.16) a host's surplus Intel goes straight to a Firewall host no farther from it than the main node (_best_haul):
-	for row in remote:  # it never reaches the bank, and the bank sends that Firewall nothing
-		var need_in := float((row[4] as Dictionary).get("intel", 0.0))
-		if need_in <= 0.0001: continue
+	var elig_of := {}    # (Firewall host -> the hosts that may give it)
+	var prov := {}       # (what each host may give, in even shares: it bounds what the next Firewall can still count on)
+	for row in remote:   # (0.6.16) a host's surplus Intel goes straight to a Firewall host no farther from it than the main node
+		var need_in := float((row[4] as Dictionary).get("intel", 0.0))   # (_best_haul): it never reaches the bank, and the bank
+		if need_in <= 0.0001: continue                                     # sends that Firewall that much less
 		var dh := int(row[0])
-		var best := -1; var bt := INF; var left := 0.0
-		for row2 in remote:
+		var ship_of := {}; var elig := []   # (0.6.18) every host with spare Intel no farther from it than from the main node:
+		for row2 in remote:                 # the dispatcher tops a Firewall up from whichever such host's surplus it moves next
 			var s2 := int(row2[0])
-			var spare := float(row2[1].intel) - float(given.get(s2, 0.0))
-			if s2 == dh or spare <= 0.0001: continue
-			var t2 := _leg_time(fac, s2, dh)
-			if t2 <= _leg_time(fac, s2, hub) + 0.0001 and t2 < bt - 0.0001: best = s2; bt = t2; left = spare
-		if best >= 0:
-			given[best] = float(given.get(best, 0.0)) + minf(need_in, left)
-			given_to[dh] = float(given_to.get(dh, 0.0)) + minf(need_in, left)
-	for row in remote:   # what a host gives that way leaves on the Firewall host's own trips: its own trips carry the rest home
-		if given.has(int(row[0])):
-			var sh: Dictionary = (row[1] as Dictionary).duplicate(); sh.intel = maxf(0.0, float(sh.intel) - float(given[int(row[0])])); row[1] = sh
+			ship_of[s2] = float(row2[1].intel)
+			if s2 == dh or float(row2[1].intel) <= 0.0001: continue
+			if _leg_time(fac, s2, dh) <= _leg_time(fac, s2, hub) + 0.0001: elig.append(s2)
+		elig_of[dh] = elig.duplicate()
+		var want := need_in
+		while want > 0.0001 and not elig.is_empty():   # even shares, each no more than that host can spare; the rest from the others
+			var share := want / float(elig.size())
+			var more := []
+			for s2 in elig:
+				var spare := float(ship_of[s2]) - float(prov.get(s2, 0.0))
+				var gv := minf(share, maxf(0.0, spare))
+				prov[s2] = float(prov.get(s2, 0.0)) + gv; given_to[dh] = float(given_to.get(dh, 0.0)) + gv; want -= gv
+				if spare - gv > 0.0001: more.append(s2)
+			if more.size() == elig.size(): break
+			elig = more
 	var stopped := _sabot_held(fac)   # (0.6.14: workers of a sabotaged station carry nothing once their leg ends)
 	var fleet: int = int(_worker_counts(fac).total) - stopped
 	var din := []; var dem := []; var cost := []
+	var bsup_of := []; var bt_of := []   # what the bank supplies each host a cycle, and the trips that take
 	var need := 0.0
-	for row in remote:
-		var units := 0.0
-		for res in RES: units += float(row[1][res])
-		din.append(float(row[2]) * per)
-		dem.append(maxf(float(row[2]), units / WORKER_CARRY) * per)   # trips a minute that keep up with all of it
-		cost.append(float(row[3]))
-		need += float(dem[dem.size() - 1]) * float(row[3]) / 60.0   # workers busy keeping up with it
+	for row in remote:   # (0.6.18) what a host gives rides its own trips (a leg to the Firewall host is no longer than one home), first,
+		var i0 := int(row[0])   # as upkeep; the Firewall host's own output then leaves with the worker who brought it: one leg, not two
+		var units := _fc_units(row[1])
+		var gt := float(given_to.get(i0, 0.0))
+		var bsup: Dictionary = (row[4] as Dictionary).duplicate(); bsup.intel = maxf(0.0, float(bsup.intel) - gt)
+		var sup_t := float(row[2])   # what the bank sends (one unit a leg: a supply's final fraction still takes a trip of its own)
+		if gt > 0.0001:
+			sup_t = 0.0
+			for r in RES: sup_t += ceilf(float(bsup[r]) / WORKER_CARRY - 0.0001)
+		bsup_of.append(bsup); bt_of.append(sup_t * per)
+		var first := sup_t + float(prov.get(i0, 0.0)) / WORKER_CARRY   # trips that go strictly first: supplies and upkeep given
+		din.append(first * per)
+		var trips := maxf(first, maxf(sup_t, units / WORKER_CARRY))   # trips a minute that keep up with all of it
+		dem.append(trips * per)
+		var paired := minf(units / WORKER_CARRY, gt / WORKER_CARRY)
+		cost.append(float(row[3]) * (1.0 - 0.5 * paired / maxf(0.0001, trips)))
+		need += float(dem[dem.size() - 1]) * float(cost[cost.size() - 1]) / 60.0   # workers busy keeping up with it
 	d.need = need; d.spare = float(fleet); d.fleet = fleet
 	var trips_of: Array = dem
 	if need > float(fleet) + 0.0001:
@@ -1563,13 +1579,18 @@ func _forecast_now(fac: int) -> Dictionary:
 			if busy > float(fleet) * 60.0: hi = mid
 			else: lo = mid
 		trips_of = _fc_split(din, dem, lo)
-	for k in remote.size():   # (0.6.17) what the bank sends to remote hosts a minute (a Firewall's upkeep): the supplies that come
+	var sup_of := []   # what each host is supplied a cycle when x of its trips come: the bank's part in proportion, a neighbour's whole
+	for k in remote.size():
 		var row: Array = remote[k]
-		var sf := minf(1.0, float(trips_of[k]) / float(din[k])) if float(din[k]) > 0.0001 else 0.0
-		for res in RES:
+		var gt := float(given_to.get(int(row[0]), 0.0))
+		var bsup: Dictionary = bsup_of[k]
+		var bt := float(bt_of[k])
+		var f := minf(1.0, float(trips_of[k]) / bt) if bt > 0.0001 else 1.0
+		var sp := _fc_scaled(bsup, f); sp.intel = float(sp.intel) + gt
+		sup_of.append(sp)
+		for res in RES:   # (0.6.17) what the bank sends to remote hosts a minute (a Firewall's upkeep): the supplies that come
 			var what := ("Firewall at %s" if res == "intel" and _count_all(int(row[0]), "wall") > 0 else "supplies to %s") % str(hosts[int(row[0])].name)
-			var from_bank := float(row[4][res]) - (float(given_to.get(int(row[0]), 0.0)) if res == "intel" else 0.0)   # (what a neighbour gives is not the bank's)
-			_use_add(d.use, res, what, maxf(0.0, from_bank) * sf * per)
+			_use_add(d.use, res, what, float(bsup[res]) * f * per)
 	var inflow := {}
 	var cap := {}; var bank_full := {}   # (per material, not per host: counting the producers walks every host)
 	var main_in := {}   # what the main node alone brings into each bank a minute: its trickle and its buildings (none has an input)
@@ -1579,24 +1600,45 @@ func _forecast_now(fac: int) -> Dictionary:
 	for res in RES:   # (0.6.17) a full bank takes in again only what is used from it that the main node's own income does not
 		cap[res] = _cap(fac, res)   # refill: while that covers the use, remote output of it waits on its host (and clogs it), as before
 		bank_full[res] = _avail(fac, res) >= float(cap[res]) - 0.5 and _room(fac, res) < 1.0 and float(main_in.get(res, 0.0)) >= _use_sum(d.use, res) - 0.0001
+	var moved := []   # what each host's trips move a cycle, home or to a Firewall host
 	for k in remote.size():
 		var row: Array = remote[k]
 		var i: int = row[0]
 		var x := float(trips_of[k])
 		var made: Dictionary = row[1]
-		if x < float(din[k]) - 0.0001:   # short of supply trips: the supplies that come
-			made = _fc_cycle(i, fac, false, {}, _fc_scaled(row[4], x / float(din[k]))).out
-			if given.has(i): made.intel = maxf(0.0, float(made.intel) - float(given[i]))
-		# its trips bring everything home while they keep up. Else its storage stays full: its Intel harvesters only make
+		if _fc_units(sup_of[k]) < _fc_units(row[4]) - 0.0001:   # short of supply trips: the supplies that come
+			made = _fc_cycle(i, fac, false, {}, (sup_of[k] as Dictionary).duplicate()).out
+		# its trips move everything while they keep up. Else its storage stays full: its Intel harvesters only make
 		# as much as leaves, and its converters, in their order, turn that Intel into their own output first
-		if _fc_units(made) * per > x * WORKER_CARRY + 0.0001:   # (what it gives a Firewall host leaves on that host's trips: it is room too)
-			var gv := float(given.get(i, 0.0))
-			var full := made
-			if gv > 0.0: full = full.duplicate(); full.intel = float(full.intel) + gv
-			made = _fc_throttled(i, fac, _fc_scaled(row[4], minf(1.0, x / maxf(0.0001, float(din[k])))), full, x * WORKER_CARRY / per + gv)
-			if gv > 0.0: made = made.duplicate(); made.intel = maxf(0.0, float(made.intel) - gv)
+		if _fc_units(made) * per > x * WORKER_CARRY + 0.0001:
+			made = _fc_throttled(i, fac, (sup_of[k] as Dictionary).duplicate(), made, x * WORKER_CARRY / per)
 		if x < float(dem[k]) - 0.001:   # what the shortage cuts, even to nothing (not what it frees: a starved Lab leaves its Intel)
 			for res in RES: if float(row[1][res]) > float(made[res]) + 0.0001: _fc_limit(d, res, "not enough workers" if stopped == 0 else "Sabotage stops %d of your workers" % stopped)
+		moved.append(made)
+	var given := {}   # (0.6.18) who gives each Firewall host its upkeep: the hosts that may, in proportion to the Intel their trips move
+	var k_of := {}
+	for k in remote.size(): k_of[int(remote[k][0])] = k
+	for dh in given_to:
+		var want := float(given_to[dh])
+		var el: Array = (elig_of.get(dh, []) as Array).duplicate()
+		while want > 0.0001 and not el.is_empty():
+			var tot := 0.0
+			for s2 in el: tot += maxf(0.0, float(moved[int(k_of[s2])].intel) - float(given.get(s2, 0.0)))
+			if tot <= 0.0001: break
+			var more := []; var took := 0.0
+			for s2 in el:
+				var left := maxf(0.0, float(moved[int(k_of[s2])].intel) - float(given.get(s2, 0.0)))
+				var gv := minf(left, want * left / tot)
+				given[s2] = float(given.get(s2, 0.0)) + gv; took += gv
+				if left - gv > 0.0001: more.append(s2)
+			want -= took
+			if more.size() == el.size(): break
+			el = more
+	for k in remote.size():
+		var row: Array = remote[k]
+		var i: int = row[0]
+		var made: Dictionary = moved[k]
+		if given.has(i): made = made.duplicate(); made.intel = maxf(0.0, float(made.intel) - float(given[i]))   # its trips bring the rest home
 		var clog := ""   # (0.6.14) an output its bank cannot take stays on the host: its storage fills, and then the whole host stops
 		for res in RES: if bool(bank_full[res]) and float(made[res]) > 0.0001 and clog == "": clog = str(RES_NAME[res])
 		if clog != "" and _store_room(i) < 1.0 + _cycle_gross(i):   # (while it still has room, the rest still comes)
@@ -1766,7 +1808,7 @@ func _main_ok(fac: int) -> bool:   # the faction's main node is operational (hel
 
 
 func _tick_production(dt: float) -> void:
-	# 1) the main node makes one of each resource every 12 s, delivered locally (no worker, clamped to cap)
+	# 1) the main node makes one of each resource every 6 s, delivered locally (no worker, clamped to cap)
 	for fac in botnets:
 		if _eliminated.has(fac) or not _main_ok(fac): continue
 		for res in RES: _add_bank(fac, res, MAIN_INCOME * dt, "trickle")
@@ -1875,6 +1917,11 @@ func _cycle_split(i: int, benef: int) -> Dictionary:   # {share, direct, need, o
 	res.on = on; res.direct = direct
 	var gross := _cycle_gross(i) - direct
 	var room := maxf(0.0, _store_room(i)) + (need - direct if on else 0.0)
+	if walls > 0 and owner == benef and not _st_local(i, owner):   # (0.6.18) a host that does not make all its upkeep keeps room for
+		var harvest2 := float(BUILD_KINDS.intel.rate) * _tmult(i, "intel") * _cycle_kinds(i, "intel")   # UPKEEP_KEEP cycles of the Intel it
+		var lack := maxf(0.0, need - harvest2)                                                               # lacks: its output stops first,
+		var after := _st_get(i, owner, "intel") - (need - direct if on else 0.0)                            # so the upkeep never waits for room
+		room = maxf(0.0, room - maxf(0.0, UPKEEP_KEEP * lack - after - _inbound(i, "intel")))
 	if gross > 0.0001: res.share = clampf(room / gross, 0.0, 1.0)
 	return res
 
@@ -2643,7 +2690,9 @@ func _best_haul(fac: int, hub: int, free: Array, outs: Array, owed: Dictionary, 
 		for eta in (due.get(s, []) as Array): if float(eta) <= float(nw[1]) + 0.0001: soon += 1
 		if soon > 0 and float(r.qty) <= float(soon) * WORKER_CARRY + 0.0001: continue
 		var k := _pick_rank(fac, r)
-		if best.is_empty() or k < bk:
+		k.insert(1, 0 if float(nw[1]) <= 0.0001 else 1)   # (0.6.18) of the same class, the surplus where a free worker already is goes first, even
+		if best.is_empty() or k < bk:                      # before a host about to fill up: it carries it on from there instead of walking empty
+		                                                   # (the next worker free at the main node takes the fuller host)
 			best = {"wid": int(nw[0]), "src": s, "dst": hub, "res": str(r.res), "purpose": "", "amt": amt, "bank": false, "pile": bool(r.get("pile", false)), "sreq": r, "dreq": {}}
 			bk = k
 	if not best.is_empty() and str(best.res) == "intel" and not topup.is_empty() and not bool(best.pile):   # (0.6.16) surplus Intel goes to a
@@ -2661,11 +2710,17 @@ func _best_haul(fac: int, hub: int, free: Array, outs: Array, owed: Dictionary, 
 func _arriving(fac: int) -> Dictionary:   # host -> [seconds until each loaded worker on its way there arrives and is free there]
 	var out := {}
 	for f in flights:
-		if str(f.kind) != "courier" or int(f.owner) != fac or str(f.get("trip", "")) != "carry" or bool(f.get("blocked", false)): continue
+		if str(f.kind) != "courier" or int(f.owner) != fac or bool(f.get("blocked", false)): continue
 		if str((workers.get(int(f.get("wid", -1)), {}) as Dictionary).get("state", "")) == "retiring": continue
-		var d := int(f.dest)
+		var d := int(f.dest); var eta := maxf(0.0, float(f.arrive_t) - _t)
+		if str(f.get("trip", "")) == "fetch":   # (0.6.18) one on its way to a pickup: it is free where that unit goes, a leg later
+			var job: Dictionary = f.get("job", {})
+			if job.is_empty() or int(job.dst) == _hub(fac): continue
+			eta += _leg_time(fac, int(job.src), int(job.dst)); d = int(job.dst)
+			if eta >= INF: continue
+		elif str(f.get("trip", "")) != "carry": continue
 		if not out.has(d): out[d] = []
-		(out[d] as Array).append(maxf(0.0, float(f.arrive_t) - _t))
+		(out[d] as Array).append(eta)
 	return out
 
 
@@ -2675,7 +2730,8 @@ func _start_haul(fac: int, hub: int, j: Dictionary) -> void:   # reserve the uni
 	var sreq: Dictionary = j.get("sreq", {}); var dreq: Dictionary = j.get("dreq", {})
 	if not sreq.is_empty(): sreq.qty = float(sreq.qty) - amt; sreq.max = float(sreq.get("max", sreq.qty)) - amt
 	if not dreq.is_empty(): dreq.qty = float(dreq.qty) - amt
-	_mark_served(fac, s if d == hub else d)
+	if d == hub or str(j.purpose) == "upkeep" and not bool(j.bank) and s != hub and sreq.has("key"): _mark_served(fac, s)   # (0.6.18: only a host whose
+	                                                                                          # surplus left counts as served: a delivery to it does not)
 	if not sreq.is_empty(): _mark_res(fac, sreq)
 	elif not dreq.is_empty(): _mark_res(fac, dreq)
 	if d == hub: _reserve_incoming(fac, res, amt)   # room at the destination is held now
@@ -2690,8 +2746,26 @@ func _start_haul(fac: int, hub: int, j: Dictionary) -> void:   # reserve the uni
 	else: _add_to(s, "pclaim" if bool(j.pile) else "claim", fac, res, amt)   # what it will collect there is claimed for it now
 	if at == s: _set_off_loaded(fac, wid, job, at)
 	else:
-		var f := _launch(fac, wid, at, s, {}, at, job, _travel_route(fac, at, s))
+		var ride := {}   # (0.6.18) going to the main node anyway, it takes along a unit of this host's surplus: no leg runs empty that need not
+		if s == hub and int(hosts[at].owner) == fac: ride = _ride_along(fac, hub, at)
+		var f := _launch(fac, wid, at, s, ride, at, job, _travel_route(fac, at, s))
 		f.trip = "fetch"
+		if not ride.is_empty(): f.purpose = ""; f.src = at
+
+
+func _ride_along(fac: int, hub: int, at: int) -> Dictionary:   # a unit of host `at`'s surplus for a worker leaving it for the main node ({} if none)
+	var owed := _build_owed(fac)
+	var best := {}; var bk := []
+	for r in _open_requests(fac, hub, at):
+		if int(r.host) != at or str(r.dir) != "out" or str(r.purpose) == "loot": continue
+		var amt := _amount(fac, hub, r, owed)
+		if amt <= 0.0001: continue
+		var k := _pick_rank(fac, r)
+		if best.is_empty() or k < bk: best = r.duplicate(); best.amt = amt; bk = k
+	if best.is_empty(): return {}
+	_mark_res(fac, best)
+	_take_req(at, fac, str(best.res), float(best.amt), bool(best.get("pile", false))); _reserve_incoming(fac, str(best.res), float(best.amt))
+	return {str(best.res): float(best.amt)}
 
 
 func _set_off_loaded(fac: int, wid: int, job: Dictionary, at: int) -> void:   # with the unit, from where it picked it up to where it goes
@@ -4832,7 +4906,7 @@ func _ai_rebalance(fac: int, sites: Array, may_owe := false) -> void:   # a bank
 		spot[kind] = _ai_retool_spot(fac, sites, kind)
 		var have := _avail(fac, makes[kind])
 		var fill := have / maxf(1.0, _cap(fac, makes[kind]))
-		var piling := fill >= 0.4 or have >= maxf(24.0, 3.0 * float(want.get(makes[kind], 0.0)))   # far more than its cards need
+		var piling := fill >= 0.4 or have >= maxf(2.0 * float(BUILD_KINDS.bot.cost.cash), 3.0 * float(want.get(makes[kind], 0.0)))   # far more than its cards need
 		if piling:   # only a piling bank with a producer to retool can give one up (the trickle alone fills Crypto)
 			if fill > hi and not (spot[kind] as Array).is_empty(): hi = fill; full = kind
 		elif fill < lo: lo = fill; short = kind
@@ -6609,7 +6683,7 @@ func _submit_feedback() -> void:
 # ---------------------------------------------------------------- TUTORIAL
 func _tut_stages() -> Array:
 	return [
-		{"title": "Your main node", "text": "Your main node makes one of each resource every 12 seconds. What other hosts make is used there first; workers carry the surplus home."},
+		{"title": "Your main node", "text": "Your main node makes one of each resource every 6 seconds. What other hosts make is used there first; workers carry the surplus home."},
 		{"title": "Manufacture", "text": "Open the recipes (C) and click + Queue to make a copy, then drag the ready card onto a target to launch it."},
 		{"title": "Win", "text": "Hold at least 51% of the hosts for 51 seconds, or be the last network with its main node."},
 	]
@@ -6813,7 +6887,7 @@ func _camp_steps(chapter: int) -> Array:
 		]
 		1: return [
 			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Click an empty relay slot and choose Bot station: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
-			{"t": "Producers", "r": "Each producer makes 1 unit of its resource every 12 s.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
+			{"t": "Producers", "r": "Each producer makes 1 unit of its resource every 6 s.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
 			{"t": "Output goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: your workers carry the relay's Intel and Crypto to your main node.", "role": "relay", "pause": false},
 		]
 		2: return [

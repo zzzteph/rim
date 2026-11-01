@@ -12,10 +12,10 @@
         "rate": 1.0,
         "use": {},
         "cost": {
-          "intel": 12.0
+          "intel": 24.0
         },
-        "cap": 50.0,
-        "desc": "Makes 1 Intel every 12 s."
+        "cap": 100.0,
+        "desc": "Makes 1 Intel every 6 s."
       },
       "bot": {
         "name": "Bot station",
@@ -26,8 +26,8 @@
         "rate": 0.0,
         "use": {},
         "cost": {
-          "intel": 4.0,
-          "cash": 12.0
+          "intel": 8.0,
+          "cash": 24.0
         },
         "cap": 0.0,
         "desc": "Provides 2 reusable delivery workers. Each carries 1 resource unit per trip leg."
@@ -41,10 +41,10 @@
         "rate": 1.0,
         "use": {},
         "cost": {
-          "intel": 15.0
+          "intel": 30.0
         },
-        "cap": 50.0,
-        "desc": "Makes 1 Crypto every 12 s."
+        "cap": 100.0,
+        "desc": "Makes 1 Crypto every 6 s."
       },
       "cred": {
         "name": "Credential harvester",
@@ -55,11 +55,11 @@
         "rate": 1.0,
         "use": {},
         "cost": {
-          "intel": 15.0,
-          "cash": 4.0
+          "intel": 30.0,
+          "cash": 8.0
         },
-        "cap": 50.0,
-        "desc": "Makes 1 Credential every 12 s."
+        "cap": 100.0,
+        "desc": "Makes 1 Credential every 6 s."
       },
       "lab": {
         "name": "Research lab",
@@ -70,11 +70,11 @@
         "rate": 1.0,
         "use": {},
         "cost": {
-          "intel": 12.0,
-          "cash": 16.0
+          "intel": 24.0,
+          "cash": 32.0
         },
-        "cap": 50.0,
-        "desc": "Makes 1 Research every 12 s."
+        "cap": 100.0,
+        "desc": "Makes 1 Research every 6 s."
       },
       "wall": {
         "name": "Firewall",
@@ -87,11 +87,11 @@
           "intel": 1.0
         },
         "cost": {
-          "intel": 10.0,
-          "cash": 30.0
+          "intel": 20.0,
+          "cash": 60.0
         },
         "cap": 0.0,
-        "desc": "3 sockets for defence cards, which fire on their own when this host is hit. Uses 1 Intel every 12 s."
+        "desc": "3 sockets for defence cards, which fire on their own when this host is hit. Uses 1 Intel every 6 s."
       }
     },
     "PRODUCER_KINDS": [
@@ -107,26 +107,26 @@
     ],
     "BUILD_COSTS": {
       "intel": {
-        "intel": 12.0
+        "intel": 24.0
       },
       "bot": {
-        "intel": 4.0,
-        "cash": 12.0
+        "intel": 8.0,
+        "cash": 24.0
       },
       "cash": {
-        "intel": 15.0
+        "intel": 30.0
       },
       "cred": {
-        "intel": 15.0,
-        "cash": 4.0
+        "intel": 30.0,
+        "cash": 8.0
       },
       "lab": {
-        "intel": 12.0,
-        "cash": 16.0
+        "intel": 24.0,
+        "cash": 32.0
       },
       "wall": {
-        "intel": 10.0,
-        "cash": 30.0
+        "intel": 20.0,
+        "cash": 60.0
       }
     },
     "BUILD_COST_INTEL": 20.0
@@ -142,7 +142,7 @@
         "known": true,
         "dur": 45.0,
         "make": {
-          "intel": 8,
+          "intel": 16,
           "cash": 0,
           "creds": 0,
           "research": 0
@@ -161,9 +161,9 @@
         "exec": 15.0,
         "exec_rig": 30.0,
         "make": {
-          "intel": 12,
+          "intel": 24,
           "cash": 0,
-          "creds": 12,
+          "creds": 24,
           "research": 0
         },
         "make_time": 12.0,
@@ -180,10 +180,10 @@
         "exec": 9.0,
         "exec_rig": 20.0,
         "make": {
-          "intel": 14,
+          "intel": 28,
           "cash": 0,
           "creds": 0,
-          "research": 12
+          "research": 24
         },
         "make_time": 14.0,
         "lead": "Capture a host in 9 s.",
@@ -198,10 +198,10 @@
         "known": true,
         "dur": 180.0,
         "make": {
-          "intel": 18,
-          "cash": 6,
-          "creds": 8,
-          "research": 4
+          "intel": 36,
+          "cash": 12,
+          "creds": 16,
+          "research": 8
         },
         "make_time": 12.0,
         "lead": "Divert new output for 180 s.",
@@ -215,16 +215,16 @@
         "effect": "siphon",
         "known": false,
         "dur": 60.0,
-        "cargo": 30,
+        "cargo": 60,
         "make": {
-          "intel": 20,
-          "cash": 6,
-          "creds": 6,
-          "research": 5
+          "intel": 40,
+          "cash": 12,
+          "creds": 12,
+          "research": 10
         },
         "make_time": 12.0,
         "lead": "Hijack cargo crossing a host.",
-        "rules": "Pick a resource. For 60 s, their workers carrying it that leave or pass this host drop it there for your workers, up to 30. Best on a host their deliveries cross. Cargo cover protects cargo."
+        "rules": "Pick a resource. For 60 s, their workers carrying it that leave or pass this host drop it there for your workers, up to 60. Best on a host their deliveries cross. Cargo cover protects cargo."
       },
       "vault": {
         "name": "Vault raid",
@@ -234,17 +234,17 @@
         "effect": "vault",
         "known": false,
         "exec": 10.0,
-        "cargo": 30,
+        "cargo": 60,
         "reach": 3,
         "make": {
-          "intel": 24,
+          "intel": 48,
           "cash": 0,
-          "creds": 10,
-          "research": 8
+          "creds": 20,
+          "research": 16
         },
         "make_time": 16.0,
         "lead": "Empty the storage of 3 linked hosts.",
-        "rules": "Raids a rival host for 10 s. If it succeeds it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 30 units. Your workers collect it from there. A Patch stops it."
+        "rules": "Raids a rival host for 10 s. If it succeeds it takes all that is stored there and on the 2 nearest linked hosts of that owner, up to 60 units. Your workers collect it from there. A Patch stops it."
       },
       "ddos": {
         "name": "DDoS",
@@ -256,10 +256,10 @@
         "dur": 45.0,
         "reach": 3,
         "make": {
-          "intel": 34,
-          "cash": 14,
+          "intel": 68,
+          "cash": 28,
           "creds": 0,
-          "research": 5
+          "research": 10
         },
         "make_time": 14.0,
         "lead": "Halt 3 hosts' output for 45 s.",
@@ -275,10 +275,10 @@
         "exec": 5.0,
         "exec_rig": 12.0,
         "make": {
-          "intel": 16,
-          "cash": 12,
-          "creds": 12,
-          "research": 16
+          "intel": 32,
+          "cash": 24,
+          "creds": 24,
+          "research": 32
         },
         "make_time": 26.0,
         "lead": "Capture a host in 5 s.",
@@ -295,10 +295,10 @@
         "exec_rig": 20.0,
         "reach": 2,
         "make": {
-          "intel": 18,
+          "intel": 36,
           "cash": 0,
           "creds": 0,
-          "research": 18
+          "research": 36
         },
         "make_time": 22.0,
         "lead": "Capture 2 linked hosts in turn.",
@@ -314,10 +314,10 @@
         "dur": 60.0,
         "reach": 3,
         "make": {
-          "intel": 36,
-          "cash": 12,
-          "creds": 8,
-          "research": 14
+          "intel": 72,
+          "cash": 24,
+          "creds": 16,
+          "research": 28
         },
         "make_time": 22.0,
         "lead": "Shut producers on 3 hosts for 60 s.",
@@ -332,10 +332,10 @@
         "known": true,
         "dur": 30.0,
         "make": {
-          "intel": 12,
-          "cash": 4,
+          "intel": 24,
+          "cash": 8,
           "creds": 0,
-          "research": 3
+          "research": 6
         },
         "make_time": 8.0,
         "lead": "Stop a capture or a raid.",
@@ -349,10 +349,10 @@
         "effect": "response",
         "known": true,
         "make": {
-          "intel": 12,
-          "cash": 3,
-          "creds": 3,
-          "research": 2
+          "intel": 24,
+          "cash": 6,
+          "creds": 6,
+          "research": 4
         },
         "make_time": 6.0,
         "lead": "Clear theft and sabotage here.",
@@ -367,10 +367,10 @@
         "known": false,
         "dur": 30.0,
         "make": {
-          "intel": 14,
-          "cash": 4,
+          "intel": 28,
+          "cash": 8,
           "creds": 0,
-          "research": 2
+          "research": 4
         },
         "make_time": 8.0,
         "lead": "Clear DDoS and block it for 30 s.",
@@ -385,10 +385,10 @@
         "known": false,
         "dur": 30.0,
         "make": {
-          "intel": 12,
-          "cash": 4,
+          "intel": 24,
+          "cash": 8,
           "creds": 0,
-          "research": 2
+          "research": 4
         },
         "make_time": 8.0,
         "lead": "Shield this host's cargo for 30 s.",
@@ -403,10 +403,10 @@
         "known": false,
         "dur": 45.0,
         "make": {
-          "intel": 14,
-          "cash": 4,
+          "intel": 28,
+          "cash": 8,
           "creds": 0,
-          "research": 2
+          "research": 4
         },
         "make_time": 10.0,
         "lead": "Halve delivery time for 45 s.",
@@ -416,72 +416,72 @@
     "RESEARCH": {
       "exploit": {
         "prereq": "breach",
-        "intel": 8,
-        "cash": 20,
-        "research": 20,
+        "intel": 16,
+        "cash": 40,
+        "research": 40,
         "time": 40.0
       },
       "zeroday": {
         "prereq": "exploit",
-        "intel": 16,
-        "cash": 44,
-        "research": 50,
+        "intel": 32,
+        "cash": 88,
+        "research": 100,
         "time": 70.0
       },
       "worm": {
         "prereq": "exploit",
-        "intel": 12,
-        "cash": 32,
-        "research": 36,
+        "intel": 24,
+        "cash": 64,
+        "research": 72,
         "time": 55.0
       },
       "ddos": {
         "prereq": "recon",
-        "intel": 8,
-        "cash": 20,
-        "research": 18,
+        "intel": 16,
+        "cash": 40,
+        "research": 36,
         "time": 35.0
       },
       "sabotage": {
         "prereq": "ddos",
-        "intel": 14,
-        "cash": 38,
-        "research": 44,
+        "intel": 28,
+        "cash": 76,
+        "research": 88,
         "time": 60.0
       },
       "siphon": {
         "prereq": "phish",
-        "intel": 8,
-        "cash": 20,
-        "research": 20,
+        "intel": 16,
+        "cash": 40,
+        "research": 40,
         "time": 40.0
       },
       "vault": {
         "prereq": "siphon",
-        "intel": 12,
-        "cash": 32,
-        "research": 40,
+        "intel": 24,
+        "cash": 64,
+        "research": 80,
         "time": 55.0
       },
       "filter": {
         "prereq": "patch",
-        "intel": 6,
-        "cash": 16,
-        "research": 14,
+        "intel": 12,
+        "cash": 32,
+        "research": 28,
         "time": 30.0
       },
       "cover": {
         "prereq": "patch",
-        "intel": 6,
-        "cash": 16,
-        "research": 14,
+        "intel": 12,
+        "cash": 32,
+        "research": 28,
         "time": 30.0
       },
       "express": {
         "prereq": "recon",
-        "intel": 8,
-        "cash": 20,
-        "research": 20,
+        "intel": 16,
+        "cash": 40,
+        "research": 40,
         "time": 35.0
       }
     },
@@ -714,21 +714,21 @@
       "research": "Research"
     },
     "START": {
-      "intel": 40.0,
-      "cash": 20.0,
-      "creds": 15.0,
-      "research": 10.0
+      "intel": 80.0,
+      "cash": 40.0,
+      "creds": 30.0,
+      "research": 20.0
     },
     "BASE_CAP": {
-      "intel": 150.0,
-      "cash": 300.0,
-      "creds": 150.0,
-      "research": 150.0
+      "intel": 300.0,
+      "cash": 600.0,
+      "creds": 300.0,
+      "research": 300.0
     },
-    "CAP_PER_PRODUCER": 50.0,
-    "PROD_CYCLE": 12.0,
-    "STORE_CAP": 10.0,
-    "MAIN_INCOME": 0.0833333333333333,
+    "CAP_PER_PRODUCER": 100.0,
+    "PROD_CYCLE": 6.0,
+    "STORE_CAP": 20.0,
+    "MAIN_INCOME": 0.166666666666667,
     "WORKERS_PER_STATION": 2,
     "WORKER_CARRY": 1.0,
     "WORKER_REPLACE": 5.0,
@@ -870,7 +870,7 @@
         8
       ]
     ],
-    "GAME_VERSION": "0.6.17",
+    "GAME_VERSION": "0.6.18",
     "MAP_CELL": 190.0,
     "SOCKET_TRIGGER": {
       "patch": "a capture, Worm or Vault raid starts here",

@@ -166,7 +166,11 @@ func run() -> void:
 func reconcile() -> void:   # within one ledger window, the change in every bank equals what came in minus what went out
 	fresh()
 	own_pc(["bot", "intel", "cash"])
-	g.bank[P] = {"intel": 120.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	var need := {}   # the three projects' bills together: twice that in the bank pays for all of them
+	for bill in [g._build_cost("cred"), g._recipe_cost("breach"), g._research_cost("exploit")]:
+		for r in bill: need[r] = float(need.get(r, 0.0)) + float(bill[r])
+	g.bank[P] = {}
+	for res in g.RES: g.bank[P][res] = minf(2.0 * float(need.get(res, 0.0)), g._cap(P, res))
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
 	g._start_job(int(g.rig[P]), "cred", 2)          # a building (the main node's free slot)
 	g._cmd(["queue", "breach", 1])                 # manufacturing
@@ -193,11 +197,11 @@ func one_cycle(i: int, kind: String) -> float:   # what one producer of this kin
 	return float(g.BUILD_KINDS[kind].rate) * g._tmult(i, str(g.BUILD_KINDS[kind].out))
 
 
-func layout_rate() -> void:   # station + 2 harvesters + Miner, no input used (0.6.12): 2 Intel and 1 Crypto go home per 12-s cycle
+func layout_rate() -> void:   # station + 2 harvesters + Miner, no input used (0.6.12): 2 Intel and 1 Crypto go home per PROD_CYCLE
 	fresh()
 	g._set_builds(int(g.rig[P]), [])
 	var n := own_pc(["bot", "intel", "intel", "cash"])
-	step(60.0)   # warm-up past the 30-s window
+	step(2.0 * g.LEDGER_SECS)   # warm-up past the ledger window
 	var cash := by("cash", "in", "delivered"); var intel := by("intel", "in", "delivered"); var trickle := by("cash", "in", "trickle")
 	var per_min: float = 60.0 / g.PROD_CYCLE   # cycles a minute
 	var want_cash: float = one_cycle(n, "cash") * per_min; var want_intel: float = 2.0 * one_cycle(n, "intel") * per_min
@@ -211,19 +215,20 @@ func starved_and_capped() -> void:
 	fresh()
 	g._set_builds(int(g.rig[P]), [])   # no Bot station anywhere: no worker brings this host anything or carries anything home
 	var n := own_pc(["cash", "wall"])   # a Miner and a Firewall, and nothing on the host makes Intel
-	g.bank[P].intel = 140.0
+	var plenty: float = floorf(0.5 * g._cap(P, "intel"))   # far more Intel in the bank than any upkeep
+	g.bank[P].intel = plenty
 	var made := 0   # cycles the host ran
-	for k in int(round(35.0 / g.SIM_DT)):
+	for k in int(round((3.0 * g.PROD_CYCLE - 1.0) / g.SIM_DT)):   # at least two whole cycles, never enough to fill its storage
 		var left := float(g.hosts[n].get("cyc", g.PROD_CYCLE))
 		g._sim_step(g.SIM_DT)
 		if float(g.hosts[n].get("cyc", g.PROD_CYCLE)) > left: made += 1   # its timer wrapped: it ran a cycle
 	var stored: float = g._st_get(n, P, "cash")
 	check(made >= 2 and absf(stored - made * one_cycle(n, "cash")) < 0.001 and by("cash", "in", "delivered") == 0.0 and by("cash", "in", "production") == 0.0,
 		"A remote Miner makes its Crypto with no input, but none shows as income while no worker brings it home (%s waiting after %d cycles)" % [g._amt(stored), made])
-	check(not bool(g.hosts[n].fw_on) and by("intel", "out", "upkeep") == 0.0 and float(g._econ_rates(P, "intel")["out"]) == 0.0 and float(g.bank[P].intel) >= 140.0,
+	check(not bool(g.hosts[n].fw_on) and by("intel", "out", "upkeep") == 0.0 and float(g._econ_rates(P, "intel")["out"]) == 0.0 and float(g.bank[P].intel) >= plenty,
 		"A remote Firewall with no Intel on its host is starved: it is off and no upkeep is booked, whatever the bank holds (bank Intel %d)" % int(g.bank[P].intel))
 	g.bank[P].cash = g._cap(P, "cash")   # a full bank: the trickle cannot land
-	step(31.0)
+	step(float(g.LEDGER_SECS) + 1.0)   # a whole ledger window of it
 	var r: Dictionary = g._econ_rates(P, "cash")
 	check(float(r["in"]) < 0.5 and float((r.lost_by as Dictionary).get("cap", 0.0)) > 0.8 * g.MAIN_INCOME * 60.0, "A full bank records overflow as lost to the cap, not as income (in %.1f, lost %.1f)" % [float(r["in"]), float((r.lost_by as Dictionary).get("cap", 0.0))])
 
@@ -322,17 +327,19 @@ func escrow_of(i: int, slot: int, res: String) -> float:
 func direct_to_site() -> void:   # 0.6.16: a site's material comes from a host's spare stock straight to it; the bank's ledger never sees it
 	fresh()
 	var hub: int = int(g.rig[P])
-	g._set_builds(hub, ["", "bot"])   # (no harvester at the main node: the bank gets Intel only from the trickle)
+	g._set_builds(hub, ["", "bot", "bot"])   # (no harvester at the main node: the bank gets Intel only from the trickle; 0.6.18: two
+	# stations, four workers, so the doubled bill, then the surplus, are carried inside one ledger window, as two did before)
 	var pair := adjacent_pair()       # two hosts next to the main node and to each other: the straight leg needs no relay
 	var src: int = pair[0]; var site: int = pair[1]
 	var bill: Dictionary = g._build_cost("bot")
+	var budget: float = float(g.LEDGER_SECS) - 2.0   # the whole watched run stays inside one ledger window
 	g.hosts[src].store = {P: {"intel": g.STORE_CAP}}   # more spare Intel than the bill: the rest is surplus for the bank
 	g.bank[P].intel = 0.0; g.bank[P].cash = float(bill.cash) + 10.0   # the Crypto can only come from the bank; the Intel is at the host
 	g._start_job(site, "bot", 0)
 	var before := bank_copy()
 	var t0: float = g._t
 	watch()
-	run_watched(26.0, func(): return escrow_of(site, 0, "intel") >= float(bill.intel) - 0.0001 and escrow_of(site, 0, "cash") >= float(bill.cash) - 0.0001)
+	run_watched(budget - 2.0, func(): return escrow_of(site, 0, "intel") >= float(bill.intel) - 0.0001 and escrow_of(site, 0, "cash") >= float(bill.cash) - 0.0001)
 	var funded := escrow_of(site, 0, "intel") >= float(bill.intel) - 0.0001 and escrow_of(site, 0, "cash") >= float(bill.cash) - 0.0001
 	var straight := landed(src, site, "intel")
 	var via_hub := false   # a unit for the site that stopped at the main node (a leg from the host home while the site was short)
@@ -346,7 +353,7 @@ func direct_to_site() -> void:   # 0.6.16: a site's material comes from a host's
 	var lv := ledger_vs_legs(["intel", "cash"])
 	check(absf(esc_i - straight - landed(hub, site, "intel")) < 0.001 and absf(esc_c - landed(hub, site, "cash")) < 0.001 and absf(src_drop - carried_from(src, "intel")) < 0.001 and lv == "" and bank_gap(before) < 0.001,
 		"...and every unit at the site is accounted for: %s Intel straight from the host (its storage fell by %s), %s Intel + %s Crypto from the bank booked once as supply (%s) %s" % [g._amt(straight), g._amt(src_drop), g._amt(landed(hub, site, "intel")), g._amt(landed(hub, site, "cash")), g._amt(led("out:supply:cash")), lv])
-	run_watched(t0 + 28.0 - g._t, func(): return g._st_get(src, P, "intel") < 0.001 and not legs.values().any(func(l): return bool(l.live) and str(l.trip) != "home"))
+	run_watched(t0 + budget - g._t, func(): return g._st_get(src, P, "intel") < 0.001 and not legs.values().any(func(l): return bool(l.live) and str(l.trip) != "home"))
 	var home_from_src := landed(src, hub, "intel")
 	lv = ledger_vs_legs(["intel", "cash"])
 	check(home_from_src >= 1.0 and absf(led("from:%d:intel" % src) - home_from_src) < 0.001 and lv == "" and bank_gap(before) < 0.001,
@@ -369,7 +376,8 @@ func causes_match_legs() -> void:   # a busy network: the ledger's delivered inc
 	var before := bank_copy()
 	watch()
 	fw_off_s = 0.0
-	for k in int(round(28.0 / g.SIM_DT)):
+	var secs: float = float(g.LEDGER_SECS) - 2.0   # inside one ledger window
+	for k in int(round(secs / g.SIM_DT)):
 		g._sim_step(g.SIM_DT)
 		track()
 		if not bool(g.hosts[w].get("fw_on", true)): fw_off_s += g.SIM_DT
@@ -381,7 +389,7 @@ func causes_match_legs() -> void:   # a busy network: the ledger's delivered inc
 		for res in (l.cargo as Dictionary):
 			moved += float(l.cargo[res])
 			if int(l.from) != hub and int(l.to) != hub: host_to_host += float(l.cargo[res])
-	check(lv == "" and moved >= 10.0, "28 s of a busy network: delivered income (in all and per host) and supply spending are exactly what the workers carried into and out of the bank (%s units carried) %s" % [g._amt(moved), lv])
+	check(lv == "" and moved >= 10.0, "%.0f s of a busy network: delivered income (in all and per host) and supply spending are exactly what the workers carried into and out of the bank (%s units carried) %s" % [secs, g._amt(moved), lv])
 	var odd := 0.0
 	for res in g.RES: odd += led("in:returned:" + res) + led("lost:cargo:" + res)
 	check(host_to_host >= 1.0 and odd == 0.0 and bank_gap(before) < 0.001, "...%s units went host to host and are booked nowhere; nothing returned or lost; every bank reconciles" % g._amt(host_to_host))
@@ -397,7 +405,7 @@ func bank_unit_returned() -> void:   # 0.6.16: a bank unit leaves the bank when 
 	g._set_builds(far, ["bot"])       # the only workers start two links out
 	var site := own_pc([])
 	g._start_job(site, "intel", 0)
-	g.bank[P].intel = 40.0
+	g.bank[P].intel = 2.0 * float(g._build_cost("intel").intel)   # twice the bill
 	var before := bank_copy()
 	watch()
 	var out_of_far := func() -> bool:   # every worker on its way to the bank has left the far host and is in the relay

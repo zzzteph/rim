@@ -130,13 +130,13 @@ func research_when_boxed_in() -> void:
 	fill_all({3: ["intel", "bot", "cash"], 5: ["intel", "bot", "cash", "lab", "cred"]})
 	g.known[R]["exploit"] = true; g.known[R]["filter"] = true   # two blueprints: more than its 6 buildings / 4
 	var next: String = g._ai_next_research(R)
-	var price: Dictionary = g.RESEARCH[next]; var want: Dictionary = g._ai_wanted(R)
+	var price: Dictionary = g._research_cost(next); var want: Dictionary = g._ai_wanted(R)
 	g.bank[R] = {}
 	for res in g.RES: g.bank[R][res] = float(price.get(res, 0.0)) + float(want.get(res, 0.0)) + 1.0   # the price on top of the next capture card
 	check(g._ai_research_due(R), "Every slot it can build on is taken and the bank holds %s's price on top of its next card: research is due" % next)
 	g.bank[R]["intel"] = float(price.get("intel", 0.0)) + float(want.get("intel", 0.0)) - 1.0
 	check(not g._ai_research_due(R), "...but not with less: boxed-in research only spends what neither building nor its cards need")
-	g.bank[R]["intel"] = 100.0
+	g.bank[R]["intel"] = float(price.get("intel", 0.0)) + float(want.get("intel", 0.0)) + 1.0   # the spare price back
 	g._set_builds(hub(), ["intel", "bot", ""])
 	check(not g._ai_research_due(R), "A free slot: building takes its turn first (2 blueprints for 5 buildings)")
 	fill_all({3: ["intel", "bot", "cash"], 5: ["intel", "bot", "cash", "lab", "cred"]})
@@ -147,8 +147,12 @@ func research_when_boxed_in() -> void:
 func retool_a_producer_it_has() -> void:
 	fresh()
 	fill_all({3: ["intel", "bot", "intel"], 5: ["intel", "bot", "intel", "lab", "intel"]})   # no Miner anywhere
-	g.bank[R] = {"intel": 40.0, "cash": 100.0, "creds": 0.0, "research": 0.0}
-	var fill_cash: float = 100.0 / g._cap(R, "cash"); var fill_intel: float = 40.0 / g._cap(R, "intel")
+	# Intel just over three copies of its next card's Intel (the AI's "far more than its cards need"), Crypto a third of
+	# its cap (piling: its next card needs none), Credentials dry
+	var pile_intel: float = 3.0 * float(g._ai_wanted(R).get("intel", 0.0)) + 4.0
+	var pile_cash: float = g._cap(R, "cash") / 3.0
+	g.bank[R] = {"intel": pile_intel, "cash": pile_cash, "creds": 0.0, "research": 0.0}
+	var fill_cash: float = pile_cash / g._cap(R, "cash"); var fill_intel: float = pile_intel / g._cap(R, "intel")
 	check(fill_cash > fill_intel, "Setup: Crypto piles fuller than Intel (%.2f vs %.2f) and has no producer" % [fill_cash, fill_intel])
 	var sites: Array = g._ai_mine(R)
 	sites.erase(hub()); sites.push_front(hub())   # as _ai_develop passes them: the main node first

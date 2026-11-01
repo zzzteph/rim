@@ -62,8 +62,8 @@ def chips(cost, secs=None):
     return "".join(out)
 
 # reference income (units per minute) for the "price in seconds of income" column
-EARLY = {"intel": 18, "cash": 15, "creds": 5, "research": 5}    # 1 unit per producer per 12-s cycle (no inputs since 0.6.12), the trickle 5/min
-MID = {"intel": 38, "cash": 20, "creds": 15, "research": 10}
+EARLY = {"intel": 36, "cash": 30, "creds": 10, "research": 10}    # 1 unit per producer per 6-s cycle (0.6.18: the flow doubled), the trickle 10/min
+MID = {"intel": 76, "cash": 40, "creds": 30, "research": 20}
 def wait(cost, inc):
     best, who = 0.0, ""
     for r in RES:
@@ -266,8 +266,8 @@ def find_unused():   # constants in the config files that the game's scripts nev
     return out
 UNUSED = find_unused()
 T = DATA["tuning"]; TY = DATA["types"]
-def per_min(cost_cycle):   # units per 12-s cycle -> per minute
-    return cost_cycle * 5
+def per_min(cost_cycle):   # units per production cycle -> per minute
+    return cost_cycle * 60.0 / float(T["PROD_CYCLE"])
 
 def start_chips():
     return chips({r: int(T["START"][r]) for r in RES})

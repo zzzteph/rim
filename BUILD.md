@@ -140,15 +140,15 @@ code by hand: change a rule, update its description there and rebuild.
 Economy (research–manufacture–deliver; 0.6.2 rates). There are four resources (`RES` in
 tuning.gd): **Intel**, **Crypto**, **Credentials**, **Research**. Resources are only
 spendable once they reach your **main node** (your rig). The main node itself only trickles one of
-every resource every 12 s (`MAIN_INCOME`, 5 a minute), so a network that builds nothing stalls: the economy is
-what you build. Every held host runs one **production cycle** every `PROD_CYCLE` (12) s on its own
+every resource every 6 s (`MAIN_INCOME`, 10 a minute), so a network that builds nothing stalls: the economy is
+what you build. Every held host runs one **production cycle** every `PROD_CYCLE` (6) s on its own
 phase (`_tick_production` → `_run_cycle`). Every producer makes **1 unit a cycle** of its own resource
-(5 a minute; the host type's multiplier scales it) with **no input** (0.6.12: the Crypto miner, Credential harvester
+(10 a minute; the host type's multiplier scales it; 0.6.18: the flow doubled from 12 s cycles, measured so workers are rarely free — the smart scripted player's workers idle 3% of the time instead of 31%, with the same pace — and every price, bank cap, start stock, store and theft haul doubled with it) with **no input** (0.6.12: the Crypto miner, Credential harvester
 and Research lab are producers like the Intel harvester; their `use` is empty and `CONVERT_ORDER` only keeps the
 code path for a future converter). Each Firewall eats its 1 Intel of upkeep: on a remote host from this cycle's own
 Intel harvest first, which never takes storage room, then from what is stored there (0.6.14, `_cycle_split`, the one
 rule `_run_cycle`, `_cycle_preview` and the plans share). A remote host keeps what it made in a
-**storage** of `STORE_CAP` (10) units, all resources together (`hosts[i].store`, by beneficiary); a storage that
+**storage** of `STORE_CAP` (20) units, all resources together (`hosts[i].store`, by beneficiary); a storage that
 cannot hold a whole cycle gives every producer the same share (`_cycle_share`, from `_store_room`: never the room held
 for cargo on its way), and full storage stops them. An export's last whole unit also takes the crumbs such a shared
 cycle leaves when the host's plan spares them and the bank has room (`_amount`, the request's exact `max`, lowered by
@@ -187,14 +187,17 @@ followed by that host's own surplus home. With nothing it can do, a worker away 
 (0.6.16): every free worker serves construction and upkeep while any of it can go — a Firewall's upkeep first (and,
 when its host's full storage leaves no room for it, that host's surplus as urgently: `room` demands), then Bot
 stations, then projects in the order given; what the main node's projects wait for that is neither in the bank nor
-coming (`_build_lack`) is brought home from the hosts as building too. Then the surplus of the hosts about to fill
+coming (`_build_lack`) is brought home from the hosts as building too. Then, of the same class, the surplus where a
+free worker already stands (0.6.18: `_best_haul` ranks it before tightness, so a worker freed at a host carries that
+host's output on instead of walking empty to the next host in turn), then the surplus of the hosts about to fill
 up (`_tight_now`: its next cycle and its Firewalls' incoming upkeep would not fit, counting what workers are already
 on their way to collect), the hosts in turn (`_served`, `_served_res`); stolen goods last (`_pick_rank`,
-`_pick_request`). A host that does not make all its upkeep asks for the next cycle plus `UPKEEP_KEEP` - 1 (1) more
+`_pick_request`). A worker that leaves a host for the main node to fetch supplies takes a unit of that host's
+surplus along (0.6.18, `_ride_along`). A host that does not make all its upkeep asks for the next cycle plus `UPKEEP_KEEP` - 1 (1) more
 cycles of what it lacks, in whole units beyond the next cycle, and keeps one cycle more than that, which only a nearer
 host's surplus Intel fills: such a surplus goes to a Firewall host no farther from it than the main node instead of
-home (`_best_haul`'s top-up). A host's surplus waits for a loaded worker already on its way there rather than drawing
-a second worker (`_arriving`); a source that cannot give a whole unit is used only when none can, and then at least
+home (`_best_haul`'s top-up). A host's surplus waits for a worker already on its way there rather than drawing
+a second worker (`_arriving`: a loaded one, or, 0.6.18, one still going to a pickup whose unit goes there); a source that cannot give a whole unit is used only when none can, and then at least
 `PART_MIN` (0.25) of one. Room for a Firewall's upkeep in a full storage is made as urgently as the upkeep, by only as
 many workers as it needs.
 `_build_owed` is the bank stock the projects the workers can reach still need (a cut-off or DDoSed site holds none);
@@ -235,9 +238,11 @@ command); since 0.6.17 the HUD shows it net of what the bank pays out (below). I
 trickle and buildings (with their bank inputs), then each host whose output is yours (`_fc_cycle`: its active
 producers, inputs made there or supplied by workers from a shared budget — plenty while the bank holds
 a buffer, else what the main node itself brings in — Firewall upkeep), limited by its route
-home, by your workers' round trips dealt as the dispatcher deals them (0.6.7: `_fc_split` — of every 4 assignments
-3 bring missing inputs first, the hosts in turn, and the 4th goes to the host served least recently; short of
-workers, the pool makes as many trips a minute as its time allows), by its storage's room for supplies
+home, by your workers' trips dealt as the dispatcher deals them (`_fc_split`: supplies and Firewall upkeep strictly
+first, then the hosts' trips even out; short of workers, they make as many trips a minute as their time allows;
+0.6.18: Intel a host gives a neighbouring Firewall rides that host's own trips, shared by every host that may give it
+in proportion to the Intel each one's trips move, and the worker who brings it carries the Firewall host's output
+home — one leg, not a round trip), by its storage's room for supplies
 (`_fc_accepts`: when its plan is limited, only the share of one cycle's inputs the plan funds — 0.6.8), and by the
 bank's room. A Firewall on a host you phish eats your Intel once the owner's stock there is gone; nothing comes from
 a phished host whose storage is full of the owner's stock ("storage full at …"), nor from any host while your main
@@ -440,7 +445,7 @@ fires on its own when its trigger hits (`_fire_socket`, `SOCKET_TRIGGER`: an int
 for Patch via `_start_exec`, Phishing/siphon/sabotage landing for Response, a DDoS landing for
 Filter, a siphon grabbing this host's cargo for Cover). Express route cannot be loaded. **Construction is
 supplied before work**: ordering is free; the project's bill (`BUILD_COSTS`) goes into an **escrow** at its site
-(separate from the 10-unit storage, so a 16-unit Bot station fits any host), first from what the host has spare, the
+(separate from the 20-unit storage, so a 32-unit Bot station fits any host), first from what the host has spare, the
 rest carried by workers one unit a leg; only then do its `BUILD_TIME` s of work run (`_tick_jobs`). Replacing an
 installation demolishes it (`DEMOLISH_TIME` s) while the materials travel. Nothing can be paused (0.6.9: neither a
 project nor a producer); cancel leaves the delivered (unworked) materials at the site as salvage; capture destroys them;

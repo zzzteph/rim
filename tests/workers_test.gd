@@ -14,6 +14,7 @@ var P := 1
 var R := 2
 var checks := 0
 var failures := []
+var kept := {}   # second -> that second's ledger bucket, kept past the ledger's window (see keep_ledger)
 
 
 func _initialize() -> void: run.call_deferred()
@@ -31,14 +32,31 @@ func fresh() -> void:
 	root.add_child(g); g.set_process(false); g.ai_enabled = false; g._camp = false
 	g._open_menu(false)
 	P = g.PLAYER; R = g.RIVAL
-	g.bank[P] = {"intel": 100.0, "cash": 60.0, "creds": 60.0, "research": 60.0}
+	# ten storages' worth of Intel and six of everything else: every bill a test orders, more than once (it scales with
+	# the economy: 0.6.18 doubled every price and STORE_CAP together)
+	g.bank[P] = {"intel": 10.0 * g.STORE_CAP, "cash": 6.0 * g.STORE_CAP, "creds": 6.0 * g.STORE_CAP, "research": 6.0 * g.STORE_CAP}
+	kept = {}
 
 
 func step(secs: float) -> void:
 	for k in int(round(secs / g.SIM_DT)): g._sim_step(g.SIM_DT)
 
 
-func led(key: String) -> float: return float(g._ledger_sums(P).get(key, 0.0))
+func led(key: String) -> float: return float(g._ledger_sums(P).get(key, 0.0))   # over the ledger's last LEDGER_SECS
+
+
+func keep_ledger() -> void:   # copy the ledger's buckets: called at least every LEDGER_SECS - 1 s, a run of any length can be totalled
+	var L: Dictionary = g._ledger.get(P, {})
+	if L.is_empty(): return
+	for slot in g.LEDGER_SECS:
+		if int(L.sec[slot]) >= 0: kept[int(L.sec[slot])] = (L.data[slot] as Dictionary).duplicate()
+
+
+func kept_led(key: String) -> float:   # like led(), over the whole run since fresh()
+	keep_ledger()
+	var n := 0.0
+	for sec in kept: n += float((kept[sec] as Dictionary).get(key, 0.0))
+	return n
 
 
 func near(skip := []) -> int:   # a neutral host linked to the main node
@@ -177,8 +195,8 @@ func identities_and_replacement() -> void:
 	for wid in ids(far): if g._worker_state(wid) == "blocked": blocked += 1
 	check(ids(far).size() == 2, "Workers held behind a DDoS stay the same two (%d held), nobody is replaced" % blocked)
 	# a worker lost on the road leaves a vacant slot, refilled after 5 s of station operation
-	g.bank[P].intel = 150.0; g.bank[P].cash = 60.0
-	g._cmd(["build", h, 2, "wall"])   # 40 units to carry: every worker of the pool goes on the road
+	for r in (g.BUILD_COSTS.wall as Dictionary): g.bank[P][r] = maxf(float(g.bank[P][r]), 2.0 * float(g.BUILD_COSTS.wall[r]))
+	g._cmd(["build", h, 2, "wall"])   # a Firewall's whole bill to carry: every worker of the pool goes on the road
 	var lost_id := -1
 	for k in 1800:
 		g._sim_step(g.SIM_DT)
@@ -341,7 +359,7 @@ func no_double_claim() -> void:
 			if q >= g.WORKER_CARRY - 0.0001: whole += 1
 	check(whole == 1 and g._avail(P, "intel") < 0.5 and absf(led("out:supply:intel") - on_road) < 0.0001 and led("out:supply:intel") <= upkeep() + 0.01,
 		"One Intel at the main node for a Firewall: one worker carries the whole unit, and what left the bank (%s) is exactly what is on the road: it left once" % g._amt(led("out:supply:intel")))
-	# GAME BUG (0.6.16): the upkeep request is UPKEEP_KEEP x need capped by the bank's fractional stock (1 + the trickle's
+	# (fixed in 0.6.16; this check guards it. Before the fix:) the upkeep request is UPKEEP_KEEP x need capped by the bank's fractional stock (1 + the trickle's
 	# 0.003), and _best_delivery's "last fraction the site needs" clause sends the second worker for that sliver
 	check(carrying.size() == 1, "Two free workers, one Intel at the main node: only one worker goes; the other is not sent for the trickle's sliver (%d carry Intel: %s)" % [carrying.size(), ", ".join(PackedStringArray(carrying))])
 	fresh()
@@ -366,7 +384,7 @@ func upkeep_from_a_short_bank() -> void:   # a Firewall short of a fraction of i
 	for r in g._open_requests(P, home, h):
 		if str(r.purpose) == "upkeep" and str(r.res) == "intel": req = float(r.qty)
 	var can: float = minf(g.UPKEEP_KEEP * upkeep() - stock, in_bank)   # what can come: the keep target, as far as the bank has it
-	# GAME BUG (0.6.16): _open_requests adds every host's plan export with an EMPTY budget to `spare_intel`; with no budget
+	# (fixed in 0.6.16; this check guards it. Before the fix:) _open_requests adds every host's plan export with an EMPTY budget to `spare_intel`; with no budget
 	# this host's own Firewall cannot run, so its own 0.5 Intel is listed as spare and counted again as Intel from elsewhere
 	check(req <= can + 0.001, "Its upkeep request is what can come (%s: up to %s cycles, as far as the bank's %s go), not inflated by its own stock counted as another host's spare Intel (requested %s)" % [g._amt(can), g._amt(g.UPKEEP_KEEP), g._amt(in_bank), g._amt(req)])
 	var off_at := -1.0; var free_s := 0.0
@@ -392,8 +410,9 @@ func upkeep_from_a_short_bank() -> void:   # a Firewall short of a fraction of i
 		for f in g.flights:
 			if str(f.kind) != "courier" or int(f.owner) != P or seen.has(int(f.id)): continue
 			seen[int(f.id)] = true
-			if (str(f.trip) == "fetch" and int((f.job as Dictionary).get("src", -1)) == y and int((f.job as Dictionary).get("dst", -1)) == home) or (str(f.trip) == "carry" and int(f.origin) == y and int(f.dest) == home and (f.cargo as Dictionary).has("intel")): via_bank += 1
-	# GAME BUG (0.6.16): _best_delivery takes a source only if it gives a whole unit or the request's whole remainder, so a
+			# (only Intel legs: y's Miner may run a cycle within this window, and its Crypto rightly goes home)
+			if (str(f.trip) == "fetch" and int((f.job as Dictionary).get("src", -1)) == y and int((f.job as Dictionary).get("dst", -1)) == home and str((f.job as Dictionary).get("res", "")) == "intel") or (str(f.trip) == "carry" and int(f.origin) == y and int(f.dest) == home and (f.cargo as Dictionary).has("intel")): via_bank += 1
+	# (fixed in 0.6.16; this check guards it. Before the fix:) _best_delivery takes a source only if it gives a whole unit or the request's whole remainder, so a
 	# need split between fractional sources gets nothing; y's crumbs are hauled to the bank instead (host -> main node -> site)
 	check(y >= 0 and via_bank == 0, "Spare Intel on a host next to a Firewall that lacks it goes straight there, not through the main node (%d legs %d -> main node)" % [via_bank, y])
 	check(off_at < 0.0, "...and with %s Intel in the bank and %s there, the Firewall gets its %s Intel before its cycle (went off at %.1f s)" % [g._amt(part), g._amt(part), g._amt(upkeep()), off_at])
@@ -402,7 +421,7 @@ func upkeep_from_a_short_bank() -> void:   # a Firewall short of a fraction of i
 func no_ping_pong() -> void:   # what was brought for a host's next cycle is not carried straight back out
 	fresh()
 	var h := near(); own(h, ["wall"])   # nothing makes Intel here: its Firewall's upkeep is brought
-	g.hosts[h].cyc = 11.0   # its cycle comes late, so the delivered Intel waits there a while
+	g.hosts[h].cyc = g.PROD_CYCLE - 1.0   # its cycle comes late, so the delivered Intel waits there a while
 	for k in 120:
 		step(0.1)
 		if float(g._store_of(h, P).get("intel", 0.0)) >= upkeep() - 0.001: break
@@ -462,7 +481,7 @@ func direct_delivery() -> void:   # 0.6.16: a site's material comes from whereve
 	fresh()
 	var home: int = int(g.rig[P])
 	g._set_builds(home, ["cash", "bot", ""]); g._tick_teams(0.0)   # no Intel harvester at the main node
-	g.bank[P].intel = 0.0                                              # and no Intel in the bank (the trickle needs 12 s for a unit)
+	g.bank[P].intel = 0.0                                              # and no Intel in the bank (the trickle needs 1 / MAIN_INCOME s for a unit)
 	var z := near(); own(z, ["intel"])
 	var spare := 6.0
 	g.hosts[z].store = {P: {"intel": spare}}   # a host with spare Intel
@@ -503,7 +522,7 @@ func strict_building() -> void:   # 0.6.16: building comes strictly first - no e
 	g._cmd(["build", c, 0, "bot"])   # its whole bill is in the bank
 	var tight0: bool = g._tight_now(a)
 	var seen := {}; var exports := 0; var done_t := -1.0
-	for k in int(round(40.0 / g.SIM_DT)):
+	for k in int(round((2.0 * bill_total("bot") + 30.0) / g.SIM_DT)):   # (a bound: the bill on its way, then 20 s more)
 		g._sim_step(g.SIM_DT)
 		var open := open_bill(c)
 		for f in g.flights:
@@ -578,10 +597,11 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 	fresh()
 	var a := near(); own(a, ["intel", "cash"])   # production hosts (0.6.12: a Miner needs no Intel; only a Firewall's upkeep,
 	var b := near([a]); own(b, ["cash"])          # checked below, asks the bank for a supply)
-	g.bank[P].intel = 12.0
-	g._cmd(["build", b, 1, "intel"])               # a project that needs exactly the bank's 12 Intel
+	var need := float(g.BUILD_COSTS.intel.intel)
+	g.bank[P].intel = need
+	g._cmd(["build", b, 1, "intel"])               # a project that needs exactly the bank's Intel
 	var owed: Dictionary = g._build_owed(P)
-	check(absf(float(owed.get("intel", 0.0)) - 12.0) < 0.01 and float(g._supply_budget(P, owed).intel) < 0.01, "The bank's 12 Intel are owed to the project: supplies may use none (owed %s)" % str(owed))
+	check(absf(float(owed.get("intel", 0.0)) - need) < 0.01 and float(g._supply_budget(P, owed).intel) < 0.01, "The bank's %s Intel are owed to the project: supplies may use none (owed %s)" % [g._amt(need), str(owed)])
 	var cands := cands_now(owed)
 	var inputs: Array = g._open_requests(P, int(g.rig[P])).filter(func(r): return str(r.dir) == "in" and not str(r.purpose).begins_with("build:"))
 	check(inputs.is_empty() and not cands.any(func(r): return str(r.purpose) == "input" and str(r.res) == "intel"), "No Intel supply to a Miner is asked for or feasible while the project needs it: Miners need none (%s)" % str(inputs))
@@ -589,8 +609,8 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 	for k in 40:
 		step(0.5)
 		low = minf(low, g._free(P, "intel") - float(g._build_owed(P).get("intel", 0.0)))
-	var got := float((g.hosts[b].jobs.get(1, {}).get("escrow", {}) as Dictionary).get("intel", 0.0)) if g.hosts[b].jobs.has(1) else 12.0
-	check(low > -0.01 and got >= 6.0, "For 20 s supplies only took Intel the project did not need (the bank never fell below its need: %.2f), and the project got %.0f of 12" % [low, got])
+	var got := float((g.hosts[b].jobs.get(1, {}).get("escrow", {}) as Dictionary).get("intel", 0.0)) if g.hosts[b].jobs.has(1) else need
+	check(low > -0.01 and got >= need / 2.0, "For 20 s supplies only took Intel the project did not need (the bank never fell below its need: %.2f), and the project got %.0f of %s" % [low, got, g._amt(need)])
 	# a Bot station first, whatever was ordered before it
 	fresh()
 	a = near(); own(a, ["intel", "", ""]); b = near([a]); own(b, ["intel", "", ""])
@@ -599,7 +619,7 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 	var job: Dictionary = g._job_for(int(first.get("host", -1)), str(first.get("purpose", "")).trim_prefix("build:"))
 	check(str(job.get("kind", "")) == "bot", "A Bot station's materials go first: its workers carry for every other project (%s)" % str(job.get("kind", "")))
 	# (0.6.16) building strictly first: no fourth turn for a host about to fill up any more
-	g.hosts[a].store = {P: {"intel": 9.0}}
+	g.hosts[a].store = {P: {"intel": g.STORE_CAP - 1.0}}   # about to fill up
 	var cands2 := cands_now(g._build_owed(P))
 	var picks := []
 	for turn in 4: picks.append(str(g._pick_request(P, cands2, turn, {}).get("purpose", "")))
@@ -619,7 +639,7 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 	fresh()
 	home = int(g.rig[P])
 	var m := near(); own(m, ["cash"]); g.hosts[m].store = {P: {"cash": 3.0}}    # spare Crypto on a host
-	var t := near([m]); own(t, ["intel"]); g.hosts[t].store = {P: {"intel": 9.0}}  # a host about to fill up
+	var t := near([m]); own(t, ["intel"]); g.hosts[t].store = {P: {"intel": g.STORE_CAP - 1.0}}  # a host about to fill up
 	g.bank[P].cash = 0.0
 	g._cmd(["build", home, 2, "cred"])   # a main-node project: its Intel is in the bank, its Crypto is not
 	var lack: Dictionary = g._build_lack(P, g._build_owed(P, true))
@@ -638,7 +658,8 @@ func building_first_rules() -> void:   # 0.6.10: building is the workers' first 
 		var o := near([w] + others)
 		if o < 0: break
 		others.append(o); own(o, ["intel", "", ""])
-	g.bank[P].intel = 150.0
+	for r in ["intel", "cash"]:   # every project's bill in the bank, twice over: spare Intel beyond what they owe
+		g.bank[P][r] = 2.0 * others.size() * (float(g.BUILD_COSTS.cred.get(r, 0.0)) + float(g.BUILD_COSTS.lab.get(r, 0.0)))
 	for o in others: g._cmd(["build", o, 1, "cred"]); g._cmd(["build", o, 2, "lab"])
 	var off := 0.0
 	for k in 120:
@@ -725,28 +746,36 @@ func construction() -> void:
 	g._cmd(["build", h, 0, "bot"])
 	var job: Dictionary = g.hosts[h].jobs[0]
 	check(absf(g._avail(P, "intel") - i0) < 0.001 and (job.escrow as Dictionary).is_empty(), "Ordering pays nothing yet: the bill waits at the site")
+	# the ideal: each worker of the main node's station carries its share out one unit a leg, comes back for the next, then the work
+	var home: int = int(g.rig[P])
+	var trips := ceilf(bill_total("bot") / (float(ids(home).size()) * g.WORKER_CARRY))
+	var ideal: float = (2.0 * trips - 1.0) * g._leg_time(P, home, h) + g.BUILD_TIME
 	var arrived_before_work := true
 	var t0: float = g._t
-	for k in 60 * 30:
+	for k in int(round(maxf(60.0, 2.0 * ideal) / g.SIM_DT)):   # (the build takes longer than the ledger's window: keep_ledger)
 		g._sim_step(g.SIM_DT)
+		if k % 30 == 0: keep_ledger()
 		if g.hosts[h].jobs.has(0) and float(g.hosts[h].jobs[0].left) < float(g.hosts[h].jobs[0].total) - 0.001 and not g._job_funded(g.hosts[h].jobs[0]): arrived_before_work = false
 		if not g.hosts[h].jobs.has(0): break
 	check(arrived_before_work, "No work happens before all %s units are in the site's escrow (beyond the %s-unit store)" % [g._amt(bill_total("bot")), g._amt(g.STORE_CAP)])
-	check(str(g.hosts[h].builds[0]) == "bot" and ids(h).size() == 2, "Built after %.1f s (ideal 26 s on one hop): its two workers start" % (g._t - t0))
-	check(absf(led("out:supply:intel") + led("out:supply:cash") - bill_total("bot")) < 0.01, "Exactly the bill was carried: %s units" % g._amt(bill_total("bot")))
+	check(str(g.hosts[h].builds[0]) == "bot" and ids(h).size() == 2, "Built after %.1f s (ideal %.0f s on one hop): its two workers start" % [g._t - t0, ideal])
+	var carried := kept_led("out:supply:intel") + kept_led("out:supply:cash")
+	check(absf(carried - bill_total("bot")) < 0.01, "Exactly the bill was carried: %s units (%s)" % [g._amt(bill_total("bot")), g._amt(carried)])
 	# local stock reduces what is carried
 	fresh()
 	var h2 := near(); g._capture(h2, P); g.hosts[h2].slots = 3; g._set_builds(h2, [])
 	var bill: Dictionary = g.BUILD_COSTS.bot
-	var stock := 5.0   # Crypto already at the site: less than the bill's Crypto (0.6.12: a Bot station is paid mainly in Crypto)
+	var stock := floorf(float(bill.get("cash", 0.0)) / 4.0)   # Crypto already at the site: less than the bill's Crypto (0.6.12: a Bot station is paid mainly in Crypto)
 	g.hosts[h2].store = {P: {"cash": stock}}
 	g._cmd(["build", h2, 0, "bot"])
-	for k in 60 * 30:
+	for k in int(round(maxf(60.0, 2.0 * ideal) / g.SIM_DT)):
 		g._sim_step(g.SIM_DT)
+		if k % 30 == 0: keep_ledger()
 		if not g.hosts[h2].jobs.has(0): break
 	var want_i := float(bill.get("intel", 0.0)); var want_c := maxf(0.0, float(bill.get("cash", 0.0)) - stock)
-	check(stock < float(bill.get("cash", 0.0)) and absf(led("out:supply:intel") - want_i) < 0.01 and absf(led("out:supply:cash") - want_c) < 0.01,
-		"%s Crypto already there: only %s Intel and %s Crypto were carried (%s, %s)" % [g._amt(stock), g._amt(want_i), g._amt(want_c), g._amt(led("out:supply:intel")), g._amt(led("out:supply:cash"))])
+	var got_i := kept_led("out:supply:intel"); var got_c := kept_led("out:supply:cash")
+	check(stock > 0.0 and stock < float(bill.get("cash", 0.0)) and absf(got_i - want_i) < 0.01 and absf(got_c - want_c) < 0.01,
+		"%s Crypto already there: only %s Intel and %s Crypto were carried (%s, %s)" % [g._amt(stock), g._amt(want_i), g._amt(want_c), g._amt(got_i), g._amt(got_c)])
 
 
 func cancel_and_pause() -> void:
@@ -759,7 +788,12 @@ func cancel_and_pause() -> void:
 		match when:
 			"travel": step(0.5)
 			"partial": step(6.0)
-			"work": step(22.0)
+			"work":   # its whole bill at the site and about half its work done (however long the bill takes to arrive)
+				for k in int(round(120.0 / g.SIM_DT)):
+					var j: Dictionary = g.hosts[h].jobs.get(0, {})
+					if j.is_empty() or (g._job_funded(j) and float(j.left) <= 0.5 * float(j.total)): break
+					g._sim_step(g.SIM_DT)
+					if k % 30 == 0: keep_ledger()   # (it may take longer than the ledger's window)
 		var job: Dictionary = g.hosts[h].jobs.get(0, {})
 		var worked := 0.0
 		if not job.is_empty() and g._job_funded(job): worked = 1.0 - float(job.left) / float(job.total)
@@ -769,9 +803,9 @@ func cancel_and_pause() -> void:
 		for r in g.RES: where += g._avail(P, r) + g._loot(h, P, r) + float(g.hosts[h].store.get(P, {}).get(r, 0.0))
 		for f in g.flights: for r in (f.get("cargo", {}) as Dictionary): where += float(f.cargo[r])
 		var trickle := 0.0
-		for r in g.RES: trickle += led("in:trickle:" + r) + led("in:production:" + r)
+		for r in g.RES: trickle += kept_led("in:trickle:" + r) + kept_led("in:production:" + r)
 		var used := bill_total("bot") * worked
-		check(absf(total0 + trickle - used - where) < 0.05, "Cancelled %s: every unit is in the bank, on the road or in the site's salvage pile (%.2f of %.2f; %.1f used by work)" % [when, where, total0 + trickle - used, used])
+		check(absf(total0 + trickle - used - where) < 0.05 and (when != "work" or used > 0.0), "Cancelled %s: every unit is in the bank, on the road or in the site's salvage pile (%.2f of %.2f; %.1f used by work)" % [when, where, total0 + trickle - used, used])
 	fresh()
 	var h3 := near(); g._capture(h3, P); g.hosts[h3].slots = 3; g._set_builds(h3, [])
 	g._cmd(["build", h3, 0, "bot"])
@@ -796,17 +830,23 @@ func fairness() -> void:   # endless upkeep demand must not starve a build or an
 	var hosts := []
 	for nb in g.hosts[home].links:
 		if int(g.hosts[int(nb)].owner) == g.NEUTRAL: hosts.append(int(nb))
-	var a: int = hosts[0]; var b: int = hosts[1]; var c: int = hosts[2] if hosts.size() > 2 else -1
+	var a: int = hosts[0]; var b: int = hosts[1]
 	g._capture(a, P); g.hosts[a].slots = 3; g._set_builds(a, ["wall", "wall", "wall"])   # hungry: 3 Intel a cycle for its Firewalls, forever
 	g._capture(b, P); g.hosts[b].slots = 3; g._set_builds(b, ["intel"])              # export only
+	var c: int = hosts[2] if hosts.size() > 2 else hop2([a, b])   # the site (two hops out when the main node has two neighbours)
 	if c >= 0: g._capture(c, P); g.hosts[c].slots = 3; g._set_builds(c, [])
-	g.bank[P].intel = 150.0
+	var secs := 60.0
+	var hunger: float = 3.0 * upkeep() * secs / g.PROD_CYCLE + float(g.BUILD_COSTS.wall.intel)   # the Firewalls' Intel and the project's
+	g.bank[P].intel = 3.0 * hunger   # the bank never runs dry: only the workers are scarce
 	if c >= 0: g._cmd(["build", c, 0, "wall"])
-	step(60.0)
+	step(secs)
 	# (0.6.16: its Intel may go straight to the hungry Firewall host next door instead of the bank)
 	var stored_b: float = float(g._store_of(b, P).get("intel", 0.0))
 	check(stored_b < float(g.STORE_CAP) - 0.5, "An export-only host still gets its Intel collected: its storage never fills (%.1f of %d)" % [stored_b, int(g.STORE_CAP)])
-	check(c < 0 or not g.hosts[c].jobs.has(0) or float(g.hosts[c].jobs[0].escrow.get("intel", 0.0)) >= 4.0, "A construction order still gets its materials")
+	var esc: Dictionary = (g.hosts[c].jobs.get(0, {}) as Dictionary).get("escrow", {}) if c >= 0 else {}
+	var want: float = 0.4 * float(g.BUILD_COSTS.wall.intel)
+	check(c >= 0 and (not g.hosts[c].jobs.has(0) or float(esc.get("intel", 0.0)) >= want),
+		"A construction order still gets its materials (site %d: %s; built %s)" % [c, str(esc), str(c >= 0 and str(g.hosts[c].builds[0]) == "wall")])
 
 
 func escrow_theft() -> void:

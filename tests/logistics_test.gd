@@ -324,12 +324,15 @@ func firewall_sockets() -> void:
 	g._start_job(far, "wall", 1)
 	check(g._sockets(far) == 0, "A Firewall still being built has no sockets yet")
 	var t0: float = g._t
-	for k in 180 * 30:
-		g._sim_step(g.SIM_DT)
-		if not g.hosts[far].jobs.has(1): break
 	var bill := 0.0
 	for r in g.BUILD_COSTS.wall: bill += float(g.BUILD_COSTS.wall[r])
-	check(g._sockets(far) == g.FIREWALL_SOCKETS, "Once its %d units have arrived (two hops, two main-node workers) and it is built, it has its %d (%.0f s)" % [int(bill), g.FIREWALL_SOCKETS, g._t - t0])
+	var n_w := worker_ids().size()
+	var bank_trips: float = ceilf(bill / (n_w * g.WORKER_CARRY)) * 2.0 * g._leg_time(P, int(g.rig[P]), far)   # every unit from the bank, there and back
+	var limit: float = 2.0 * (bank_trips + g.BUILD_TIME)   # (only a timeout: twice that, then the work; it scales with the bill)
+	for k in int(round(limit / g.SIM_DT)):
+		g._sim_step(g.SIM_DT)
+		if not g.hosts[far].jobs.has(1): break
+	check(g._sockets(far) == g.FIREWALL_SOCKETS, "Once its %d units have arrived (two hops, %d main-node workers) and it is built, it has its %d (%.0f s)" % [int(bill), n_w, g.FIREWALL_SOCKETS, g._t - t0])
 	# a defence card whose target is lost on the way comes back to your hand
 	g.cards[P] = {"response": 1}
 	g._play_card(P, "response", far)
@@ -552,10 +555,13 @@ func direct_to_site() -> void:   # (0.6.16) a site's material comes from the nea
 	g._start_job(b, "intel", 0)
 	var job: Dictionary = g.hosts[b].jobs[0]
 	var n_w := worker_ids().size()
+	var rounds := ceili(g.STORE_CAP / (n_w * g.WORKER_CARRY))
+	var expect: float = via_a + (rounds - 1) * shuttle   # first unit from the main node through a, then the site <-> a shuttle
+	var slack: float = 2.0 * rounds * 2.0 * g.SIM_DT     # (each leg may wait up to two steps: its arrival and its departure fall on steps)
 	watch_reset()
 	var t0: float = g._t
 	var covered := -1.0; var funded := -1.0; var export_short := 0; var first_export := -1; var e_waited := false; var bank_used := -1.0
-	for k in int(round(30.0 / g.SIM_DT)):
+	for k in int(round(2.0 * (expect + slack) / g.SIM_DT)):   # (0.6.18: a timeout that scales with the bill; it ends as soon as both are seen)
 		watch(g.SIM_DT)
 		var short: float = g._job_short(job, "intel") if (g.hosts[b].jobs as Dictionary).has(0) else 0.0
 		for wid in legs:
@@ -587,9 +593,6 @@ func direct_to_site() -> void:   # (0.6.16) a site's material comes from the nea
 	check(covered >= 0.0 and export_short == 0 and e_waited,
 		"Building strictly first: no surplus set off for the bank while the site lacked a unit, not even the full host's (%d did)" % export_short)
 	check(first_export == e, "Once the bill was all at the site or on its way, the first surplus collected was the full host's (%d, expected %d)" % [first_export, e])
-	var rounds := ceili(g.STORE_CAP / (n_w * g.WORKER_CARRY))
-	var expect: float = via_a + (rounds - 1) * shuttle   # first unit from the main node through a, then the site <-> a shuttle
-	var slack: float = 2.0 * rounds * 2.0 * g.SIM_DT     # (each leg may wait up to two steps: its arrival and its departure fall on steps)
 	check(funded >= 0.0 and funded - t0 <= expect + slack,
 		"The bill is at the site after %.2f s: %d workers shuttling the %d s link, %d rounds (at most %.2f s)" % [funded - t0, n_w, int(g._leg_time(P, a, b)), rounds, expect + slack])
 	check(funded >= 0.0 and absf(float(job.escrow.get("intel", 0.0)) - bill) < 0.001 and resv_err == "",
@@ -608,11 +611,17 @@ func no_overbooking() -> void:   # (0.6.16) no more workers are sent to a host t
 	own(e, ["cash", "cash", "wall"])
 	var keep: float = upkeep_of(e) * g.UPKEEP_KEEP   # the Intel its Firewall keeps within reach (it makes none): never spare
 	var spare: float = (ids.size() - 1) * g.WORKER_CARRY   # one unit fewer than there are workers
-	g.hosts[e].store = {P: {"intel": keep, "cash": spare}}
+	# (0.6.18) About to fill up: the room left is just its next cycle plus the upkeep coming in, a unit short of what
+	# _tight_now wants free (as when its Intel and Crypto filled the 10-unit store). What a bigger STORE_CAP holds beyond
+	# them is Credentials that cannot go home, the bank having no room for them: the host still has only its Crypto to give.
+	var stuck: float = maxf(0.0, g.STORE_CAP - (g._cycle_gross(e) + upkeep_of(e)) - keep - spare)
+	g.hosts[e].store = {P: {"intel": keep, "cash": spare, "creds": stuck}}
+	g.bank[P].creds = g._cap(P, "creds")
 	g.hosts[e].cyc = g.PROD_CYCLE   # (no cycle meanwhile)
-	check(ids.size() == 3 * g.WORKERS_PER_STATION and g._tight_now(e) and g._store_room(e) >= 1.0 + g._cycle_gross(e) and absf(g._spare_total(e, P) - spare) < 0.001,
-		"Setup: %d free workers at the main node; a host about to fill up (counting the room its Firewall's incoming upkeep needs) with %s spare Crypto (its %s Intel is its Firewall's)"
-		% [ids.size(), g._amt(spare), g._amt(keep)])
+	check(ids.size() == 3 * g.WORKERS_PER_STATION and g._tight_now(e) and g._store_room(e) >= 1.0 + g._cycle_gross(e)
+		and absf(g._spare_total(e, P) - spare - stuck) < 0.001 and g._room(P, "creds") < g.WORKER_CARRY,
+		"Setup: %d free workers at the main node; a host about to fill up (counting the room its Firewall's incoming upkeep needs) with %s spare Crypto (its %s Intel is its Firewall's%s)"
+		% [ids.size(), g._amt(spare), g._amt(keep), ("; its %s Credentials wait for room in the full bank" % g._amt(stuck)) if stuck > 0.0 else ""])
 	watch_reset()
 	watch(g.SIM_DT)   # one dispatch
 	var sent := 0
@@ -654,7 +663,11 @@ func busy_network() -> void:   # (0.6.16) a working network for 90 s: nobody fre
 	own(c, ["bot", "cred", ""])           # two more workers, starting there; Credentials to spare
 	own(b, [])
 	g._start_job(b, "lab", 0); g._start_job(b, "cash", 1)   # two projects at a site with no station
-	var secs := 90.0
+	var bill := 0.0   # (0.6.18) long enough to bring both bills, whatever they are: every unit from the bank (the slowest source)
+	for kind in ["lab", "cash"]:   # with every worker on it, then the work, and a cycle for the Firewall's upkeep runs between
+		for res in g.BUILD_COSTS[kind]: bill += float(g.BUILD_COSTS[kind][res])
+	var n_w := worker_ids().size()
+	var secs: float = ceilf(bill / (n_w * g.WORKER_CARRY)) * 2.0 * g._leg_time(P, hub, b) + g.BUILD_TIME + g.PROD_CYCLE
 	watch_reset()
 	watch(secs, e)
 	var limit: float = g.LOGI_EVERY + 2.0 * g.SIM_DT   # (a free worker is dealt a job the step something changes, or at the next planning pass)
@@ -666,7 +679,7 @@ func busy_network() -> void:   # (0.6.16) a working network for 90 s: nobody fre
 	check(teleports().is_empty(), "Every leg started where the worker's previous leg ended: free where it delivers (%s)" % str(teleports().slice(0, 3)))
 	check(cycles >= int(secs / g.PROD_CYCLE) - 1 and fed == cycles, "The Firewall ate its upkeep in each of its %d cycles (%d)" % [cycles, fed])
 	check((g.hosts[b].builds as Array).has("lab") and (g.hosts[b].builds as Array).has("cash") and (g.hosts[b].jobs as Dictionary).is_empty(),
-		"Both projects at the site were supplied and built (%s)" % str(g.hosts[b].builds))
+		"Both projects at the site (%s units) were supplied and built (%s)" % [g._amt(bill), str(g.hosts[b].builds)])
 
 
 func room_for_upkeep() -> void:   # (0.6.16) a Firewall whose host's storage is full: its surplus goes first, as urgently as upkeep, then the upkeep
@@ -745,12 +758,18 @@ func main_node_lack() -> void:   # (0.6.16) what a main-node project waits for t
 		watch(g.SIM_DT)
 		var lk: float = float(g._build_lack(P, g._build_owed(P, true)).get("cash", 0.0))
 		for wid in legs:
-			var l: Dictionary = legs[wid][legs[wid].size() - 1]
+			var ls: Array = legs[wid]
+			var l: Dictionary = ls[ls.size() - 1]
 			if absf(float(l.t) - g._t) > 0.0001 or str(l.trip) == "home": continue
+			# (0.6.18) the loaded leg on from a pickup is the second half of the job its "fetch" leg started: its source was
+			# chosen then. A cycle at the other host while the worker was on its way does not make that choice too early.
+			var prev: Dictionary = ls[ls.size() - 2] if ls.size() >= 2 else {}
+			if (str(l.trip) == "carry" and not prev.is_empty() and str(prev.trip) == "fetch" and int(prev.to) == int(l.from)
+				and int((prev.job as Dictionary).get("src", -1)) == int(l.from) and (l.cargo as Dictionary).has(str((prev.job as Dictionary).get("res", "")))): continue
 			var src := int((l.job as Dictionary).get("src", l.from))
 			if first < 0: first = src
 			if src == e and lk > 0.0001 and g._store_free(a, P, "cash") >= 1.0: bad += 1
-	check(first == a and bad == 0, "Brought home as building: the workers fetch the Crypto from the host that has it, and the full host's surplus waits while any is left (first from %d, %d surplus legs too early)" % [first, bad])
+	check(first == a and bad == 0, "Brought home as building: the workers fetch the Crypto from the host that has it, and the full host's surplus waits while any is left (first from %d, %d surplus jobs started too early)" % [first, bad])
 	check(led("from:%d:cash" % a) >= spare - 0.001 and led("from:%d:creds" % e) >= 1.0 and resv_err == "" and teleports().is_empty(),
 		"...all %s of it reaches the bank, then the full host is relieved (%s Credentials so far)" % [g._amt(led("from:%d:cash" % a)), g._amt(led("from:%d:creds" % e))])
 

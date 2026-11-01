@@ -18,7 +18,7 @@
   <p>RIM is a real-time strategy game about botnets on a generated city network. Two to four networks (you and 1–3 AI rivals, or 2–3 players online) start in different parts of the town. There are no units to fight with: everything is done with <b>cards</b>. You build an economy inside the hosts you own, research card blueprints, manufacture single-use cards, and play them on hosts. Capture cards take hosts, theft cards take resources, disruption cards stop production, defence cards protect. You win by holding 51% of all hosts for 51 s in a row, or by being the last network with a main node.</p>
   <figure><pre class="mermaid">%%{init: {'theme':'neutral'}}%%
 flowchart LR
-  H["Hosts you hold (slots)"] --> B["Buildings make 1 unit every 12 s"]
+  H["Hosts you hold (slots)"] --> B["Buildings make 1 unit every 6 s"]
   B --> C["Workers carry the surplus home"]
   C --> K["Bank at your main node"]
   K --> B2["Build more"]
@@ -75,8 +75,8 @@ flowchart LR
     <thead><tr><th>Clock</th><th>Value</th><th>Notes</th></tr></thead>
     <tbody>
       <tr><th>Simulation step</th><td class="num">1/30 s</td><td>Fixed step; the screen draws at up to 60 fps (30 in menus or in the background) and never changes the rules.</td></tr>
-      <tr><th>Production cycle</th><td class="num">12 s</td><td>Per host, each on its own phase (a host's first cycle comes 2.4–12 s after the match starts), so the network does not pulse all at once. Every producer makes 1 unit a cycle: 5 a minute.</td></tr>
-      <tr><th>Main node trickle</th><td class="num">1/12 per s each</td><td>Continuous: 1 of every resource per 12 s (5 a minute).</td></tr>
+      <tr><th>Production cycle</th><td class="num">6 s</td><td>Per host, each on its own phase, so the network does not pulse all at once. Every producer makes 1 unit a cycle: 10 a minute (0.6.18: the flow doubled so workers are rarely free; every price, cap, store and theft haul doubled with it).</td></tr>
+      <tr><th>Main node trickle</th><td class="num">1/6 per s each</td><td>Continuous: 1 of every resource per 6 s (10 a minute).</td></tr>
       <tr><th>AI decisions</th><td class="num">every 2.5 s</td><td>Each AI on its own offset.</td></tr>
       <tr><th>Travel</th><td class="num">1 s per link + 0.25 s per host passed</td><td>Halved by Express route; queues when a link is full.</td></tr>
       <tr><th>Construction</th><td class="num">10 s (+5 s to replace)</td><td></td></tr>
@@ -148,7 +148,7 @@ flowchart LR
   <pre class="code">bank cap(resource) = BASE_CAP[resource] + 50 × (your buildings whose output is that resource)
 BASE_CAP = {{BASECAP}}
 spendable   = what is in the bank at your main node (nothing else counts)
-income      = main-node trickle (1 of each per 12 s, while the main node is held and not under DDoS)
+income      = main-node trickle (1 of each per 6 s, while the main node is held and not under DDoS)
             + building output that reaches the bank</pre>
   <p>Anything that would go over a cap is lost: the trickle and main-node production clamp at the cap, and workers are not sent to a full bank (shipments on the road reserve their room, and so do supplies on their way to a host's storage or a project's escrow).</p>
   <h3>Accounting: what the rates mean</h3>
@@ -166,17 +166,19 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
   <p>Within the window the recorded flows reconcile exactly with the bank. The ledger is presentation only: it is not part of the multiplayer fingerprint.</p>
   <h3>The income forecast</h3>
   <p>Under each material the HUD shows what will reach your bank per minute with your network as it stands: worked out from the network, not from the ledger, so it is steady while nothing changes and moves as soon as something does (a command, a capture, a full bank, a host's storage filling with output). A full bank reads “full”.</p>
-  <pre class="code">forecast(res) = main-node trickle (5/min while the main node is up)
+  <pre class="code">forecast(res) = main-node trickle (10/min while the main node is up)
               + main-node buildings' output
-              + Σ over hosts whose output is yours: what one cycle there sends home × 5/min, where
+              + Σ over hosts whose output is yours: what one cycle there sends home × 10/min, where
                   inputs  = only a Firewall's upkeep (1 Intel): this cycle's harvest on the host first
                             (it needs no storage room), then what is stored there, or brought by workers
-                  trips   = the pool's round trips a minute, dealt as the dispatcher deals them (one pool at
-                            the main node): of every 4 assignments, 3 go by purpose, upkeep before
-                            output, the hosts in turn; the 4th goes to the host served least recently, so the
-                            hosts' trips even out (deliveries to construction are left out). Each trip carries
-                            one unit each way (a supply out, output back); short of workers, the pool makes as
-                            many trips as its time allows
+                  trips   = the workers' trips a minute, dealt as the dispatcher deals them: supplies and
+                            Firewall upkeep strictly first, then the hosts' trips even out (deliveries to
+                            construction are left out). A trip carries one unit; a supply goes out and the
+                            host's output comes back on the same round trip. Intel a host gives a neighbouring
+                            Firewall rides that host's own trips (0.6.18: shared by every host that may give it,
+                            in proportion to the Intel each one's trips move), and the worker who brings it
+                            carries the Firewall host's output home: one leg, not a round trip. Short of
+                            workers, they make as many trips as their time allows
                   sent    = what those trips carry; a host they cannot keep up with stays full, so it makes
                             only what leaves, every producer the same share
                   a Firewall's upkeep on a host you phish comes out of your Intel once the owner keeps none there
@@ -187,9 +189,9 @@ on the road        = shipments in flight to the bank, the next arrival, and how 
 
 <section id="production">
   <h2>Production cycle</h2>
-  <pre class="code">every 12 s, for each held host h (on its own phase):
+  <pre class="code">every 6 s, for each held host h (on its own phase):
   beneficiary = the Phishing thief while h is phished, else its owner
-  storage     = the beneficiary's bank if h is their main node, else h's storage (10 units, all resources together)
+  storage     = the beneficiary's bank if h is their main node, else h's storage (20 units, all resources together)
 
   share = min(1, free storage / this cycle's whole output)      (1 at the main node: the bank)
   1. Producers, no input (0.6.12): + 1 × m × share of their own resource each
@@ -230,11 +232,11 @@ m      = the host type's multiplier for that resource</pre>
     <div class="rule"><h4>Workers</h4>
       <p>Each finished Bot station provides two reusable workers that belong to its host; the main node starts with its station's two. A worker carries 1 unit per leg; delivery does not consume it. States: available (free, wherever it is), collecting, carrying, blocked, heading home. A worker lost on a cut route is replaced after 5 s if its station still stands; a demolished or replaced station's workers retire after their leg; capture destroys every worker of the captured host's stations, even those away. The map shows a loaded worker as a filled dot in its cargo's colour, an empty one as a ring, each direction on its own side.</p></div>
     <div class="rule"><h4>Who carries, and what first</h4>
-      <p>Installations use what is on their host first. A host asks for its Firewalls' upkeep and its construction bills; producers need no input. Whatever its next cycle does not need is surplus. <b>Workers go where they are needed, from wherever they are</b> (0.6.16): a job moves one unit from a source to a destination, and a worker is free where it delivers and takes its next job from there; with nothing to do it heads home. <b>Building comes strictly first:</b> every free worker serves construction and upkeep while any of it can go — a Firewall's upkeep first, then Bot stations, then projects in the order given — and their materials come from the nearest place that can spare them (your bank, a host's spare stock, your own salvage) <b>straight to the site</b>, never through the main node. What the main node's own projects lack is brought home from the hosts first. Then the surplus goes home: the hosts about to fill up first (counting what workers are already on their way to collect), the hosts in turn, the resources of one host in turn; stolen goods last. A host's surplus waits for a worker already on its way there rather than drawing a second one. A Firewall host that makes no Intel keeps up to three cycles of it: two asked from anywhere, the third only from a neighbour's surplus, which goes to it instead of home when it is no farther. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
+      <p>Installations use what is on their host first. A host asks for its Firewalls' upkeep and its construction bills; producers need no input. Whatever its next cycle does not need is surplus. <b>Workers go where they are needed, from wherever they are</b> (0.6.16): a job moves one unit from a source to a destination, and a worker is free where it delivers and takes its next job from there; with nothing to do it heads home. <b>Building comes strictly first:</b> every free worker serves construction and upkeep while any of it can go — a Firewall's upkeep first, then Bot stations, then projects in the order given — and their materials come from the nearest place that can spare them (your bank, a host's spare stock, your own salvage) <b>straight to the site</b>, never through the main node. What the main node's own projects lack is brought home from the hosts first. Then the surplus goes home: the surplus where a free worker already stands first, so it carries it on instead of walking empty to another host (0.6.18), then the hosts about to fill up (counting what workers are already on their way to collect), the hosts in turn, the resources of one host in turn; stolen goods last. A worker that leaves a host for the main node to fetch supplies takes a unit of that host's surplus along (0.6.18). A host's surplus waits for a worker already on its way there, loaded or still going to its pickup, rather than drawing a second one. A Firewall host that makes no Intel keeps up to three cycles of it: two asked from anywhere, the third only from a neighbour's surplus, which goes to it instead of home when it is no farther. A collection claims its unit and the destination holds room for what is coming, so two workers never take the same unit. Nothing is sent to a full bank or a full storage.</p></div>
     <div class="rule"><h4>No supply settings</h4>
       <p>Supply is automatic and in the background: there is nothing to set per host. What a host's next cycle needs is brought; what was brought for it is not carried back out.</p></div>
     <div class="rule"><h4>Construction</h4>
-      <p>Ordering is free. A project's materials go into an escrow at its site — separate from the 10-unit storage, so a 16-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.</p></div>
+      <p>Ordering is free. A project's materials go into an escrow at its site — separate from the 20-unit storage, so a 32-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.</p></div>
     <div class="rule"><h4>Routes</h4>
       <p>Workers and every card travel only through your own hosts and never through one under DDoS (shortest path by links). Neutral and rival hosts are never relays; a rival host can only be the end of an attack. The way is checked again every time a packet leaves a host.</p></div>
     <div class="rule"><h4>Speed and capacity</h4>
@@ -379,7 +381,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
       <li>One Firewall (in the fourth slot) on a 4+-slot host once it holds 6 hosts.</li>
       <li>The main node first, then every other host with a road home; per host the first empty planned slot. It orders it at once if the bank holds the bill. Otherwise it orders it anyway, as a person would, and the workers bring the materials. Only one such project waits at a time, and building and cards take turns: after each such order the next waits until a new card copy has been made. At 5 units a minute the card queue would otherwise spend every unit first. A project whose host loses its road home no longer counts as waiting (nothing can bring its bill); after 60 s cut off (longer than a DDoS) the AI cancels it.</li>
       <li>Converter choice: what its next capture card lacks for two copies, else the emptiest bank.</li>
-      <li>Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least 24 and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind (only a kind it has a producer of on a host with a road home: Crypto piles from the trickle alone); at most one retool every 120 s. A retool ordered on credit waits like any other project from its demolition on.</li></ul></div>
+      <li>Retool: when one of Intel, Crypto, Credentials piles up (≥ 40% full, or at least twice a Bot station's Crypto (48) and three times what its next capture card needs) and another is under 15%, it rebuilds one producer of the piling kind as the short kind (only a kind it has a producer of on a host with a road home: Crypto piles from the trickle alone); at most one retool every 120 s. A retool ordered on credit waits like any other project from its demolition on.</li></ul></div>
     <div class="rule"><h4>2 · Research</h4>
       <p>In this order: Known exploit, Traffic filter, DDoS, 0day, Worm, Packet siphon, Cargo cover, Sabotage, Vault raid, Express route. Research takes its turn with building: it is due while it knows fewer blueprints than a quarter of its buildings, or when every slot it could build on is taken and the bank holds the next blueprint's whole price on top of what its next capture card needs (so it never sits on a full price, and never takes from its cards), and while due no project is ordered on credit. A running research pauses while one of its projects waits for materials, since its per-second payments would keep the bank below the whole unit a worker carries.</p></div>
     <div class="rule"><h4>3 · Manufacture</h4>
@@ -432,7 +434,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
   3  research advances (paying as it goes)
   4  the queue's head advances; a waiting head starts when it can pay
   5  intrusions whose countdown ended resolve, earliest end first, then launch order (armed Patch, owner, route; else captured)
-  6  production: main-node trickle; each host's 12-s cycle when its phase comes round
+  6  production: main-node trickle; each host's 6-s cycle when its phase comes round
   7  workers: teams follow the stations (replacements after 5 s); free workers take jobs — inputs, construction
      materials, surplus and loot, every fourth turn the oldest (Packet siphons take cargo off workers as they leave a
      host); every 0.5 s held packets look for a way on
@@ -466,11 +468,11 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
   <div class="tablebox"><table>
     <thead><tr><th>Card</th><th>Typical result</th><th>Upper bound</th></tr></thead>
     <tbody>
-      <tr><th>Phishing (180 s)</th><td>On a Bot station + Intel harvester + Miner PC: 15 cycles × (1 Intel + 1 Crypto) = up to 30 units to you, 30 lost to them (what your workers can carry home)</td><td>A 4-slot ×2 host: ~2× that</td></tr>
-      <tr><th>Packet siphon (60 s)</th><td>Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>30 units</td></tr>
-      <tr><th>Vault raid</th><td>Whatever waits in 3 linked storages; near 0 where stations ship every cycle</td><td>30 units</td></tr>
-      <tr><th>DDoS (45 s)</th><td>3 hosts × ~4 cycles × ~2 units ≈ 20–25 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>
-      <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 5 cycles × 1–2 units ≈ 15–30 units never made, and their Bot stations' workers idle</td><td></td></tr>
+      <tr><th>Phishing (180 s)</th><td>On a Bot station + Intel harvester + Miner PC: 30 cycles × (1 Intel + 1 Crypto) = up to 60 units to you, 60 lost to them (what your workers can carry home)</td><td>A 4-slot ×2 host: ~2× that</td></tr>
+      <tr><th>Packet siphon (60 s)</th><td>Every unit of the chosen resource carried across the host (it waits there for your workers); on a junction behind 3–5 producing hosts, ~1 unit per host per cycle</td><td>60 units</td></tr>
+      <tr><th>Vault raid</th><td>Whatever waits in 3 linked storages; near 0 where stations ship every cycle</td><td>60 units</td></tr>
+      <tr><th>DDoS (45 s)</th><td>3 hosts × ~8 cycles × ~2 units ≈ 40–50 units never made; on a main node also its trickle and its attacks</td><td>plus cargo lost through it</td></tr>
+      <tr><th>Sabotage (60 s)</th><td>3 linked hosts × 10 cycles × 1–2 units ≈ 30–60 units never made, and their Bot stations' workers idle</td><td></td></tr>
     </tbody>
   </table></div>
 </section>

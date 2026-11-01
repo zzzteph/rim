@@ -1,5 +1,5 @@
 extends SceneTree
-## RIM research–manufacture–deliver model: main-node income, 5-s production cycles with host storage,
+## RIM research–manufacture–deliver model: main-node income, PROD_CYCLE production cycles with host storage,
 ## Bot stations, bank caps, research unlock, manufacture into ready copies, no security levels,
 ## Firewall sockets that fire on their own, and a card capture end to end. 0.6.16 (a job moves one unit from its source
 ## straight to its destination, building strictly first): a station's workers start where it is and are free where they
@@ -37,7 +37,8 @@ func step(secs: float) -> void:
 
 
 func fat_bank() -> void:   # plenty of every resource, so cost is never the blocker in a focused check
-	g.bank[P] = {"intel": 300.0, "cash": 300.0, "creds": 300.0, "research": 300.0}
+	g.bank[P] = {}   # (0.6.18) a full base bank: the caps scale with the prices, so it stays plenty after a rescale
+	for res in g.RES: g.bank[P][res] = float(g.BASE_CAP[res])
 
 
 func neutral_neighbour(sec_type := "iot") -> int:   # a neutral host wired to your main node, forced to a chosen type
@@ -106,7 +107,7 @@ func income_and_known() -> void:
 	var grew := true
 	for res in g.RES:
 		if absf(float(g.bank[P][res]) - float(before[res]) - 10.0 * g.MAIN_INCOME) > 0.3: grew = false
-	check(grew, "The main node delivers one of each resource every 12 s locally (every bank grew ~0.8 in 10 s)")
+	check(grew, "The main node delivers one of each resource every %s s locally (every bank grew ~%s in 10 s)" % [g._amt(1.0 / g.MAIN_INCOME), g._amt(10.0 * g.MAIN_INCOME)])
 
 
 func one_cycle(i: int, kind: String) -> float:   # what one producer of this kind makes on host i in one cycle (rate x host type)
@@ -131,8 +132,9 @@ func cycles_and_storage() -> void:   # 0.6.12: every producer makes its own reso
 		% [g._amt(one_cycle(n, "intel")), g._amt(one_cycle(n, "cash")), g._amt(one_cycle(n, "cred")), g._store_text(n)])
 	step(g.PROD_CYCLE * 10.0)
 	check(g._store_total(n) <= g.STORE_CAP + 0.001 and g._store_total(n) >= g.STORE_CAP - 1.0, "Host storage fills to its cap of %d and stops there (%s)" % [int(g.STORE_CAP), g._store_text(n)])
-	# Equal producers make the same every cycle, also the last one that only partly fits (it fits STORE_CAP - 3 x gross =
-	# 1 of 3 units here): each holds STORE_CAP / 3, where filling the storage in build order would give the harvester more.
+	# Equal producers make the same every cycle, also the last one that only partly fits (it fits what is left of STORE_CAP
+	# after its whole cycles, fmod(STORE_CAP, gross): 2 of 3 units at 20): each holds STORE_CAP / 3, where filling the
+	# storage in build order would give the harvester more.
 	var even := absf(g._store_total(n) - g.STORE_CAP) < 0.001
 	for kind in kinds:
 		if absf(g._st_get(n, P, str(g.BUILD_KINDS[kind].out)) - g.STORE_CAP / float(kinds.size())) > 0.001: even = false
@@ -146,11 +148,24 @@ func cycles_and_storage() -> void:   # 0.6.12: every producer makes its own reso
 		"A remote Miner makes its Crypto with no Intel on its host (%s after 2 cycles)" % g._store_text(m))
 	check(not bool(g.hosts[m].fw_on) and float(g.bank[P].intel) >= 200.0,
 		"A remote Firewall uses only Intel that has reached its host, never the bank's directly (it switched off, bank Intel %d)" % int(g.bank[P].intel))
-	g._set_builds(int(g.rig[P]), ["intel", "bot"])   # a Bot station again: its two workers start collecting, and bring the upkeep
-	step(30.0)
-	check(g._store_total(n) < 2.0 and bool(g.hosts[m].fw_on),
-		"The main node's workers collect a host's storage and bring the Firewall its %s Intel per cycle: it is on again (%s · %s)"
-		% [g._amt(float(g.BUILD_KINDS.wall.use.intel)), g._store_text(n), g._store_text(m)])
+	var hub: int = int(g.rig[P])
+	g._set_builds(hub, ["intel", "bot"])   # a Bot station again: its two workers start collecting, and bring the upkeep
+	# (0.6.18) no fixed 30 s: the backlog is a full storage and both hosts keep adding to it while the workers clear it.
+	# Allow the time the station's spare capacity needs if every unit took a round trip from the main node (a direct
+	# host-to-host leg only makes it sooner); it is drained the first moment under 2 units are left, so the 3 units a
+	# cycle drops on it cannot hide a drained storage
+	var upkeep := float(g.BUILD_KINDS.wall.use.intel)
+	var moves: float = g.WORKERS_PER_STATION * g.WORKER_CARRY / (2.0 * maxf(g._leg_time(P, hub, n), g._leg_time(P, hub, m)))   # units a second
+	var adds: float = (gross + one_cycle(m, "cash") + upkeep) / g.PROD_CYCLE   # units a second the two hosts give the workers
+	var by: float = g.STORE_CAP / (moves - adds) if moves > adds else 0.0
+	var t0: float = g._t
+	var drained := -1.0
+	for k in int(ceilf(by / g.SIM_DT)):
+		g._sim_step(g.SIM_DT)
+		if g._store_total(n) < 2.0 and bool(g.hosts[m].fw_on): drained = g._t - t0; break
+	check(drained >= 0.0,
+		"The main node's workers collect a host's storage and bring the Firewall its %s Intel per cycle: it is on again (after %.0f s, within the %.0f s a station moving %s unit/s needs while the hosts add %s/s; %s · %s)"
+		% [g._amt(upkeep), drained, by, g._amt(moves), g._amt(adds), g._store_text(n), g._store_text(m)])
 
 
 func stations() -> void:
@@ -162,8 +177,12 @@ func stations() -> void:
 	for wid in g.workers:
 		if int(g.workers[wid].fac) == P and int(g.workers[wid].home) == n and int(g.workers[wid].get("base", -1)) == n: based += 1
 	var before: Dictionary = (g.bank[P] as Dictionary).duplicate()
-	step(g.PROD_CYCLE * 4.0 + 6.0)   # four cycles plus the trip home
-	var trickle: float = (g.PROD_CYCLE * 4.0 + 6.0) * g.MAIN_INCOME
+	# four cycles plus the trip home: (0.6.18) the first a whole cycle away and the time to just before the fifth, not a fixed
+	# 6 s more (at a 6-s cycle that ended on the fifth cycle, its output still in storage)
+	g.hosts[n].cyc = g.PROD_CYCLE
+	var secs: float = g.PROD_CYCLE * 5.0 - 0.5
+	step(secs)
+	var trickle: float = secs * g.MAIN_INCOME
 	var per_intel: float = 2.0 * one_cycle(n, "intel"); var per_cash: float = one_cycle(n, "cash")   # each cycle's output
 	check(g._worker_counts(P, n).total == g.WORKERS_PER_STATION and g._worker_counts(P).total == g.WORKERS_PER_STATION and based == g.WORKERS_PER_STATION,
 		"A Bot station's %d workers have it as their station and start there (%d here, %d in all, %d started there)" % [g.WORKERS_PER_STATION, int(g._worker_counts(P, n).total), int(g._worker_counts(P).total), based])
@@ -177,8 +196,8 @@ func caps() -> void:
 	var res := "cash"
 	var cap: float = g._cap(P, res)
 	g.bank[P][res] = cap - 1.0
-	var fit: float = g._add_bank(P, res, 50.0)
-	check(is_equal_approx(float(g.bank[P][res]), cap) and fit <= 1.0001, "A bank credit is clamped to its cap (cap = base + 50/producer)")
+	var fit: float = g._add_bank(P, res, g.CAP_PER_PRODUCER)   # (a producer's worth of cap, far more than the 1 unit of room)
+	check(is_equal_approx(float(g.bank[P][res]), cap) and fit <= 1.0001, "A bank credit is clamped to its cap (cap = base + %s/producer)" % g._amt(g.CAP_PER_PRODUCER))
 
 
 func research_unlock() -> void:
@@ -218,7 +237,7 @@ func security_and_firewall() -> void:   # there are no security levels; a Firewa
 	step(3.0)
 	check((g.hosts[n].sockets as Array).has("patch") and g._socket_res(n) == 0, "... and loads into that socket when it arrives")
 	step(g.PROD_CYCLE + 0.1)
-	check(bool(g.hosts[n].fw_on), "The Firewall is powered by its host's Intel (1 per cycle)")
+	check(bool(g.hosts[n].fw_on), "The Firewall is powered by its host's Intel (%s per cycle)" % g._amt(float(g.BUILD_KINDS.wall.use.intel)))
 	var R: int = g.RIVAL
 	g._op_land(R, "breach", n, int(g.hosts[n].gen), {"id": 9001})
 	var busy := false
@@ -420,11 +439,11 @@ func firewall_host(kind: String, builds: Array, stock: float) -> int:   # a host
 	var n := own_pc()
 	g.hosts[n].type = kind; g._set_builds(n, [])
 	for k in int(round(25.0 / g.SIM_DT)):   # the workers gather at the main node
-		g.hosts[n].cyc = 11.0
+		g.hosts[n].cyc = g.PROD_CYCLE   # (0.6.18: a whole cycle away; a fixed 11 s was more than a cycle)
 		g._sim_step(g.SIM_DT)
 	g._set_builds(n, builds)
 	g.hosts[n].store = {P: {"intel": stock}}
-	g.hosts[n].fw_on = true; g.hosts[n].cyc = 11.0
+	g.hosts[n].fw_on = true; g.hosts[n].cyc = g.PROD_CYCLE
 	return n
 
 
@@ -609,10 +628,13 @@ func upkeep_first_during_building() -> void:   # (0.6.16) building comes strictl
 	var bill := 0.0
 	for kind in ["wall", "lab"]: bill += units(g._build_cost(kind))
 	var ids := my_workers()
+	# (0.6.18) no fixed 150 s: the bill scales with the prices. Allow twice the bare ferrying time, a round trip from the
+	# main node per unit shared by the workers, for the upkeep and the Miner's Crypto share the same workers
+	var ferry: float = bill / g.WORKER_CARRY * 2.0 * g._leg_time(P, hub, b) / float(maxi(1, ids.size()))
 	track_reset()
 	var t0: float = g._t
 	var covered := -1.0; var cycles := 0; var fed := 0; var worst := 0.0; var streak := {}; var exports := 0
-	for k in int(round(150.0 / g.SIM_DT)):
+	for k in int(ceilf(2.0 * ferry / g.SIM_DT)):
 		var left := float(g.hosts[e].cyc)
 		g._sim_step(g.SIM_DT)
 		track()
@@ -671,7 +693,7 @@ func trickle_fed_firewall() -> void:   # (0.6.16) a Firewall fed by the main nod
 			continue
 		var within: float = g._store_free(n, P, "intel") + g._inbound(n, "intel") + g._free(P, "intel")   # its storage, on its way, the bank
 		if could < 0.0 and within >= need - 0.0001 and float(g.hosts[n].cyc) >= lead and int(g._worker_counts(P).idle) > 0: could = g._t
-	# GAME BUG (0.6.16): _open_requests adds every host's plan export under an EMPTY budget to spare_intel, and with no budget
+	# (fixed in 0.6.16; this check guards it. Before the fix:) _open_requests adds every host's plan export under an EMPTY budget to spare_intel, and with no budget
 	# this host's own Firewall cannot run, so its own stock is "spare": its upkeep request becomes the bank's Intel PLUS its
 	# own stock (always above what the bank holds), a fraction of the bank can never serve it (_best_delivery wants a whole
 	# unit or the request's last fraction), and the two free workers wait for a whole unit that comes too late
