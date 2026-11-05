@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.23"   # host slots as tiles with cycle rings (lobbies match exact versions)
+const GAME_VERSION := "0.6.24"   # Ready cards as a fanned hand, the queue as a workshop pile (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -283,6 +283,12 @@ var panel: Panel
 var panel_box: VBoxContainer
 var hand_panel: Control          # the drawer's body: ready cards, four recipes of a bank, or the research tree
 var hand_bar: GridContainer
+var hand_fan: Control            # (0.6.24) your Ready cards as a fanned hand along the bottom (HandCard each)
+var workshop: Control            # (0.6.24) the manufacturing queue as a pile, bottom left (WorkshopPile)
+var hand_tools: HBoxContainer    # (0.6.24) bottom right: Ready n/12, Recipes, Tree
+var ready_count: Label
+var _hand_hot := ""              # the hand card under the mouse (it lifts and shows its rules)
+var _drag_origin := Vector2.ZERO # where a dragged card left the hand (the aim arrow starts there)
 var card_banks: HBoxContainer    # the drawer's tabs, in DRAWER_TABS order
 var deck_handle: Button          # the strip's cards button (three bars): open / close the drawer
 var _card_bank := "ready"        # the drawer's view: "ready" (cards you hold), "attack" / "defense" (recipes), "research"
@@ -471,6 +477,20 @@ func _ready() -> void:
 	burger.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); deck_handle.add_child(burger)
 	deck_handle.pressed.connect(func(): _set_deck_open(not _deck_open))
 	add_child(deck_handle)
+	workshop = WorkshopPile.new(); workshop.game = self; workshop.name = "Workshop"; add_child(workshop)   # (0.6.24) the queue, bottom left
+	hand_fan = Control.new(); hand_fan.name = "HandFan"; hand_fan.mouse_filter = Control.MOUSE_FILTER_IGNORE; add_child(hand_fan)   # the hand
+	for card in CARD_ORDER:
+		var hc := HandCard.new(); hc.game = self; hc.key = _card_key(str(card), "linked"); hc.recipe = str(card); hc.name = "Hand_" + str(card)
+		hand_fan.add_child(hc)
+	hand_tools = HBoxContainer.new(); hand_tools.name = "HandTools"; hand_tools.add_theme_constant_override("separation", 6); add_child(hand_tools)
+	ready_count = Label.new(); ready_count.name = "ReadyCount"; ready_count.add_theme_font_size_override("font_size", 12)
+	ready_count.add_theme_color_override("font_color", C_DIM); ready_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	ready_count.custom_minimum_size = Vector2(0, 34); hand_tools.add_child(ready_count)
+	for spec in [["Recipes", "Make copies of the cards you know (C).", func(): _open_drawer("attack" if _card_bank not in ["attack", "defense"] else _card_bank)],
+			["Tree", "The development tree (R).", _toggle_research]]:
+		var tb := Button.new(); tb.name = "Hand" + str(spec[0]); tb.text = str(spec[0]); tb.focus_mode = Control.FOCUS_NONE
+		tb.custom_minimum_size = Vector2(96, 34); tb.add_theme_font_size_override("font_size", 13); tb.tooltip_text = str(spec[1])
+		tb.pressed.connect(spec[2]); hand_tools.add_child(tb)
 	deck_pager = HBoxContainer.new(); deck_pager.add_theme_constant_override("separation", 6)
 	for step in [-1, 0, 1]:
 		if step == 0:
@@ -3531,6 +3551,7 @@ func _process(dt: float) -> void:
 	_hover_host = _host_at(get_local_mouse_position())
 	_hover_flight = _flight_at(get_local_mouse_position())
 	_hud_sample()
+	if hand_fan != null: _layout_hand()
 	if pause_icon != null: pause_icon.icon = UiIcons.texture("play" if paused else "pause", 18)
 	if _follow_wid >= 0:   # (0.6.21) the camera keeps the followed worker in the middle of the map
 		var ffl := {}
@@ -5176,6 +5197,11 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_R: _toggle_research(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_E: _toggle_economy(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_H: _open_logs(); get_viewport().set_input_as_handled()
+	elif event.keycode >= KEY_1 and event.keycode <= KEY_9:   # (0.6.24) 1-9: pick the hand's card in that place (again: drop it)
+		var lst := _ready_list()
+		var k := int(event.keycode - KEY_1)
+		if k < lst.size(): _arm_card(_card_key(str(lst[k]), "linked"))
+		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_F:   # (0.6.21) follow the worker under the mouse with the camera; F again stops
 		var wid := -1
 		for fl in flights:
@@ -5460,10 +5486,49 @@ func _style_bank_tab(button: Button, bank: String, look: String) -> void:   # a 
 func _drawer_h() -> float: return CARD_DOCK_HEIGHT + (RESEARCH_INFO_H + 6.0 if _card_bank == "research" else 0.0)
 
 
-func _deck_top() -> float:   # the top edge of everything the strip and the drawer cover right now
+func _deck_top() -> float:   # the top edge of everything the drawer covers right now (0.6.24: closed, nothing: the hand lies over the map)
 	var top := get_viewport_rect().size.y - 12.0 - DECK_BAR_HEIGHT
 	if _deck_open: top -= DECK_GAP + _drawer_h() + DECK_GAP + DECK_BAR_HEIGHT
+	else: top = get_viewport_rect().size.y - 12.0
 	return top
+
+
+const HAND_W := 104.0   # (0.6.24) a hand card; it lifts to HAND_LIFT times this under the mouse
+const HAND_H := 146.0
+const HAND_LIFT := 1.6
+const WORKSHOP_W := 252.0
+const WORKSHOP_H := 136.0
+func _layout_hand() -> void:   # the fan: cards side by side, tilted by their place, the hovered one upright and lifted; the workshop and tools
+	if hand_fan == null: return
+	var sz := get_viewport_rect().size
+	var playing := not menu_open and not won and not lost and not _deck_open
+	var list := _ready_list()
+	var mr := _map_rect()
+	workshop.position = Vector2(12, sz.y - WORKSHOP_H - 8.0); workshop.size = Vector2(WORKSHOP_W, WORKSHOP_H); workshop.visible = playing
+	hand_tools.size = hand_tools.get_combined_minimum_size()
+	hand_tools.position = Vector2(mr.end.x - hand_tools.size.x, sz.y - hand_tools.size.y - 10.0); hand_tools.visible = playing
+	ready_count.text = "Ready %d/%d" % [_ready_total(PLAYER), READY_SLOTS]
+	var left := WORKSHOP_W + 28.0; var right := hand_tools.position.x - 16.0
+	var cx := (left + right) * 0.5
+	var n := list.size()
+	var step := clampf((right - left - HAND_W) / maxf(1.0, float(n - 1)), 34.0, 78.0) if n > 1 else 0.0
+	ready_empty.text = "No cards in hand: + Craft in the workshop makes some"   # (an empty hand says so where the fan would be)
+	ready_empty.size = Vector2(maxf(40.0, right - left), DECK_BAR_HEIGHT); ready_empty.position = Vector2(left, sz.y - DECK_BAR_HEIGHT - 14.0)
+	ready_empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ready_empty.visible = playing and list.is_empty()
+	var hot := list.find(_card_of(_hand_hot)) if _hand_hot != "" else -1
+	for card in hand_fan.get_children():
+		var k := list.find(str(card.recipe))
+		card.visible = playing and k >= 0
+		if k < 0: continue
+		var off := float(k) - float(n - 1) * 0.5
+		var lifted := k == hot
+		var w := HAND_W * (HAND_LIFT if lifted else 1.0); var h := HAND_H * (HAND_LIFT if lifted else 1.0)
+		var spread := 0.0 if hot < 0 or lifted else 30.0 * signf(float(k - hot))
+		card.size = Vector2(w, h); card.pivot_offset = Vector2(w * 0.5, h)
+		card.position = Vector2(cx + off * step + spread - w * 0.5, sz.y - h - 8.0 if lifted else sz.y - HAND_H * 0.74 + off * off * 2.5)
+		card.rotation = 0.0 if lifted else deg_to_rad(clampf(off * 4.0, -16.0, 16.0))
+		card.z_index = 5 if lifted else 1
 
 
 func _layout_deck() -> void:
@@ -5488,9 +5553,9 @@ func _layout_deck() -> void:
 		deck_pager.position = Vector2(mid_left + floorf((mid_room - deck_pager.size.x) * 0.5), head_y)
 	deck_handle.size = deck_handle.custom_minimum_size
 	deck_handle.position = Vector2(sz.x - 24 - deck_handle.size.x, strip_y)
-	deck_handle.visible = playing
+	deck_handle.visible = false   # (0.6.24: the hand, the workshop and the Recipes / Tree buttons replace the strip; its parts stay, unseen)
 	lane_strip.position = Vector2(24, strip_y); lane_strip.size = lane_strip.get_combined_minimum_size()
-	lane_strip.visible = playing
+	lane_strip.visible = false
 	# the ready cards: fixed-size chips from the lanes to the handle; what does not fit goes behind "+n"
 	var left := lane_strip.position.x + lane_strip.size.x + 16.0
 	var room := deck_handle.position.x - 12.0 - left
@@ -5505,9 +5570,10 @@ func _layout_deck() -> void:
 	ready_more.visible = shown.size() < list.size()
 	ready_more.text = "+%d" % (list.size() - shown.size())
 	ready_strip.position = Vector2(left, strip_y); ready_strip.size = ready_strip.get_combined_minimum_size()
-	ready_strip.visible = playing and not list.is_empty()
+	ready_strip.visible = false
 	ready_empty.position = Vector2(left, strip_y); ready_empty.size = Vector2(maxf(40.0, room), DECK_BAR_HEIGHT)
-	ready_empty.visible = playing and list.is_empty()
+	ready_empty.visible = false
+	_layout_hand()
 	_update_card_banks(false)
 
 
@@ -5580,6 +5646,48 @@ func _draw_ready_face(c: Control, key: String, big: bool) -> void:   # a ready c
 		for k in mini(2, lines.size()): _text(c, f, Vector2(12, 102 + 14 * k), str(lines[k]), 11, C_DIM, c.size.x - 24, HORIZONTAL_ALIGNMENT_LEFT)
 
 
+func _draw_hand_card(c: Control, key: String, lifted: bool) -> void:   # (0.6.24) a hand card: name, art, copies, family; lifted: its rules
+	var f := c.get_theme_default_font()
+	var recipe := _card_of(key)
+	var card: Dictionary = CARDS[recipe]
+	var bank: Color = BANK_COL[str(card.bank)]
+	var fam: Color = FAMILY_COL[str(card.fam)]
+	var picked := _armed == recipe
+	var w := c.size.x; var h := c.size.y
+	var sb := StyleBoxFlat.new(); sb.set_corner_radius_all(8); sb.set_border_width_all(3 if picked else 2)
+	sb.bg_color = Color(0.06, 0.08, 0.12); sb.border_color = SELECT_COL if picked else bank
+	sb.shadow_color = Color(0, 0, 0, 0.55); sb.shadow_size = 8 if lifted else 4
+	c.draw_style_box(sb, Rect2(Vector2.ZERO, c.size))
+	var fs := 14 if lifted else 12
+	c.draw_rect(Rect2(6, 6, w - 12, 22 if not lifted else 28), fam.darkened(0.78))
+	_text(c, f, Vector2(10, 22 if not lifted else 26), str(card.name if lifted else card.short), fs, C_TEXT, w - 20)
+	var art := Rect2(10, 34 if not lifted else 40, w - 20, (h * 0.42) if not lifted else h * 0.3)
+	c.draw_rect(art, fam.darkened(0.88))
+	_draw_card_glyph(c, recipe, art.get_center(), minf(art.size.x, art.size.y) * 0.72, fam, f)
+	var n := _held(PLAYER, recipe)   # the copies held, on a badge at the art's corner
+	var badge := ("×%d ready" % n) if lifted else "×%d" % n
+	var bw := _text_w(f, badge, 12) + 12.0
+	var bsb := StyleBoxFlat.new(); bsb.bg_color = Color(0.85, 0.3, 0.3) if not _is_defense(recipe) else Color(0.3, 0.5, 0.9); bsb.set_corner_radius_all(9)
+	c.draw_style_box(bsb, Rect2(art.end.x - bw - 2.0, art.end.y - 20.0, bw, 18.0))
+	_text(c, f, Vector2(art.end.x - bw + 4.0, art.end.y - 7.0), badge, 12, Color.WHITE)
+	var y := art.end.y + 16.0
+	_text(c, f, Vector2(10, y), ("DEFENCE" if _is_defense(recipe) else "ATTACK") + (" · " + str(card.effect).to_upper() if lifted else ""), 10, bank.lightened(0.3), w - 20)
+	if not lifted:
+		_text(c, f, Vector2(10, y + 16.0), "Selected" if picked else "", 10, SELECT_COL, w - 20)
+		return
+	var lines := _wrap_text(f, str(card.get("lead", "")), 12, w - 20.0)   # what it does, then its odds, then how to play it
+	for k in mini(2, lines.size()): _text(c, f, Vector2(10, y + 20.0 + 16.0 * k), str(lines[k]), 12, C_TEXT, w - 20)
+	var odds := ""
+	if recipe == "recon": odds = "Gets through %d%% of the time." % _pct(RECON_CHANCE)
+	elif str(card.effect) in ["capture", "worm"]: odds = "Odds %d%% unscouted, %d%% after a Recon." % [_pct(UNSCOUTED_CHANCE), _pct(SCOUTED_CHANCE)]
+	if odds != "":
+		var ol := _wrap_text(f, odds, 11, w - 20.0)
+		for k in mini(2, ol.size()): _text(c, f, Vector2(10, y + 58.0 + 14.0 * k), str(ol[k]), 11, C_WARN, w - 20)
+	c.draw_line(Vector2(8, h - 26.0), Vector2(w - 8.0, h - 26.0), Color(bank, 0.35))
+	var place := _ready_list().find(recipe)
+	_text(c, f, Vector2(10, h - 10.0), "Drag onto a host" + ("   [%d]" % (place + 1) if place >= 0 and place < 9 else ""), 11, C_DIM, w - 20)
+
+
 func _arm_card(key: String) -> void:   # click a ready card: select it (again: unselect). The drawer gets out of the way of the map.
 	if menu_open or won or lost: return
 	var recipe := _card_of(key)
@@ -5614,6 +5722,7 @@ func _card_drag_data(source: Control, key: String) -> Variant:   # a held card l
 	if menu_open or won or lost: return null
 	if _held(PLAYER, key) <= 0:   # say why nothing happens: a silent refusal reads as a frozen game
 		_flash("No %s ready — click the card to prepare one first" % str(CARDS[_card_of(key)].name)); return null
+	_drag_origin = source.get_global_rect().get_center()   # (0.6.24) the aim arrow starts where the card left the hand
 	var preview := CardDragPreview.new(); preview.game = self; preview.key = key
 	preview.custom_minimum_size = Vector2(248, 58); preview.size = preview.custom_minimum_size
 	preview.position = Vector2(18, -74)
@@ -7769,7 +7878,7 @@ func _layout_feedback_label() -> void:
 	feedback_label.size.x = _map_rect().size.x
 	var height := feedback_label.get_combined_minimum_size().y
 	feedback_label.size.y = height
-	feedback_label.position = Vector2(24, _deck_top() - height - 10)
+	feedback_label.position = Vector2(24, minf(_deck_top(), get_viewport_rect().size.y - WORKSHOP_H - 16.0) - height - 10)
 	_place_event_strip()
 
 
@@ -9712,6 +9821,18 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.08), true)
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
 	_paint_route_tag(f)
+	if _dragged_card() != "" and _drag_origin != Vector2.ZERO:   # (0.6.24) a dashed arrow from the hand to the cursor
+		_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var ac: Color = FAMILY_COL[str(CARDS[_card_of(_dragged_card())].fam)]
+		var a0 := _drag_origin; var a1 := get_local_mouse_position()
+		var ln := a0.distance_to(a1)
+		if ln > 20.0:
+			var dd := 0.0
+			while dd < ln - 14.0:
+				_cv.draw_line(a0.lerp(a1, dd / ln), a0.lerp(a1, minf(dd + 9.0, ln - 14.0) / ln), Color(ac, 0.9), 3.0, true); dd += 15.0
+			var dir := (a1 - a0) / ln; var pp2 := Vector2(-dir.y, dir.x)
+			_cv.draw_colored_polygon(PackedVector2Array([a1, a1 - dir * 14.0 + pp2 * 7.0, a1 - dir * 14.0 - pp2 * 7.0]), ac)
+		_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 	_paint_drag_preview(f)
 	if _camp: _paint_camp_guide(f)
 	_paint_flight_tip(f)
@@ -9814,7 +9935,7 @@ func _paint_mask(cx: Dictionary) -> void:   # screen space: masks around the map
 	var background := Color(0.04, 0.05, 0.08)
 	_cv.draw_rect(Rect2(0, 0, sz.x, map.position.y - 8), background)
 	if _panel_shown(): _cv.draw_rect(Rect2(map.end.x + 8, 64, sz.x - map.end.x, map.end.y - 64), background)
-	if not won and not lost:   # the deck's backing: only as tall as the deck is right now
+	if not won and not lost and _deck_open:   # the drawer's backing (0.6.24: closed, the hand lies over the map: no band)
 		var deck_top := _deck_top()
 		_cv.draw_rect(Rect2(0, deck_top - 10, sz.x, sz.y - deck_top + 10), Color(0.025, 0.035, 0.055))
 		_cv.draw_line(Vector2(24, deck_top - 6), Vector2(sz.x - 24, deck_top - 6), Color(0.2, 0.4, 0.45, 0.4))
@@ -10993,6 +11114,116 @@ class ReadyChip extends Control:   # one ready card in the strip: drag it onto a
 		if what == NOTIFICATION_MOUSE_ENTER or what == NOTIFICATION_MOUSE_EXIT: queue_redraw()
 	func _draw() -> void:
 		game._draw_ready_face(self, key, false)
+
+
+class HandCard extends Control:   # (0.6.24) one card of the hand: drag it onto a host, click to select it, right-click to make another copy
+	var game
+	var key := ""
+	var recipe := ""
+	var press_position := Vector2.ZERO
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	func _ready() -> void:
+		mouse_entered.connect(func(): game._hand_hot = key)
+		mouse_exited.connect(func(): if game._hand_hot == key: game._hand_hot = "")
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		return game._card_drag_data(self, key)
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed: press_position = event.position
+			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
+				game._arm_card(key); accept_event()
+		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			game._recipe_act(key); accept_event()
+	func _process(_dt: float) -> void:
+		if visible: queue_redraw()
+	func _draw() -> void:
+		game._draw_hand_card(self, key, game._hand_hot == key)
+
+
+class WorkshopPile extends Control:   # (0.6.24) the manufacturing queue, bottom left: the copy being made as a card with a ring, then tickets
+	var game
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _process(_dt: float) -> void:
+		if visible: queue_redraw()
+	func head_rect() -> Rect2: return Rect2(0, 22, 66, 92)
+	func ticket_rect(k: int) -> Rect2: return Rect2(76, 22 + 24.0 * k, size.x - 76.0, 21)   # k 0..2: the copies after the head; 3: + Craft
+	func pause_rect() -> Rect2: return Rect2(size.x - 64.0, 0, 64, 18)
+	func _get_tooltip(at: Vector2) -> String:
+		var q: Array = game._mq(game.PLAYER)
+		if pause_rect().has_point(at): return "Pause or resume the queue. The copy being made keeps its payment and progress."
+		if head_rect().has_point(at):
+			if q.is_empty(): return "Nothing is being made. + Craft opens the recipes."
+			return "%s: %s. Click to open the recipes." % [str(game.CARDS[str(q[0].recipe)].name), str(head_text())]
+		for k in 3:
+			if ticket_rect(k).has_point(at) and k + 1 < q.size(): return "%s, number %d in the queue. Click × to remove it (nothing was spent)." % [str(game.CARDS[str(q[k + 1].recipe)].name), k + 2]
+		return "The workshop: %d of %d places. Copies are made in order, one at a time; finished ones join your hand." % [q.size(), game.QUEUE_SIZE]
+	func head_text() -> String:
+		var q: Array = game._mq(game.PLAYER)
+		if q.is_empty(): return "idle"
+		var j: Dictionary = q[0]
+		if bool(game.mq_paused.get(game.PLAYER, false)): return "paused"
+		if (j.paid as Dictionary).is_empty():
+			var why: String = game._mq_head_why_short(game.PLAYER)
+			return why if why != "" else "starting"
+		var mt: float = game._make_time(str(j.recipe))
+		return "%d%% · %d s" % [int(100.0 * float(j.progress) / maxf(0.001, mt)), int(ceil(maxf(0.0, mt - float(j.progress))))]
+	func _gui_input(event: InputEvent) -> void:
+		if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT): return
+		var q: Array = game._mq(game.PLAYER)
+		if pause_rect().has_point(event.position): game._cmd(["queue_pause"])
+		elif head_rect().has_point(event.position) or ticket_rect(3).has_point(event.position) or (q.size() < 2 and ticket_rect(0).has_point(event.position)):
+			game._open_drawer("attack" if game._card_bank not in ["attack", "defense"] else game._card_bank)
+		else:
+			for k in 3:
+				var r := ticket_rect(k)
+				if r.has_point(event.position) and k + 1 < q.size() and event.position.x >= r.end.x - 22.0: game._cmd(["unqueue", int(q[k + 1].id)])
+		accept_event()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var q: Array = game._mq(game.PLAYER)
+		var paused: bool = bool(game.mq_paused.get(game.PLAYER, false))
+		game._text(self, f, Vector2(0, 13), "WORKSHOP · %d/%d" % [q.size(), game.QUEUE_SIZE], 11, game.C_DIM)
+		game._text(self, f, pause_rect().position + Vector2(0, 13), "Resume" if paused else "Pause", 11, game.C_WARN if paused else game.C_DIM, pause_rect().size.x, HORIZONTAL_ALIGNMENT_RIGHT)
+		var hr := head_rect()
+		var sb := StyleBoxFlat.new(); sb.set_corner_radius_all(8); sb.set_border_width_all(2); sb.bg_color = Color(0.06, 0.08, 0.12, 0.96)
+		if q.is_empty():
+			sb.border_color = Color(game.C_DIM, 0.5); draw_style_box(sb, hr)
+			game._text(self, f, Vector2(hr.position.x, hr.get_center().y + 5.0), "idle", 12, game.C_DIM, hr.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+		else:
+			var recipe := str(q[0].recipe)
+			var fam: Color = game.FAMILY_COL[str(game.CARDS[recipe].fam)]
+			sb.border_color = game.C_WARN if paused else fam; draw_style_box(sb, hr)
+			var cen := hr.position + Vector2(hr.size.x * 0.5, 38.0)
+			var mt: float = game._make_time(recipe)
+			var frac := clampf(float(q[0].progress) / maxf(0.001, mt), 0.0, 1.0) if not (q[0].paid as Dictionary).is_empty() else 0.0
+			draw_arc(cen, 24.0, 0.0, TAU, 32, Color(0.2, 0.23, 0.3), 3.0, true)
+			draw_arc(cen, 24.0, -PI * 0.5, -PI * 0.5 + TAU * frac, 32, game.C_WARN if paused else fam, 3.0, true)
+			game._draw_card_glyph(self, recipe, cen, 26.0, fam, f)
+			game._text(self, f, Vector2(hr.position.x + 3.0, hr.end.y - 22.0), str(game.CARDS[recipe].short), 11, game.C_TEXT, hr.size.x - 6.0, HORIZONTAL_ALIGNMENT_CENTER)
+			game._text(self, f, Vector2(hr.position.x + 3.0, hr.end.y - 8.0), head_text(), 10, game.C_WARN if paused or (q[0].paid as Dictionary).is_empty() else game.C_DIM, hr.size.x - 6.0, HORIZONTAL_ALIGNMENT_CENTER)
+		var labels := ["next", "3rd", "4th"]
+		for k in 3:   # the copies waiting behind it, as tickets with a ×
+			var r := ticket_rect(k)
+			var tsb := StyleBoxFlat.new(); tsb.set_corner_radius_all(4); tsb.set_border_width_all(1); tsb.bg_color = Color(0.06, 0.08, 0.12, 0.9)
+			if k + 1 < q.size():
+				var rc := str(q[k + 1].recipe)
+				tsb.border_color = Color(game.FAMILY_COL[str(game.CARDS[rc].fam)], 0.7); draw_style_box(tsb, r)
+				game._draw_card_glyph(self, rc, r.position + Vector2(12, 10.5), 14.0, Color.WHITE, f)
+				game._text(self, f, r.position + Vector2(24, 15), str(game.CARDS[rc].short), 11, game.C_TEXT, r.size.x - 80.0)
+				game._text(self, f, r.position + Vector2(0, 15), labels[k], 10, game.C_DIM, r.size.x - 26.0, HORIZONTAL_ALIGNMENT_RIGHT)
+				var xc := Vector2(r.end.x - 10.0, r.get_center().y)
+				draw_line(xc + Vector2(-3.5, -3.5), xc + Vector2(3.5, 3.5), game.C_BAD, 1.6, true); draw_line(xc + Vector2(-3.5, 3.5), xc + Vector2(3.5, -3.5), game.C_BAD, 1.6, true)
+			elif k + 1 == maxi(1, q.size()):
+				tsb.border_color = Color(game.C_DIM, 0.55); draw_style_box(tsb, r)
+				game._text(self, f, r.position + Vector2(8, 15), "+ Craft  (C)", 11, game.C_TEXT, r.size.x - 16.0)
+		var cr := ticket_rect(3)
+		if q.size() >= 4: game._text(self, f, cr.position + Vector2(0, 15), "Queue full", 10, game.C_DIM, cr.size.x)
 
 
 class ReadyTile extends Control:   # one ready card in the drawer: picture, copies, what it does, where it goes; drag or click to select
