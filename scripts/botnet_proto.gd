@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.21"   # workers on the map as big sprites with their cargo and a trail; F follows one (lobbies match exact versions)
+const GAME_VERSION := "0.6.22"   # one top bar of chips with sparklines and a breakdown on hover (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -3530,6 +3530,8 @@ func _process(dt: float) -> void:
 		_end_shown = true; _refresh_panel()
 	_hover_host = _host_at(get_local_mouse_position())
 	_hover_flight = _flight_at(get_local_mouse_position())
+	_hud_sample()
+	if pause_icon != null: pause_icon.icon = UiIcons.texture("play" if paused else "pause", 18)
 	if _follow_wid >= 0:   # (0.6.21) the camera keeps the followed worker in the middle of the map
 		var ffl := {}
 		for fl in flights: if str(fl.kind) == "courier" and int(fl.owner) == PLAYER and int(fl.get("wid", -1)) == _follow_wid: ffl = fl
@@ -4394,6 +4396,9 @@ func _refresh_event_strip() -> void:   # the Logs button: how many entries are n
 	logs_button.text = "Logs · %d new" % int(u[0]) if int(u[0]) > 0 else "Logs"
 	var col: Color = [C_BAD, C_WARN, C_TEXT][int(u[1])] if int(u[0]) > 0 or int(u[1]) < EV_INFO else C_DIM
 	for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]: logs_button.add_theme_color_override(key, col)
+	if logs_icon != null:   # (0.6.22) the bell on the top bar: how many are new, in the most urgent one's colour
+		logs_icon.text = str(int(u[0])) if int(u[0]) > 0 else ""
+		for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "icon_normal_color", "icon_hover_color"]: logs_icon.add_theme_color_override(key, col if int(u[0]) > 0 else C_TEXT)
 
 
 func _open_logs() -> void:
@@ -7605,7 +7610,7 @@ func _panel_has_context() -> bool:
 
 
 func _panel_shown() -> bool:
-	return true   # a compact leaderboard fills the sidebar when no building is selected
+	return _panel_has_context()   # (0.6.22) nothing selected: no sidebar (the standings are the majority chip's hover)
 
 
 func _refresh_panel() -> void:
@@ -7712,17 +7717,17 @@ func _layout_ui() -> void:
 	if hud == null or feedback_label == null: return
 	var sz := get_viewport_rect().size
 	top_tabs.size = top_tabs.get_combined_minimum_size()
-	top_tabs.position = Vector2(sz.x - 24 - top_tabs.size.x, 14)
-	hud.position = Vector2(24, 8); hud.size = Vector2(maxf(200.0, top_tabs.position.x - 16.0 - 24.0), 46)   # never under the buttons
+	top_tabs.position = Vector2(sz.x - 8 - top_tabs.size.x, HUD_TOP + (HUD_H - top_tabs.size.y) * 0.5)   # (0.6.22) one top bar:
+	hud.position = Vector2(8, HUD_TOP); hud.size = Vector2(maxf(200.0, top_tabs.position.x - 8.0 - 8.0), HUD_H)   # chips, then icons
 	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
-	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _banner_on() else 64)
-	if logs_button != null:
+	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _banner_on() else HUD_TOP + HUD_H + 8.0)
+	if logs_button != null:   # (0.6.22: the bell on the top bar replaces it; it keeps its count, unseen)
 		logs_button.position = Vector2(24, _research_bar_y()); logs_button.size = Vector2(LOGS_W, RESEARCH_BAR_H)
-		logs_button.visible = not menu_open and not won and not lost
+		logs_button.visible = false
 	if research_bar != null:
 		research_bar.position = Vector2(24 + LOGS_W + 8, _research_bar_y())
 		research_bar.size = Vector2(clampf(sz.x - _panel_width() - 104.0 - LOGS_W, 200.0, RESEARCH_BAR_W), RESEARCH_BAR_H)
-		research_bar.visible = not menu_open and not won and not lost and str(_research_bar_state().state) != "idle"   # nothing running: no bar
+		research_bar.visible = false   # (0.6.22: the research chip on the top bar replaces it)
 	var panel_bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	panel.size = Vector2(_panel_width(), maxf(180, panel_bottom - panel.position.y))
 	if not _panel_has_context(): panel.size.y = minf(panel.size.y, 94 + botnets.size() * 60)
@@ -7744,7 +7749,7 @@ func _layout_ui() -> void:
 func _map_rect() -> Rect2:
 	var sz := get_viewport_rect().size
 	var right := sz.x - _panel_width() - 48 if _panel_shown() else sz.x - 24
-	var top := _research_bar_y() + RESEARCH_BAR_H + 10.0
+	var top := (_research_bar_y() + RESEARCH_BAR_H + 10.0) if _banner_on() else HUD_TOP + HUD_H + 8.0
 	# Reserve the deck (pushed down or pulled up) while fitting a new town behind the menu too.
 	var bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	return Rect2(24, top, maxf(200, right - 24), maxf(100, bottom - top))
@@ -7806,17 +7811,31 @@ func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips
 func _refresh_top_tabs() -> void:
 	if top_tabs == null: return
 	if top_tabs.get_child_count() > 0: return
-	research_button = Button.new(); research_button.text = "Research"; research_button.name = "Research"
-	research_button.custom_minimum_size = Vector2(150, 36); research_button.focus_mode = Control.FOCUS_NONE
-	research_button.clip_text = true; research_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	research_button.pressed.connect(_toggle_research); top_tabs.add_child(research_button)
-	var econ_button := Button.new(); econ_button.text = "Economy"; econ_button.name = "Economy"
-	econ_button.custom_minimum_size = Vector2(104, 36); econ_button.focus_mode = Control.FOCUS_NONE
-	econ_button.tooltip_text = "Each bank's income, what uses it, its net per minute and its recent history (E)"
-	econ_button.pressed.connect(_toggle_economy); top_tabs.add_child(econ_button)
-	var menu_button := Button.new(); menu_button.text = "Menu"
-	menu_button.custom_minimum_size = Vector2(88, 36)
-	menu_button.pressed.connect(_open_menu.bind(true)); top_tabs.add_child(menu_button)
+	research_button = Button.new(); research_button.text = "Research"; research_button.name = "Research"   # (0.6.22: the research chip
+	research_button.custom_minimum_size = Vector2(150, 36); research_button.focus_mode = Control.FOCUS_NONE   # on the top bar replaces it;
+	research_button.clip_text = true; research_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   # it keeps its text, unseen)
+	research_button.pressed.connect(_toggle_research); top_tabs.add_child(research_button); research_button.visible = false
+	logs_icon = _icon_button("LogsIcon", "bell", "What happened: your operations, attacks on you, captures, losses and problems (H).", _open_logs)
+	pause_icon = _icon_button("PauseIcon", "pause", "Pause or resume the match (Space).", _toggle_pause)
+	_icon_button("Economy", "chart", "Each bank's income, what uses it, its net per minute and its recent history (E)", _toggle_economy)
+	_icon_button("Menu", "menu", "The menu (Esc)", _open_menu.bind(true))
+
+
+var logs_icon: Button   # (0.6.22) the top bar's icon buttons
+var pause_icon: Button
+func _icon_button(nm: String, icon: String, tip: String, act: Callable) -> Button:
+	var b := Button.new(); b.name = nm; b.focus_mode = Control.FOCUS_NONE
+	b.icon = UiIcons.texture(icon, 18); b.custom_minimum_size = Vector2(40, 36); b.tooltip_text = tip
+	b.add_theme_font_size_override("font_size", 12)
+	b.pressed.connect(act); top_tabs.add_child(b)
+	return b
+
+
+func _toggle_pause() -> void:   # the top bar's pause button: the same as Space
+	if _mp_on or menu_open or won or lost: return
+	if _camp_paused: _camp_set_pause(false); return
+	paused = not paused; _refresh_panel(); queue_redraw()
+	if _camp: _show_tut()
 
 
 func _scroll_pos() -> int:
@@ -8983,6 +9002,144 @@ func _hud_items() -> Array:   # [kind-icon, text, colour, column width, res]
 	return out
 
 
+const HUD_TOP := 6.0    # (0.6.22) the top bar of chips
+const HUD_H := 40.0
+const HUD_CHIP_GAP := 6.0
+var _hud_hist := {}       # (0.6.22) res -> the bank's stock once a second over the last minute (the chips' sparklines; screen only)
+var _hud_hist_t := -1
+
+
+func _hud_chips() -> Array:   # (0.6.22) [{kind, x, w}] left to right: workers, the four banks, the majority, research
+	var out := [{"kind": "workers", "w": 150.0}]
+	for res in RES: out.append({"kind": res, "w": 156.0})
+	out.append({"kind": "majority", "w": 176.0})
+	out.append({"kind": "tree", "w": 168.0})   # (research, as a blueprint in progress)
+	var total := 0.0
+	for c in out: total += float(c.w) + HUD_CHIP_GAP
+	var room := hud.size.x if hud != null else total
+	var k := minf(1.0, room / total)
+	var x := 0.0
+	for c in out:
+		c.w = floorf(float(c.w) * k); c.x = x; x += float(c.w) + HUD_CHIP_GAP
+	return out
+
+
+func _hud_sample() -> void:   # once a second of match time: each bank's stock, for the sparklines
+	if int(_t) == _hud_hist_t: return
+	if int(_t) < _hud_hist_t: _hud_hist = {}
+	_hud_hist_t = int(_t)
+	for res in RES:
+		if not _hud_hist.has(res): _hud_hist[res] = []
+		(_hud_hist[res] as Array).append(_avail(PLAYER, res))
+		if (_hud_hist[res] as Array).size() > 60: (_hud_hist[res] as Array).pop_front()
+
+
+func _chip_box(c: CanvasItem, r: Rect2, edge: Color) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.055, 0.075, 0.11, 0.96); sb.border_color = edge
+	sb.set_border_width_all(1); sb.set_corner_radius_all(7)
+	c.draw_style_box(sb, r)
+
+
+func _net_arrow(c: CanvasItem, f: Font, at: Vector2, v: float) -> float:   # a coloured ▲41 / ▼30 / 0; returns its width
+	var col := C_GOOD if v > 0.5 else (C_BAD if v < -0.5 else C_DIM)
+	var x := at.x
+	if absf(v) > 0.5:
+		var up := v > 0
+		var cy := at.y - 4.0
+		c.draw_colored_polygon(PackedVector2Array([Vector2(x, cy + (3.0 if up else -3.0)), Vector2(x + 7.0, cy + (3.0 if up else -3.0)), Vector2(x + 3.5, cy + (-3.5 if up else 3.5))]), col)
+		x += 9.0
+	var t := "%d" % int(round(absf(v)))
+	_text(c, f, Vector2(x, at.y), t, 12, col)
+	return x + _text_w(f, t, 12) - at.x
+
+
+func _draw_hud_chip(c: CanvasItem, chip: Dictionary, f: Font, hot: bool) -> void:
+	var x := float(chip.x); var w := float(chip.w)
+	var r := Rect2(x, 0.0, w, HUD_H)
+	var kind := str(chip.kind)
+	var edge := Color(0.25, 0.36, 0.48, 0.7)
+	if kind in RES:
+		var res := kind
+		var col := _res_col(res)
+		var fc := _forecast(PLAYER)
+		var full := bool(fc.full[res])
+		_chip_box(c, r, col if hot else edge)
+		_draw_kind_icon(c, str({"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res]), Vector2(x + 15.0, 14.0), 14.0, col, f)
+		var amt := "%d" % int(_avail(PLAYER, res))
+		_text(c, f, Vector2(x + 27.0, 19.0), amt, 15, C_WARN if full else C_TEXT)
+		_text(c, f, Vector2(x + 29.0 + _text_w(f, amt, 15), 19.0), "/%d" % int(_cap(PLAYER, res)), 10, C_DIM)
+		if full: _text(c, f, Vector2(x + 10.0, 34.0), "full", 12, C_WARN)
+		else: _net_arrow(c, f, Vector2(x + 10.0, 34.0), float(fc.net[res]))
+		var hist: Array = _hud_hist.get(res, [])
+		if hist.size() >= 2:   # the last minute of the bank, scaled to its own range
+			var lo := INF; var hi := -INF
+			for v in hist: lo = minf(lo, float(v)); hi = maxf(hi, float(v))
+			if hi - lo < 1.0: hi = lo + 1.0
+			var sx := x + w * 0.5; var sw := w * 0.5 - 10.0
+			var pts := PackedVector2Array()
+			for k in hist.size(): pts.append(Vector2(sx + sw * float(k) / float(maxi(1, hist.size() - 1)), 34.0 - 10.0 * (float(hist[k]) - lo) / (hi - lo)))
+			c.draw_polyline(pts, Color(col, 0.9), 1.4, true)
+		var fill := clampf(_avail(PLAYER, res) / maxf(1.0, _cap(PLAYER, res)), 0.0, 1.0)   # the stock against its cap, along the bottom edge
+		c.draw_rect(Rect2(x + 7.0, HUD_H - 4.0, (w - 14.0) * fill, 2.0), Color(col, 0.85))
+		return
+	_chip_box(c, r, Color(0.4, 1.0, 0.9, 0.8) if hot else edge)
+	match kind:
+		"workers":   # how many, one dot per worker coloured by what it does, and how many are free
+			var wc := _worker_counts(PLAYER)
+			_draw_kind_icon(c, "bot", Vector2(x + 15.0, 14.0), 14.0, BUILD_KINDS.bot.col, f)
+			_text(c, f, Vector2(x + 27.0, 19.0), "%d" % int(wc.total), 15, C_TEXT if int(wc.total) > 0 else C_BAD)
+			var dx := x + 52.0
+			var ids := workers.keys(); ids.sort()
+			var shown := 0
+			for wid in ids:
+				var wk: Dictionary = workers[wid]
+				if int(wk.fac) != PLAYER or str(wk.state) == "retiring": continue
+				if shown >= int((w - 60.0) / 9.0): break
+				var st := _worker_state(int(wid))
+				var dc := C_WARN if st == "idle" else (C_BAD if st == "blocked" else COURIER_COL)
+				for fl in flights:
+					if int(fl.id) == int(wk.get("fid", -1)) and _cargo_res(fl) != "": dc = _res_col(_cargo_res(fl))
+				c.draw_circle(Vector2(dx, 14.0), 3.2, dc); dx += 9.0; shown += 1
+			var free := int(wc.idle)
+			_text(c, f, Vector2(x + 10.0, 34.0), ("%d free" % free) if free > 0 else ("%d blocked" % int(wc.blocked) if int(wc.blocked) > 0 else "all busy"), 11, C_WARN if free > 0 else (C_BAD if int(wc.blocked) > 0 else C_DIM))
+		"majority":   # you / needed, a bar of the map with the threshold, and the strongest rival
+			var o := _objective()
+			var mine := int((o.counts as Dictionary).get(PLAYER, 0))
+			c.draw_texture_rect(UiIcons.texture("flag", 14), Rect2(x + 8.0, 6.0, 14, 14), false, C_WARN)
+			var txt := "%d" % mine
+			_text(c, f, Vector2(x + 27.0, 19.0), txt, 15, C_TEXT)
+			_text(c, f, Vector2(x + 29.0 + _text_w(f, txt, 15), 19.0), "/%d" % int(o.need), 10, C_DIM)
+			var rival := -1; var rn := 0
+			for fac in botnets:
+				if fac != PLAYER and int((o.counts as Dictionary).get(fac, 0)) > rn: rival = fac; rn = int(o.counts[fac])
+			if rival >= 0: _text(c, f, Vector2(x + 10.0, 19.0), "%s %d" % [fname(rival), rn], 11, fcol(rival).lightened(0.3), w - 20.0, HORIZONTAL_ALIGNMENT_RIGHT)
+			var bx := x + 10.0; var bw := w - 20.0; var tot := maxf(1.0, float(o.total))
+			c.draw_rect(Rect2(bx, 27.0, bw, 5.0), Color(0.15, 0.19, 0.26))
+			c.draw_rect(Rect2(bx, 27.0, bw * float(mine) / tot, 5.0), C_GOOD)
+			if rival >= 0: c.draw_rect(Rect2(bx + bw - bw * float(rn) / tot, 27.0, bw * float(rn) / tot, 5.0), fcol(rival))
+			var tx := bx + bw * float(o.need) / tot
+			c.draw_rect(Rect2(tx - 1.0, 24.0, 2.0, 11.0), C_WARN)
+			var holder := int(o.holder)
+			if holder >= 0: _text(c, f, Vector2(x + 10.0, 19.0), "%s hold %ds" % ["you" if holder == PLAYER else fname(holder), int(ceil(float(o.hold_left)))], 11, C_GOOD if holder == PLAYER else C_BAD, w - 20.0, HORIZONTAL_ALIGNMENT_RIGHT)
+		"tree":   # research: a ring of progress, the blueprint, and time left (or what holds it)
+			var st := _research_bar_state()
+			var col := Color(0.75, 0.55, 1.0)
+			var cen := Vector2(x + 19.0, HUD_H * 0.5)
+			c.draw_arc(cen, 11.0, 0.0, TAU, 32, Color(0.2, 0.22, 0.3), 3.0, true)
+			if str(st.state) == "idle":
+				_text(c, f, Vector2(x + 38.0, 19.0), "Research", 13, C_TEXT, w - 46.0)
+				_text(c, f, Vector2(x + 38.0, 34.0), "%d to choose" % int(st.get("open", 0)) if int(st.get("open", 0)) > 0 else "all known", 11, C_DIM, w - 46.0)
+			else:
+				var sc := C_WARN if str(st.state) == "paused" else (C_BAD if str(st.state) == "stalled" else col)
+				c.draw_arc(cen, 11.0, -PI * 0.5, -PI * 0.5 + TAU * float(st.frac), 32, sc, 3.0, true)
+				_text(c, f, Vector2(x + 38.0, 19.0), str(st.name), 13, C_TEXT, w - 46.0)
+				var line := "%d%% · %d s" % [int(100.0 * float(st.frac)), int(ceil(float(st.left)))]
+				if str(st.state) == "paused": line = "paused"
+				elif str(st.state) == "stalled": line = "stalled: " + str(st.why)
+				_text(c, f, Vector2(x + 38.0, 34.0), line, 11, sc, w - 46.0)
+
+
 const HUD_BOTS_W := 180.0   # the workers' column: "Workers 48" over "24 busy · 8 blocked"
 const HUD_OBJ_W := 240.0    # the objective's two lines after the banks
 func _hud_col_w() -> float:   # a material's column: the four share what the couriers' column and the objective leave
@@ -9099,7 +9256,15 @@ func _econ_tooltip(res: String) -> String:
 
 func _objective_tooltip() -> String:
 	var o := _objective()
-	return "Win: hold %d of the %d hosts for %d s in a row, or be the last network with a main node." % [int(o.need), int(o.total), int(o.secs)]
+	var lines := ["Win: hold %d of the %d hosts for %d s in a row, or be the last network with a main node." % [int(o.need), int(o.total), int(o.secs)], ""]
+	var standings := []   # (0.6.22) the standings, from the majority chip
+	for fac in botnets: standings.append([fac, _faction_nodes(fac)])
+	standings.sort_custom(func(a, b): return int(a[1]) > int(b[1]) if int(a[1]) != int(b[1]) else int(a[0]) < int(b[0]))
+	for k in standings.size():
+		var fac := int(standings[k][0])
+		var hold := float(_hold.get(fac, 0.0))
+		lines.append("%d. %s  %s" % [k + 1, "You" if fac == PLAYER else fname(fac), "out" if _eliminated.has(fac) else ("holding: %d s left" % int(ceil(maxf(0.0, HOLD_SECS - hold) - 0.001)) if hold > 0 else "%d hosts · %d%%" % [int(standings[k][1]), _control_pct(fac)])])
+	return "\n".join(PackedStringArray(lines))
 
 
 func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the Economy button or a click on the HUD)
@@ -10372,51 +10537,114 @@ class HelpGlyph extends Control:   # a big icon for the Help screen: a building 
 		elif kind != "": game._draw_kind_icon(self, kind, size * 0.5, size.y * 0.58, col, f)
 
 
-class HudBar extends Control:   # the HUD: each bank's stock and its net forecast a minute, then the objective
+class HudBar extends Control:   # (0.6.22) the top bar: one row of chips — workers, the four banks, the majority, research
 	var game
+	var hot := -1   # the chip under the mouse
 
 	func _init() -> void:
-		mouse_filter = Control.MOUSE_FILTER_PASS   # hover shows a bank's flows; a click opens the Economy overview
-		clip_contents = true            # a hard guard: the row can never bleed under the right panel
+		mouse_filter = Control.MOUSE_FILTER_PASS   # hover shows a chip's details; a click opens its view
+		clip_contents = true
 		tooltip_text = " "
 
+	func _chip_at(at: Vector2) -> int:
+		var chips: Array = game._hud_chips()
+		for k in chips.size():
+			if at.x >= float(chips[k].x) and at.x < float(chips[k].x) + float(chips[k].w): return k
+		return -1
+
 	func _get_tooltip(at: Vector2) -> String:
-		var x := 0.0
-		for it in game._hud_items():
-			if at.x >= x and at.x < x + float(it[3]): return game._econ_tooltip(str(it[4]))
-			x += float(it[3])
-		return game._objective_tooltip()
+		var k := _chip_at(at)
+		if k < 0: return ""
+		var kind := str(game._hud_chips()[k].kind)
+		if kind in game.RES: return "pop:" + kind
+		if kind == "workers": return game._econ_tooltip("workers")
+		if kind == "majority": return game._objective_tooltip()
+		return str(game._research_status_line()[0]) + "\n\nClick for the development tree (R)."
 
 	func _make_custom_tooltip(for_text: String) -> Object:
+		if for_text.begins_with("pop:"):
+			var pop := HudPop.new(); pop.game = game; pop.res = for_text.trim_prefix("pop:"); pop.fit()
+			return pop
 		return game._wrapped_tooltip(for_text)
 
 	func _gui_input(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			game._toggle_economy(); accept_event()
+		if event is InputEventMouseMotion:
+			var k := _chip_at(event.position)
+			if k != hot: hot = k; queue_redraw()
+		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			var k := _chip_at(event.position)
+			if k < 0: return
+			var kind := str(game._hud_chips()[k].kind)
+			if kind == "tree": game._toggle_research()
+			elif kind != "majority": game._toggle_economy()
+			accept_event()
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_EXIT and hot >= 0: hot = -1; queue_redraw()
 
 	func _draw() -> void:
 		var f := get_theme_default_font()
-		var x := 0.0
-		for it in game._hud_items():
-			var kind := str(it[0])
-			var tx := x
-			if kind != "":
-				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 20.0), 16.0, game.BUILD_KINDS[kind].col, f)
-				tx += 22.0
-			var fs: int = game._hud_fs(f, str(it[1]), float(it[3]) - (tx - x))
-			game._text(self, f, Vector2(tx, 26.0), str(it[1]), fs, it[2])
-			var rate: Array = game._hud_rate(str(it[4]))   # the bank's net forecast a minute: income less what is used
-			game._text(self, f, Vector2(tx, 44.0), str(rate[0]), 12, rate[1], float(it[3]) - (tx - x) - 4.0, HORIZONTAL_ALIGNMENT_LEFT)
-			x += float(it[3])   # a fixed column: the next item never moves when this number grows
-		var obj: Array = game._objective_lines()   # the win, always on screen: needed / total, your count, who holds it
-		var room := size.x - x - 8.0
-		if room > 120.0:
-			draw_line(Vector2(x, 8.0), Vector2(x, size.y - 8.0), Color(game.C_DIM, 0.35), 1.0)
-			game._text(self, f, Vector2(x + 12.0, 22.0), str(obj[0]), 12, game.C_WARN, room - 12.0, HORIZONTAL_ALIGNMENT_LEFT)
-			game._text(self, f, Vector2(x + 12.0, 40.0), str(obj[1]), 12, obj[2], room - 12.0, HORIZONTAL_ALIGNMENT_LEFT)
+		var chips: Array = game._hud_chips()
+		for k in chips.size(): game._draw_hud_chip(self, chips[k], f, k == hot)
 
 
+class HudPop extends Control:   # (0.6.22) a bank chip's hover: income by source, what uses it, the two side by side, recent history
+	var game
+	var res := "intel"
+	var rows := []   # [label, value, colour, kind]: kind "head", "row", "line"
+	const W := 360.0
 
+	func fit() -> void:
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		rows = []
+		var src: Dictionary = (fc.from as Dictionary).get(res, {})
+		var uses: Dictionary = (fc.use as Dictionary).get(res, {})
+		var inc := 0.0; for k in src: inc += float(src[k])
+		var used := 0.0; for k in uses: used += float(uses[k])
+		rows.append(["Income", inc, game.C_GOOD, "head"])
+		var ks := src.keys(); ks.sort_custom(func(a, b): return float(src[a]) > float(src[b]))
+		for k in ks.slice(0, 6): rows.append([str(k), float(src[k]), game.C_GOOD, "row"])
+		if ks.size() > 6:
+			var rest := 0.0
+			for k in ks.slice(6): rest += float(src[k])
+			rows.append(["%d more hosts" % (ks.size() - 6), rest, game.C_GOOD, "row"])
+		if used > 0.0001:
+			rows.append(["Used", -used, game.C_BAD, "head"])
+			var us := uses.keys(); us.sort_custom(func(a, b): return float(uses[a]) > float(uses[b]))
+			for k in us: rows.append([str(k), float(uses[k]), game.C_BAD, "row"])
+		var hist: Array = game._history_lines(res)
+		if not hist.is_empty(): rows.append([str(hist[0]), 0.0, game.C_DIM, "line"])
+		rows.append(["Click: the Economy view", 0.0, game.C_DIM, "line"])
+		custom_minimum_size = Vector2(W, 76.0 + 20.0 * rows.size())
+		size = custom_minimum_size
+
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var col: Color = game._res_col(res)
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		var net := float(fc.net[res])
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.035, 0.05, 0.08, 0.98)); draw_rect(Rect2(Vector2.ZERO, size), Color(col, 0.7), false, 1.0)
+		game._text(self, f, Vector2(14, 24), "%s  %d / %d" % [str(game.RES_NAME[res]).to_upper(), int(game._avail(game.PLAYER, res)), int(game._cap(game.PLAYER, res))], 14, col)
+		var nt: String = "full" if bool(fc.full[res]) else "net %s/min" % game._net_txt(net)
+		game._text(self, f, Vector2(14, 24), nt, 14, game.C_GOOD if net > 0.5 else (game.C_BAD if net < -0.5 else game.C_DIM), W - 28.0, HORIZONTAL_ALIGNMENT_RIGHT)
+		var inc := 0.0; var used := 0.0
+		for k in (fc.from as Dictionary).get(res, {}): inc += float(fc.from[res][k])
+		used = game._use_sum(fc.use, res)
+		var top := maxf(1.0, maxf(inc, used))
+		draw_rect(Rect2(14, 36, (W - 28.0) * inc / top, 5), Color(game.C_GOOD, 0.85))   # what comes in, over what goes out
+		draw_rect(Rect2(14, 43, (W - 28.0) * used / top, 5), Color(game.C_BAD, 0.85))
+		var y := 70.0
+		for r in rows:
+			var kind := str(r[3])
+			if kind == "head":
+				game._text(self, f, Vector2(14, y), str(r[0]), 13, game.C_TEXT)
+				game._text(self, f, Vector2(14, y), "%s/min" % game._net_txt(float(r[1])), 13, r[2], W - 28.0, HORIZONTAL_ALIGNMENT_RIGHT)
+			elif kind == "row":
+				game._text(self, f, Vector2(14, y), str(r[0]), 12, game.C_DIM, 150.0)
+				draw_rect(Rect2(170, y - 9, 120.0 * float(r[1]) / top, 7), Color(r[2], 0.8))
+				game._text(self, f, Vector2(14, y), "%d" % int(round(float(r[1]))), 12, game.C_TEXT, W - 28.0, HORIZONTAL_ALIGNMENT_RIGHT)
+			else: game._text(self, f, Vector2(14, y + 4), str(r[0]), 11, game.C_DIM, W - 28.0)
+			y += 20.0
 
 
 class CardTile extends Control:   # a recipe: what it does, copies ready and queued; + Queue (or Research for a locked one)

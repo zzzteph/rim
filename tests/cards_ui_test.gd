@@ -60,7 +60,10 @@ func top_bar() -> void:
 	fresh(); await frames()
 	var names := []
 	for b in g.top_tabs.get_children(): names.append(str(b.name))
-	check(names.size() == 3 and names[0] == "Research" and names[1] == "Economy", "Research sits beside Economy and Menu in the top bar (%s)" % str(names))
+	var kinds := []   # (0.6.22) one top bar: chips (workers, the banks, the majority, research), then icon buttons
+	for c in g._hud_chips(): kinds.append(str(c.kind))
+	check(names == ["Research", "LogsIcon", "PauseIcon", "Economy", "Menu"] and not g.research_button.visible and kinds.has("tree"),
+		"The top bar: a research chip among the chips (%s), then Logs, Pause, Economy and Menu as icons (%s)" % [str(kinds), str(names)])
 	check(g.hud.position.x + g.hud.size.x <= g.top_tabs.position.x - 8.0, "The HUD ends before the top buttons (%.0f < %.0f)" % [g.hud.position.x + g.hud.size.x, g.top_tabs.position.x])
 	g.research_button.pressed.emit(); await frames()
 	check(g._deck_open and g._card_bank == "research", "The Research button opens the research view")
