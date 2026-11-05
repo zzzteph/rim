@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.24"   # Ready cards as a fanned hand, the queue as a workshop pile (lobbies match exact versions)
+const GAME_VERSION := "0.6.25"   # a cinematic main menu over the living city (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -5185,6 +5185,11 @@ func _input(event: InputEvent) -> void:
 		elif _panel_has_context(): _clear_all(); _refresh_panel(); queue_redraw()
 		else: _open_menu(true)
 		get_viewport().set_input_as_handled(); return
+	if menu_open and _menu_view == "main" and event.keycode >= KEY_1 and event.keycode <= KEY_9:   # (0.6.25) 1-9 pick a main-menu entry
+		var entries := menu_box.get_children().filter(func(c): return c is Button and (c as Button).visible and not (c as Button).disabled)
+		var k := int(event.keycode - KEY_1)
+		if k < entries.size(): (entries[k] as Button).pressed.emit()
+		get_viewport().set_input_as_handled(); return
 	if menu_open or won or lost: return
 	if event.keycode == KEY_SPACE:
 		if _camp_paused: _camp_set_pause(false); get_viewport().set_input_as_handled(); return   # resume the lesson's reading pause
@@ -6215,6 +6220,10 @@ func _layout_menu() -> void:   # one rule for every view: MENU_PAD all round, th
 	var scrolls := content > h - 2.0 * MENU_PAD + 0.5
 	menu_panel.size = Vector2(_menu_w, h)
 	menu_panel.position = ((vp - menu_panel.size) * 0.5).floor()
+	if _menu_view == "main":   # (0.6.25) the main menu stands on the left, over the city, with no box
+		menu_panel.position = Vector2(48.0, floorf((vp.y - h) * 0.5))
+		menu_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	else: menu_panel.remove_theme_stylebox_override("panel")
 	# the scrollbar, when there is one, sits in the right-hand inset: the content keeps the same width either way
 	var bar := menu_sc.get_v_scroll_bar().get_combined_minimum_size().x if scrolls else 0.0
 	menu_sc.position = Vector2(MENU_PAD, MENU_PAD)
@@ -6682,16 +6691,50 @@ func _mp_tick_countdown() -> void:   # the big "starting in 3…" line (also cal
 
 func _menu_main() -> void:   # navigation only. Learn and Skirmish are both open from the first run.
 	# Multiplayer is hidden for now: its lockstep backend and tests stay (_mp_open, botnet_net.gd).
-	_menu_title("RIM")
-	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mbtn("Resume", func(): _open_menu(false))   # a Learn session paused at _t==0 still resumes
+	# (0.6.25) the cinematic menu: a big wordmark over the city, the entries as a list on the left (1-9 pick one)
+	var mark := Label.new(); mark.text = "RIM"; mark.name = "Wordmark"
+	mark.add_theme_font_size_override("font_size", 72); mark.add_theme_color_override("font_color", Color(0.45, 1.0, 0.92))
+	mark.add_theme_color_override("font_shadow_color", Color(0.2, 1.0, 0.9, 0.35)); mark.add_theme_constant_override("shadow_offset_x", 0)
+	mark.add_theme_constant_override("shadow_offset_y", 0); mark.add_theme_constant_override("shadow_outline_size", 10)
+	menu_box.add_child(mark)
+	var tag := Label.new(); tag.text = "Run the network. Hold the city."
+	tag.add_theme_font_size_override("font_size", 14); tag.add_theme_color_override("font_color", C_DIM); menu_box.add_child(tag)
+	_menu_gap(14.0)
+	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mlist("Resume", func(): _open_menu(false))   # a Learn session paused at _t==0 still resumes
 	if _mp_on:
-		_mbtn("Leave match", _mp_leave)
+		_mlist("Leave match", _mp_leave)
 	else:
-		if not _camp or won or lost: _mbtn("Learn", func(): _menu_go("campaign"))   # a live Learn session is continued with Resume above
-		_mbtn("Skirmish", func(): _menu_go("newgame"))
-	_mbtn("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
-	_mbtn("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
-	_mbtn("Exit", func(): get_tree().quit())
+		var save := _camp_load()
+		var started := int(save.get("chapter", 0)) > 0 or int(save.get("step", 0)) > 0
+		if (not _camp or won or lost) and started and not bool(save.get("completed", false)):   # a lesson part-way: one click back into it
+			_mlist("Continue Learn", func(): _camp_resume_or_start())
+			_menu_sub("Lesson %d of %d" % [int(save.get("chapter", 0)) + 1, CAMP_CHAPTERS])
+		if not _camp or won or lost: _mlist("Learn", func(): _menu_go("campaign"))   # a live Learn session is continued with Resume above
+		_mlist("Skirmish", func(): _menu_go("newgame"))
+		_menu_sub("Map %d × %d · %d rival%s" % [_opt_size.x, _opt_size.y, _opt_enemies, "" if _opt_enemies == 1 else "s"])
+	_mlist("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
+	_mlist("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
+	_mlist("Exit", func(): get_tree().quit())
+
+
+func _mlist(txt: String, cb: Callable) -> void:   # (0.6.25) a main-menu entry: a large left-aligned row, lit with a bar on hover
+	_mbtn(txt, cb)
+	var b := menu_box.get_child(menu_box.get_child_count() - 1) as Button
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT; b.add_theme_font_size_override("font_size", 22); b.custom_minimum_size.y = 46
+	var plain := StyleBoxFlat.new(); plain.bg_color = Color(0, 0, 0, 0); plain.content_margin_left = 16
+	var lit := StyleBoxFlat.new(); lit.bg_color = Color(0.2, 1.0, 0.9, 0.09); lit.border_color = Color(0.4, 1.0, 0.92)
+	lit.border_width_left = 3; lit.content_margin_left = 16
+	for st in ["normal", "disabled"]: b.add_theme_stylebox_override(st, plain)
+	for st in ["hover", "pressed", "focus"]: b.add_theme_stylebox_override(st, lit)
+	b.add_theme_color_override("font_hover_color", Color(0.6, 1.0, 0.95))
+
+
+func _menu_sub(t: String) -> void:   # (0.6.25) a quiet line under a main-menu entry
+	var l := Label.new(); l.text = t
+	l.add_theme_font_size_override("font_size", 12); l.add_theme_color_override("font_color", C_DIM)
+	l.custom_minimum_size.x = menu_box.custom_minimum_size.x - 19.0   # (inside the column, after its indent)
+	var m := MarginContainer.new(); m.add_theme_constant_override("margin_left", 19); m.add_theme_constant_override("margin_top", -6)
+	m.add_child(l); menu_box.add_child(m)
 
 
 func _menu_go(view: String) -> void: _menu_view = view; _refresh_menu()
@@ -9944,8 +9987,52 @@ func _paint_mask(cx: Dictionary) -> void:   # screen space: masks around the map
 		_text(_cv, f, Vector2((sz.x - PANEL_W) * 0.5 - 150.0, sz.y * 0.5), ("VICTORY" if won else "DEFEATED"), 46, Color(0.5, 1, 1) if won else Color(1, 0.5, 0.5))
 
 
-func _draw_menu_bg(sz: Vector2) -> void:   # ported from the old title screen: grid + drifting packets
-	draw_rect(Rect2(Vector2.ZERO, sz), Color(0.05, 0.06, 0.09), true)
+const MENU_TIPS := [
+	"Recon first: a scouted attack works half the time, an unscouted one a quarter.",
+	"Workers carry building materials first, then what research lacks, then Firewall upkeep.",
+	"A Firewall fires the defence cards loaded in its sockets on its own.",
+	"Hold the majority of the city's hosts for 51 s to win.",
+	"Bot stations add workers: more workers, more of your output reaches the bank.",
+]
+func _draw_menu_bg(sz: Vector2) -> void:   # (0.6.25) the city itself behind the menu: links, hosts in their owners' colours, packets on the move
+	draw_rect(Rect2(Vector2.ZERO, sz), Color(0.035, 0.045, 0.07), true)
+	if hosts.is_empty(): _draw_menu_grid(sz); return
+	var lo := Vector2(INF, INF); var hi := Vector2(-INF, -INF)
+	for h in hosts: lo = lo.min(h.pos); hi = hi.max(h.pos)
+	var area := Rect2(sz.x * 0.3, 60.0, sz.x * 0.66, sz.y - 120.0)
+	var k := minf(area.size.x / maxf(1.0, hi.x - lo.x), area.size.y / maxf(1.0, hi.y - lo.y))
+	var drift := Vector2(sin(_menu_t * 0.07) * 24.0, cos(_menu_t * 0.05) * 14.0)
+	var off := area.position + (area.size - (hi - lo) * k) * 0.5 - lo * k + drift
+	var at := func(i: int) -> Vector2: return (hosts[i].pos as Vector2) * k + off
+	for i in hosts.size():   # the owned ground first, softly
+		var o := int(hosts[i].owner)
+		if o != NEUTRAL: draw_circle(at.call(i), 34.0, Color(fcol(o), 0.07))
+	var n := 0
+	for i in hosts.size():
+		for j in hosts[i].links:
+			if int(j) <= i: continue
+			var a: Vector2 = at.call(i); var b: Vector2 = at.call(int(j))
+			draw_line(a, b, Color(0.3, 0.6, 0.7, 0.16), 1.0, true)
+			var t := fposmod(_menu_t * (0.12 + 0.03 * float(n % 5)) + float(n) * 0.618, 1.0)   # a packet on its way along the link
+			var o2 := int(hosts[i].owner) if int(hosts[i].owner) != NEUTRAL else int(hosts[int(j)].owner)
+			var pc := fcol(o2).lightened(0.3) if o2 != NEUTRAL else Color(0.4, 0.8, 0.9)
+			draw_circle(a.lerp(b, t), 2.4, Color(pc, 0.75)); n += 1
+	for i in hosts.size():
+		var o := int(hosts[i].owner)
+		var col := fcol(o).lightened(0.15) if o != NEUTRAL else Color(0.36, 0.42, 0.52)
+		var p: Vector2 = at.call(i)
+		draw_rect(Rect2(p - Vector2(5, 5), Vector2(10, 10)), Color(col, 0.85), true)
+	for x in 32:   # the left side darkens, so the menu reads over the city
+		var a2 := clampf(1.0 - float(x) / 32.0, 0.0, 1.0)
+		draw_rect(Rect2(float(x) * 20.0, 0, 20.0, sz.y), Color(0.025, 0.032, 0.05, 0.93 * a2 * a2 + 0.0), true)
+	if _menu_view == "main":
+		var f := get_theme_default_font()
+		var tip := str(MENU_TIPS[int(_menu_t / 8.0) % MENU_TIPS.size()])
+		_text(self, f, Vector2(56, sz.y - 30.0), "TIP  " + tip, 12, C_DIM, sz.x * 0.6)
+		_text(self, f, Vector2(sz.x - 220.0, 30.0), "v" + GAME_VERSION, 12, C_DIM, 196.0, HORIZONTAL_ALIGNMENT_RIGHT)
+
+
+func _draw_menu_grid(sz: Vector2) -> void:   # (no city yet) the old title screen: grid + drifting packets
 	var grid := Color(0.2, 1.0, 0.9, 0.06)
 	for x in range(0, int(sz.x) + 1, 40): draw_line(Vector2(x, 0), Vector2(x, sz.y), grid)
 	for y in range(0, int(sz.y) + 1, 40): draw_line(Vector2(0, y), Vector2(sz.x, y), grid)

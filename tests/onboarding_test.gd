@@ -45,7 +45,8 @@ func run() -> void:
 	check(m.has("label:RIM"), "The menu is titled RIM (%s)" % str(m.slice(0, 3)))
 	check(m.has("button:Learn") and m.has("button:Skirmish") and m.has("button:Help") and m.has("button:Exit"), "A fresh profile sees Learn and Skirmish at once (%s)" % str(m))
 	check(not m.has("button:Multiplayer"), "Multiplayer is not offered in the menu")
-	check(m.filter(func(t): return str(t).begins_with("label:")).size() == 1, "The main menu holds its title and navigation buttons only")
+	var notes: Array = m.filter(func(t): return str(t).begins_with("label:") and str(t) != "label:RIM")   # (0.6.25) a tagline and short notes under entries
+	check(notes.all(func(t): return str(t).length() - 6 <= 40 and not str(t).contains("New to RIM")), "The main menu holds its title, navigation and short notes only, no guidance prose (%s)" % str(notes))
 	check(not m.any(func(t): return "unlock" in str(t).to_lower()), "Nothing in the menu is locked behind Learn")
 	check(press("Skirmish") and g._menu_view == "newgame" and menu_texts().has("label:Skirmish"), "Skirmish opens the match setup")
 	g._start_new_game()
