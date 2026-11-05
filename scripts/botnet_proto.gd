@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.25"   # a cinematic main menu over the living city (lobbies match exact versions)
+const GAME_VERSION := "0.6.26"   # tiles sized to the sidebar, the hand kept clear of the workshop (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -5516,7 +5516,7 @@ func _layout_hand() -> void:   # the fan: cards side by side, tilted by their pl
 	var left := WORKSHOP_W + 28.0; var right := hand_tools.position.x - 16.0
 	var cx := (left + right) * 0.5
 	var n := list.size()
-	var step := clampf((right - left - HAND_W) / maxf(1.0, float(n - 1)), 34.0, 78.0) if n > 1 else 0.0
+	var step := clampf((right - left - HAND_W - 24.0) / maxf(1.0, float(n - 1)), 22.0, 78.0) if n > 1 else 0.0
 	ready_empty.text = "No cards in hand: + Craft in the workshop makes some"   # (an empty hand says so where the fan would be)
 	ready_empty.size = Vector2(maxf(40.0, right - left), DECK_BAR_HEIGHT); ready_empty.position = Vector2(left, sz.y - DECK_BAR_HEIGHT - 14.0)
 	ready_empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -5531,7 +5531,8 @@ func _layout_hand() -> void:   # the fan: cards side by side, tilted by their pl
 		var w := HAND_W * (HAND_LIFT if lifted else 1.0); var h := HAND_H * (HAND_LIFT if lifted else 1.0)
 		var spread := 0.0 if hot < 0 or lifted else 30.0 * signf(float(k - hot))
 		card.size = Vector2(w, h); card.pivot_offset = Vector2(w * 0.5, h)
-		card.position = Vector2(cx + off * step + spread - w * 0.5, sz.y - h - 8.0 if lifted else sz.y - HAND_H * 0.74 + off * off * 2.5)
+		var x := clampf(cx + off * step + spread - w * 0.5, left, maxf(left, right - w))   # never over the workshop or the buttons
+		card.position = Vector2(x, sz.y - h - 8.0 if lifted else sz.y - HAND_H * 0.74 + off * off * 2.5)
 		card.rotation = 0.0 if lifted else deg_to_rad(clampf(off * 4.0, -16.0, 16.0))
 		card.z_index = 5 if lifted else 1
 
@@ -8668,7 +8669,8 @@ func _panel_build(i: int) -> void:   # (0.6.23) a tile per slot, two to a row, a
 	list.add_theme_constant_override("h_separation", 6); list.add_theme_constant_override("v_separation", 6)
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var rows := int(ceil(float(h.slots) / 2.0))   # as tall as the room left in the sidebar allows, never scrolling (104..TILE_H)
-	var room := panel_scroll.size.y - panel_box.get_combined_minimum_size().y - float(panel_box.get_theme_constant("separation")) - 6.0 * float(rows - 1) - 4.0
+	var visible_h := (_deck_top() - 12.0 - panel.position.y) - 24.0   # the sidebar's view once laid out (its size may lag this refresh)
+	var room := visible_h - panel_box.get_combined_minimum_size().y - float(panel_box.get_theme_constant("separation")) - 6.0 * float(rows - 1) - 4.0
 	var th := clampf(floorf(room / float(maxi(1, rows))), 104.0, TILE_H)
 	for slot in int(h.slots):
 		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot; box.tile = true
