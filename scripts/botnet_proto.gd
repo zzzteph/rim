@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.22"   # one top bar of chips with sparklines and a breakdown on hover (lobbies match exact versions)
+const GAME_VERSION := "0.6.23"   # host slots as tiles with cycle rings (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -8327,6 +8327,97 @@ func _draw_slot_row(c: Control, i: int, slot: int, hover: bool, sockets: bool) -
 		_draw_items(c, v.stock, w - 8.0 - kw, 40.0, 14.0, 12)
 
 
+const TILE_H := 168.0   # (0.6.22... 0.6.23) one slot as a tile, two to a row
+func _badge(c: Control, f: Font, right: float, y: float, txt: String, col: Color) -> void:   # a small rounded label, right-aligned
+	var tw := _text_w(f, txt, 10)
+	var r := Rect2(right - tw - 12.0, y, tw + 12.0, 16.0)
+	var sb := StyleBoxFlat.new(); sb.bg_color = Color(col, 0.16); sb.border_color = Color(col, 0.7); sb.set_border_width_all(1); sb.set_corner_radius_all(8)
+	c.draw_style_box(sb, r)
+	_text(c, f, Vector2(r.position.x + 6.0, y + 12.0), txt, 10, col)
+
+
+func _draw_centered_items(c: Control, items: Array, y: float, icon: float, fs: int) -> void:
+	var iw := _draw_items(c, items, 0.0, 0.0, icon, fs, false)
+	_draw_items(c, items, (c.size.x - iw) * 0.5, y, icon, fs)
+
+
+func _draw_slot_tile(c: Control, i: int, slot: int, hover: bool, sockets: bool) -> void:   # (0.6.23) SlotBox as a tile: the building in a ring
+	if not _host_ok(i) or slot >= (hosts[i].builds as Array).size(): return   # (the ring: the time to its next cycle, or a project's materials)
+	var v := _slot_view(i, slot)
+	var f := c.get_theme_default_font()
+	var w := c.size.x
+	var full := Rect2(Vector2.ZERO, c.size)
+	var compact := c.size.y < 140.0   # little room (5 slots, the Learn banner): the ring on the left, the words beside it
+	var rr0 := 18.0 if compact else 28.0
+	var cen := Vector2(30.0, 38.0) if compact else Vector2(w * 0.5, 58.0)
+	var tx := 58.0   # (compact) where the words start
+	var ty := [30.0, 50.0, 70.0] if compact else [106.0, 124.0, 146.0]   # title, flow (or materials), stock
+	var sb := StyleBoxFlat.new(); sb.set_corner_radius_all(8); sb.set_border_width_all(2 if hover else 1)
+	_text(c, f, Vector2(9, 16), str(slot + 1), 11, C_DIM)
+	if bool(v.empty):   # an empty slot invites a click
+		sb.bg_color = Color(0.11, 0.13, 0.18) if hover else Color(0.075, 0.09, 0.125); sb.border_color = Color(0, 0, 0, 0)
+		c.draw_style_box(sb, full)
+		_dash_rect(c, full.grow(-1.5), Color(C_TEXT if hover else C_DIM, 0.7))
+		_text(c, f, Vector2(9, 16), str(slot + 1), 11, C_DIM)
+		for s2 in 16: c.draw_arc(cen, rr0 - 3.0, s2 * TAU / 16.0, s2 * TAU / 16.0 + TAU / 32.0, 4, Color(C_TEXT if hover else C_DIM, 0.8), 1.5, true)
+		_text(c, f, Vector2(cen.x - 20.0, cen.y + rr0 * 0.36), "+", int(rr0 * 1.05), C_TEXT if hover else C_DIM, 40.0, HORIZONTAL_ALIGNMENT_CENTER)
+		if compact:
+			_text(c, f, Vector2(tx, ty[0]), "Empty slot", 13, C_TEXT if hover else C_DIM.lightened(0.2), w - tx - 6.0)
+			_text(c, f, Vector2(tx, ty[1]), "Click to build", 11, C_DIM, w - tx - 6.0)
+		else:
+			_text(c, f, Vector2(0, 110), "Empty slot", 13, C_TEXT if hover else C_DIM.lightened(0.2), w, HORIZONTAL_ALIGNMENT_CENTER)
+			_text(c, f, Vector2(0, 128), "Click to build", 11, C_DIM, w, HORIZONTAL_ALIGNMENT_CENTER)
+		return
+	var kind := str(v.kind)
+	var busy := bool(v.busy)
+	var col: Color = BUILD_KINDS[kind].col
+	var tone := col.lerp(Color(0.55, 0.57, 0.62), 0.55) if busy else col
+	sb.bg_color = Color(0.14, 0.165, 0.22) if hover else Color(0.11, 0.13, 0.18); sb.border_color = Color(tone, 1.0 if hover else 0.6)
+	c.draw_style_box(sb, full)
+	_text(c, f, Vector2(9, 16), str(slot + 1), 11, C_DIM)
+	c.draw_circle(cen, rr0 + 3.0, Color(0.04, 0.05, 0.08))
+	c.draw_arc(cen, rr0, 0.0, TAU, 40, Color(0.2, 0.23, 0.3), 4.0 if not compact else 3.0, true)
+	var job: Dictionary = (hosts[i].jobs as Dictionary).get(slot, {})
+	if busy:   # a project: an arc per material while they come, then one for the work
+		if _job_state(job) == "waiting":
+			var k := 0
+			for r in RES:
+				if not (job.bill as Dictionary).has(r): continue
+				var need := float(job.bill[r]); var got := minf(need, float((job.escrow as Dictionary).get(r, 0.0)))
+				var rr := rr0 - (7.0 if not compact else 5.0) * float(k)
+				if k > 0: c.draw_arc(cen, rr, 0.0, TAU, 40, Color(0.2, 0.23, 0.3), 3.0, true)
+				c.draw_arc(cen, rr, -PI * 0.5, -PI * 0.5 + TAU * got / maxf(0.001, need), 40, _res_col(r), 3.5, true)
+				k += 1
+		elif float(v.progress) >= 0.0: c.draw_arc(cen, rr0, -PI * 0.5, -PI * 0.5 + TAU * clampf(float(v.progress), 0.0, 1.0), 40, v.bar, 4.0, true)
+	elif kind in PRODUCER_KINDS:   # the time to its next cycle
+		var frac := clampf(1.0 - float(hosts[i].get("cyc", PROD_CYCLE)) / PROD_CYCLE, 0.0, 1.0)
+		c.draw_arc(cen, rr0, -PI * 0.5, -PI * 0.5 + TAU * frac, 40, col, 4.0, true)
+	else: c.draw_arc(cen, rr0, 0.0, TAU, 40, Color(tone, 0.85 if not (kind == "wall" and not bool(hosts[i].get("fw_on", true))) else 0.3), 4.0, true)
+	_draw_kind_icon(c, kind, cen, rr0, tone, f)
+	var badge := str(v.state); var bcol: Color = v.state_col
+	if badge == "" and kind in PRODUCER_KINDS and i != int(rig.get(PLAYER, -1)): badge = "%d s" % ceili(float(hosts[i].get("cyc", PROD_CYCLE))); bcol = col
+	elif badge == "" and kind == "wall":
+		var n := 0; var socks: Array = hosts[i].get("sockets", [])
+		var first := FIREWALL_SOCKETS * _wall_seat(i, slot)
+		for k2 in FIREWALL_SOCKETS: if first + k2 < socks.size() and str(socks[first + k2]) != "" and not str(socks[first + k2]).begins_with("@"): n += 1
+		badge = "ON · %d/%d" % [n, FIREWALL_SOCKETS]; bcol = C_GOOD
+	if badge != "": _badge(c, f, w - 7.0, 6.0, badge, bcol)
+	var tcol := C_DIM.lightened(0.3) if busy else C_TEXT
+	if compact: _text_fit_left(c, f, Vector2(tx, ty[0]), str(v.title), 13, tcol, w - tx - 8.0 - (_text_w(f, badge, 10) + 16.0 if badge != "" else 0.0))
+	elif _text_w(f, str(v.title), 13) <= w - 16.0: _text(c, f, Vector2(0, ty[0]), str(v.title), 13, tcol, w, HORIZONTAL_ALIGNMENT_CENTER)
+	else: _text_fit_left(c, f, Vector2(8, ty[0]), str(v.title), 13, tcol, w - 16.0)
+	var line := func(items: Array, y: float, icon: float, fs: int) -> void:
+		if compact: _draw_items(c, items, tx, y - 4.0, icon, fs)
+		else: _draw_centered_items(c, items, y, icon, fs)
+	if busy:
+		line.call(v.mats, ty[1], 13.0, 11)
+		var st := "then %d s of work" % int(BUILD_TIME) if _job_state(job) == "waiting" else ""
+		if st != "": _text(c, f, Vector2(8, c.size.y - 12.0), st, 11, C_DIM, w - 76.0, HORIZONTAL_ALIGNMENT_LEFT)   # (clear of Cancel)
+		return
+	if not sockets or (not compact and ty[1] + 8.0 <= c.size.y - 36.0): line.call(v.flow, ty[1], 13.0, 12)   # (a Firewall's sockets take the bottom)
+	if not sockets and not (v.stock as Array).is_empty() and ty[2] + 6.0 <= c.size.y: line.call(v.stock, ty[2], 13.0, 11)
+
+
 func _draw_option(c: Control, kind: String, i: int, slot: int, hover: bool) -> void:   # BuildOption: one building in the chooser
 	if not _host_ok(i) or slot >= (hosts[i].builds as Array).size(): return
 	var v := _option_view(kind, i, slot)
@@ -8419,12 +8510,17 @@ func _panel_chooser(i: int, slot: int) -> void:   # the slot chooser: a title wi
 	panel_box.add_child(list)
 
 
-func _panel_build(i: int) -> void:   # one full-width row per slot, always the same height; a click on a row opens the chooser for it
+func _panel_build(i: int) -> void:   # (0.6.23) a tile per slot, two to a row, all the same size; a click on a tile opens the chooser for it
 	var h: Dictionary = hosts[i]
-	var list := VBoxContainer.new(); list.add_theme_constant_override("separation", int(SLOT_VSEP))
+	var list := GridContainer.new(); list.columns = 2
+	list.add_theme_constant_override("h_separation", 6); list.add_theme_constant_override("v_separation", 6)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var rows := int(ceil(float(h.slots) / 2.0))   # as tall as the room left in the sidebar allows, never scrolling (104..TILE_H)
+	var room := panel_scroll.size.y - panel_box.get_combined_minimum_size().y - float(panel_box.get_theme_constant("separation")) - 6.0 * float(rows - 1) - 4.0
+	var th := clampf(floorf(room / float(maxi(1, rows))), 104.0, TILE_H)
 	for slot in int(h.slots):
-		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
-		box.custom_minimum_size = Vector2(0, SLOT_H); box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot; box.tile = true
+		box.custom_minimum_size = Vector2(0, th); box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 sockets across its row
 			var sl := SocketList.new(); sl.game = self; sl.host = i; sl.first = FIREWALL_SOCKETS * _wall_seat(i, slot)
 			sl.mouse_filter = Control.MOUSE_FILTER_PASS   # a click still opens the chooser, a right click still removes the Firewall
@@ -11157,6 +11253,7 @@ class SlotBox extends Control:   # one slot of your host, a full-width row (_dra
 	var slot := 0
 	var stop_button: Button
 	var sockets_inside := false   # a finished Firewall: its SocketList child runs across the row's second line
+	var tile := false             # (0.6.23) drawn as a tile (_draw_slot_tile): the cancel is a corner ×, the sockets along the bottom
 	var hover := false
 	var _down := false
 	const STOP_W := 84.0
@@ -11183,6 +11280,13 @@ class SlotBox extends Control:   # one slot of your host, a full-width row (_dra
 		resized.connect(_place)
 		_place()
 	func _place() -> void:   # the cancel button on the second line's right; a Firewall's sockets across the second line
+		if tile:   # (0.6.23) a corner × to cancel; the sockets along the tile's bottom
+			stop_button.text = "Cancel"; stop_button.add_theme_font_size_override("font_size", 11)
+			stop_button.size = Vector2(56, 20); stop_button.position = Vector2(size.x - 62.0, size.y - 26.0)
+			for c in get_children():
+				if c != stop_button and c is Control:
+					(c as Control).position = Vector2(6.0, size.y - 34.0); (c as Control).size = Vector2(maxf(0.0, size.x - 12.0), 26.0)
+			return
 		stop_button.size = Vector2(STOP_W, STOP_H)
 		stop_button.position = Vector2(size.x - STOP_W - 6.0, 28.0)
 		for c in get_children():
@@ -11202,7 +11306,8 @@ class SlotBox extends Control:   # one slot of your host, a full-width row (_dra
 		elif event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER, KEY_KP_ENTER]:
 			accept_event(); game._open_chooser(host, slot)
 	func _draw() -> void:
-		game._draw_slot_row(self, host, slot, hover, sockets_inside)
+		if tile: game._draw_slot_tile(self, host, slot, hover, sockets_inside)
+		else: game._draw_slot_row(self, host, slot, hover, sockets_inside)
 
 
 
