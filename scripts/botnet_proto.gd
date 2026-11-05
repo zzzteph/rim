@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.20"   # the workers' order as in Settlers: building, research, supplies, output home (lobbies match exact versions)
+const GAME_VERSION := "0.6.21"   # workers on the map as big sprites with their cargo and a trail; F follows one (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -142,6 +142,7 @@ var _opt_enemies := 2
 var _seen := {}                    # fog memory: faction -> {host: Vector2(last-known owner, time seen)}
 var _hover_host := -1              # the visible host under the mouse, found once per drawn frame
 var _hover_flight := -1            # the id of the packet under the mouse (its details show beside it)
+var _follow_wid := -1              # (0.6.21) the worker the camera follows (F over a worker; F again, Esc or a pan stops it)
 var _held_rects := {}              # host -> Rect2 (screen): the "held" tag drawn on it this frame
 var _opt_seed := 0                 # 0 = random town
 var menu_seed_edit: LineEdit
@@ -3529,6 +3530,13 @@ func _process(dt: float) -> void:
 		_end_shown = true; _refresh_panel()
 	_hover_host = _host_at(get_local_mouse_position())
 	_hover_flight = _flight_at(get_local_mouse_position())
+	if _follow_wid >= 0:   # (0.6.21) the camera keeps the followed worker in the middle of the map
+		var ffl := {}
+		for fl in flights: if str(fl.kind) == "courier" and int(fl.owner) == PLAYER and int(fl.get("wid", -1)) == _follow_wid: ffl = fl
+		if not workers.has(_follow_wid): _follow_wid = -1
+		elif not ffl.is_empty():
+			var want := _map_rect().get_center() - _packet_pos(ffl, _t + minf(_sim_acc, SIM_DT)) * _zoom
+			_pan = _pan.lerp(want, minf(1.0, dt * 6.0))
 	var view := _view_key()
 	_redraw_t += dt
 	var tick: bool = view != _last_view or (_redraw_t >= MAP_REFRESH and not paused and not won and not lost)
@@ -5163,6 +5171,12 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_R: _toggle_research(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_E: _toggle_economy(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_H: _open_logs(); get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_F:   # (0.6.21) follow the worker under the mouse with the camera; F again stops
+		var wid := -1
+		for fl in flights:
+			if int(fl.id) == _hover_flight and str(fl.kind) == "courier" and int(fl.owner) == PLAYER: wid = int(fl.get("wid", -1))
+		_follow_wid = -1 if (wid < 0 or wid == _follow_wid) else wid
+		get_viewport().set_input_as_handled()
 
 
 func _can_drop_data(pos: Vector2, data: Variant) -> bool:   # a hand card held over the map
@@ -5727,7 +5741,7 @@ func _gui_input(event: InputEvent) -> void:
 			_box_start = event.position
 			if hit < 0:
 				if shift: _boxing = true                              # Shift+drag on empty = box-select
-				else: _panning = true; _pan_last = event.position     # plain drag on empty = PAN the map
+				else: _panning = true; _pan_last = event.position; _follow_wid = -1     # plain drag on empty = PAN the map (and stop following)
 			else: _boxing = false
 			_drag_from = hit if _mine(hit) else -1   # drag a line only FROM your building
 			_dragging = false
@@ -9301,6 +9315,7 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, roads, wires
 func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jumps (they pass UNDER the buildings)
 	var sight: Dictionary = cx.sight; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
+	var mine := []   # (0.6.21) your workers, drawn after in screen space as big sprites (_paint_workers)
 	for fl in flights:   # yours: a worker is a dot in its cargo's colour (a ring when it travels empty) with an arrow; a rival's is a square
 		if not _flight_seen(fl, sight): continue
 		if str(fl.kind) == "op":   # a card: its remaining path dashed in its family's colour (the card is drawn above the buildings)
@@ -9318,16 +9333,7 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 		if int(fl.owner) != PLAYER:   # a rival's courier: you see it pass, not what it carries
 			_cv.draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(fc.r, fc.g, fc.b, ba).lightened(0.25), true)
 			continue
-		var res := _cargo_res(fl)
-		var col := _res_col(res) if res != "" else COURIER_COL
-		var dir := _flight_dir(fl, vt)
-		var perp := Vector2(-dir.y, dir.x)
-		pp += perp * (3.5 + 3.5 * float(int(fl.get("wid", 0)) % 2))   # each direction on its own side; two workers side by side, never one dot
-		if res != "":   # loaded: a filled dot in its cargo's colour
-			_cv.draw_circle(pp, 4.0, Color(col, ba)); _cv.draw_arc(pp, 4.0, 0.0, TAU, 12, Color(0.02, 0.03, 0.05, 0.8 * ba), 1.0, true)
-		else: _cv.draw_arc(pp, 3.2, 0.0, TAU, 12, Color(col, 0.85 * ba), 1.4, true)   # empty: a hollow ring
-		if dir != Vector2.ZERO:   # which way it is going
-			_cv.draw_colored_polygon(PackedVector2Array([pp + dir * 9.0, pp + dir * 5.0 + perp * 3.0, pp + dir * 5.0 - perp * 3.0]), Color(col, 0.9 * ba))
+		mine.append([fl, ba])
 	for w in _worms:   # a worm's jumps: a bold trail, a pulse racing to the newly-infected building, a ring on it
 		if not (sight.has(int(w.a)) or sight.has(int(w.b))): continue
 		var wa := clampf((float(w.until) - _t) / 4.0, 0.0, 1.0)
@@ -9339,6 +9345,51 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 		var prog := clampf((4.0 - (float(w.until) - _t)) / 0.7, 0.0, 1.0)         # pulse races a→b in the first 0.7 s
 		_cv.draw_circle(a_pos.lerp(b_pos, prog), 5.0, Color(1, 1, 1, 0.9 * wa))
 		_cv.draw_arc(b_pos, _r(int(w.b)) + 5.0, 0.0, TAU, 28, Color(wc.r, wc.g, wc.b, 0.95 * wa), 2.5, true)
+	_paint_workers(mine, vt, cx.f)
+
+
+const WORKER_R := 9.0   # (0.6.21) a worker's sprite radius on screen
+func _worker_screen(fl: Dictionary, vt: float) -> Vector2:   # where a worker of yours is drawn: beside its road, each direction on its own side
+	var dir := _flight_dir(fl, vt)
+	var side := Vector2(-dir.y, dir.x) * (7.0 + 7.0 * float(int(fl.get("wid", 0)) % 2))
+	return _w2s(_packet_pos(fl, vt)) + side
+
+
+func _paint_workers(list: Array, vt: float, f: Font) -> void:   # (0.6.21) screen space: each worker of yours a big round sprite with its
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)       # cargo's icon, a fading trail and a heading chevron; an empty one hollow
+	var k_s := clampf(_zoom, 0.7, 1.3)                             # and dashed; the hovered or followed one shows its way ahead
+	for e in list:
+		var fl: Dictionary = e[0]; var ba := float(e[1])
+		var res := _cargo_res(fl)
+		var col := _res_col(res) if res != "" else COURIER_COL
+		var dir := _flight_dir(fl, vt)
+		var perp := Vector2(-dir.y, dir.x)
+		var pp := _worker_screen(fl, vt)
+		var r := WORKER_R * k_s
+		var hot := int(fl.id) == _hover_flight or (_follow_wid >= 0 and int(fl.get("wid", -1)) == _follow_wid)
+		if hot:   # its way ahead, dashed, to where it is going
+			var path := PackedVector2Array([pp])
+			var rt: Array = fl.route; var hops: Array = fl.hops; var lt := float(fl.get("lt", LINK_TIME))
+			for k in hops.size(): if float(hops[k]) + lt > vt and k + 1 < rt.size(): path.append(_w2s(hosts[int(rt[k + 1])].pos))
+			for k in path.size() - 1:
+				var a := path[k]; var b := path[k + 1]; var ln := a.distance_to(b); var d0 := 0.0
+				while d0 < ln:
+					_cv.draw_line(a.lerp(b, d0 / ln), a.lerp(b, minf(d0 + 7.0, ln) / ln), Color(col, 0.85), 2.0, true); d0 += 12.0
+		for k in range(6, 0, -1):   # the trail: where it was over the last 0.7 s, fading
+			var tp := _w2s(_packet_pos(fl, vt - 0.12 * k)) + (pp - _w2s(_packet_pos(fl, vt)))
+			if tp.distance_to(pp) < 2.0: continue
+			_cv.draw_circle(tp, r * (0.62 - 0.07 * k), Color(col, (0.42 - 0.06 * k) * ba))
+		if res != "":   # loaded: a dark disc ringed in its cargo's colour, its icon inside
+			_cv.draw_circle(pp, r, Color(0.03, 0.05, 0.08, 0.92 * ba))
+			_cv.draw_arc(pp, r, 0.0, TAU, 28, Color(col, ba), 2.2, true)
+			_draw_kind_icon(_cv, _COST_ICON[res], pp, r * 1.25, Color(col, ba), f)
+		else:   # empty, on its way to a pickup: a hollow dashed ring
+			_cv.draw_circle(pp, r - 1.0, Color(0.03, 0.05, 0.08, 0.55 * ba))
+			for s2 in 8: _cv.draw_arc(pp, r - 1.0, s2 * TAU / 8.0, s2 * TAU / 8.0 + TAU / 16.0, 5, Color(col, 0.9 * ba), 1.8, true)
+		if dir != Vector2.ZERO:   # which way it is going
+			_cv.draw_colored_polygon(PackedVector2Array([pp + dir * (r + 7.0), pp + dir * (r + 1.5) + perp * 4.5, pp + dir * (r + 1.5) - perp * 4.5]), Color(col, 0.95 * ba))
+		if hot: _cv.draw_arc(pp, r + 4.0, 0.0, TAU, 28, Color(1, 1, 1, 0.9), 1.5, true)
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 
 
 func _paint_nodes(cx: Dictionary) -> void:   # the buildings: pictograms, frames, bot counts, names; remembered ones as dim outlines
@@ -9375,8 +9426,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		placed.append(tb)
 		_cv.draw_rect(tb, Color(0.03, 0.05, 0.08, 0.88), true)
 		_text(_cv, f, tb.position + Vector2(4.0, 12.5), str(nm[1]), 12, (nm[2] as Color).lightened(0.35))
-	_paint_link_loads(f, sight, vt)
-	_paint_held(f, sight)
+	_paint_held(f, sight)   # (0.6.21: no per-link load labels: each worker shows its own cargo, _paint_workers)
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 	for x in _fx:   # a card landed: an expanding frame in the caster's colour
 		if not sight.has(int(x.host)): continue
@@ -9615,10 +9665,11 @@ func _paint_held(f: Font, sight: Dictionary) -> void:   # screen space: a red ta
 func _flight_at(mouse: Vector2) -> int:   # the id of your (or a visible) moving packet under the mouse, -1 if none
 	if menu_open or flights.is_empty(): return -1
 	var vt := _t + minf(_sim_acc, SIM_DT)
-	var best := -1; var bd := 11.0
+	var best := -1; var bd := WORKER_R * 1.6
 	for fl in flights:
 		if bool(fl.get("blocked", false)) or str(fl.kind) == "scan" or not _flight_visible(PLAYER, fl): continue
-		var d := _w2s(_packet_pos(fl, vt)).distance_to(mouse)
+		var minew := str(fl.kind) == "courier" and int(fl.owner) == PLAYER   # (0.6.21) your worker's sprite sits beside its road
+		var d := (_worker_screen(fl, vt) if minew else _w2s(_packet_pos(fl, vt))).distance_to(mouse)
 		if d < bd: bd = d; best = int(fl.id)
 	return best
 
@@ -9850,7 +9901,10 @@ func _closed(p: PackedVector2Array) -> PackedVector2Array:   # a polyline that r
 
 
 func _visible_bot_count(i: int) -> String:   # the slot badge: yours, or a host a fresh Recon saw; nothing on an unknown host
-	if _mine(i): return "%d/%d" % [_standing(i), int(hosts[i].slots)]
+	if _mine(i):   # (0.6.21) and, on a remote host, its storage: slots used · units stored / STORE_CAP
+		var tag := "%d/%d" % [_standing(i), int(hosts[i].slots)]
+		if i != int(rig.get(PLAYER, -1)) and _store_total(i) >= 0.5: tag += " · %d/%d" % [int(_store_total(i) + 0.0001), int(STORE_CAP)]
+		return tag
 	if not _recon_fresh(PLAYER, i): return ""
 	var seen := 0
 	for b in ((recon.get(PLAYER, {}) as Dictionary).get(i, {}) as Dictionary).get("builds", []):
