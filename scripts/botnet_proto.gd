@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.27"   # cards paid as they are made, workers in single file (lobbies match exact versions)
+const GAME_VERSION := "0.6.28"   # the Economy view: what to fix, and a card per bank (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -379,7 +379,7 @@ func _ready() -> void:
 	var sz := get_viewport_rect().size
 	hud = HudBar.new(); hud.game = self; hud.position = Vector2(24, 10)
 	hud.size = Vector2(sz.x - PANEL_W - 60.0, 32); add_child(hud)
-	research_bar = ResearchBar.new(); research_bar.game = self; research_bar.name = "ResearchBar"; add_child(research_bar)
+	research_bar = ResearchBar.new(); research_bar.game = self; research_bar.name = "ResearchBar"; add_child(research_bar); research_bar.visible = false   # (the research chip replaces it)
 	panel = Panel.new(); panel.size = Vector2(PANEL_W, sz.y - 70.0)
 	panel.position = Vector2(sz.x - PANEL_W - 16.0, 56.0); add_child(panel)   # a clear gap below the top dashboard
 	panel.gui_input.connect(_on_panel_input)
@@ -9553,19 +9553,93 @@ func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the 
 	_refresh_panel(); queue_redraw()
 
 
-func _panel_economy() -> void:
+var _econ_tab := ""      # (0.6.28) the Economy view's tab: "fix", "banks", or "" (fix when there is something to fix)
+var _econ_open := {}     # res -> its bank card is expanded
+
+
+func _econ_problems() -> Array:   # (0.6.28) what needs you now, most urgent first: [{sev, title, cause, acts: [[label, Callable]]}]
+	var out := []
+	var fc := _forecast(PLAYER)
+	var show := func(i: int) -> Callable: return func(): sel = {i: true}; _inspect = -1; _tab = ""; _keep_target_visible(); _refresh_panel(); queue_redraw()
+	for res in RES:   # a bank that runs dry soon, and what drains it most
+		var net := float(fc.net[res])
+		if net >= -0.5: continue
+		var mins := _avail(PLAYER, res) / -net
+		if mins >= 5.0: continue
+		var uses: Dictionary = (fc.use as Dictionary).get(res, {})
+		var top := ""; var tv := 0.0
+		for k in uses: if float(uses[k]) > tv: top = str(k); tv = float(uses[k])
+		var inc := float(fc.rate[res])
+		var acts := []
+		if top == "card queue": acts.append(["Pause the queue", func(): _cmd(["queue_pause"])])
+		elif top == "research" and not (research_job.get(PLAYER, {}) as Dictionary).is_empty(): acts.append(["Pause research", func(): _cmd(["research", str(research_job[PLAYER].key)])])
+		elif top == "building":
+			for i in hosts.size(): if _mine(i) and not (hosts[i].jobs as Dictionary).is_empty(): acts.append(["Show the project", show.call(i)]); break
+		else:
+			for i in hosts.size(): if top.ends_with(" " + str(hosts[i].name)) or top.ends_with("at " + str(hosts[i].name)): acts.append(["Show %s" % str(hosts[i].name), show.call(i)]); break
+		out.append({"sev": 0 if mins < 2.0 else 1, "title": "%s runs out in %s" % [str(RES_NAME[res]), ("%d:%02d" % [int(mins), int(fmod(mins, 1.0) * 60.0)]) if mins >= 1.0 else "under a minute"],
+			"cause": "+%d a minute comes in, %d goes out; the most goes to %s (%d)." % [int(round(inc)), int(round(_use_sum(fc.use, res))), top, int(round(tv))], "acts": acts, "res": res})
+	for i in hosts.size():   # Firewalls that are off: their sockets do not fire
+		if _mine(i) and _count_all(i, "wall") > 0 and not bool(hosts[i].get("fw_on", true)) and i != _hub(PLAYER):
+			out.append({"sev": 0, "title": "Firewall off at %s" % str(hosts[i].name), "cause": "No Intel there for its upkeep: its loaded cards do not fire.", "acts": [["Show %s" % str(hosts[i].name), show.call(i)]]})
+	if float(fc.need) > float(fc.fleet) + 0.5:   # too few workers for the output
+		var spot := -1
+		for i in hosts.size():
+			if spot < 0 and _mine(i) and _free_slot(i) >= 0: spot = i
+		var acts2 := []
+		if spot >= 0: acts2.append(["+ Bot station on %s" % str(hosts[spot].name), func(): _open_chooser(spot, _free_slot(spot))])
+		out.append({"sev": 1, "title": "Workers can't keep up (%d of ~%d)" % [int(fc.fleet), int(ceil(float(fc.need) - 0.05))], "cause": "Output waits on hosts and storages fill. A Bot station adds 2 workers.", "acts": acts2})
+	var full_hosts := 0
+	for i in hosts.size():   # storages that are full: their producers stop
+		if full_hosts >= 2 or not _mine(i) or i == _hub(PLAYER) or _store_total(i) < STORE_CAP - 0.5: continue
+		full_hosts += 1
+		out.append({"sev": 1, "title": "Storage full at %s" % str(hosts[i].name), "cause": "Its producers stop until workers carry its output away.", "acts": [["Show %s" % str(hosts[i].name), show.call(i)]]})
+	var stall := _research_stall(PLAYER)
+	if stall != "": out.append({"sev": 1, "title": "Research stopped", "cause": stall, "acts": [["Open the tree", _toggle_research]]})
+	for res in RES:   # a full bank whose income is lost
+		if bool(fc.full[res]) and float(fc.rate[res]) > _use_sum(fc.use, res) + 0.5:
+			out.append({"sev": 2, "title": "%s bank is full" % str(RES_NAME[res]), "cause": "%d a minute more comes in than is used, and is lost. Make cards or research with it." % int(round(float(fc.rate[res]) - _use_sum(fc.use, res))), "acts": [["Make cards", func(): _open_drawer("attack")]]})
+	out.sort_custom(func(a, b): return int(a.sev) < int(b.sev))
+	return out
+
+
+func _panel_economy() -> void:   # (0.6.28) two tabs: what to fix now (ranked, with actions) and the four banks as cards
 	_plabel("Economy", 20, C_TEXT)
-	_plabel("Net: what each bank gains or loses per minute: the income your network brings in, less what research, cards, building and Firewalls use. Historical: what happened over the last %d s." % int(_ledger_window()), 12, C_DIM)
+	var probs := _econ_problems()
+	var tab := _econ_tab if _econ_tab != "" else ("fix" if not probs.is_empty() else "banks")
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6); panel_box.add_child(row)
+	for t in [["fix", "To fix (%d)" % probs.size()], ["banks", "Banks"]]:
+		var b := Button.new(); b.text = str(t[1]); b.toggle_mode = true; b.button_pressed = tab == str(t[0]); b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(120, 30); b.add_theme_font_size_override("font_size", 13)
+		b.pressed.connect(func(): _econ_tab = str(t[0]); _refresh_panel()); row.add_child(b)
 	_gap(4.0)
-	_plabel("DELIVERY WORKERS", 14, BUILD_KINDS.bot.col)
-	for l in _forecast_lines("workers"): _plabel(str(l[0]), 12, l[1])
-	for res in RES:
-		_gap(4.0)
-		var col: Color = BUILD_KINDS[str({"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col
-		var net := str(_hud_rate(res)[0])
-		_plabel("%s  %d / %d   %s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), net if net == "full" else "net " + net], 14, col)
-		for l in _forecast_lines(res, false): _plabel(str(l[0]), 12, l[1])   # (the net is on the line above, as in the HUD)
-		for l in _history_lines(res): _plabel(str(l), 12, C_DIM)
+	if tab == "fix":
+		if probs.is_empty(): _plabel("Nothing to fix: every bank holds or grows, workers keep up.", 13, C_GOOD)
+		for k in probs.size():
+			var pr: Dictionary = probs[k]
+			var card := PanelContainer.new()
+			var sb := StyleBoxFlat.new(); sb.bg_color = Color(0.07, 0.09, 0.13); sb.set_corner_radius_all(6); sb.content_margin_left = 12; sb.content_margin_right = 10
+			sb.content_margin_top = 8; sb.content_margin_bottom = 8; sb.border_width_left = 3
+			sb.border_color = [C_BAD, C_WARN, C_DIM][int(pr.sev)]
+			card.add_theme_stylebox_override("panel", sb); panel_box.add_child(card)
+			var col := VBoxContainer.new(); col.add_theme_constant_override("separation", 4); card.add_child(col)
+			_lbl(col, "%d  %s" % [k + 1, str(pr.title)], 14, [C_BAD, C_WARN, C_TEXT][int(pr.sev)], _panel_width() - 90.0)
+			_lbl(col, str(pr.cause), 12, C_DIM, _panel_width() - 90.0)
+			if not (pr.acts as Array).is_empty():
+				var ar := HBoxContainer.new(); ar.add_theme_constant_override("separation", 6); col.add_child(ar)
+				for a in pr.acts: _small_btn(ar, str(a[0]), a[1], false, "")
+		var ok := []
+		for res in RES:
+			if not probs.any(func(p): return str(p.get("res", "")) == res): ok.append("%s %s" % [str(RES_NAME[res]), str(_hud_rate(res)[0])])
+		if not ok.is_empty():
+			_gap(4.0)
+			_plabel("OK: " + " · ".join(PackedStringArray(ok)), 12, C_DIM)
+	else:
+		for res in RES:
+			var bc := BankCard.new(); bc.game = self; bc.res = res; bc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			bc.custom_minimum_size = Vector2(0, bc.want_h()); panel_box.add_child(bc)
+		var wcard := BankCard.new(); wcard.game = self; wcard.res = "workers"; wcard.custom_minimum_size = Vector2(0, 64); wcard.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		panel_box.add_child(wcard)
 	_gap(4.0)
 	_plabel("E or Esc closes this view.", 11, C_DIM)
 
@@ -10923,6 +10997,99 @@ class HudBar extends Control:   # (0.6.22) the top bar: one row of chips — wor
 		for k in chips.size(): game._draw_hud_chip(self, chips[k], f, k == hot)
 
 
+class BankCard extends Control:   # (0.6.28) one bank in the Economy view: stock, net, time to empty or full, what comes in and goes out
+	var game                       # on one scale for all four, the last minute's stock; a click lists every source and use
+	var res := "intel"
+	const USE_COL := {"research": Color(0.75, 0.55, 1.0), "card queue": Color(1.0, 0.5, 0.5), "building": Color(1.0, 0.85, 0.3)}
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	func rows() -> Array:   # [[name, value, is_use]] sources then uses, biggest first
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		var out := []
+		var src: Dictionary = (fc.from as Dictionary).get(res, {}); var ks := src.keys(); ks.sort_custom(func(a, b): return float(src[a]) > float(src[b]))
+		for k in ks: out.append([str(k), float(src[k]), false])
+		var uses: Dictionary = (fc.use as Dictionary).get(res, {}); var us := uses.keys(); us.sort_custom(func(a, b): return float(uses[a]) > float(uses[b]))
+		for k in us: out.append([str(k), float(uses[k]), true])
+		return out
+	func want_h() -> float: return 112.0 + (16.0 * rows().size() + 6.0 if bool(game._econ_open.get(res, false)) else 0.0)
+	func _gui_input(event: InputEvent) -> void:
+		if res != "workers" and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			game._econ_open[res] = not bool(game._econ_open.get(res, false)); custom_minimum_size.y = want_h(); accept_event()
+	func _process(_dt: float) -> void:
+		if res != "workers" and absf(custom_minimum_size.y - want_h()) > 0.5: custom_minimum_size.y = want_h()
+		queue_redraw()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var w := size.x
+		var sb := StyleBoxFlat.new(); sb.bg_color = Color(0.07, 0.09, 0.13); sb.set_corner_radius_all(6)
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		if res == "workers":   # the population and how many more the network needs
+			draw_style_box(sb, Rect2(Vector2.ZERO, size))
+			var n := int(fc.fleet); var need := int(ceil(float(fc.need) - 0.05))
+			game._text(self, f, Vector2(12, 20), "WORKERS  %d  ·  network needs ~%d" % [n, maxi(n, need)], 12, game.C_TEXT, w - 24.0)
+			var x := 14.0
+			for k in maxi(n, need):
+				if x > w - 20.0: break
+				if k < n: draw_circle(Vector2(x, 42), 5.0, game.COURIER_COL)
+				else: draw_arc(Vector2(x, 42), 5.0, 0.0, TAU, 16, game.C_WARN, 1.5, true)
+				x += 15.0
+			game._text(self, f, Vector2(12, 58), "A Bot station adds 2.", 11, game.C_DIM, w - 24.0)
+			return
+		var col: Color = game._res_col(res)
+		var net := float(fc.net[res])
+		if net < -0.5: sb.bg_color = Color(0.13, 0.07, 0.08)
+		draw_style_box(sb, Rect2(Vector2.ZERO, size))
+		draw_rect(Rect2(0, 0, 4, size.y), col)
+		var avail: float = game._avail(game.PLAYER, res); var cap: float = game._cap(game.PLAYER, res)
+		game._text(self, f, Vector2(12, 18), str(game.RES_NAME[res]).to_upper(), 12, col)
+		game._text(self, f, Vector2(12, 18), "%d / %d" % [int(avail), int(cap)], 12, game.C_TEXT, w - 24.0, HORIZONTAL_ALIGNMENT_RIGHT)
+		draw_rect(Rect2(12, 24, w - 24, 3), Color(0.15, 0.18, 0.24)); draw_rect(Rect2(12, 24, (w - 24) * clampf(avail / maxf(1.0, cap), 0.0, 1.0), 3), col)
+		var nt: String = "full" if bool(fc.full[res]) else "%s/min" % game._net_txt(net)
+		game._text(self, f, Vector2(12, 50), nt, 20, game.C_GOOD if net > 0.5 else (game.C_BAD if net < -0.5 else game.C_DIM))
+		var wx: float = 12.0 + game._text_w(f, nt, 20) + 10.0   # (the time to empty or full, after the net)
+		var when := ""
+		if net < -0.5: when = "empty in %d:%02d" % [int(avail / -net), int(fmod(avail / -net, 1.0) * 60.0)]
+		elif net > 0.5 and not bool(fc.full[res]): when = "full in %d:%02d" % [int((cap - avail) / net), int(fmod((cap - avail) / net, 1.0) * 60.0)]
+		game._text(self, f, Vector2(wx, 50), when, 11, game.C_DIM, maxf(10.0, w * 0.58 - wx - 6.0))
+		var hist: Array = game._hud_hist.get(res, [])   # the last minute of the stock
+		if hist.size() >= 2:
+			var lo := INF; var hi := -INF
+			for v in hist: lo = minf(lo, float(v)); hi = maxf(hi, float(v))
+			if hi - lo < 1.0: hi = lo + 1.0
+			var pts := PackedVector2Array()
+			for k in hist.size(): pts.append(Vector2(w * 0.58 + (w * 0.42 - 14.0) * float(k) / float(hist.size() - 1), 52.0 - 18.0 * (float(hist[k]) - lo) / (hi - lo)))
+			draw_polyline(pts, Color(col, 0.9), 1.4, true)
+		var inc := 0.0; var out := 0.0
+		var r := rows()
+		for e in r:
+			if bool(e[2]): out += float(e[1])
+			else: inc += float(e[1])
+		var scale := 1.0   # one scale for every bank card, so their bars compare
+		for rr in game.RES:
+			var a := float(fc.rate[rr]); var b: float = game._use_sum(fc.use, rr)
+			scale = maxf(scale, maxf(a, b))
+		var bw := w - 74.0
+		for side in 2:   # in, then out, each split by source or use
+			var y := 64.0 + 16.0 * side
+			game._text(self, f, Vector2(12, y + 8.0), ("in %d" % int(round(inc))) if side == 0 else ("out %d" % int(round(out))), 11, game.C_GOOD if side == 0 else game.C_BAD)
+			draw_rect(Rect2(62, y, bw, 8), Color(0.12, 0.15, 0.2))
+			var x := 62.0; var k := 0
+			for e in r:
+				if bool(e[2]) != (side == 1): continue
+				var ww := bw * float(e[1]) / scale
+				var c: Color = USE_COL.get(str(e[0]), Color(1.0, 0.45, 0.6)) if side == 1 else col.lerp(Color.WHITE, 0.12 * float(k % 3))
+				draw_rect(Rect2(x, y, maxf(0.0, ww - 1.0), 8), Color(c, 0.9)); x += ww; k += 1
+		var rates: Dictionary = game._econ_rates(game.PLAYER, res)
+		game._text(self, f, Vector2(12, 104), "last %d s: +%d / -%d a minute · click for every line" % [int(game._ledger_window()), int(round(float(rates["in"]))), int(round(float(rates.out)))], 11, game.C_DIM, w - 24.0)
+		if bool(game._econ_open.get(res, false)):   # every source and use by name
+			var y2 := 124.0
+			for e in r:
+				game._text(self, f, Vector2(16, y2), str(e[0]), 11, game.C_DIM, w - 90.0)
+				game._text(self, f, Vector2(16, y2), "%s%d" % ["-" if bool(e[2]) else "+", int(round(float(e[1])))], 11, game.C_BAD if bool(e[2]) else game.C_GOOD, w - 32.0, HORIZONTAL_ALIGNMENT_RIGHT)
+				y2 += 16.0
+
+
 class HudPop extends Control:   # (0.6.22) a bank chip's hover: income by source, what uses it, the two side by side, recent history
 	var game
 	var res := "intel"
@@ -11105,9 +11272,7 @@ class ResearchBar extends Control:   # always on screen: what is being researche
 		if str(st.get("slow", "")) != "": return "Researching %s (%s track): %d%%, %s. It pays as it goes and goes faster once your bank keeps up. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), str(st.slow)]
 		return "Researching %s (%s track): %d%%, %d s of work left. It pays as it goes. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
 	func _process(_dt: float) -> void:
-		var on: bool = not game.menu_open and not game.won and not game.lost and str(game._research_bar_state().state) != "idle"
-		if visible != on: visible = on   # only while research runs: an idle bar says nothing useful
-		if on: queue_redraw()
+		if visible: visible = false   # (0.6.22: the research chip on the top bar replaces this bar)
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			game._toggle_research(); accept_event()

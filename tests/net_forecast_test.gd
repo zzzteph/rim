@@ -291,18 +291,13 @@ func overview() -> void:   # the Economy overview (E) shows the same net as the 
 	g._cmd(["research", "ddos"]); g._cmd(["queue", "patch"]); g._cmd(["queue", "patch"])
 	step(2.0)   # (the first copy has started, paid; the second starts within the minute)
 	g._fc_gen += 1
-	g._toggle_economy()
-	var texts := []
+	g._toggle_economy(); g._econ_tab = "banks"; g._refresh_panel()   # (0.6.28) the Banks tab: a card per bank, its uses on its out bar and in its list
+	var cards := {}
 	for c in g.panel_box.get_children():
-		if c is Label: texts.append((c as Label).text)
-	var all := "\n".join(PackedStringArray(texts))
+		if c.has_method("want_h"): cards[str(c.res)] = c
 	var bad := []
 	for res in g.RES:
-		var hud := str(g._hud_rate(res)[0])
-		var head := "%s  %d / %d   %s" % [str(g.RES_NAME[res]).to_upper(), int(g._avail(P, res)), int(g._cap(P, res)), hud if hud == "full" else "net " + hud]
-		if not texts.has(head): bad.append(head)
-	check(bad.is_empty() and all.contains("Used per minute: research") and all.contains("card queue"),
-		"The Economy overview shows each bank's net as the HUD does, and what uses it %s" % str(bad))
-	var nets := 0
-	for t in texts: if str(t).begins_with("Net: "): nets += 1
-	check(nets == 1, "...once per bank, on its heading (no second net line under it, only the overview's opening line)")
+		if not cards.has(res): bad.append(res); continue
+		var uses: Array = (cards[res].rows() as Array).filter(func(e): return bool(e[2])).map(func(e): return str(e[0]))
+		if res == "intel" and not (uses.has("research") and uses.has("card queue")): bad.append("intel uses %s" % str(uses))
+	check(bad.is_empty() and cards.has("workers"), "The Economy view's Banks tab has a card per bank (and the workers), with what uses each %s" % str(bad))
