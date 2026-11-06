@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.19"   # review fixes for 0.6.18: upkeep room kept on phished hosts too, the forecast's bank upkeep (lobbies match exact versions)
+const GAME_VERSION := "0.6.26"   # tiles sized to the sidebar, the hand kept clear of the workshop (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -142,6 +142,7 @@ var _opt_enemies := 2
 var _seen := {}                    # fog memory: faction -> {host: Vector2(last-known owner, time seen)}
 var _hover_host := -1              # the visible host under the mouse, found once per drawn frame
 var _hover_flight := -1            # the id of the packet under the mouse (its details show beside it)
+var _follow_wid := -1              # (0.6.21) the worker the camera follows (F over a worker; F again, Esc or a pan stops it)
 var _held_rects := {}              # host -> Rect2 (screen): the "held" tag drawn on it this frame
 var _opt_seed := 0                 # 0 = random town
 var menu_seed_edit: LineEdit
@@ -282,6 +283,12 @@ var panel: Panel
 var panel_box: VBoxContainer
 var hand_panel: Control          # the drawer's body: ready cards, four recipes of a bank, or the research tree
 var hand_bar: GridContainer
+var hand_fan: Control            # (0.6.24) your Ready cards as a fanned hand along the bottom (HandCard each)
+var workshop: Control            # (0.6.24) the manufacturing queue as a pile, bottom left (WorkshopPile)
+var hand_tools: HBoxContainer    # (0.6.24) bottom right: Ready n/12, Recipes, Tree
+var ready_count: Label
+var _hand_hot := ""              # the hand card under the mouse (it lifts and shows its rules)
+var _drag_origin := Vector2.ZERO # where a dragged card left the hand (the aim arrow starts there)
 var card_banks: HBoxContainer    # the drawer's tabs, in DRAWER_TABS order
 var deck_handle: Button          # the strip's cards button (three bars): open / close the drawer
 var _card_bank := "ready"        # the drawer's view: "ready" (cards you hold), "attack" / "defense" (recipes), "research"
@@ -470,6 +477,20 @@ func _ready() -> void:
 	burger.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); deck_handle.add_child(burger)
 	deck_handle.pressed.connect(func(): _set_deck_open(not _deck_open))
 	add_child(deck_handle)
+	workshop = WorkshopPile.new(); workshop.game = self; workshop.name = "Workshop"; add_child(workshop)   # (0.6.24) the queue, bottom left
+	hand_fan = Control.new(); hand_fan.name = "HandFan"; hand_fan.mouse_filter = Control.MOUSE_FILTER_IGNORE; add_child(hand_fan)   # the hand
+	for card in CARD_ORDER:
+		var hc := HandCard.new(); hc.game = self; hc.key = _card_key(str(card), "linked"); hc.recipe = str(card); hc.name = "Hand_" + str(card)
+		hand_fan.add_child(hc)
+	hand_tools = HBoxContainer.new(); hand_tools.name = "HandTools"; hand_tools.add_theme_constant_override("separation", 6); add_child(hand_tools)
+	ready_count = Label.new(); ready_count.name = "ReadyCount"; ready_count.add_theme_font_size_override("font_size", 12)
+	ready_count.add_theme_color_override("font_color", C_DIM); ready_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	ready_count.custom_minimum_size = Vector2(0, 34); hand_tools.add_child(ready_count)
+	for spec in [["Recipes", "Make copies of the cards you know (C).", func(): _open_drawer("attack" if _card_bank not in ["attack", "defense"] else _card_bank)],
+			["Tree", "The development tree (R).", _toggle_research]]:
+		var tb := Button.new(); tb.name = "Hand" + str(spec[0]); tb.text = str(spec[0]); tb.focus_mode = Control.FOCUS_NONE
+		tb.custom_minimum_size = Vector2(96, 34); tb.add_theme_font_size_override("font_size", 13); tb.tooltip_text = str(spec[1])
+		tb.pressed.connect(spec[2]); hand_tools.add_child(tb)
 	deck_pager = HBoxContainer.new(); deck_pager.add_theme_constant_override("separation", 6)
 	for step in [-1, 0, 1]:
 		if step == 0:
@@ -2316,7 +2337,9 @@ func _host_plan(i: int, fac: int, budget: Dictionary, upkeep_extra := 0.0) -> Di
 
 
 # ---- requests: what each host needs brought in and has to send out, keeping their age ----
-const REQ_CLASS := {"build": 0, "upkeep": 0, "input": 1, "export": 2, "salvage": 2, "loot": 3}   # purpose order: building (and the Firewalls' upkeep) first
+const REQ_CLASS := {"build": 0, "lack": 0, "rlack": 1, "upkeep": 2, "room": 2, "input": 2, "export": 3, "salvage": 3, "loot": 4}   # (0.6.20) the
+# workers' order: 1 building (a project's materials; a main-node project's, brought home), 2 research (what the running
+# research lacks in the bank, brought home), 3 supplies (a Firewall's upkeep and the room for it), 4 output home; stolen goods last
 
 
 func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, since, host, purpose, res, qty, dir}] in a stable order
@@ -2377,7 +2400,7 @@ func _open_requests(fac: int, hub: int, only := -1) -> Array:   # [{key, id, sin
 	return out
 
 
-func _req_class(r: Dictionary) -> int: return int(REQ_CLASS.get(str(r.purpose).split(":")[0], 2))
+func _req_class(r: Dictionary) -> int: return int(REQ_CLASS.get(str(r.purpose).split(":")[0], 3))
 
 
 # Building comes first for the workers (0.6.10): a project's materials go out before anything else, the bank's stock
@@ -2409,8 +2432,8 @@ func _supply_budget(fac: int, owed := {}) -> Dictionary:   # {res: bank stock su
 	return out
 
 
-func _upkeep_extra(fac: int, owed: Dictionary) -> float:   # bank Intel held for projects and the queue that a Firewall's upkeep may still use
-	return float(owed.get("intel", 0.0)) + float(_head_owed(fac).get("intel", 0.0))
+func _upkeep_extra(fac: int, _owed: Dictionary) -> float:   # bank Intel held for the card queue's head that a Firewall's upkeep may still use
+	return float(_head_owed(fac).get("intel", 0.0))            # (0.6.20: not what the projects need: building goes before supplies)
 
 
 func _head_owed(fac: int) -> Dictionary:   # the unpaid price of the card queue's first copy (0.6.12): research and supplies leave it alone,
@@ -2426,6 +2449,21 @@ func _research_hold(fac: int) -> Dictionary:   # bank stock research leaves alon
 	var head := _head_owed(fac)
 	for r in head: hold[r] = float(hold.get(r, 0.0)) + float(head[r])
 	return hold
+
+
+func _research_lack(fac: int, taken := {}) -> Dictionary:   # (0.6.20) {res: what the running research will pay within NET_HORIZON s that
+	var out := {}                                             # the bank cannot give it (beyond what research leaves alone) and is not on its
+	var job: Dictionary = research_job.get(fac, {})           # way, less what building already brings home (`taken`)}
+	if job.is_empty() or bool(job.get("paused", false)): return out
+	var cost := _research_cost(str(job.key))
+	var secs := _research_time(str(job.key))
+	var runs := clampf(secs - float(job.get("progress", 0.0)), 0.0, NET_HORIZON)
+	var hold := _research_hold(fac)
+	for r in cost:
+		var need := float(cost[r]) * runs / maxf(0.001, secs)
+		var q := need - maxf(0.0, _avail(fac, str(r)) - float(hold.get(r, 0.0))) - _incoming(fac, str(r)) - float(taken.get(r, 0.0))
+		if q > 0.0001: out[str(r)] = q
+	return out
 
 
 func _build_lack(fac: int, owed := {}) -> Dictionary:   # {res: what the projects wait for that is neither in the bank nor on its way there}
@@ -2449,7 +2487,7 @@ func _amount(fac: int, hub: int, r: Dictionary, owed := {}) -> float:   # what o
 			if not _build_room(i, str(r.purpose).trim_prefix("build:"), res, amt): return 0.0
 		else:
 			if _store_room(i) < amt - 0.0001: return 0.0                   # no room at the host for it
-			if str(r.purpose) != "upkeep" and _free(fac, res) - float(owed.get(res, 0.0)) < amt - 0.0001: return 0.0   # the projects need it: building first
+			if _free(fac, res) - float(owed.get(res, 0.0)) < amt - 0.0001: return 0.0   # the projects need it: building first (0.6.20: upkeep too)
 	else:
 		var have := _pile_free(i, fac, res) if bool(r.get("pile", false)) else _store_free(i, fac, res)
 		amt = minf(amt, have)
@@ -2521,17 +2559,20 @@ func _mark_res(fac: int, r: Dictionary) -> void:   # this host's resource was ju
 # ---- dispatch (0.6.16): every free worker, wherever it is, takes the most useful job it can start soonest ----
 # A job moves one unit from a source to a destination. A project's material or a Firewall's upkeep comes from the
 # nearest place that can spare it - your bank, a host's spare stock, your own salvage - straight to the site; a host's
-# surplus, your salvage and stolen goods go to your bank. Building and upkeep come strictly first (a Firewall's upkeep,
-# then Bot stations, then the projects in the order given); then the surplus of the hosts about to fill up, the hosts in
-# turn; stolen goods last. A worker is free where it delivers and goes on from there; with nothing to do, it heads home.
+# surplus, your salvage and stolen goods go to your bank. The order (0.6.20, REQ_CLASS): building strictly first (Bot
+# stations, then the projects in the order given), then what the running research lacks, then the Firewalls' upkeep,
+# then the surplus home (the hosts about to fill up first, the hosts in turn); stolen goods last. A worker is free where
+# it delivers and goes on from there; with nothing to do, it heads home.
 func _pick_rank(fac: int, r: Dictionary) -> Array:   # how urgent one request is (smaller first)
 	var cls := _req_class(r)
 	var h := int(r.host)
 	if str(r.purpose) == "lack": return [0, 1, 0, 0, 0]   # (a main-node project's material, brought home)
-	if str(r.purpose) == "room": return [0, -1, -1, h, 0]   # (room for a Firewall's upkeep)
+	if str(r.purpose) == "rlack": return [1, 0, 0, 0, 0]   # (what the running research lacks, brought home)
+	if str(r.purpose) == "room": return [2, -1, -1, h, 0]   # (room for a Firewall's upkeep, just before it)
+	if str(r.purpose) == "upkeep": return [2, 0, 0, int(r.id), 0]
 	if cls == 0:
 		var job := _job_for(h, str(r.purpose).trim_prefix("build:"))
-		return [0, -1 if str(r.purpose) == "upkeep" else (0 if str(job.get("kind", "")) == "bot" else 1), int(job.get("id", 0)), int(r.id), 0]
+		return [0, 0 if str(job.get("kind", "")) == "bot" else 1, int(job.get("id", 0)), int(r.id), 0]
 	if str(r.dir) == "out": return [cls, 0 if _tight_now(h) else 1, _served_at(fac, h), _served_res_at(fac, h, str(r.res)), int(r.id)]
 	return [cls, 1, _served_at(fac, h), -1, int(r.id)]
 
@@ -2596,6 +2637,11 @@ func _dispatch(fac: int, hub: int, free: Array) -> void:   # deal the jobs to th
 	var lack := _build_lack(fac, _build_owed(fac, true))   # what the main node's projects wait for that is neither in the bank nor coming:
 	for res in lack:                                       # brought home from the hosts, as building
 		ins.append({"key": "%d:lack:%s" % [hub, res], "id": 0, "since": 0.0, "host": hub, "purpose": "lack", "res": str(res), "qty": float(lack[res]), "dir": "in"})
+	var rlack := _research_lack(fac, lack)   # (0.6.20) then what the running research lacks: brought home before any supply
+	for res in rlack:
+		ins.append({"key": "%d:rlack:%s" % [hub, res], "id": 0, "since": 0.0, "host": hub, "purpose": "rlack", "res": str(res), "qty": float(rlack[res]), "dir": "in"})
+	var upkeep_left := {}   # (0.6.20) bank stock a Firewall's upkeep may take: not what the projects still need (building first)
+	for res in RES: upkeep_left[res] = maxf(0.0, _free(fac, res) - float(owed.get(res, 0.0)))
 	for d in hosts.size():   # a Firewall whose next upkeep cannot fit its full storage: that host's surplus goes first, as urgently as upkeep
 		if d == hub or int(hosts[d].owner) != fac or _routing_down(d): continue
 		var walls := _count_all(d, "wall") - _walls_building(d)
@@ -2616,7 +2662,7 @@ func _dispatch(fac: int, hub: int, free: Array) -> void:   # deal the jobs to th
 		var short2 := lack2 * (UPKEEP_KEEP + 1.0) - _store_free(d2, fac, "intel") - _inbound(d2, "intel")
 		if short2 > 0.0001: topup[d2] = short2
 	while not free.is_empty():
-		var job := _best_delivery(fac, hub, free, ins, srcs, outs, bank_left, supply_left)
+		var job := _best_delivery(fac, hub, free, ins, srcs, outs, bank_left, supply_left, upkeep_left)
 		if job.is_empty(): job = _best_haul(fac, hub, free, outs, owed, topup)
 		if job.is_empty(): break
 		_start_haul(fac, hub, job)
@@ -2638,7 +2684,7 @@ func _nearest_worker(fac: int, free: Array, at: int) -> Array:   # [wid, time to
 	return [best, bt]
 
 
-func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, outs: Array, bank_left: Dictionary, supply_left: Dictionary) -> Dictionary:
+func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, outs: Array, bank_left: Dictionary, supply_left: Dictionary, upkeep_left := {}) -> Dictionary:
 	for d in ins:   # the most urgent site first (strictly); for it, the source and worker that get a unit there soonest
 		if float(d.qty) <= 0.0001: continue
 		var dst := int(d.host); var res := str(d.res); var purpose := str(d.purpose)
@@ -2653,9 +2699,9 @@ func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, ou
 				return room_job
 			continue
 		var best := {}; var bt := INF
-		var pool: Dictionary = bank_left if purpose != "input" else supply_left
+		var pool: Dictionary = supply_left if purpose == "input" else (upkeep_left if purpose == "upkeep" and not upkeep_left.is_empty() else bank_left)
 		var from_bank := minf(amt, float(pool.get(res, 0.0)))
-		if purpose == "lack": from_bank = 0.0   # (it is not in the bank: that is the point)
+		if purpose == "lack" or purpose == "rlack": from_bank = 0.0   # (it is not in the bank: that is the point)
 		if from_bank > 0.0001 and (from_bank >= amt - 0.0001 or from_bank >= float(d.qty) - 0.0001):
 			var nw := _nearest_worker(fac, free, hub)
 			var t := float(nw[1]) + _leg_time(fac, hub, dst)
@@ -2682,7 +2728,7 @@ func _best_delivery(fac: int, hub: int, free: Array, ins: Array, srcs: Array, ou
 		var a2 := float(best.amt)
 		if purpose.begins_with("build:"):
 			if not _build_room(dst, purpose.trim_prefix("build:"), res, a2): continue
-		elif purpose == "lack":
+		elif purpose == "lack" or purpose == "rlack":
 			if _room(fac, res) < a2 - 0.0001: continue
 			purpose = ""
 		elif _store_room(dst) < a2 - 0.0001: continue
@@ -3504,6 +3550,16 @@ func _process(dt: float) -> void:
 		_end_shown = true; _refresh_panel()
 	_hover_host = _host_at(get_local_mouse_position())
 	_hover_flight = _flight_at(get_local_mouse_position())
+	_hud_sample()
+	if hand_fan != null: _layout_hand()
+	if pause_icon != null: pause_icon.icon = UiIcons.texture("play" if paused else "pause", 18)
+	if _follow_wid >= 0:   # (0.6.21) the camera keeps the followed worker in the middle of the map
+		var ffl := {}
+		for fl in flights: if str(fl.kind) == "courier" and int(fl.owner) == PLAYER and int(fl.get("wid", -1)) == _follow_wid: ffl = fl
+		if not workers.has(_follow_wid): _follow_wid = -1
+		elif not ffl.is_empty():
+			var want := _map_rect().get_center() - _packet_pos(ffl, _t + minf(_sim_acc, SIM_DT)) * _zoom
+			_pan = _pan.lerp(want, minf(1.0, dt * 6.0))
 	var view := _view_key()
 	_redraw_t += dt
 	var tick: bool = view != _last_view or (_redraw_t >= MAP_REFRESH and not paused and not won and not lost)
@@ -4361,6 +4417,9 @@ func _refresh_event_strip() -> void:   # the Logs button: how many entries are n
 	logs_button.text = "Logs · %d new" % int(u[0]) if int(u[0]) > 0 else "Logs"
 	var col: Color = [C_BAD, C_WARN, C_TEXT][int(u[1])] if int(u[0]) > 0 or int(u[1]) < EV_INFO else C_DIM
 	for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]: logs_button.add_theme_color_override(key, col)
+	if logs_icon != null:   # (0.6.22) the bell on the top bar: how many are new, in the most urgent one's colour
+		logs_icon.text = str(int(u[0])) if int(u[0]) > 0 else ""
+		for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "icon_normal_color", "icon_hover_color"]: logs_icon.add_theme_color_override(key, col if int(u[0]) > 0 else C_TEXT)
 
 
 func _open_logs() -> void:
@@ -5126,6 +5185,11 @@ func _input(event: InputEvent) -> void:
 		elif _panel_has_context(): _clear_all(); _refresh_panel(); queue_redraw()
 		else: _open_menu(true)
 		get_viewport().set_input_as_handled(); return
+	if menu_open and _menu_view == "main" and event.keycode >= KEY_1 and event.keycode <= KEY_9:   # (0.6.25) 1-9 pick a main-menu entry
+		var entries := menu_box.get_children().filter(func(c): return c is Button and (c as Button).visible and not (c as Button).disabled)
+		var k := int(event.keycode - KEY_1)
+		if k < entries.size(): (entries[k] as Button).pressed.emit()
+		get_viewport().set_input_as_handled(); return
 	if menu_open or won or lost: return
 	if event.keycode == KEY_SPACE:
 		if _camp_paused: _camp_set_pause(false); get_viewport().set_input_as_handled(); return   # resume the lesson's reading pause
@@ -5138,6 +5202,17 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_R: _toggle_research(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_E: _toggle_economy(); get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_H: _open_logs(); get_viewport().set_input_as_handled()
+	elif event.keycode >= KEY_1 and event.keycode <= KEY_9:   # (0.6.24) 1-9: pick the hand's card in that place (again: drop it)
+		var lst := _ready_list()
+		var k := int(event.keycode - KEY_1)
+		if k < lst.size(): _arm_card(_card_key(str(lst[k]), "linked"))
+		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_F:   # (0.6.21) follow the worker under the mouse with the camera; F again stops
+		var wid := -1
+		for fl in flights:
+			if int(fl.id) == _hover_flight and str(fl.kind) == "courier" and int(fl.owner) == PLAYER: wid = int(fl.get("wid", -1))
+		_follow_wid = -1 if (wid < 0 or wid == _follow_wid) else wid
+		get_viewport().set_input_as_handled()
 
 
 func _can_drop_data(pos: Vector2, data: Variant) -> bool:   # a hand card held over the map
@@ -5416,10 +5491,50 @@ func _style_bank_tab(button: Button, bank: String, look: String) -> void:   # a 
 func _drawer_h() -> float: return CARD_DOCK_HEIGHT + (RESEARCH_INFO_H + 6.0 if _card_bank == "research" else 0.0)
 
 
-func _deck_top() -> float:   # the top edge of everything the strip and the drawer cover right now
+func _deck_top() -> float:   # the top edge of everything the drawer covers right now (0.6.24: closed, nothing: the hand lies over the map)
 	var top := get_viewport_rect().size.y - 12.0 - DECK_BAR_HEIGHT
 	if _deck_open: top -= DECK_GAP + _drawer_h() + DECK_GAP + DECK_BAR_HEIGHT
+	else: top = get_viewport_rect().size.y - 12.0
 	return top
+
+
+const HAND_W := 104.0   # (0.6.24) a hand card; it lifts to HAND_LIFT times this under the mouse
+const HAND_H := 146.0
+const HAND_LIFT := 1.6
+const WORKSHOP_W := 252.0
+const WORKSHOP_H := 136.0
+func _layout_hand() -> void:   # the fan: cards side by side, tilted by their place, the hovered one upright and lifted; the workshop and tools
+	if hand_fan == null: return
+	var sz := get_viewport_rect().size
+	var playing := not menu_open and not won and not lost and not _deck_open
+	var list := _ready_list()
+	var mr := _map_rect()
+	workshop.position = Vector2(12, sz.y - WORKSHOP_H - 8.0); workshop.size = Vector2(WORKSHOP_W, WORKSHOP_H); workshop.visible = playing
+	hand_tools.size = hand_tools.get_combined_minimum_size()
+	hand_tools.position = Vector2(mr.end.x - hand_tools.size.x, sz.y - hand_tools.size.y - 10.0); hand_tools.visible = playing
+	ready_count.text = "Ready %d/%d" % [_ready_total(PLAYER), READY_SLOTS]
+	var left := WORKSHOP_W + 28.0; var right := hand_tools.position.x - 16.0
+	var cx := (left + right) * 0.5
+	var n := list.size()
+	var step := clampf((right - left - HAND_W - 24.0) / maxf(1.0, float(n - 1)), 22.0, 78.0) if n > 1 else 0.0
+	ready_empty.text = "No cards in hand: + Craft in the workshop makes some"   # (an empty hand says so where the fan would be)
+	ready_empty.size = Vector2(maxf(40.0, right - left), DECK_BAR_HEIGHT); ready_empty.position = Vector2(left, sz.y - DECK_BAR_HEIGHT - 14.0)
+	ready_empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ready_empty.visible = playing and list.is_empty()
+	var hot := list.find(_card_of(_hand_hot)) if _hand_hot != "" else -1
+	for card in hand_fan.get_children():
+		var k := list.find(str(card.recipe))
+		card.visible = playing and k >= 0
+		if k < 0: continue
+		var off := float(k) - float(n - 1) * 0.5
+		var lifted := k == hot
+		var w := HAND_W * (HAND_LIFT if lifted else 1.0); var h := HAND_H * (HAND_LIFT if lifted else 1.0)
+		var spread := 0.0 if hot < 0 or lifted else 30.0 * signf(float(k - hot))
+		card.size = Vector2(w, h); card.pivot_offset = Vector2(w * 0.5, h)
+		var x := clampf(cx + off * step + spread - w * 0.5, left, maxf(left, right - w))   # never over the workshop or the buttons
+		card.position = Vector2(x, sz.y - h - 8.0 if lifted else sz.y - HAND_H * 0.74 + off * off * 2.5)
+		card.rotation = 0.0 if lifted else deg_to_rad(clampf(off * 4.0, -16.0, 16.0))
+		card.z_index = 5 if lifted else 1
 
 
 func _layout_deck() -> void:
@@ -5444,9 +5559,9 @@ func _layout_deck() -> void:
 		deck_pager.position = Vector2(mid_left + floorf((mid_room - deck_pager.size.x) * 0.5), head_y)
 	deck_handle.size = deck_handle.custom_minimum_size
 	deck_handle.position = Vector2(sz.x - 24 - deck_handle.size.x, strip_y)
-	deck_handle.visible = playing
+	deck_handle.visible = false   # (0.6.24: the hand, the workshop and the Recipes / Tree buttons replace the strip; its parts stay, unseen)
 	lane_strip.position = Vector2(24, strip_y); lane_strip.size = lane_strip.get_combined_minimum_size()
-	lane_strip.visible = playing
+	lane_strip.visible = false
 	# the ready cards: fixed-size chips from the lanes to the handle; what does not fit goes behind "+n"
 	var left := lane_strip.position.x + lane_strip.size.x + 16.0
 	var room := deck_handle.position.x - 12.0 - left
@@ -5461,9 +5576,10 @@ func _layout_deck() -> void:
 	ready_more.visible = shown.size() < list.size()
 	ready_more.text = "+%d" % (list.size() - shown.size())
 	ready_strip.position = Vector2(left, strip_y); ready_strip.size = ready_strip.get_combined_minimum_size()
-	ready_strip.visible = playing and not list.is_empty()
+	ready_strip.visible = false
 	ready_empty.position = Vector2(left, strip_y); ready_empty.size = Vector2(maxf(40.0, room), DECK_BAR_HEIGHT)
-	ready_empty.visible = playing and list.is_empty()
+	ready_empty.visible = false
+	_layout_hand()
 	_update_card_banks(false)
 
 
@@ -5536,6 +5652,48 @@ func _draw_ready_face(c: Control, key: String, big: bool) -> void:   # a ready c
 		for k in mini(2, lines.size()): _text(c, f, Vector2(12, 102 + 14 * k), str(lines[k]), 11, C_DIM, c.size.x - 24, HORIZONTAL_ALIGNMENT_LEFT)
 
 
+func _draw_hand_card(c: Control, key: String, lifted: bool) -> void:   # (0.6.24) a hand card: name, art, copies, family; lifted: its rules
+	var f := c.get_theme_default_font()
+	var recipe := _card_of(key)
+	var card: Dictionary = CARDS[recipe]
+	var bank: Color = BANK_COL[str(card.bank)]
+	var fam: Color = FAMILY_COL[str(card.fam)]
+	var picked := _armed == recipe
+	var w := c.size.x; var h := c.size.y
+	var sb := StyleBoxFlat.new(); sb.set_corner_radius_all(8); sb.set_border_width_all(3 if picked else 2)
+	sb.bg_color = Color(0.06, 0.08, 0.12); sb.border_color = SELECT_COL if picked else bank
+	sb.shadow_color = Color(0, 0, 0, 0.55); sb.shadow_size = 8 if lifted else 4
+	c.draw_style_box(sb, Rect2(Vector2.ZERO, c.size))
+	var fs := 14 if lifted else 12
+	c.draw_rect(Rect2(6, 6, w - 12, 22 if not lifted else 28), fam.darkened(0.78))
+	_text(c, f, Vector2(10, 22 if not lifted else 26), str(card.name if lifted else card.short), fs, C_TEXT, w - 20)
+	var art := Rect2(10, 34 if not lifted else 40, w - 20, (h * 0.42) if not lifted else h * 0.3)
+	c.draw_rect(art, fam.darkened(0.88))
+	_draw_card_glyph(c, recipe, art.get_center(), minf(art.size.x, art.size.y) * 0.72, fam, f)
+	var n := _held(PLAYER, recipe)   # the copies held, on a badge at the art's corner
+	var badge := ("×%d ready" % n) if lifted else "×%d" % n
+	var bw := _text_w(f, badge, 12) + 12.0
+	var bsb := StyleBoxFlat.new(); bsb.bg_color = Color(0.85, 0.3, 0.3) if not _is_defense(recipe) else Color(0.3, 0.5, 0.9); bsb.set_corner_radius_all(9)
+	c.draw_style_box(bsb, Rect2(art.end.x - bw - 2.0, art.end.y - 20.0, bw, 18.0))
+	_text(c, f, Vector2(art.end.x - bw + 4.0, art.end.y - 7.0), badge, 12, Color.WHITE)
+	var y := art.end.y + 16.0
+	_text(c, f, Vector2(10, y), ("DEFENCE" if _is_defense(recipe) else "ATTACK") + (" · " + str(card.effect).to_upper() if lifted else ""), 10, bank.lightened(0.3), w - 20)
+	if not lifted:
+		_text(c, f, Vector2(10, y + 16.0), "Selected" if picked else "", 10, SELECT_COL, w - 20)
+		return
+	var lines := _wrap_text(f, str(card.get("lead", "")), 12, w - 20.0)   # what it does, then its odds, then how to play it
+	for k in mini(2, lines.size()): _text(c, f, Vector2(10, y + 20.0 + 16.0 * k), str(lines[k]), 12, C_TEXT, w - 20)
+	var odds := ""
+	if recipe == "recon": odds = "Gets through %d%% of the time." % _pct(RECON_CHANCE)
+	elif str(card.effect) in ["capture", "worm"]: odds = "Odds %d%% unscouted, %d%% after a Recon." % [_pct(UNSCOUTED_CHANCE), _pct(SCOUTED_CHANCE)]
+	if odds != "":
+		var ol := _wrap_text(f, odds, 11, w - 20.0)
+		for k in mini(2, ol.size()): _text(c, f, Vector2(10, y + 58.0 + 14.0 * k), str(ol[k]), 11, C_WARN, w - 20)
+	c.draw_line(Vector2(8, h - 26.0), Vector2(w - 8.0, h - 26.0), Color(bank, 0.35))
+	var place := _ready_list().find(recipe)
+	_text(c, f, Vector2(10, h - 10.0), "Drag onto a host" + ("   [%d]" % (place + 1) if place >= 0 and place < 9 else ""), 11, C_DIM, w - 20)
+
+
 func _arm_card(key: String) -> void:   # click a ready card: select it (again: unselect). The drawer gets out of the way of the map.
 	if menu_open or won or lost: return
 	var recipe := _card_of(key)
@@ -5570,6 +5728,7 @@ func _card_drag_data(source: Control, key: String) -> Variant:   # a held card l
 	if menu_open or won or lost: return null
 	if _held(PLAYER, key) <= 0:   # say why nothing happens: a silent refusal reads as a frozen game
 		_flash("No %s ready — click the card to prepare one first" % str(CARDS[_card_of(key)].name)); return null
+	_drag_origin = source.get_global_rect().get_center()   # (0.6.24) the aim arrow starts where the card left the hand
 	var preview := CardDragPreview.new(); preview.game = self; preview.key = key
 	preview.custom_minimum_size = Vector2(248, 58); preview.size = preview.custom_minimum_size
 	preview.position = Vector2(18, -74)
@@ -5702,7 +5861,7 @@ func _gui_input(event: InputEvent) -> void:
 			_box_start = event.position
 			if hit < 0:
 				if shift: _boxing = true                              # Shift+drag on empty = box-select
-				else: _panning = true; _pan_last = event.position     # plain drag on empty = PAN the map
+				else: _panning = true; _pan_last = event.position; _follow_wid = -1     # plain drag on empty = PAN the map (and stop following)
 			else: _boxing = false
 			_drag_from = hit if _mine(hit) else -1   # drag a line only FROM your building
 			_dragging = false
@@ -6062,6 +6221,10 @@ func _layout_menu() -> void:   # one rule for every view: MENU_PAD all round, th
 	var scrolls := content > h - 2.0 * MENU_PAD + 0.5
 	menu_panel.size = Vector2(_menu_w, h)
 	menu_panel.position = ((vp - menu_panel.size) * 0.5).floor()
+	if _menu_view == "main":   # (0.6.25) the main menu stands on the left, over the city, with no box
+		menu_panel.position = Vector2(48.0, floorf((vp.y - h) * 0.5))
+		menu_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	else: menu_panel.remove_theme_stylebox_override("panel")
 	# the scrollbar, when there is one, sits in the right-hand inset: the content keeps the same width either way
 	var bar := menu_sc.get_v_scroll_bar().get_combined_minimum_size().x if scrolls else 0.0
 	menu_sc.position = Vector2(MENU_PAD, MENU_PAD)
@@ -6529,16 +6692,50 @@ func _mp_tick_countdown() -> void:   # the big "starting in 3…" line (also cal
 
 func _menu_main() -> void:   # navigation only. Learn and Skirmish are both open from the first run.
 	# Multiplayer is hidden for now: its lockstep backend and tests stay (_mp_open, botnet_net.gd).
-	_menu_title("RIM")
-	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mbtn("Resume", func(): _open_menu(false))   # a Learn session paused at _t==0 still resumes
+	# (0.6.25) the cinematic menu: a big wordmark over the city, the entries as a list on the left (1-9 pick one)
+	var mark := Label.new(); mark.text = "RIM"; mark.name = "Wordmark"
+	mark.add_theme_font_size_override("font_size", 72); mark.add_theme_color_override("font_color", Color(0.45, 1.0, 0.92))
+	mark.add_theme_color_override("font_shadow_color", Color(0.2, 1.0, 0.9, 0.35)); mark.add_theme_constant_override("shadow_offset_x", 0)
+	mark.add_theme_constant_override("shadow_offset_y", 0); mark.add_theme_constant_override("shadow_outline_size", 10)
+	menu_box.add_child(mark)
+	var tag := Label.new(); tag.text = "Run the network. Hold the city."
+	tag.add_theme_font_size_override("font_size", 14); tag.add_theme_color_override("font_color", C_DIM); menu_box.add_child(tag)
+	_menu_gap(14.0)
+	if (_t >= 0.01 or _camp or _tut) and not won and not lost: _mlist("Resume", func(): _open_menu(false))   # a Learn session paused at _t==0 still resumes
 	if _mp_on:
-		_mbtn("Leave match", _mp_leave)
+		_mlist("Leave match", _mp_leave)
 	else:
-		if not _camp or won or lost: _mbtn("Learn", func(): _menu_go("campaign"))   # a live Learn session is continued with Resume above
-		_mbtn("Skirmish", func(): _menu_go("newgame"))
-	_mbtn("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
-	_mbtn("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
-	_mbtn("Exit", func(): get_tree().quit())
+		var save := _camp_load()
+		var started := int(save.get("chapter", 0)) > 0 or int(save.get("step", 0)) > 0
+		if (not _camp or won or lost) and started and not bool(save.get("completed", false)):   # a lesson part-way: one click back into it
+			_mlist("Continue Learn", func(): _camp_resume_or_start())
+			_menu_sub("Lesson %d of %d" % [int(save.get("chapter", 0)) + 1, CAMP_CHAPTERS])
+		if not _camp or won or lost: _mlist("Learn", func(): _menu_go("campaign"))   # a live Learn session is continued with Resume above
+		_mlist("Skirmish", func(): _menu_go("newgame"))
+		_menu_sub("Map %d × %d · %d rival%s" % [_opt_size.x, _opt_size.y, _opt_enemies, "" if _opt_enemies == 1 else "s"])
+	_mlist("Help", func(): _help_page = 0; _menu_view = "help"; _refresh_menu())
+	_mlist("Feedback", func(): _fb_status = ""; _menu_view = "feedback"; _refresh_menu())
+	_mlist("Exit", func(): get_tree().quit())
+
+
+func _mlist(txt: String, cb: Callable) -> void:   # (0.6.25) a main-menu entry: a large left-aligned row, lit with a bar on hover
+	_mbtn(txt, cb)
+	var b := menu_box.get_child(menu_box.get_child_count() - 1) as Button
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT; b.add_theme_font_size_override("font_size", 22); b.custom_minimum_size.y = 46
+	var plain := StyleBoxFlat.new(); plain.bg_color = Color(0, 0, 0, 0); plain.content_margin_left = 16
+	var lit := StyleBoxFlat.new(); lit.bg_color = Color(0.2, 1.0, 0.9, 0.09); lit.border_color = Color(0.4, 1.0, 0.92)
+	lit.border_width_left = 3; lit.content_margin_left = 16
+	for st in ["normal", "disabled"]: b.add_theme_stylebox_override(st, plain)
+	for st in ["hover", "pressed", "focus"]: b.add_theme_stylebox_override(st, lit)
+	b.add_theme_color_override("font_hover_color", Color(0.6, 1.0, 0.95))
+
+
+func _menu_sub(t: String) -> void:   # (0.6.25) a quiet line under a main-menu entry
+	var l := Label.new(); l.text = t
+	l.add_theme_font_size_override("font_size", 12); l.add_theme_color_override("font_color", C_DIM)
+	l.custom_minimum_size.x = menu_box.custom_minimum_size.x - 19.0   # (inside the column, after its indent)
+	var m := MarginContainer.new(); m.add_theme_constant_override("margin_left", 19); m.add_theme_constant_override("margin_top", -6)
+	m.add_child(l); menu_box.add_child(m)
 
 
 func _menu_go(view: String) -> void: _menu_view = view; _refresh_menu()
@@ -7566,7 +7763,7 @@ func _panel_has_context() -> bool:
 
 
 func _panel_shown() -> bool:
-	return true   # a compact leaderboard fills the sidebar when no building is selected
+	return _panel_has_context()   # (0.6.22) nothing selected: no sidebar (the standings are the majority chip's hover)
 
 
 func _refresh_panel() -> void:
@@ -7673,17 +7870,17 @@ func _layout_ui() -> void:
 	if hud == null or feedback_label == null: return
 	var sz := get_viewport_rect().size
 	top_tabs.size = top_tabs.get_combined_minimum_size()
-	top_tabs.position = Vector2(sz.x - 24 - top_tabs.size.x, 14)
-	hud.position = Vector2(24, 8); hud.size = Vector2(maxf(200.0, top_tabs.position.x - 16.0 - 24.0), 46)   # never under the buttons
+	top_tabs.position = Vector2(sz.x - 8 - top_tabs.size.x, HUD_TOP + (HUD_H - top_tabs.size.y) * 0.5)   # (0.6.22) one top bar:
+	hud.position = Vector2(8, HUD_TOP); hud.size = Vector2(maxf(200.0, top_tabs.position.x - 8.0 - 8.0), HUD_H)   # chips, then icons
 	objective_label.position = Vector2(24, 62); objective_label.size = Vector2(sz.x - 48, 24)
-	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _banner_on() else 64)
-	if logs_button != null:
+	panel.position = Vector2(sz.x - _panel_width() - 24, (_camp_banner_h() + 74) if _banner_on() else HUD_TOP + HUD_H + 8.0)
+	if logs_button != null:   # (0.6.22: the bell on the top bar replaces it; it keeps its count, unseen)
 		logs_button.position = Vector2(24, _research_bar_y()); logs_button.size = Vector2(LOGS_W, RESEARCH_BAR_H)
-		logs_button.visible = not menu_open and not won and not lost
+		logs_button.visible = false
 	if research_bar != null:
 		research_bar.position = Vector2(24 + LOGS_W + 8, _research_bar_y())
 		research_bar.size = Vector2(clampf(sz.x - _panel_width() - 104.0 - LOGS_W, 200.0, RESEARCH_BAR_W), RESEARCH_BAR_H)
-		research_bar.visible = not menu_open and not won and not lost and str(_research_bar_state().state) != "idle"   # nothing running: no bar
+		research_bar.visible = false   # (0.6.22: the research chip on the top bar replaces it)
 	var panel_bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	panel.size = Vector2(_panel_width(), maxf(180, panel_bottom - panel.position.y))
 	if not _panel_has_context(): panel.size.y = minf(panel.size.y, 94 + botnets.size() * 60)
@@ -7705,7 +7902,7 @@ func _layout_ui() -> void:
 func _map_rect() -> Rect2:
 	var sz := get_viewport_rect().size
 	var right := sz.x - _panel_width() - 48 if _panel_shown() else sz.x - 24
-	var top := _research_bar_y() + RESEARCH_BAR_H + 10.0
+	var top := (_research_bar_y() + RESEARCH_BAR_H + 10.0) if _banner_on() else HUD_TOP + HUD_H + 8.0
 	# Reserve the deck (pushed down or pulled up) while fitting a new town behind the menu too.
 	var bottom := sz.y - 24 if won or lost else _deck_top() - 12
 	return Rect2(24, top, maxf(200, right - 24), maxf(100, bottom - top))
@@ -7725,7 +7922,7 @@ func _layout_feedback_label() -> void:
 	feedback_label.size.x = _map_rect().size.x
 	var height := feedback_label.get_combined_minimum_size().y
 	feedback_label.size.y = height
-	feedback_label.position = Vector2(24, _deck_top() - height - 10)
+	feedback_label.position = Vector2(24, minf(_deck_top(), get_viewport_rect().size.y - WORKSHOP_H - 16.0) - height - 10)
 	_place_event_strip()
 
 
@@ -7767,17 +7964,31 @@ func _update_chrome(tick := true) -> void:   # tick: also repaint the deck chips
 func _refresh_top_tabs() -> void:
 	if top_tabs == null: return
 	if top_tabs.get_child_count() > 0: return
-	research_button = Button.new(); research_button.text = "Research"; research_button.name = "Research"
-	research_button.custom_minimum_size = Vector2(150, 36); research_button.focus_mode = Control.FOCUS_NONE
-	research_button.clip_text = true; research_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	research_button.pressed.connect(_toggle_research); top_tabs.add_child(research_button)
-	var econ_button := Button.new(); econ_button.text = "Economy"; econ_button.name = "Economy"
-	econ_button.custom_minimum_size = Vector2(104, 36); econ_button.focus_mode = Control.FOCUS_NONE
-	econ_button.tooltip_text = "Each bank's income, what uses it, its net per minute and its recent history (E)"
-	econ_button.pressed.connect(_toggle_economy); top_tabs.add_child(econ_button)
-	var menu_button := Button.new(); menu_button.text = "Menu"
-	menu_button.custom_minimum_size = Vector2(88, 36)
-	menu_button.pressed.connect(_open_menu.bind(true)); top_tabs.add_child(menu_button)
+	research_button = Button.new(); research_button.text = "Research"; research_button.name = "Research"   # (0.6.22: the research chip
+	research_button.custom_minimum_size = Vector2(150, 36); research_button.focus_mode = Control.FOCUS_NONE   # on the top bar replaces it;
+	research_button.clip_text = true; research_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   # it keeps its text, unseen)
+	research_button.pressed.connect(_toggle_research); top_tabs.add_child(research_button); research_button.visible = false
+	logs_icon = _icon_button("LogsIcon", "bell", "What happened: your operations, attacks on you, captures, losses and problems (H).", _open_logs)
+	pause_icon = _icon_button("PauseIcon", "pause", "Pause or resume the match (Space).", _toggle_pause)
+	_icon_button("Economy", "chart", "Each bank's income, what uses it, its net per minute and its recent history (E)", _toggle_economy)
+	_icon_button("Menu", "menu", "The menu (Esc)", _open_menu.bind(true))
+
+
+var logs_icon: Button   # (0.6.22) the top bar's icon buttons
+var pause_icon: Button
+func _icon_button(nm: String, icon: String, tip: String, act: Callable) -> Button:
+	var b := Button.new(); b.name = nm; b.focus_mode = Control.FOCUS_NONE
+	b.icon = UiIcons.texture(icon, 18); b.custom_minimum_size = Vector2(40, 36); b.tooltip_text = tip
+	b.add_theme_font_size_override("font_size", 12)
+	b.pressed.connect(act); top_tabs.add_child(b)
+	return b
+
+
+func _toggle_pause() -> void:   # the top bar's pause button: the same as Space
+	if _mp_on or menu_open or won or lost: return
+	if _camp_paused: _camp_set_pause(false); return
+	paused = not paused; _refresh_panel(); queue_redraw()
+	if _camp: _show_tut()
 
 
 func _scroll_pos() -> int:
@@ -8269,6 +8480,97 @@ func _draw_slot_row(c: Control, i: int, slot: int, hover: bool, sockets: bool) -
 		_draw_items(c, v.stock, w - 8.0 - kw, 40.0, 14.0, 12)
 
 
+const TILE_H := 168.0   # (0.6.22... 0.6.23) one slot as a tile, two to a row
+func _badge(c: Control, f: Font, right: float, y: float, txt: String, col: Color) -> void:   # a small rounded label, right-aligned
+	var tw := _text_w(f, txt, 10)
+	var r := Rect2(right - tw - 12.0, y, tw + 12.0, 16.0)
+	var sb := StyleBoxFlat.new(); sb.bg_color = Color(col, 0.16); sb.border_color = Color(col, 0.7); sb.set_border_width_all(1); sb.set_corner_radius_all(8)
+	c.draw_style_box(sb, r)
+	_text(c, f, Vector2(r.position.x + 6.0, y + 12.0), txt, 10, col)
+
+
+func _draw_centered_items(c: Control, items: Array, y: float, icon: float, fs: int) -> void:
+	var iw := _draw_items(c, items, 0.0, 0.0, icon, fs, false)
+	_draw_items(c, items, (c.size.x - iw) * 0.5, y, icon, fs)
+
+
+func _draw_slot_tile(c: Control, i: int, slot: int, hover: bool, sockets: bool) -> void:   # (0.6.23) SlotBox as a tile: the building in a ring
+	if not _host_ok(i) or slot >= (hosts[i].builds as Array).size(): return   # (the ring: the time to its next cycle, or a project's materials)
+	var v := _slot_view(i, slot)
+	var f := c.get_theme_default_font()
+	var w := c.size.x
+	var full := Rect2(Vector2.ZERO, c.size)
+	var compact := c.size.y < 140.0   # little room (5 slots, the Learn banner): the ring on the left, the words beside it
+	var rr0 := 18.0 if compact else 28.0
+	var cen := Vector2(30.0, 38.0) if compact else Vector2(w * 0.5, 58.0)
+	var tx := 58.0   # (compact) where the words start
+	var ty := [30.0, 50.0, 70.0] if compact else [106.0, 124.0, 146.0]   # title, flow (or materials), stock
+	var sb := StyleBoxFlat.new(); sb.set_corner_radius_all(8); sb.set_border_width_all(2 if hover else 1)
+	_text(c, f, Vector2(9, 16), str(slot + 1), 11, C_DIM)
+	if bool(v.empty):   # an empty slot invites a click
+		sb.bg_color = Color(0.11, 0.13, 0.18) if hover else Color(0.075, 0.09, 0.125); sb.border_color = Color(0, 0, 0, 0)
+		c.draw_style_box(sb, full)
+		_dash_rect(c, full.grow(-1.5), Color(C_TEXT if hover else C_DIM, 0.7))
+		_text(c, f, Vector2(9, 16), str(slot + 1), 11, C_DIM)
+		for s2 in 16: c.draw_arc(cen, rr0 - 3.0, s2 * TAU / 16.0, s2 * TAU / 16.0 + TAU / 32.0, 4, Color(C_TEXT if hover else C_DIM, 0.8), 1.5, true)
+		_text(c, f, Vector2(cen.x - 20.0, cen.y + rr0 * 0.36), "+", int(rr0 * 1.05), C_TEXT if hover else C_DIM, 40.0, HORIZONTAL_ALIGNMENT_CENTER)
+		if compact:
+			_text(c, f, Vector2(tx, ty[0]), "Empty slot", 13, C_TEXT if hover else C_DIM.lightened(0.2), w - tx - 6.0)
+			_text(c, f, Vector2(tx, ty[1]), "Click to build", 11, C_DIM, w - tx - 6.0)
+		else:
+			_text(c, f, Vector2(0, 110), "Empty slot", 13, C_TEXT if hover else C_DIM.lightened(0.2), w, HORIZONTAL_ALIGNMENT_CENTER)
+			_text(c, f, Vector2(0, 128), "Click to build", 11, C_DIM, w, HORIZONTAL_ALIGNMENT_CENTER)
+		return
+	var kind := str(v.kind)
+	var busy := bool(v.busy)
+	var col: Color = BUILD_KINDS[kind].col
+	var tone := col.lerp(Color(0.55, 0.57, 0.62), 0.55) if busy else col
+	sb.bg_color = Color(0.14, 0.165, 0.22) if hover else Color(0.11, 0.13, 0.18); sb.border_color = Color(tone, 1.0 if hover else 0.6)
+	c.draw_style_box(sb, full)
+	_text(c, f, Vector2(9, 16), str(slot + 1), 11, C_DIM)
+	c.draw_circle(cen, rr0 + 3.0, Color(0.04, 0.05, 0.08))
+	c.draw_arc(cen, rr0, 0.0, TAU, 40, Color(0.2, 0.23, 0.3), 4.0 if not compact else 3.0, true)
+	var job: Dictionary = (hosts[i].jobs as Dictionary).get(slot, {})
+	if busy:   # a project: an arc per material while they come, then one for the work
+		if _job_state(job) == "waiting":
+			var k := 0
+			for r in RES:
+				if not (job.bill as Dictionary).has(r): continue
+				var need := float(job.bill[r]); var got := minf(need, float((job.escrow as Dictionary).get(r, 0.0)))
+				var rr := rr0 - (7.0 if not compact else 5.0) * float(k)
+				if k > 0: c.draw_arc(cen, rr, 0.0, TAU, 40, Color(0.2, 0.23, 0.3), 3.0, true)
+				c.draw_arc(cen, rr, -PI * 0.5, -PI * 0.5 + TAU * got / maxf(0.001, need), 40, _res_col(r), 3.5, true)
+				k += 1
+		elif float(v.progress) >= 0.0: c.draw_arc(cen, rr0, -PI * 0.5, -PI * 0.5 + TAU * clampf(float(v.progress), 0.0, 1.0), 40, v.bar, 4.0, true)
+	elif kind in PRODUCER_KINDS:   # the time to its next cycle
+		var frac := clampf(1.0 - float(hosts[i].get("cyc", PROD_CYCLE)) / PROD_CYCLE, 0.0, 1.0)
+		c.draw_arc(cen, rr0, -PI * 0.5, -PI * 0.5 + TAU * frac, 40, col, 4.0, true)
+	else: c.draw_arc(cen, rr0, 0.0, TAU, 40, Color(tone, 0.85 if not (kind == "wall" and not bool(hosts[i].get("fw_on", true))) else 0.3), 4.0, true)
+	_draw_kind_icon(c, kind, cen, rr0, tone, f)
+	var badge := str(v.state); var bcol: Color = v.state_col
+	if badge == "" and kind in PRODUCER_KINDS and i != int(rig.get(PLAYER, -1)): badge = "%d s" % ceili(float(hosts[i].get("cyc", PROD_CYCLE))); bcol = col
+	elif badge == "" and kind == "wall":
+		var n := 0; var socks: Array = hosts[i].get("sockets", [])
+		var first := FIREWALL_SOCKETS * _wall_seat(i, slot)
+		for k2 in FIREWALL_SOCKETS: if first + k2 < socks.size() and str(socks[first + k2]) != "" and not str(socks[first + k2]).begins_with("@"): n += 1
+		badge = "ON · %d/%d" % [n, FIREWALL_SOCKETS]; bcol = C_GOOD
+	if badge != "": _badge(c, f, w - 7.0, 6.0, badge, bcol)
+	var tcol := C_DIM.lightened(0.3) if busy else C_TEXT
+	if compact: _text_fit_left(c, f, Vector2(tx, ty[0]), str(v.title), 13, tcol, w - tx - 8.0 - (_text_w(f, badge, 10) + 16.0 if badge != "" else 0.0))
+	elif _text_w(f, str(v.title), 13) <= w - 16.0: _text(c, f, Vector2(0, ty[0]), str(v.title), 13, tcol, w, HORIZONTAL_ALIGNMENT_CENTER)
+	else: _text_fit_left(c, f, Vector2(8, ty[0]), str(v.title), 13, tcol, w - 16.0)
+	var line := func(items: Array, y: float, icon: float, fs: int) -> void:
+		if compact: _draw_items(c, items, tx, y - 4.0, icon, fs)
+		else: _draw_centered_items(c, items, y, icon, fs)
+	if busy:
+		line.call(v.mats, ty[1], 13.0, 11)
+		var st := "then %d s of work" % int(BUILD_TIME) if _job_state(job) == "waiting" else ""
+		if st != "": _text(c, f, Vector2(8, c.size.y - 12.0), st, 11, C_DIM, w - 76.0, HORIZONTAL_ALIGNMENT_LEFT)   # (clear of Cancel)
+		return
+	if not sockets or (not compact and ty[1] + 8.0 <= c.size.y - 36.0): line.call(v.flow, ty[1], 13.0, 12)   # (a Firewall's sockets take the bottom)
+	if not sockets and not (v.stock as Array).is_empty() and ty[2] + 6.0 <= c.size.y: line.call(v.stock, ty[2], 13.0, 11)
+
+
 func _draw_option(c: Control, kind: String, i: int, slot: int, hover: bool) -> void:   # BuildOption: one building in the chooser
 	if not _host_ok(i) or slot >= (hosts[i].builds as Array).size(): return
 	var v := _option_view(kind, i, slot)
@@ -8361,12 +8663,18 @@ func _panel_chooser(i: int, slot: int) -> void:   # the slot chooser: a title wi
 	panel_box.add_child(list)
 
 
-func _panel_build(i: int) -> void:   # one full-width row per slot, always the same height; a click on a row opens the chooser for it
+func _panel_build(i: int) -> void:   # (0.6.23) a tile per slot, two to a row, all the same size; a click on a tile opens the chooser for it
 	var h: Dictionary = hosts[i]
-	var list := VBoxContainer.new(); list.add_theme_constant_override("separation", int(SLOT_VSEP))
+	var list := GridContainer.new(); list.columns = 2
+	list.add_theme_constant_override("h_separation", 6); list.add_theme_constant_override("v_separation", 6)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var rows := int(ceil(float(h.slots) / 2.0))   # as tall as the room left in the sidebar allows, never scrolling (104..TILE_H)
+	var visible_h := (_deck_top() - 12.0 - panel.position.y) - 24.0   # the sidebar's view once laid out (its size may lag this refresh)
+	var room := visible_h - panel_box.get_combined_minimum_size().y - float(panel_box.get_theme_constant("separation")) - 6.0 * float(rows - 1) - 4.0
+	var th := clampf(floorf(room / float(maxi(1, rows))), 104.0, TILE_H)
 	for slot in int(h.slots):
-		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot
-		box.custom_minimum_size = Vector2(0, SLOT_H); box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var box := SlotBox.new(); box.game = self; box.host = i; box.slot = slot; box.tile = true
+		box.custom_minimum_size = Vector2(0, th); box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if slot < (h.builds as Array).size() and str(h.builds[slot]) == "wall" and not _slot_busy(i, slot):   # a finished Firewall: its 3 sockets across its row
 			var sl := SocketList.new(); sl.game = self; sl.host = i; sl.first = FIREWALL_SOCKETS * _wall_seat(i, slot)
 			sl.mouse_filter = Control.MOUSE_FILTER_PASS   # a click still opens the chooser, a right click still removes the Firewall
@@ -8944,6 +9252,144 @@ func _hud_items() -> Array:   # [kind-icon, text, colour, column width, res]
 	return out
 
 
+const HUD_TOP := 6.0    # (0.6.22) the top bar of chips
+const HUD_H := 40.0
+const HUD_CHIP_GAP := 6.0
+var _hud_hist := {}       # (0.6.22) res -> the bank's stock once a second over the last minute (the chips' sparklines; screen only)
+var _hud_hist_t := -1
+
+
+func _hud_chips() -> Array:   # (0.6.22) [{kind, x, w}] left to right: workers, the four banks, the majority, research
+	var out := [{"kind": "workers", "w": 150.0}]
+	for res in RES: out.append({"kind": res, "w": 156.0})
+	out.append({"kind": "majority", "w": 176.0})
+	out.append({"kind": "tree", "w": 168.0})   # (research, as a blueprint in progress)
+	var total := 0.0
+	for c in out: total += float(c.w) + HUD_CHIP_GAP
+	var room := hud.size.x if hud != null else total
+	var k := minf(1.0, room / total)
+	var x := 0.0
+	for c in out:
+		c.w = floorf(float(c.w) * k); c.x = x; x += float(c.w) + HUD_CHIP_GAP
+	return out
+
+
+func _hud_sample() -> void:   # once a second of match time: each bank's stock, for the sparklines
+	if int(_t) == _hud_hist_t: return
+	if int(_t) < _hud_hist_t: _hud_hist = {}
+	_hud_hist_t = int(_t)
+	for res in RES:
+		if not _hud_hist.has(res): _hud_hist[res] = []
+		(_hud_hist[res] as Array).append(_avail(PLAYER, res))
+		if (_hud_hist[res] as Array).size() > 60: (_hud_hist[res] as Array).pop_front()
+
+
+func _chip_box(c: CanvasItem, r: Rect2, edge: Color) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.055, 0.075, 0.11, 0.96); sb.border_color = edge
+	sb.set_border_width_all(1); sb.set_corner_radius_all(7)
+	c.draw_style_box(sb, r)
+
+
+func _net_arrow(c: CanvasItem, f: Font, at: Vector2, v: float) -> float:   # a coloured ▲41 / ▼30 / 0; returns its width
+	var col := C_GOOD if v > 0.5 else (C_BAD if v < -0.5 else C_DIM)
+	var x := at.x
+	if absf(v) > 0.5:
+		var up := v > 0
+		var cy := at.y - 4.0
+		c.draw_colored_polygon(PackedVector2Array([Vector2(x, cy + (3.0 if up else -3.0)), Vector2(x + 7.0, cy + (3.0 if up else -3.0)), Vector2(x + 3.5, cy + (-3.5 if up else 3.5))]), col)
+		x += 9.0
+	var t := "%d" % int(round(absf(v)))
+	_text(c, f, Vector2(x, at.y), t, 12, col)
+	return x + _text_w(f, t, 12) - at.x
+
+
+func _draw_hud_chip(c: CanvasItem, chip: Dictionary, f: Font, hot: bool) -> void:
+	var x := float(chip.x); var w := float(chip.w)
+	var r := Rect2(x, 0.0, w, HUD_H)
+	var kind := str(chip.kind)
+	var edge := Color(0.25, 0.36, 0.48, 0.7)
+	if kind in RES:
+		var res := kind
+		var col := _res_col(res)
+		var fc := _forecast(PLAYER)
+		var full := bool(fc.full[res])
+		_chip_box(c, r, col if hot else edge)
+		_draw_kind_icon(c, str({"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res]), Vector2(x + 15.0, 14.0), 14.0, col, f)
+		var amt := "%d" % int(_avail(PLAYER, res))
+		_text(c, f, Vector2(x + 27.0, 19.0), amt, 15, C_WARN if full else C_TEXT)
+		_text(c, f, Vector2(x + 29.0 + _text_w(f, amt, 15), 19.0), "/%d" % int(_cap(PLAYER, res)), 10, C_DIM)
+		if full: _text(c, f, Vector2(x + 10.0, 34.0), "full", 12, C_WARN)
+		else: _net_arrow(c, f, Vector2(x + 10.0, 34.0), float(fc.net[res]))
+		var hist: Array = _hud_hist.get(res, [])
+		if hist.size() >= 2:   # the last minute of the bank, scaled to its own range
+			var lo := INF; var hi := -INF
+			for v in hist: lo = minf(lo, float(v)); hi = maxf(hi, float(v))
+			if hi - lo < 1.0: hi = lo + 1.0
+			var sx := x + w * 0.5; var sw := w * 0.5 - 10.0
+			var pts := PackedVector2Array()
+			for k in hist.size(): pts.append(Vector2(sx + sw * float(k) / float(maxi(1, hist.size() - 1)), 34.0 - 10.0 * (float(hist[k]) - lo) / (hi - lo)))
+			c.draw_polyline(pts, Color(col, 0.9), 1.4, true)
+		var fill := clampf(_avail(PLAYER, res) / maxf(1.0, _cap(PLAYER, res)), 0.0, 1.0)   # the stock against its cap, along the bottom edge
+		c.draw_rect(Rect2(x + 7.0, HUD_H - 4.0, (w - 14.0) * fill, 2.0), Color(col, 0.85))
+		return
+	_chip_box(c, r, Color(0.4, 1.0, 0.9, 0.8) if hot else edge)
+	match kind:
+		"workers":   # how many, one dot per worker coloured by what it does, and how many are free
+			var wc := _worker_counts(PLAYER)
+			_draw_kind_icon(c, "bot", Vector2(x + 15.0, 14.0), 14.0, BUILD_KINDS.bot.col, f)
+			_text(c, f, Vector2(x + 27.0, 19.0), "%d" % int(wc.total), 15, C_TEXT if int(wc.total) > 0 else C_BAD)
+			var dx := x + 52.0
+			var ids := workers.keys(); ids.sort()
+			var shown := 0
+			for wid in ids:
+				var wk: Dictionary = workers[wid]
+				if int(wk.fac) != PLAYER or str(wk.state) == "retiring": continue
+				if shown >= int((w - 60.0) / 9.0): break
+				var st := _worker_state(int(wid))
+				var dc := C_WARN if st == "idle" else (C_BAD if st == "blocked" else COURIER_COL)
+				for fl in flights:
+					if int(fl.id) == int(wk.get("fid", -1)) and _cargo_res(fl) != "": dc = _res_col(_cargo_res(fl))
+				c.draw_circle(Vector2(dx, 14.0), 3.2, dc); dx += 9.0; shown += 1
+			var free := int(wc.idle)
+			_text(c, f, Vector2(x + 10.0, 34.0), ("%d free" % free) if free > 0 else ("%d blocked" % int(wc.blocked) if int(wc.blocked) > 0 else "all busy"), 11, C_WARN if free > 0 else (C_BAD if int(wc.blocked) > 0 else C_DIM))
+		"majority":   # you / needed, a bar of the map with the threshold, and the strongest rival
+			var o := _objective()
+			var mine := int((o.counts as Dictionary).get(PLAYER, 0))
+			c.draw_texture_rect(UiIcons.texture("flag", 14), Rect2(x + 8.0, 6.0, 14, 14), false, C_WARN)
+			var txt := "%d" % mine
+			_text(c, f, Vector2(x + 27.0, 19.0), txt, 15, C_TEXT)
+			_text(c, f, Vector2(x + 29.0 + _text_w(f, txt, 15), 19.0), "/%d" % int(o.need), 10, C_DIM)
+			var rival := -1; var rn := 0
+			for fac in botnets:
+				if fac != PLAYER and int((o.counts as Dictionary).get(fac, 0)) > rn: rival = fac; rn = int(o.counts[fac])
+			if rival >= 0: _text(c, f, Vector2(x + 10.0, 19.0), "%s %d" % [fname(rival), rn], 11, fcol(rival).lightened(0.3), w - 20.0, HORIZONTAL_ALIGNMENT_RIGHT)
+			var bx := x + 10.0; var bw := w - 20.0; var tot := maxf(1.0, float(o.total))
+			c.draw_rect(Rect2(bx, 27.0, bw, 5.0), Color(0.15, 0.19, 0.26))
+			c.draw_rect(Rect2(bx, 27.0, bw * float(mine) / tot, 5.0), C_GOOD)
+			if rival >= 0: c.draw_rect(Rect2(bx + bw - bw * float(rn) / tot, 27.0, bw * float(rn) / tot, 5.0), fcol(rival))
+			var tx := bx + bw * float(o.need) / tot
+			c.draw_rect(Rect2(tx - 1.0, 24.0, 2.0, 11.0), C_WARN)
+			var holder := int(o.holder)
+			if holder >= 0: _text(c, f, Vector2(x + 10.0, 19.0), "%s hold %ds" % ["you" if holder == PLAYER else fname(holder), int(ceil(float(o.hold_left)))], 11, C_GOOD if holder == PLAYER else C_BAD, w - 20.0, HORIZONTAL_ALIGNMENT_RIGHT)
+		"tree":   # research: a ring of progress, the blueprint, and time left (or what holds it)
+			var st := _research_bar_state()
+			var col := Color(0.75, 0.55, 1.0)
+			var cen := Vector2(x + 19.0, HUD_H * 0.5)
+			c.draw_arc(cen, 11.0, 0.0, TAU, 32, Color(0.2, 0.22, 0.3), 3.0, true)
+			if str(st.state) == "idle":
+				_text(c, f, Vector2(x + 38.0, 19.0), "Research", 13, C_TEXT, w - 46.0)
+				_text(c, f, Vector2(x + 38.0, 34.0), "%d to choose" % int(st.get("open", 0)) if int(st.get("open", 0)) > 0 else "all known", 11, C_DIM, w - 46.0)
+			else:
+				var sc := C_WARN if str(st.state) == "paused" else (C_BAD if str(st.state) == "stalled" else col)
+				c.draw_arc(cen, 11.0, -PI * 0.5, -PI * 0.5 + TAU * float(st.frac), 32, sc, 3.0, true)
+				_text(c, f, Vector2(x + 38.0, 19.0), str(st.name), 13, C_TEXT, w - 46.0)
+				var line := "%d%% · %d s" % [int(100.0 * float(st.frac)), int(ceil(float(st.left)))]
+				if str(st.state) == "paused": line = "paused"
+				elif str(st.state) == "stalled": line = "stalled: " + str(st.why)
+				_text(c, f, Vector2(x + 38.0, 34.0), line, 11, sc, w - 46.0)
+
+
 const HUD_BOTS_W := 180.0   # the workers' column: "Workers 48" over "24 busy · 8 blocked"
 const HUD_OBJ_W := 240.0    # the objective's two lines after the banks
 func _hud_col_w() -> float:   # a material's column: the four share what the couriers' column and the objective leave
@@ -8988,7 +9434,7 @@ func _forecast_lines(res: String, with_net := true) -> Array:   # [[text, colour
 		out.append(["Workers %d — %d working, %d free%s%s (2 per Bot station)." % [int(wc.total), int(wc.collecting) + int(wc.carrying), int(wc.idle), (", %d heading home" % int(wc.joining)) if int(wc.joining) > 0 else "", (", %d blocked" % int(wc.blocked)) if int(wc.blocked) > 0 else ""], C_TEXT])
 		out.append(["They serve every host from wherever they are; keeping up with your hosts needs about %d." % int(ceil(float(fc.need) - 0.05)), C_WARN if float(fc.need) > float(fc.spare) else C_DIM])
 		out.append(["Each carries one unit per leg (an export's last unit takes the fraction left beside it); delivery does not consume them.", C_DIM])
-		out.append(["Building materials and Firewall upkeep go first, straight from the nearest stock; then output home.", C_DIM])
+		out.append(["Their order: building materials, then what research lacks, then Firewall upkeep, then output home; materials go straight from the nearest stock.", C_DIM])
 		return out
 	var full := bool(fc.full[res])
 	var used := _use_sum(fc.use, res)
@@ -9060,7 +9506,15 @@ func _econ_tooltip(res: String) -> String:
 
 func _objective_tooltip() -> String:
 	var o := _objective()
-	return "Win: hold %d of the %d hosts for %d s in a row, or be the last network with a main node." % [int(o.need), int(o.total), int(o.secs)]
+	var lines := ["Win: hold %d of the %d hosts for %d s in a row, or be the last network with a main node." % [int(o.need), int(o.total), int(o.secs)], ""]
+	var standings := []   # (0.6.22) the standings, from the majority chip
+	for fac in botnets: standings.append([fac, _faction_nodes(fac)])
+	standings.sort_custom(func(a, b): return int(a[1]) > int(b[1]) if int(a[1]) != int(b[1]) else int(a[0]) < int(b[0]))
+	for k in standings.size():
+		var fac := int(standings[k][0])
+		var hold := float(_hold.get(fac, 0.0))
+		lines.append("%d. %s  %s" % [k + 1, "You" if fac == PLAYER else fname(fac), "out" if _eliminated.has(fac) else ("holding: %d s left" % int(ceil(maxf(0.0, HOLD_SECS - hold) - 0.001)) if hold > 0 else "%d hosts · %d%%" % [int(standings[k][1]), _control_pct(fac)])])
+	return "\n".join(PackedStringArray(lines))
 
 
 func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the Economy button or a click on the HUD)
@@ -9276,6 +9730,7 @@ func _paint_ground(cx: Dictionary) -> void:   # territories, roads, wires
 func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jumps (they pass UNDER the buildings)
 	var sight: Dictionary = cx.sight; var vt: float = cx.vt; var focus_on: bool = cx.focus_on; var fnodes: Dictionary = cx.fnodes
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))   # WORLD space (zoom/pan)
+	var mine := []   # (0.6.21) your workers, drawn after in screen space as big sprites (_paint_workers)
 	for fl in flights:   # yours: a worker is a dot in its cargo's colour (a ring when it travels empty) with an arrow; a rival's is a square
 		if not _flight_seen(fl, sight): continue
 		if str(fl.kind) == "op":   # a card: its remaining path dashed in its family's colour (the card is drawn above the buildings)
@@ -9293,16 +9748,7 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 		if int(fl.owner) != PLAYER:   # a rival's courier: you see it pass, not what it carries
 			_cv.draw_rect(Rect2(pp - Vector2(3.2, 3.2), Vector2(6.4, 6.4)), Color(fc.r, fc.g, fc.b, ba).lightened(0.25), true)
 			continue
-		var res := _cargo_res(fl)
-		var col := _res_col(res) if res != "" else COURIER_COL
-		var dir := _flight_dir(fl, vt)
-		var perp := Vector2(-dir.y, dir.x)
-		pp += perp * (3.5 + 3.5 * float(int(fl.get("wid", 0)) % 2))   # each direction on its own side; two workers side by side, never one dot
-		if res != "":   # loaded: a filled dot in its cargo's colour
-			_cv.draw_circle(pp, 4.0, Color(col, ba)); _cv.draw_arc(pp, 4.0, 0.0, TAU, 12, Color(0.02, 0.03, 0.05, 0.8 * ba), 1.0, true)
-		else: _cv.draw_arc(pp, 3.2, 0.0, TAU, 12, Color(col, 0.85 * ba), 1.4, true)   # empty: a hollow ring
-		if dir != Vector2.ZERO:   # which way it is going
-			_cv.draw_colored_polygon(PackedVector2Array([pp + dir * 9.0, pp + dir * 5.0 + perp * 3.0, pp + dir * 5.0 - perp * 3.0]), Color(col, 0.9 * ba))
+		mine.append([fl, ba])
 	for w in _worms:   # a worm's jumps: a bold trail, a pulse racing to the newly-infected building, a ring on it
 		if not (sight.has(int(w.a)) or sight.has(int(w.b))): continue
 		var wa := clampf((float(w.until) - _t) / 4.0, 0.0, 1.0)
@@ -9314,6 +9760,51 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 		var prog := clampf((4.0 - (float(w.until) - _t)) / 0.7, 0.0, 1.0)         # pulse races a→b in the first 0.7 s
 		_cv.draw_circle(a_pos.lerp(b_pos, prog), 5.0, Color(1, 1, 1, 0.9 * wa))
 		_cv.draw_arc(b_pos, _r(int(w.b)) + 5.0, 0.0, TAU, 28, Color(wc.r, wc.g, wc.b, 0.95 * wa), 2.5, true)
+	_paint_workers(mine, vt, cx.f)
+
+
+const WORKER_R := 9.0   # (0.6.21) a worker's sprite radius on screen
+func _worker_screen(fl: Dictionary, vt: float) -> Vector2:   # where a worker of yours is drawn: beside its road, each direction on its own side
+	var dir := _flight_dir(fl, vt)
+	var side := Vector2(-dir.y, dir.x) * (7.0 + 7.0 * float(int(fl.get("wid", 0)) % 2))
+	return _w2s(_packet_pos(fl, vt)) + side
+
+
+func _paint_workers(list: Array, vt: float, f: Font) -> void:   # (0.6.21) screen space: each worker of yours a big round sprite with its
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)       # cargo's icon, a fading trail and a heading chevron; an empty one hollow
+	var k_s := clampf(_zoom, 0.7, 1.3)                             # and dashed; the hovered or followed one shows its way ahead
+	for e in list:
+		var fl: Dictionary = e[0]; var ba := float(e[1])
+		var res := _cargo_res(fl)
+		var col := _res_col(res) if res != "" else COURIER_COL
+		var dir := _flight_dir(fl, vt)
+		var perp := Vector2(-dir.y, dir.x)
+		var pp := _worker_screen(fl, vt)
+		var r := WORKER_R * k_s
+		var hot := int(fl.id) == _hover_flight or (_follow_wid >= 0 and int(fl.get("wid", -1)) == _follow_wid)
+		if hot:   # its way ahead, dashed, to where it is going
+			var path := PackedVector2Array([pp])
+			var rt: Array = fl.route; var hops: Array = fl.hops; var lt := float(fl.get("lt", LINK_TIME))
+			for k in hops.size(): if float(hops[k]) + lt > vt and k + 1 < rt.size(): path.append(_w2s(hosts[int(rt[k + 1])].pos))
+			for k in path.size() - 1:
+				var a := path[k]; var b := path[k + 1]; var ln := a.distance_to(b); var d0 := 0.0
+				while d0 < ln:
+					_cv.draw_line(a.lerp(b, d0 / ln), a.lerp(b, minf(d0 + 7.0, ln) / ln), Color(col, 0.85), 2.0, true); d0 += 12.0
+		for k in range(6, 0, -1):   # the trail: where it was over the last 0.7 s, fading
+			var tp := _w2s(_packet_pos(fl, vt - 0.12 * k)) + (pp - _w2s(_packet_pos(fl, vt)))
+			if tp.distance_to(pp) < 2.0: continue
+			_cv.draw_circle(tp, r * (0.62 - 0.07 * k), Color(col, (0.42 - 0.06 * k) * ba))
+		if res != "":   # loaded: a dark disc ringed in its cargo's colour, its icon inside
+			_cv.draw_circle(pp, r, Color(0.03, 0.05, 0.08, 0.92 * ba))
+			_cv.draw_arc(pp, r, 0.0, TAU, 28, Color(col, ba), 2.2, true)
+			_draw_kind_icon(_cv, _COST_ICON[res], pp, r * 1.25, Color(col, ba), f)
+		else:   # empty, on its way to a pickup: a hollow dashed ring
+			_cv.draw_circle(pp, r - 1.0, Color(0.03, 0.05, 0.08, 0.55 * ba))
+			for s2 in 8: _cv.draw_arc(pp, r - 1.0, s2 * TAU / 8.0, s2 * TAU / 8.0 + TAU / 16.0, 5, Color(col, 0.9 * ba), 1.8, true)
+		if dir != Vector2.ZERO:   # which way it is going
+			_cv.draw_colored_polygon(PackedVector2Array([pp + dir * (r + 7.0), pp + dir * (r + 1.5) + perp * 4.5, pp + dir * (r + 1.5) - perp * 4.5]), Color(col, 0.95 * ba))
+		if hot: _cv.draw_arc(pp, r + 4.0, 0.0, TAU, 28, Color(1, 1, 1, 0.9), 1.5, true)
+	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 
 
 func _paint_nodes(cx: Dictionary) -> void:   # the buildings: pictograms, frames, bot counts, names; remembered ones as dim outlines
@@ -9350,8 +9841,7 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		placed.append(tb)
 		_cv.draw_rect(tb, Color(0.03, 0.05, 0.08, 0.88), true)
 		_text(_cv, f, tb.position + Vector2(4.0, 12.5), str(nm[1]), 12, (nm[2] as Color).lightened(0.35))
-	_paint_link_loads(f, sight, vt)
-	_paint_held(f, sight)
+	_paint_held(f, sight)   # (0.6.21: no per-link load labels: each worker shows its own cargo, _paint_workers)
 	_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 	for x in _fx:   # a card landed: an expanding frame in the caster's colour
 		if not sight.has(int(x.host)): continue
@@ -9376,6 +9866,18 @@ func _paint_over(cx: Dictionary) -> void:   # card packets, landing pulses, focu
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.08), true)
 		_cv.draw_rect(r, Color(0.6, 1, 1, 0.6), false, 1.0, true)
 	_paint_route_tag(f)
+	if _dragged_card() != "" and _drag_origin != Vector2.ZERO:   # (0.6.24) a dashed arrow from the hand to the cursor
+		_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var ac: Color = FAMILY_COL[str(CARDS[_card_of(_dragged_card())].fam)]
+		var a0 := _drag_origin; var a1 := get_local_mouse_position()
+		var ln := a0.distance_to(a1)
+		if ln > 20.0:
+			var dd := 0.0
+			while dd < ln - 14.0:
+				_cv.draw_line(a0.lerp(a1, dd / ln), a0.lerp(a1, minf(dd + 9.0, ln - 14.0) / ln), Color(ac, 0.9), 3.0, true); dd += 15.0
+			var dir := (a1 - a0) / ln; var pp2 := Vector2(-dir.y, dir.x)
+			_cv.draw_colored_polygon(PackedVector2Array([a1, a1 - dir * 14.0 + pp2 * 7.0, a1 - dir * 14.0 - pp2 * 7.0]), ac)
+		_cv.draw_set_transform(_pan, 0.0, Vector2(_zoom, _zoom))
 	_paint_drag_preview(f)
 	if _camp: _paint_camp_guide(f)
 	_paint_flight_tip(f)
@@ -9478,7 +9980,7 @@ func _paint_mask(cx: Dictionary) -> void:   # screen space: masks around the map
 	var background := Color(0.04, 0.05, 0.08)
 	_cv.draw_rect(Rect2(0, 0, sz.x, map.position.y - 8), background)
 	if _panel_shown(): _cv.draw_rect(Rect2(map.end.x + 8, 64, sz.x - map.end.x, map.end.y - 64), background)
-	if not won and not lost:   # the deck's backing: only as tall as the deck is right now
+	if not won and not lost and _deck_open:   # the drawer's backing (0.6.24: closed, the hand lies over the map: no band)
 		var deck_top := _deck_top()
 		_cv.draw_rect(Rect2(0, deck_top - 10, sz.x, sz.y - deck_top + 10), Color(0.025, 0.035, 0.055))
 		_cv.draw_line(Vector2(24, deck_top - 6), Vector2(sz.x - 24, deck_top - 6), Color(0.2, 0.4, 0.45, 0.4))
@@ -9487,8 +9989,52 @@ func _paint_mask(cx: Dictionary) -> void:   # screen space: masks around the map
 		_text(_cv, f, Vector2((sz.x - PANEL_W) * 0.5 - 150.0, sz.y * 0.5), ("VICTORY" if won else "DEFEATED"), 46, Color(0.5, 1, 1) if won else Color(1, 0.5, 0.5))
 
 
-func _draw_menu_bg(sz: Vector2) -> void:   # ported from the old title screen: grid + drifting packets
-	draw_rect(Rect2(Vector2.ZERO, sz), Color(0.05, 0.06, 0.09), true)
+const MENU_TIPS := [
+	"Recon first: a scouted attack works half the time, an unscouted one a quarter.",
+	"Workers carry building materials first, then what research lacks, then Firewall upkeep.",
+	"A Firewall fires the defence cards loaded in its sockets on its own.",
+	"Hold the majority of the city's hosts for 51 s to win.",
+	"Bot stations add workers: more workers, more of your output reaches the bank.",
+]
+func _draw_menu_bg(sz: Vector2) -> void:   # (0.6.25) the city itself behind the menu: links, hosts in their owners' colours, packets on the move
+	draw_rect(Rect2(Vector2.ZERO, sz), Color(0.035, 0.045, 0.07), true)
+	if hosts.is_empty(): _draw_menu_grid(sz); return
+	var lo := Vector2(INF, INF); var hi := Vector2(-INF, -INF)
+	for h in hosts: lo = lo.min(h.pos); hi = hi.max(h.pos)
+	var area := Rect2(sz.x * 0.3, 60.0, sz.x * 0.66, sz.y - 120.0)
+	var k := minf(area.size.x / maxf(1.0, hi.x - lo.x), area.size.y / maxf(1.0, hi.y - lo.y))
+	var drift := Vector2(sin(_menu_t * 0.07) * 24.0, cos(_menu_t * 0.05) * 14.0)
+	var off := area.position + (area.size - (hi - lo) * k) * 0.5 - lo * k + drift
+	var at := func(i: int) -> Vector2: return (hosts[i].pos as Vector2) * k + off
+	for i in hosts.size():   # the owned ground first, softly
+		var o := int(hosts[i].owner)
+		if o != NEUTRAL: draw_circle(at.call(i), 34.0, Color(fcol(o), 0.07))
+	var n := 0
+	for i in hosts.size():
+		for j in hosts[i].links:
+			if int(j) <= i: continue
+			var a: Vector2 = at.call(i); var b: Vector2 = at.call(int(j))
+			draw_line(a, b, Color(0.3, 0.6, 0.7, 0.16), 1.0, true)
+			var t := fposmod(_menu_t * (0.12 + 0.03 * float(n % 5)) + float(n) * 0.618, 1.0)   # a packet on its way along the link
+			var o2 := int(hosts[i].owner) if int(hosts[i].owner) != NEUTRAL else int(hosts[int(j)].owner)
+			var pc := fcol(o2).lightened(0.3) if o2 != NEUTRAL else Color(0.4, 0.8, 0.9)
+			draw_circle(a.lerp(b, t), 2.4, Color(pc, 0.75)); n += 1
+	for i in hosts.size():
+		var o := int(hosts[i].owner)
+		var col := fcol(o).lightened(0.15) if o != NEUTRAL else Color(0.36, 0.42, 0.52)
+		var p: Vector2 = at.call(i)
+		draw_rect(Rect2(p - Vector2(5, 5), Vector2(10, 10)), Color(col, 0.85), true)
+	for x in 32:   # the left side darkens, so the menu reads over the city
+		var a2 := clampf(1.0 - float(x) / 32.0, 0.0, 1.0)
+		draw_rect(Rect2(float(x) * 20.0, 0, 20.0, sz.y), Color(0.025, 0.032, 0.05, 0.93 * a2 * a2 + 0.0), true)
+	if _menu_view == "main":
+		var f := get_theme_default_font()
+		var tip := str(MENU_TIPS[int(_menu_t / 8.0) % MENU_TIPS.size()])
+		_text(self, f, Vector2(56, sz.y - 30.0), "TIP  " + tip, 12, C_DIM, sz.x * 0.6)
+		_text(self, f, Vector2(sz.x - 220.0, 30.0), "v" + GAME_VERSION, 12, C_DIM, 196.0, HORIZONTAL_ALIGNMENT_RIGHT)
+
+
+func _draw_menu_grid(sz: Vector2) -> void:   # (no city yet) the old title screen: grid + drifting packets
 	var grid := Color(0.2, 1.0, 0.9, 0.06)
 	for x in range(0, int(sz.x) + 1, 40): draw_line(Vector2(x, 0), Vector2(x, sz.y), grid)
 	for y in range(0, int(sz.y) + 1, 40): draw_line(Vector2(0, y), Vector2(sz.x, y), grid)
@@ -9590,10 +10136,11 @@ func _paint_held(f: Font, sight: Dictionary) -> void:   # screen space: a red ta
 func _flight_at(mouse: Vector2) -> int:   # the id of your (or a visible) moving packet under the mouse, -1 if none
 	if menu_open or flights.is_empty(): return -1
 	var vt := _t + minf(_sim_acc, SIM_DT)
-	var best := -1; var bd := 11.0
+	var best := -1; var bd := WORKER_R * 1.6
 	for fl in flights:
 		if bool(fl.get("blocked", false)) or str(fl.kind) == "scan" or not _flight_visible(PLAYER, fl): continue
-		var d := _w2s(_packet_pos(fl, vt)).distance_to(mouse)
+		var minew := str(fl.kind) == "courier" and int(fl.owner) == PLAYER   # (0.6.21) your worker's sprite sits beside its road
+		var d := (_worker_screen(fl, vt) if minew else _w2s(_packet_pos(fl, vt))).distance_to(mouse)
 		if d < bd: bd = d; best = int(fl.id)
 	return best
 
@@ -9825,7 +10372,10 @@ func _closed(p: PackedVector2Array) -> PackedVector2Array:   # a polyline that r
 
 
 func _visible_bot_count(i: int) -> String:   # the slot badge: yours, or a host a fresh Recon saw; nothing on an unknown host
-	if _mine(i): return "%d/%d" % [_standing(i), int(hosts[i].slots)]
+	if _mine(i):   # (0.6.21) and, on a remote host, its storage: slots used · units stored / STORE_CAP
+		var tag := "%d/%d" % [_standing(i), int(hosts[i].slots)]
+		if i != int(rig.get(PLAYER, -1)) and _store_total(i) >= 0.5: tag += " · %d/%d" % [int(_store_total(i) + 0.0001), int(STORE_CAP)]
+		return tag
 	if not _recon_fresh(PLAYER, i): return ""
 	var seen := 0
 	for b in ((recon.get(PLAYER, {}) as Dictionary).get(i, {}) as Dictionary).get("builds", []):
@@ -10293,51 +10843,114 @@ class HelpGlyph extends Control:   # a big icon for the Help screen: a building 
 		elif kind != "": game._draw_kind_icon(self, kind, size * 0.5, size.y * 0.58, col, f)
 
 
-class HudBar extends Control:   # the HUD: each bank's stock and its net forecast a minute, then the objective
+class HudBar extends Control:   # (0.6.22) the top bar: one row of chips — workers, the four banks, the majority, research
 	var game
+	var hot := -1   # the chip under the mouse
 
 	func _init() -> void:
-		mouse_filter = Control.MOUSE_FILTER_PASS   # hover shows a bank's flows; a click opens the Economy overview
-		clip_contents = true            # a hard guard: the row can never bleed under the right panel
+		mouse_filter = Control.MOUSE_FILTER_PASS   # hover shows a chip's details; a click opens its view
+		clip_contents = true
 		tooltip_text = " "
 
+	func _chip_at(at: Vector2) -> int:
+		var chips: Array = game._hud_chips()
+		for k in chips.size():
+			if at.x >= float(chips[k].x) and at.x < float(chips[k].x) + float(chips[k].w): return k
+		return -1
+
 	func _get_tooltip(at: Vector2) -> String:
-		var x := 0.0
-		for it in game._hud_items():
-			if at.x >= x and at.x < x + float(it[3]): return game._econ_tooltip(str(it[4]))
-			x += float(it[3])
-		return game._objective_tooltip()
+		var k := _chip_at(at)
+		if k < 0: return ""
+		var kind := str(game._hud_chips()[k].kind)
+		if kind in game.RES: return "pop:" + kind
+		if kind == "workers": return game._econ_tooltip("workers")
+		if kind == "majority": return game._objective_tooltip()
+		return str(game._research_status_line()[0]) + "\n\nClick for the development tree (R)."
 
 	func _make_custom_tooltip(for_text: String) -> Object:
+		if for_text.begins_with("pop:"):
+			var pop := HudPop.new(); pop.game = game; pop.res = for_text.trim_prefix("pop:"); pop.fit()
+			return pop
 		return game._wrapped_tooltip(for_text)
 
 	func _gui_input(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			game._toggle_economy(); accept_event()
+		if event is InputEventMouseMotion:
+			var k := _chip_at(event.position)
+			if k != hot: hot = k; queue_redraw()
+		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			var k := _chip_at(event.position)
+			if k < 0: return
+			var kind := str(game._hud_chips()[k].kind)
+			if kind == "tree": game._toggle_research()
+			elif kind != "majority": game._toggle_economy()
+			accept_event()
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_MOUSE_EXIT and hot >= 0: hot = -1; queue_redraw()
 
 	func _draw() -> void:
 		var f := get_theme_default_font()
-		var x := 0.0
-		for it in game._hud_items():
-			var kind := str(it[0])
-			var tx := x
-			if kind != "":
-				game._draw_kind_icon(self, kind, Vector2(x + 9.0, 20.0), 16.0, game.BUILD_KINDS[kind].col, f)
-				tx += 22.0
-			var fs: int = game._hud_fs(f, str(it[1]), float(it[3]) - (tx - x))
-			game._text(self, f, Vector2(tx, 26.0), str(it[1]), fs, it[2])
-			var rate: Array = game._hud_rate(str(it[4]))   # the bank's net forecast a minute: income less what is used
-			game._text(self, f, Vector2(tx, 44.0), str(rate[0]), 12, rate[1], float(it[3]) - (tx - x) - 4.0, HORIZONTAL_ALIGNMENT_LEFT)
-			x += float(it[3])   # a fixed column: the next item never moves when this number grows
-		var obj: Array = game._objective_lines()   # the win, always on screen: needed / total, your count, who holds it
-		var room := size.x - x - 8.0
-		if room > 120.0:
-			draw_line(Vector2(x, 8.0), Vector2(x, size.y - 8.0), Color(game.C_DIM, 0.35), 1.0)
-			game._text(self, f, Vector2(x + 12.0, 22.0), str(obj[0]), 12, game.C_WARN, room - 12.0, HORIZONTAL_ALIGNMENT_LEFT)
-			game._text(self, f, Vector2(x + 12.0, 40.0), str(obj[1]), 12, obj[2], room - 12.0, HORIZONTAL_ALIGNMENT_LEFT)
+		var chips: Array = game._hud_chips()
+		for k in chips.size(): game._draw_hud_chip(self, chips[k], f, k == hot)
 
 
+class HudPop extends Control:   # (0.6.22) a bank chip's hover: income by source, what uses it, the two side by side, recent history
+	var game
+	var res := "intel"
+	var rows := []   # [label, value, colour, kind]: kind "head", "row", "line"
+	const W := 360.0
 
+	func fit() -> void:
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		rows = []
+		var src: Dictionary = (fc.from as Dictionary).get(res, {})
+		var uses: Dictionary = (fc.use as Dictionary).get(res, {})
+		var inc := 0.0; for k in src: inc += float(src[k])
+		var used := 0.0; for k in uses: used += float(uses[k])
+		rows.append(["Income", inc, game.C_GOOD, "head"])
+		var ks := src.keys(); ks.sort_custom(func(a, b): return float(src[a]) > float(src[b]))
+		for k in ks.slice(0, 6): rows.append([str(k), float(src[k]), game.C_GOOD, "row"])
+		if ks.size() > 6:
+			var rest := 0.0
+			for k in ks.slice(6): rest += float(src[k])
+			rows.append(["%d more hosts" % (ks.size() - 6), rest, game.C_GOOD, "row"])
+		if used > 0.0001:
+			rows.append(["Used", -used, game.C_BAD, "head"])
+			var us := uses.keys(); us.sort_custom(func(a, b): return float(uses[a]) > float(uses[b]))
+			for k in us: rows.append([str(k), float(uses[k]), game.C_BAD, "row"])
+		var hist: Array = game._history_lines(res)
+		if not hist.is_empty(): rows.append([str(hist[0]), 0.0, game.C_DIM, "line"])
+		rows.append(["Click: the Economy view", 0.0, game.C_DIM, "line"])
+		custom_minimum_size = Vector2(W, 76.0 + 20.0 * rows.size())
+		size = custom_minimum_size
+
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var col: Color = game._res_col(res)
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		var net := float(fc.net[res])
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.035, 0.05, 0.08, 0.98)); draw_rect(Rect2(Vector2.ZERO, size), Color(col, 0.7), false, 1.0)
+		game._text(self, f, Vector2(14, 24), "%s  %d / %d" % [str(game.RES_NAME[res]).to_upper(), int(game._avail(game.PLAYER, res)), int(game._cap(game.PLAYER, res))], 14, col)
+		var nt: String = "full" if bool(fc.full[res]) else "net %s/min" % game._net_txt(net)
+		game._text(self, f, Vector2(14, 24), nt, 14, game.C_GOOD if net > 0.5 else (game.C_BAD if net < -0.5 else game.C_DIM), W - 28.0, HORIZONTAL_ALIGNMENT_RIGHT)
+		var inc := 0.0; var used := 0.0
+		for k in (fc.from as Dictionary).get(res, {}): inc += float(fc.from[res][k])
+		used = game._use_sum(fc.use, res)
+		var top := maxf(1.0, maxf(inc, used))
+		draw_rect(Rect2(14, 36, (W - 28.0) * inc / top, 5), Color(game.C_GOOD, 0.85))   # what comes in, over what goes out
+		draw_rect(Rect2(14, 43, (W - 28.0) * used / top, 5), Color(game.C_BAD, 0.85))
+		var y := 70.0
+		for r in rows:
+			var kind := str(r[3])
+			if kind == "head":
+				game._text(self, f, Vector2(14, y), str(r[0]), 13, game.C_TEXT)
+				game._text(self, f, Vector2(14, y), "%s/min" % game._net_txt(float(r[1])), 13, r[2], W - 28.0, HORIZONTAL_ALIGNMENT_RIGHT)
+			elif kind == "row":
+				game._text(self, f, Vector2(14, y), str(r[0]), 12, game.C_DIM, 150.0)
+				draw_rect(Rect2(170, y - 9, 120.0 * float(r[1]) / top, 7), Color(r[2], 0.8))
+				game._text(self, f, Vector2(14, y), "%d" % int(round(float(r[1]))), 12, game.C_TEXT, W - 28.0, HORIZONTAL_ALIGNMENT_RIGHT)
+			else: game._text(self, f, Vector2(14, y + 4), str(r[0]), 11, game.C_DIM, W - 28.0)
+			y += 20.0
 
 
 class CardTile extends Control:   # a recipe: what it does, copies ready and queued; + Queue (or Research for a locked one)
@@ -10590,6 +11203,116 @@ class ReadyChip extends Control:   # one ready card in the strip: drag it onto a
 		if what == NOTIFICATION_MOUSE_ENTER or what == NOTIFICATION_MOUSE_EXIT: queue_redraw()
 	func _draw() -> void:
 		game._draw_ready_face(self, key, false)
+
+
+class HandCard extends Control:   # (0.6.24) one card of the hand: drag it onto a host, click to select it, right-click to make another copy
+	var game
+	var key := ""
+	var recipe := ""
+	var press_position := Vector2.ZERO
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	func _ready() -> void:
+		mouse_entered.connect(func(): game._hand_hot = key)
+		mouse_exited.connect(func(): if game._hand_hot == key: game._hand_hot = "")
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		return game._card_drag_data(self, key)
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed: press_position = event.position
+			elif Rect2(Vector2.ZERO, size).has_point(event.position) and press_position.distance_to(event.position) <= 8:
+				game._arm_card(key); accept_event()
+		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			game._recipe_act(key); accept_event()
+	func _process(_dt: float) -> void:
+		if visible: queue_redraw()
+	func _draw() -> void:
+		game._draw_hand_card(self, key, game._hand_hot == key)
+
+
+class WorkshopPile extends Control:   # (0.6.24) the manufacturing queue, bottom left: the copy being made as a card with a ring, then tickets
+	var game
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		tooltip_text = " "
+	func _make_custom_tooltip(for_text: String) -> Object:
+		return game._wrapped_tooltip(for_text)
+	func _process(_dt: float) -> void:
+		if visible: queue_redraw()
+	func head_rect() -> Rect2: return Rect2(0, 22, 66, 92)
+	func ticket_rect(k: int) -> Rect2: return Rect2(76, 22 + 24.0 * k, size.x - 76.0, 21)   # k 0..2: the copies after the head; 3: + Craft
+	func pause_rect() -> Rect2: return Rect2(size.x - 64.0, 0, 64, 18)
+	func _get_tooltip(at: Vector2) -> String:
+		var q: Array = game._mq(game.PLAYER)
+		if pause_rect().has_point(at): return "Pause or resume the queue. The copy being made keeps its payment and progress."
+		if head_rect().has_point(at):
+			if q.is_empty(): return "Nothing is being made. + Craft opens the recipes."
+			return "%s: %s. Click to open the recipes." % [str(game.CARDS[str(q[0].recipe)].name), str(head_text())]
+		for k in 3:
+			if ticket_rect(k).has_point(at) and k + 1 < q.size(): return "%s, number %d in the queue. Click × to remove it (nothing was spent)." % [str(game.CARDS[str(q[k + 1].recipe)].name), k + 2]
+		return "The workshop: %d of %d places. Copies are made in order, one at a time; finished ones join your hand." % [q.size(), game.QUEUE_SIZE]
+	func head_text() -> String:
+		var q: Array = game._mq(game.PLAYER)
+		if q.is_empty(): return "idle"
+		var j: Dictionary = q[0]
+		if bool(game.mq_paused.get(game.PLAYER, false)): return "paused"
+		if (j.paid as Dictionary).is_empty():
+			var why: String = game._mq_head_why_short(game.PLAYER)
+			return why if why != "" else "starting"
+		var mt: float = game._make_time(str(j.recipe))
+		return "%d%% · %d s" % [int(100.0 * float(j.progress) / maxf(0.001, mt)), int(ceil(maxf(0.0, mt - float(j.progress))))]
+	func _gui_input(event: InputEvent) -> void:
+		if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT): return
+		var q: Array = game._mq(game.PLAYER)
+		if pause_rect().has_point(event.position): game._cmd(["queue_pause"])
+		elif head_rect().has_point(event.position) or ticket_rect(3).has_point(event.position) or (q.size() < 2 and ticket_rect(0).has_point(event.position)):
+			game._open_drawer("attack" if game._card_bank not in ["attack", "defense"] else game._card_bank)
+		else:
+			for k in 3:
+				var r := ticket_rect(k)
+				if r.has_point(event.position) and k + 1 < q.size() and event.position.x >= r.end.x - 22.0: game._cmd(["unqueue", int(q[k + 1].id)])
+		accept_event()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var q: Array = game._mq(game.PLAYER)
+		var paused: bool = bool(game.mq_paused.get(game.PLAYER, false))
+		game._text(self, f, Vector2(0, 13), "WORKSHOP · %d/%d" % [q.size(), game.QUEUE_SIZE], 11, game.C_DIM)
+		game._text(self, f, pause_rect().position + Vector2(0, 13), "Resume" if paused else "Pause", 11, game.C_WARN if paused else game.C_DIM, pause_rect().size.x, HORIZONTAL_ALIGNMENT_RIGHT)
+		var hr := head_rect()
+		var sb := StyleBoxFlat.new(); sb.set_corner_radius_all(8); sb.set_border_width_all(2); sb.bg_color = Color(0.06, 0.08, 0.12, 0.96)
+		if q.is_empty():
+			sb.border_color = Color(game.C_DIM, 0.5); draw_style_box(sb, hr)
+			game._text(self, f, Vector2(hr.position.x, hr.get_center().y + 5.0), "idle", 12, game.C_DIM, hr.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+		else:
+			var recipe := str(q[0].recipe)
+			var fam: Color = game.FAMILY_COL[str(game.CARDS[recipe].fam)]
+			sb.border_color = game.C_WARN if paused else fam; draw_style_box(sb, hr)
+			var cen := hr.position + Vector2(hr.size.x * 0.5, 38.0)
+			var mt: float = game._make_time(recipe)
+			var frac := clampf(float(q[0].progress) / maxf(0.001, mt), 0.0, 1.0) if not (q[0].paid as Dictionary).is_empty() else 0.0
+			draw_arc(cen, 24.0, 0.0, TAU, 32, Color(0.2, 0.23, 0.3), 3.0, true)
+			draw_arc(cen, 24.0, -PI * 0.5, -PI * 0.5 + TAU * frac, 32, game.C_WARN if paused else fam, 3.0, true)
+			game._draw_card_glyph(self, recipe, cen, 26.0, fam, f)
+			game._text(self, f, Vector2(hr.position.x + 3.0, hr.end.y - 22.0), str(game.CARDS[recipe].short), 11, game.C_TEXT, hr.size.x - 6.0, HORIZONTAL_ALIGNMENT_CENTER)
+			game._text(self, f, Vector2(hr.position.x + 3.0, hr.end.y - 8.0), head_text(), 10, game.C_WARN if paused or (q[0].paid as Dictionary).is_empty() else game.C_DIM, hr.size.x - 6.0, HORIZONTAL_ALIGNMENT_CENTER)
+		var labels := ["next", "3rd", "4th"]
+		for k in 3:   # the copies waiting behind it, as tickets with a ×
+			var r := ticket_rect(k)
+			var tsb := StyleBoxFlat.new(); tsb.set_corner_radius_all(4); tsb.set_border_width_all(1); tsb.bg_color = Color(0.06, 0.08, 0.12, 0.9)
+			if k + 1 < q.size():
+				var rc := str(q[k + 1].recipe)
+				tsb.border_color = Color(game.FAMILY_COL[str(game.CARDS[rc].fam)], 0.7); draw_style_box(tsb, r)
+				game._draw_card_glyph(self, rc, r.position + Vector2(12, 10.5), 14.0, Color.WHITE, f)
+				game._text(self, f, r.position + Vector2(24, 15), str(game.CARDS[rc].short), 11, game.C_TEXT, r.size.x - 80.0)
+				game._text(self, f, r.position + Vector2(0, 15), labels[k], 10, game.C_DIM, r.size.x - 26.0, HORIZONTAL_ALIGNMENT_RIGHT)
+				var xc := Vector2(r.end.x - 10.0, r.get_center().y)
+				draw_line(xc + Vector2(-3.5, -3.5), xc + Vector2(3.5, 3.5), game.C_BAD, 1.6, true); draw_line(xc + Vector2(-3.5, 3.5), xc + Vector2(3.5, -3.5), game.C_BAD, 1.6, true)
+			elif k + 1 == maxi(1, q.size()):
+				tsb.border_color = Color(game.C_DIM, 0.55); draw_style_box(tsb, r)
+				game._text(self, f, r.position + Vector2(8, 15), "+ Craft  (C)", 11, game.C_TEXT, r.size.x - 16.0)
+		var cr := ticket_rect(3)
+		if q.size() >= 4: game._text(self, f, cr.position + Vector2(0, 15), "Queue full", 10, game.C_DIM, cr.size.x)
 
 
 class ReadyTile extends Control:   # one ready card in the drawer: picture, copies, what it does, where it goes; drag or click to select
@@ -10850,6 +11573,7 @@ class SlotBox extends Control:   # one slot of your host, a full-width row (_dra
 	var slot := 0
 	var stop_button: Button
 	var sockets_inside := false   # a finished Firewall: its SocketList child runs across the row's second line
+	var tile := false             # (0.6.23) drawn as a tile (_draw_slot_tile): the cancel is a corner ×, the sockets along the bottom
 	var hover := false
 	var _down := false
 	const STOP_W := 84.0
@@ -10876,6 +11600,13 @@ class SlotBox extends Control:   # one slot of your host, a full-width row (_dra
 		resized.connect(_place)
 		_place()
 	func _place() -> void:   # the cancel button on the second line's right; a Firewall's sockets across the second line
+		if tile:   # (0.6.23) a corner × to cancel; the sockets along the tile's bottom
+			stop_button.text = "Cancel"; stop_button.add_theme_font_size_override("font_size", 11)
+			stop_button.size = Vector2(56, 20); stop_button.position = Vector2(size.x - 62.0, size.y - 26.0)
+			for c in get_children():
+				if c != stop_button and c is Control:
+					(c as Control).position = Vector2(6.0, size.y - 34.0); (c as Control).size = Vector2(maxf(0.0, size.x - 12.0), 26.0)
+			return
 		stop_button.size = Vector2(STOP_W, STOP_H)
 		stop_button.position = Vector2(size.x - STOP_W - 6.0, 28.0)
 		for c in get_children():
@@ -10895,7 +11626,8 @@ class SlotBox extends Control:   # one slot of your host, a full-width row (_dra
 		elif event is InputEventKey and event.pressed and event.keycode in [KEY_ENTER, KEY_KP_ENTER]:
 			accept_event(); game._open_chooser(host, slot)
 	func _draw() -> void:
-		game._draw_slot_row(self, host, slot, hover, sockets_inside)
+		if tile: game._draw_slot_tile(self, host, slot, hover, sockets_inside)
+		else: game._draw_slot_row(self, host, slot, hover, sockets_inside)
 
 
 

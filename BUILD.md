@@ -183,11 +183,14 @@ worker first travels empty to the source (`trip` "fetch", the unit claimed there
 the bank at once and put back if the job is dropped), then carries it (`trip` "carry", `_set_off_loaded`); it is
 free where it delivers (`workers[wid].base`) and takes its next job from there, so a delivery to a site is usually
 followed by that host's own surplus home. With nothing it can do, a worker away from the main node heads home
-(`trip` "home"). New stations' workers start working where their station is. **Building comes strictly first**
-(0.6.16): every free worker serves construction and upkeep while any of it can go — a Firewall's upkeep first (and,
-when its host's full storage leaves no room for it, that host's surplus as urgently: `room` demands), then Bot
-stations, then projects in the order given; what the main node's projects wait for that is neither in the bank nor
-coming (`_build_lack`) is brought home from the hosts as building too. Then, of the same class, the surplus where a
+(`trip` "home"). New stations' workers start working where their station is. **The workers' order** (0.6.20,
+`REQ_CLASS`, as in Settlers): **1 building** — Bot stations, then projects in the order given; what the main node's
+projects wait for that is neither in the bank nor coming (`_build_lack`) is brought home from the hosts as building
+too; **2 research** — what the running research will pay within `NET_HORIZON` (60 s) that the bank cannot give it
+beyond what research leaves alone and that is not coming (`_research_lack`, `rlack` demands) is brought home from the
+hosts; **3 supplies** — a Firewall's upkeep (and, when its host's full storage leaves no room for it, that host's
+surplus as urgently: `room` demands); its bank stock is what the projects do not need (`upkeep_left`, `_upkeep_extra`
+only the card queue head's Intel), so a Firewall may wait while a bill goes out; **4 output home**. Then, of the same class, the surplus where a
 free worker already stands (0.6.18: `_best_haul` ranks it before tightness, so a worker freed at a host carries that
 host's output on instead of walking empty to the next host in turn), then the surplus of the hosts about to fill
 up (`_tight_now`: its next cycle and its Firewalls' incoming upkeep would not fit, counting what workers are already

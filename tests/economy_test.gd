@@ -88,7 +88,7 @@ func run() -> void:
 	upkeep_room_reserve()
 	station_works_where_it_stands()
 	one_host_flow()
-	upkeep_first_during_building()
+	building_before_upkeep()
 	trickle_fed_firewall()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
@@ -640,7 +640,7 @@ func one_host_flow() -> void:   # (0.6.16) a Credential harvester, a Miner and a
 		% [limit, worst, waited, ids.size(), 100.0 * busy / (secs * ids.size()), trips_needed])
 
 
-func upkeep_first_during_building() -> void:   # (0.6.16) building comes strictly first, but a Firewall's upkeep ranks before it
+func building_before_upkeep() -> void:   # (0.6.20) building comes strictly first, before a Firewall's upkeep too (research, then supplies, then output)
 	fresh(); fat_bank()
 	var hub: int = int(g.rig[P])
 	g._set_builds(hub, ["bot"]); g._tick_teams(0.0)   # one station: two workers for a big bill and an upkeep
@@ -685,9 +685,16 @@ func upkeep_first_during_building() -> void:   # (0.6.16) building comes strictl
 		for l in legs[wid]:
 			if str(l.trip) == "carry" and int(l.to) == e and float(l.cargo.get("intel", 0.0)) > 0.0: upkeep_legs += 1
 			if str(l.trip) == "carry" and int(l.from) == e and int(l.to) == b: e_to_site += float(l.cargo.get("cash", 0.0))
-	check(covered >= 0.0 and cycles >= 3 and fed == cycles and upkeep_legs >= cycles - 1,
-		"While the %d workers ferry a %s-unit bill to a site (%.0f s until all of it was there or on its way), the Firewall elsewhere is brought its Intel (%d legs) and eats its upkeep in each of its %d cycles (%d)"
-		% [ids.size(), g._amt(bill), covered - t0, upkeep_legs, cycles, fed])
+	var after := 0; var fed_after := 0   # once the bill is out, the Firewall is supplied again
+	for k in int(ceilf((3.0 * g.PROD_CYCLE + 2.0 * g._leg_time(P, hub, e)) / g.SIM_DT)):
+		var left2 := float(g.hosts[e].cyc)
+		g._sim_step(g.SIM_DT)
+		if float(g.hosts[e].cyc) > left2:
+			after += 1
+			if bool(g.hosts[e].fw_on): fed_after += 1
+	check(covered >= 0.0 and upkeep_legs == 0 and after >= 2 and fed_after >= after - 1,
+		"While the %d workers ferry a %s-unit bill to a site (%.0f s until all of it was there or on its way), none brings the Firewall elsewhere its Intel (%d legs: building first; it ate in %d of %d cycles); then it is fed again (%d of the next %d cycles)"
+		% [ids.size(), g._amt(bill), covered - t0, upkeep_legs, fed, cycles, fed_after, after])
 	var limit: float = g.LOGI_EVERY + 2.0 * g.SIM_DT   # (a free worker is dealt a job the step it is free, or at the next planning pass)
 	check(covered >= 0.0 and exports == 0 and worst <= limit,
 		"Building strictly first: no surplus set off for the bank while the site lacked a unit the bank had (%d did; the Miner's Crypto went only to the site, %s of it, or waits: %s), and no worker stayed free more than %.2f s meanwhile (longest %.2f s)"

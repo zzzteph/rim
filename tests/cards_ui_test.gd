@@ -46,6 +46,7 @@ func visible_tiles() -> Array:
 func run() -> void:
 	await top_bar()
 	await empty_inventory()
+	await hand_fan()
 	await crowded_inventory()
 	await select_and_launch()
 	await research_states()
@@ -60,12 +61,37 @@ func top_bar() -> void:
 	fresh(); await frames()
 	var names := []
 	for b in g.top_tabs.get_children(): names.append(str(b.name))
-	check(names.size() == 3 and names[0] == "Research" and names[1] == "Economy", "Research sits beside Economy and Menu in the top bar (%s)" % str(names))
+	var kinds := []   # (0.6.22) one top bar: chips (workers, the banks, the majority, research), then icon buttons
+	for c in g._hud_chips(): kinds.append(str(c.kind))
+	check(names == ["Research", "LogsIcon", "PauseIcon", "Economy", "Menu"] and not g.research_button.visible and kinds.has("tree"),
+		"The top bar: a research chip among the chips (%s), then Logs, Pause, Economy and Menu as icons (%s)" % [str(kinds), str(names)])
 	check(g.hud.position.x + g.hud.size.x <= g.top_tabs.position.x - 8.0, "The HUD ends before the top buttons (%.0f < %.0f)" % [g.hud.position.x + g.hud.size.x, g.top_tabs.position.x])
 	g.research_button.pressed.emit(); await frames()
 	check(g._deck_open and g._card_bank == "research", "The Research button opens the research view")
 	g.research_button.pressed.emit(); await frames()
 	check(not g._deck_open, "...and closes it again")
+
+
+func hand_fan() -> void:   # (0.6.24) the Ready cards as a fanned hand: one card per recipe held, the hovered one lifted, 1-9 pick
+	fresh(); await frames()
+	g.cards[P] = {"recon": 3, "breach": 2, "patch": 1}
+	g._layout_ui(); await frames()
+	var shown := []
+	for c in g.hand_fan.get_children(): if c.visible: shown.append(str(c.recipe))
+	var view: Vector2 = g.get_viewport_rect().size
+	var on_screen := true
+	for c in g.hand_fan.get_children(): if c.visible and (c.get_global_rect().position.y > view.y - 20.0 or c.get_global_rect().end.x > view.x or c.get_global_rect().position.x < 0.0): on_screen = false
+	check(shown == g._ready_list() and on_screen and g.workshop.visible and g.hand_tools.visible,
+		"The hand: a card per recipe held, in deck order, along the bottom of the screen, with the workshop and Recipes / Tree beside it (%s)" % str(shown))
+	var flat: Control = g.hand_fan.get_node("Hand_breach")
+	var top0: float = flat.position.y
+	g._hand_hot = flat.key; g._layout_hand(); await frames()
+	check(flat.size.x > g.HAND_W + 1.0 and flat.position.y < top0 - 40.0 and is_zero_approx(flat.rotation), "The card under the mouse lifts upright, larger, to show its rules")
+	g._hand_hot = ""
+	var ev := InputEventKey.new(); ev.keycode = KEY_1; ev.pressed = true
+	g._input(ev); await frames()
+	check(g._armed == str(g._ready_list()[0]), "1 picks the hand's first card (%s)" % g._armed)
+	g._armed = ""
 
 
 func empty_inventory() -> void:

@@ -677,7 +677,11 @@ func busy_network() -> void:   # (0.6.16) a working network for 90 s: nobody fre
 	check(home_with_work == 0, "No worker set off home empty while a job was waiting (%d of %d legs home)" % [home_with_work, home_legs])
 	check(resv_err == "", "At every step each claim, each room held at a host or a site and each held bank room matched the workers on the road (%s)" % resv_err)
 	check(teleports().is_empty(), "Every leg started where the worker's previous leg ended: free where it delivers (%s)" % str(teleports().slice(0, 3)))
-	check(cycles >= int(secs / g.PROD_CYCLE) - 1 and fed == cycles, "The Firewall ate its upkeep in each of its %d cycles (%d)" % [cycles, fed])
+	var during := "%d of %d" % [fed, cycles]   # (0.6.20) building goes first: the Firewall may wait while the bills go out
+	watch_reset()
+	watch(3.0 * g.PROD_CYCLE + 2.0 * g._leg_time(P, hub, e), e)
+	check(g._build_owed(P).is_empty() and cycles >= 3 and fed == cycles,
+		"Once both bills are out (building first: fed in %s cycles meanwhile), the Firewall eats its upkeep in each of its next %d cycles (%d)" % [during, cycles, fed])
 	check((g.hosts[b].builds as Array).has("lab") and (g.hosts[b].builds as Array).has("cash") and (g.hosts[b].jobs as Dictionary).is_empty(),
 		"Both projects at the site (%s units) were supplied and built (%s)" % [g._amt(bill), str(g.hosts[b].builds)])
 

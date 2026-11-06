@@ -394,9 +394,9 @@ func panel_controls(res: Vector2i) -> void:
 	game._tab = "events"; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "event history @%s" % res)
 	game._refresh_event_strip(); await settle()
-	var lb: Rect2 = game.logs_button.get_global_rect()
-	check(lb.position.y >= game.hud.get_global_rect().end.y - 0.5 and not lb.intersects(game.panel.get_global_rect()) and lb.end.y <= game._map_rect().position.y, "the Logs button sits under the HUD, clear of the panel and the map @%s" % res)
-	check(w(game.logs_button.text, 14) + 12.0 <= lb.size.x, "the Logs button text '%s' fits @%s" % [game.logs_button.text, res])
+	var lb: Rect2 = game.logs_icon.get_global_rect()   # (0.6.22) the bell on the top bar, right of the chips, above the map
+	check(lb.position.x >= game.hud.get_global_rect().end.x - 0.5 and lb.end.y <= game._map_rect().position.y and lb.end.x <= float(res.x) + 0.5, "the Logs bell sits on the top bar, right of the chips, above the map @%s" % res)
+	check(w(game.logs_icon.text, 12) + 30.0 <= lb.size.x or game.logs_icon.get_combined_minimum_size().x <= lb.size.x + 0.5, "the Logs bell's count '%s' fits @%s" % [game.logs_icon.text, res])
 	game._tab = ""; game._refresh_panel(); await settle()
 
 
