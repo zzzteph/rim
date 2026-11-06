@@ -155,6 +155,7 @@ func run() -> void:
 	builds_first()
 	building_first_rules()
 	priority_order()
+	single_file()
 	storage_fair()
 	construction()
 	cancel_and_pause()
@@ -747,6 +748,15 @@ func priority_order() -> void:   # (0.6.20) the workers' order, as in Settlers: 
 	check(bool(got.build_ok) and bool(got.research_ok) and bool(got.upkeep_ok) and bool(got.export_ok),
 		"The workers' order is building, then research, then supplies, then output home: with a project, research and a Firewall waiting, the Intel goes to the project (%s); without the project, home for the research (%s); without the research, to the Firewall (%s); with nothing else, home (%s)"
 		% [str(got.build), str(got.research), str(got.upkeep), str(got.export)])
+
+
+func single_file() -> void:   # (0.6.27) workers set off on the same link at the same moment enter it one after the other, never abreast
+	fresh()
+	var a: int = int(g.rig[P]); var b := near()
+	var f1: Dictionary = g._schedule([a, b], g._t, P, "courier")
+	var f2: Dictionary = g._schedule([a, b], g._t, P, "courier")
+	var gap: float = g.LINK_TIME / float(g._key_cap(g._lkey(a, b)))
+	check(absf(float(f2.hops[0]) - float(f1.hops[0])) >= gap - 0.0001, "Two workers sent along one link together enter it %.3f s apart (one by one, at least %.3f s)" % [absf(float(f2.hops[0]) - float(f1.hops[0])), gap])
 
 
 func storage_fair() -> void:   # 0.6.12: a storage short of room for a whole cycle gives every producer the same share of its output

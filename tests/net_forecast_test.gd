@@ -122,13 +122,19 @@ func horizon() -> void:   # the next minute: a short card counts its price once,
 	step(60.0)
 	var got := float(g.bank[P].intel) - at0
 	check(absf(got - float(f.net.intel)) <= maxf(3.0, 0.2 * absf(float(f.net.intel))), "...and the net shown is what the Intel bank does in the next minute (%.1f shown, %.1f measured)" % [float(f.net.intel), got])
-	g._cmd(["queue", "recon"]); step(0.5)   # it has started: paid, being made
-	check(not (g.mq[P][0].paid as Dictionary).is_empty() and use_of("intel", "card queue") == 0.0, "...once it is being made (paid when it started) it takes nothing more")
+	g._cmd(["queue", "recon"]); step(0.5)   # it has started: it pays as it is made (0.6.27)
+	var left: float = rc * (1.0 - float(g.mq[P][0].progress) / g._make_time("recon"))
+	check(not (g.mq[P][0].paid as Dictionary).is_empty() and absf(use_of("intel", "card queue") - left) < 0.05, "...once it is being made it counts only what it has yet to pay (%s of %s)" % [g._amt(use_of("intel", "card queue")), g._amt(rc)])
 	g.mq[P].clear(); g.cards[P] = {}
 	g.known[P]["zeroday"] = true
 	for k in 4: g._cmd(["queue", "zeroday"])   # 26 s a copy: three start within the minute (now, at 26 s and at 52 s)
 	var zc := float(g._recipe_cost("zeroday").intel)
-	check(absf(use_of("intel", "card queue") - 3.0 * zc) < 0.01, "Four 0days (26 s each): the three that start within the minute, %s Intel" % g._amt(use_of("intel", "card queue")))
+	var zt: float = g._make_time("zeroday")
+	var within: float = 0.0   # (0.6.27) each pays over its make time: what of the four is made within the next minute
+	var t := 0.0
+	for k in 4:
+		within += clampf(g.NET_HORIZON - t, 0.0, zt) / zt; t += zt
+	check(absf(use_of("intel", "card queue") - within * zc) < 0.05, "Four 0days (%d s each): what of them is made within the minute, %s Intel" % [int(zt), g._amt(use_of("intel", "card queue"))])
 	g.cards[P] = {"recon": g.READY_SLOTS - 1}   # room for one more ready copy: only one starts
 	check(absf(use_of("intel", "card queue") - zc) < 0.01, "...with room for one more ready copy, only that one (%s Intel)" % g._amt(use_of("intel", "card queue")))
 	g.mq[P].clear(); g.cards[P] = {}

@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.26 · commit fbbfbd8
+RIM 0.6.27 · commit 72a2523
 
 ## Contents
 
@@ -338,7 +338,7 @@ The tab shows the tree: every recipe under the one it is researched from, marked
 
 #### Manufacturing (ATTACK and DEFENCE tabs)
 
-These tabs hold only the recipes you know. **+ Queue** adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it; while the queue runs and the Ready inventory has room, its price is kept for it from research and from supplies. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.
+These tabs hold only the recipes you know. **+ Queue** adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made. It starts as soon as the Ready inventory has room and pays its price as it is made, like research (0.6.27): each moment of work takes its share from main-node stock no worker has claimed and the projects do not need. When the bank lacks a share the copy waits and says what it lacks; nothing overtakes it. Research and supplies leave it what it pays over the next production cycle. Removing a waiting copy is free; cancelling the one being made refunds nothing, because only the work done was paid. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.
 
 | Blueprint             | Needs             | Price and time                          | Early · mid wait |
 |-----------------------|-------------------|-----------------------------------------|------------------|

@@ -216,8 +216,11 @@ func manufacture_into_inventory() -> void:
 	g._cmd(["queue", "breach", 1])
 	check(g._held(P, "breach") == 0, "No ready Breach copy before manufacture finishes")
 	var creds_before: float = float(g.bank[P]["creds"])
-	step(g.SIM_DT)   # the head charges its cost on the step it starts (before income can refill a capped bank)
-	check(float(g.bank[P]["creds"]) < creds_before - float(g.CARDS.breach.make.creds) + 1.0, "Manufacturing charges the recipe cost up front (Credentials fell by Breach's price)")
+	var mt: float = g._make_time("breach")
+	var paid0: float = float((g._recipe_cost("breach")).get("creds", 0.0))
+	step(0.5 * mt)   # (0.6.27) the head pays as it is made: half-way, half its price (the main node's income comes in meanwhile)
+	var fell: float = creds_before - float(g.bank[P]["creds"]) + g.MAIN_INCOME * 0.5 * mt
+	check(absf(fell - 0.5 * paid0) < 0.08 * paid0, "Manufacturing pays as the copy is made: half-way, Credentials fell by half of Breach's price (%s of %s)" % [g._amt(fell), g._amt(paid0)])
 	step(g._make_time("breach") + 1.0)
 	check(g._held(P, "breach") == 1, "The queue's head becomes one ready Breach copy after its make time")
 

@@ -47,6 +47,7 @@ func run() -> void:
 	await top_bar()
 	await empty_inventory()
 	await hand_fan()
+	await drawer_click_outside()
 	await crowded_inventory()
 	await select_and_launch()
 	await research_states()
@@ -92,6 +93,14 @@ func hand_fan() -> void:   # (0.6.24) the Ready cards as a fanned hand: one card
 	g._input(ev); await frames()
 	check(g._armed == str(g._ready_list()[0]), "1 picks the hand's first card (%s)" % g._armed)
 	g._armed = ""
+
+
+func drawer_click_outside() -> void:   # (0.6.27) a click on the map outside the open card drawer closes it
+	fresh(); await frames()
+	g._open_drawer("attack"); await frames()
+	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true; ev.position = Vector2(400, 200)
+	g._gui_input(ev); await frames()
+	check(not g._deck_open, "A click on the map outside the open drawer closes it")
 
 
 func empty_inventory() -> void:

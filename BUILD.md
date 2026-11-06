@@ -260,9 +260,8 @@ Net forecast (0.6.17). The HUD's second line under each material is ONE signed n
 less what the bank pays out in the next minute, as things stand (`_forecast` returns `use: {res: {what: units}}`, `net`
 and `full` beside `rate`). `_bank_use(fac)` (it only reads) adds research while it runs and is not paused (it pays as it
 progresses: `_research_cost` × the part of the next minute it still runs / `_research_time`), the card queue while it
-runs and is not paused (each copy pays its `_recipe_cost` once, when it starts: the price of every copy that starts
-within the next minute — not the copy being made, already paid, and none while a full Ready inventory keeps it from
-starting — so one Recon counts 16 Intel, not 16 over its 3 s), building (`_build_owed`: what the projects still need from
+runs and is not paused (0.6.27: each copy pays its `_recipe_cost` as it is made, over its make time: what of each copy
+is made within the next minute — none that a full Ready inventory keeps from starting), building (`_build_owed`: what the projects still need from
 the bank, all of it within the next minute; a project the workers cannot reach holds nothing) and the main node's
 Firewalls' upkeep; `_forecast_now` adds what the bank sends to remote hosts (a Firewall's upkeep on a host that does not
 make enough Intel), as far as the workers' trips bring it. A full bank takes in again only what is used from it that the

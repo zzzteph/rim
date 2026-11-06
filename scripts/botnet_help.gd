@@ -84,7 +84,7 @@ const LEADS := {
 	"goal": ["Hold at least {pct}% of all hosts for {secs} seconds,", "or be the last network with its main node."],
 }
 const CAPTIONS := {
-	"research": "Only materials at your main node fund cards and research. Research gives no free card; a copy pays when it starts.",
+	"research": "Only materials at your main node fund cards and research. Research gives no free card; a copy pays as it is made.",
 	"deliver": "Workers serve building first, then research, then Firewall upkeep, then take output home. Losing a host destroys its stations' workers.",
 	"produce": "Every 6 s each producer makes 1 unit of its resource, with no input. A Firewall uses 1 Intel; full storage (20) stops a host's producers.",
 	"build": "A building's materials must reach its site before its 10 s of work start. The 12-card Ready inventory is separate from the queue.",
