@@ -384,9 +384,12 @@ func panel_controls(res: Vector2i) -> void:
 	for k in 300: game._sim_step(game.SIM_DT)   # ten seconds of play, so the overview has flows to show
 	game._tab = "economy"; game._refresh_panel(); await settle()
 	controls_inside(game.panel_box, visible_area(game.panel_scroll), "economy overview @%s" % res)
-	var econ_text := ""
-	for c in game.panel_box.get_children(): if c is Label: econ_text += (c as Label).text + "\n"
-	check(econ_text.contains("Used per minute: "), "economy overview lists what uses the banks @%s" % res)
+	var used := []   # (0.6.28) the Banks tab: each bank card lists what uses it
+	game._econ_tab = "banks"; game._refresh_panel(); await settle()
+	controls_inside(game.panel_box, visible_area(game.panel_scroll), "economy banks @%s" % res)
+	for c in game.panel_box.get_children(): if c.has_method("want_h") and str(c.res) != "workers": for e in c.rows(): if bool(e[2]): used.append(str(e[0]))
+	check(used.has("research"), "economy overview lists what uses the banks (%s) @%s" % [str(used), res])
+	game._econ_tab = ""
 	for res_key in game.RES: check(w(str(game._hud_rate(res_key)[0]), 12) <= float(game._hud_col_w()) - 22.0 - float(game.HUD_GAP), "HUD net '%s' with research and cards running fits @%s" % [str(game._hud_rate(res_key)[0]), res])
 	game.research_job[P] = {}; game.mq[P] = []
 	game._event("fit:long", game.EV_CRIT, "NYX's Credential breach on Neighborhood Relay: 14 s left. A Patch on it stops it.", int(game.rig[P]), true)

@@ -103,7 +103,7 @@ ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 4px; max-width: 80
 <header class="intro">
   <h1>RIM rules reference</h1>
   <p>The whole design of RIM as the game runs it today: how a match flows, how the map and hosts work, every economic formula, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers and every constant for analysis.</p>
-  <p class="meta">RIM 0.6.26 · branch claude/amazing-einstein-jc1hrr · commit fbbfbd8 · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
+  <p class="meta">RIM 0.6.29 · branch claude/amazing-einstein-jc1hrr · commit dfe5171 · prices and constants are read from the game's config; behaviour was checked against the simulation code</p>
   <nav class="toc" aria-label="Contents">
     <div><b>Flow</b><a href="#overview">Overview and core loop</a><a href="#flow">Match flow</a><a href="#time">Time model</a></div>
     <div><b>World</b><a href="#map">Map and network</a><a href="#hosts">Host types</a><a href="#fog">Sight and fog</a></div>
@@ -337,7 +337,7 @@ m      = the host type's multiplier for that resource</pre>
     <div class="rule"><h4>No supply settings</h4>
       <p>Supply is automatic and in the background: there is nothing to set per host. What a host's next cycle needs is brought; what was brought for it is not carried back out.</p></div>
     <div class="rule"><h4>Construction</h4>
-      <p>Ordering is free. A project's materials go into an escrow at its site — separate from the 20-unit storage, so a 32-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.</p></div>
+      <p>Ordering is free. A project's materials go into an escrow at its site — separate from the 20-unit storage, so a 32-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work use the bill up as they go and never run ahead of what has arrived: at the main node each moment's share is paid straight from the bank (the work waits when the bank lacks it), elsewhere the work stops where the delivered materials run out. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.</p></div>
     <div class="rule"><h4>Routes</h4>
       <p>Workers and every card travel only through your own hosts and never through one under DDoS (shortest path by links). Neutral and rival hosts are never relays; a rival host can only be the end of an attack. The way is checked again every time a packet leaves a host.</p></div>
     <div class="rule"><h4>Speed and capacity</h4>
@@ -368,7 +368,7 @@ each link direction admits 8 packets per second (16 on a junction's links); extr
     <div class="rule"><h4>Research (RESEARCH tab)</h4>
       <p>The tab shows the tree: every recipe under the one it is researched from, marked known, researching, open or locked. One blueprint at a time. Its price is paid bit by bit over its research time and it waits whenever a resource runs short. It never takes what your projects still need (building first) or the price of the card at the head of the queue while that card could start; the bar says what is missing and what is kept, and for whom. While it still pays now and then it reads <b>slowed</b> (a resource comes in slower than it uses); only after a whole production cycle without a payment does it read <b>stopped</b> and raise a Logs entry. Click it again to pause; cancelling stops the payments (what was paid is spent). Research unlocks the recipe; it gives no card.</p></div>
     <div class="rule"><h4>Manufacturing (ATTACK and DEFENCE tabs)</h4>
-      <p>These tabs hold only the recipes you know. <b>+ Queue</b> adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made: its whole price is paid when it starts, from main-node stock no worker has claimed, then it takes its make time. A head that cannot start says what it lacks and nothing overtakes it; while the queue runs and the Ready inventory has room, its price is kept for it from research and from supplies. Removing a waiting copy is free; cancelling the one being made refunds its unworked share. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.</p></div>
+      <p>These tabs hold only the recipes you know. <b>+ Queue</b> adds a copy to one first-in-first-out queue of at most four, the copy being made included. Only the head is made. It starts as soon as the Ready inventory has room and pays its price as it is made, like research (0.6.27): each moment of work takes its share from main-node stock no worker has claimed and the projects do not need. When the bank lacks a share the copy waits and says what it lacks; nothing overtakes it. Research and supplies leave it what it pays over the next production cycle. Removing a waiting copy is free; cancelling the one being made refunds nothing, because only the work done was paid. The queue pauses on its own button. Ready copies plus the copy being made plus cards in flight: at most 12. Copies never expire. A persistent research bar under the top bar shows the active blueprint, its progress and whether it is active, paused or stalled.</p></div>
   </div>
   <div class="tablebox"><table>
     <thead><tr><th>Blueprint</th><th>Needs</th><th>Price and time</th><th>Early · mid wait</th></tr></thead>
@@ -1537,7 +1537,7 @@ a main node under DDoS takes no card from its owner until it ends; what is armed
     8
    ]
   ],
-  &quot;GAME_VERSION&quot;: &quot;0.6.26&quot;,
+  &quot;GAME_VERSION&quot;: &quot;0.6.29&quot;,
   &quot;MAP_CELL&quot;: 190.0,
   &quot;SOCKET_TRIGGER&quot;: {
    &quot;patch&quot;: &quot;a capture, Worm or Vault raid starts here&quot;,

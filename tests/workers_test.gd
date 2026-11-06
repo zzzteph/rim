@@ -155,8 +155,10 @@ func run() -> void:
 	builds_first()
 	building_first_rules()
 	priority_order()
+	single_file()
 	storage_fair()
 	construction()
+	main_node_pays_as_built()
 	cancel_and_pause()
 	fairness()
 	escrow_theft()
@@ -749,6 +751,15 @@ func priority_order() -> void:   # (0.6.20) the workers' order, as in Settlers: 
 		% [str(got.build), str(got.research), str(got.upkeep), str(got.export)])
 
 
+func single_file() -> void:   # (0.6.27) workers set off on the same link at the same moment enter it one after the other, never abreast
+	fresh()
+	var a: int = int(g.rig[P]); var b := near()
+	var f1: Dictionary = g._schedule([a, b], g._t, P, "courier")
+	var f2: Dictionary = g._schedule([a, b], g._t, P, "courier")
+	var gap: float = g.LINK_TIME / float(g._key_cap(g._lkey(a, b)))
+	check(absf(float(f2.hops[0]) - float(f1.hops[0])) >= gap - 0.0001, "Two workers sent along one link together enter it %.3f s apart (one by one, at least %.3f s)" % [absf(float(f2.hops[0]) - float(f1.hops[0])), gap])
+
+
 func storage_fair() -> void:   # 0.6.12: a storage short of room for a whole cycle gives every producer the same share of its output
 	fresh()
 	g._set_builds(int(g.rig[P]), ["intel"]); g._tick_teams(0.0)   # no Bot station: nothing leaves the storage meanwhile
@@ -774,6 +785,45 @@ func storage_fair() -> void:   # 0.6.12: a storage short of room for a whole cyc
 		% [g._amt(g.STORE_CAP - pre), g._amt(gross), kinds.size(), int(round(share * 100.0)), str(made)])
 
 
+func paid_build(bill: Dictionary) -> float:   # what the bank has spent on buildings since fresh()
+	var n := 0.0
+	for r in bill: n += kept_led("out:buildings:%s" % str(r))
+	return n
+
+
+func main_node_pays_as_built() -> void:   # (0.6.29) a main-node building takes its bill from the bank as the work goes, not all at the order
+	fresh()
+	var home := int(g.rig[P])
+	var slot := (g.hosts[home].builds as Array).find("")
+	if slot < 0: g.hosts[home].slots = int(g.hosts[home].slots) + 1; g.hosts[home].builds.append(""); slot = (g.hosts[home].builds as Array).size() - 1
+	var bill: Dictionary = g._build_cost("bot")
+	g._cmd(["build", home, slot, "bot"])
+	g._sim_step(g.SIM_DT)
+	var paid1 := paid_build(bill)
+	check(paid1 < 0.1 * bill_total("bot"), "Ordering at the main node takes almost nothing at once (%.2f of %s)" % [paid1, g._amt(bill_total("bot"))])
+	for k in int(round(0.5 * g.BUILD_TIME / g.SIM_DT)): g._sim_step(g.SIM_DT)
+	var half := paid_build(bill)
+	check(absf(half - 0.5 * bill_total("bot")) < 0.1 * bill_total("bot"), "Half way through the work about half the bill is spent (%.1f of %s)" % [half, g._amt(bill_total("bot"))])
+	for k in int(round(0.7 * g.BUILD_TIME / g.SIM_DT)): g._sim_step(g.SIM_DT)
+	var all := paid_build(bill)
+	check(str(g.hosts[home].builds[slot]) == "bot" and absf(all - bill_total("bot")) < 0.01, "Built, and exactly the bill was spent (%.2f of %s)" % [all, g._amt(bill_total("bot"))])
+	# a bank that runs dry stops the work; it goes on when the stock comes back
+	fresh()
+	home = int(g.rig[P])
+	slot = (g.hosts[home].builds as Array).find("")
+	if slot < 0: g.hosts[home].slots = int(g.hosts[home].slots) + 1; g.hosts[home].builds.append(""); slot = (g.hosts[home].builds as Array).size() - 1
+	g._cmd(["build", home, slot, "bot"])
+	for k in int(round(0.3 * g.BUILD_TIME / g.SIM_DT)): g._sim_step(g.SIM_DT)
+	var keep := {}
+	for r in g.RES: keep[r] = float(g.bank[P].get(r, 0.0)); g.bank[P][r] = 0.0
+	var left0 := float(g.hosts[home].jobs[slot].left)
+	g._sim_step(g.SIM_DT)
+	check(g.hosts[home].jobs.has(slot) and absf(float(g.hosts[home].jobs[slot].left) - left0) < 0.001 and g._job_state(g.hosts[home].jobs[slot]) == "waiting", "An empty bank stops the work part-way (it waits for materials)")
+	for r in keep: g.bank[P][r] = keep[r]
+	for k in int(round(1.2 * g.BUILD_TIME / g.SIM_DT)): g._sim_step(g.SIM_DT)
+	check(str(g.hosts[home].builds[slot]) == "bot", "...and finishes once the bank has stock again")
+
+
 func construction() -> void:
 	fresh()
 	var h := near()
@@ -787,13 +837,19 @@ func construction() -> void:
 	var trips := ceilf(bill_total("bot") / (float(ids(home).size()) * g.WORKER_CARRY))
 	var ideal: float = (2.0 * trips - 1.0) * g._leg_time(P, home, h) + g.BUILD_TIME
 	var arrived_before_work := true
+	var worked_early := false
 	var t0: float = g._t
 	for k in int(round(maxf(60.0, 2.0 * ideal) / g.SIM_DT)):   # (the build takes longer than the ledger's window: keep_ledger)
 		g._sim_step(g.SIM_DT)
 		if k % 30 == 0: keep_ledger()
-		if g.hosts[h].jobs.has(0) and float(g.hosts[h].jobs[0].left) < float(g.hosts[h].jobs[0].total) - 0.001 and not g._job_funded(g.hosts[h].jobs[0]): arrived_before_work = false
+		if g.hosts[h].jobs.has(0):   # (0.6.29) the work goes on as the materials come, never ahead of them
+			var jj: Dictionary = g.hosts[h].jobs[0]
+			for r in (jj.bill as Dictionary):
+				if g._job_done(jj) > float((jj.escrow as Dictionary).get(r, 0.0)) / float(jj.bill[r]) + 0.001: arrived_before_work = false
+			if g._job_done(jj) > 0.001 and not g._job_funded(jj): worked_early = true
 		if not g.hosts[h].jobs.has(0): break
-	check(arrived_before_work, "No work happens before all %s units are in the site's escrow (beyond the %s-unit store)" % [g._amt(bill_total("bot")), g._amt(g.STORE_CAP)])
+	check(arrived_before_work, "The work never runs ahead of the %s units delivered to the site (beyond the %s-unit store)" % [g._amt(bill_total("bot")), g._amt(g.STORE_CAP)])
+	check(worked_early, "The work starts on the first units, before the whole bill is there")
 	check(str(g.hosts[h].builds[0]) == "bot" and ids(h).size() == 2, "Built after %.1f s (ideal %.0f s on one hop): its two workers start" % [g._t - t0, ideal])
 	var carried := kept_led("out:supply:intel") + kept_led("out:supply:cash")
 	check(absf(carried - bill_total("bot")) < 0.01, "Exactly the bill was carried: %s units (%s)" % [g._amt(bill_total("bot")), g._amt(carried)])

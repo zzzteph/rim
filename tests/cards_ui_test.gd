@@ -47,6 +47,7 @@ func run() -> void:
 	await top_bar()
 	await empty_inventory()
 	await hand_fan()
+	await drawer_click_outside()
 	await crowded_inventory()
 	await select_and_launch()
 	await research_states()
@@ -92,6 +93,14 @@ func hand_fan() -> void:   # (0.6.24) the Ready cards as a fanned hand: one card
 	g._input(ev); await frames()
 	check(g._armed == str(g._ready_list()[0]), "1 picks the hand's first card (%s)" % g._armed)
 	g._armed = ""
+
+
+func drawer_click_outside() -> void:   # (0.6.27) a click on the map outside the open card drawer closes it
+	fresh(); await frames()
+	g._open_drawer("attack"); await frames()
+	var ev := InputEventMouseButton.new(); ev.button_index = MOUSE_BUTTON_LEFT; ev.pressed = true; ev.position = Vector2(400, 200)
+	g._gui_input(ev); await frames()
+	check(not g._deck_open, "A click on the map outside the open drawer closes it")
 
 
 func empty_inventory() -> void:
@@ -216,9 +225,9 @@ func research_bar() -> void:   # on screen outside the drawer while research run
 	await frames()
 	check(not bar.visible and str(g._research_bar_state().state) == "idle", "Nothing being researched: no bar at all")
 	g._cmd(["research", "ddos"]); step(2.0); await frames()
-	check(bar.visible and not g._deck_open, "Research running: the bar is on screen with the drawer closed")
-	var hud_end: float = g.hud.get_global_rect().end.y
-	check(bar.get_global_rect().position.y >= hud_end - 0.5 and not bar.get_global_rect().intersects(g.panel.get_global_rect()) and not bar.get_global_rect().intersects(g.logs_button.get_global_rect()), "It sits under the HUD, beside the Logs button, clear of the inspector")
+	var kinds := []   # (0.6.22) the research chip on the top bar shows it; the old bar stays hidden
+	for c in g._hud_chips(): kinds.append(str(c.kind))
+	check(not bar.visible and not g._deck_open and kinds.has("tree"), "Research running: the top bar's research chip shows it, the drawer closed, no separate bar")
 	var st: Dictionary = g._research_bar_state()
 	check(str(st.state) == "active" and str(st.name) == "DDoS" and str(st.track) == "Attack" and float(st.frac) > 0.0 and float(st.left) > 0.0,
 		"Active: name, track, progress and work left (%s)" % str(st))

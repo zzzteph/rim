@@ -68,32 +68,37 @@ func run() -> void:
 	g.free(); quit(0 if failures.is_empty() else 1)
 
 
-func head_paid_first() -> void:   # 0.6.12: while the head is unpaid, research leaves its price alone, so the copy is not starved unit by unit
+func head_paid_first() -> void:   # (0.6.27) the head pays as it is made; research leaves alone what it pays over the next cycle
 	fresh()
 	var price: Dictionary = g._recipe_cost("breach")
-	g.bank[P] = full_bank({"intel": float(price.get("intel", 0.0)) - 2.0})   # 2 Intel short
+	var mt: float = g._make_time("breach")
+	var share: float = minf(1.0, g.PROD_CYCLE / mt)
+	g.bank[P] = full_bank()
 	queue("breach")
-	g._cmd(["research", "ddos"])   # research also wants Intel, a little every tick
-	var research_intel_before: float = g.bank[P].intel
-	var t0: float = g._t
 	step(0.1)
-	var trickle: float = g.MAIN_INCOME * (g._t - t0)   # the main node's own income still comes in meanwhile
-	check((g._mq(P)[0].paid as Dictionary).is_empty() and g._head_owed(P).has("intel"), "Setup: the Breach copy waits for 2 more Intel; its price is held (%s)" % str(g._head_owed(P)))
-	check(absf(float(g.bank[P].intel) - research_intel_before - trickle) < 0.01,
-		"Research takes none of the Intel the waiting copy needs (bank %.3f → %.3f, of which +%.3f main-node income)" % [research_intel_before, float(g.bank[P].intel), trickle])
-	check(g._research_stall(P) == "" or (g._research_stall(P).contains("kept for your") and not g._research_stall(P).contains("in your bank")), "Research says it waits for the copy, not that the bank is empty")
-	g.bank[P].intel = float(g.bank[P].intel) + 3.0   # the Intel arrives: the copy starts at once
+	var paid0: Dictionary = (g._mq(P)[0].paid as Dictionary).duplicate()
+	check(not paid0.is_empty() and float(paid0.get("intel", 0.0)) < 0.05 * float(price.intel) + 0.001, "A copy starts at once and pays only for the work done so far (%s of %s Intel after 0.1 s)" % [g._amt(float(paid0.get("intel", 0.0))), g._amt(float(price.intel))])
+	step(0.5 * mt - 0.1)
+	var half: float = float((g._mq(P)[0].paid as Dictionary).get("intel", 0.0))
+	check(absf(half - 0.5 * float(price.intel)) < 0.06 * float(price.intel), "Half-way through it has paid half its price (%s of %s Intel)" % [g._amt(half), g._amt(float(price.intel))])
+	check(absf(float(g._head_owed(P).get("intel", 0.0)) - minf(float(price.intel) - half, float(price.intel) * share)) < 0.05, "What it pays over the next production cycle is held for it (%s)" % str(g._head_owed(P)))
+	fresh()   # research beside it: it may use the bank, except the copy's next cycle
+	g.bank[P] = full_bank({"intel": float(price.intel) * share})   # exactly the copy's next cycle of Intel
+	queue("breach")
+	g._cmd(["research", "ddos"])
+	var rp0: float = float(g.research_job[P].get("progress", 0.0))
 	step(0.2)
-	check(not (g._mq(P)[0].paid as Dictionary).is_empty() and g._head_owed(P).is_empty(), "With its price in the bank the copy starts, and research may use the rest again")
+	check(float(g.research_job[P].get("progress", 0.0)) <= rp0 + 0.0001 and float(g._mq(P)[0].progress) > 0.1, "Research takes none of the Intel the copy pays next (research held at %.2f s; the copy made %.2f s)" % [float(g.research_job[P].get("progress", 0.0)), float(g._mq(P)[0].progress)])
 	g._cmd(["queue_pause"]); queue("recon")
-	check(g._head_owed(P).is_empty() or not (g._mq(P)[0].paid as Dictionary).is_empty(), "A paused queue holds nothing back")
+	check(g._head_owed(P).is_empty(), "A paused queue holds nothing back")
 
 
 func held_text() -> void:   # 0.6.14: the stopped-research text tells what the bank lacks apart from what it has but keeps
 	fresh()
 	g._set_builds(int(g.rig[P]), ["bot"])   # only the trickle comes in
 	var price: Dictionary = g._recipe_cost("breach")
-	g.bank[P] = full_bank({"intel": float(price.intel) - 2.0, "cash": 0.0})   # Intel there but held, no Crypto
+	var held: float = float(price.intel) * minf(1.0, g.PROD_CYCLE / g._make_time("breach"))   # (0.6.27) what the copy pays over the next cycle
+	g.bank[P] = full_bank({"intel": held, "cash": 0.0})   # Intel there but held for the copy, no Crypto
 	queue("breach")
 	g._cmd(["research", "ddos"])   # wants Intel and Crypto
 	step(0.1)
@@ -204,14 +209,14 @@ func capacity_and_order() -> void:
 	check(recipes() == ["recon"], "An empty queue takes new entries again")
 
 
-func waiting_head() -> void:
+func waiting_head() -> void:   # (0.6.27) a started head the bank cannot pay waits, and says what it lacks
 	fresh()
 	for r in g.RES: g.bank[P][r] = 0.0
 	queue("breach"); queue("recon")
 	step(1.0)
 	var why: String = g._mq_head_why(P)
-	check((g._mq(P)[0].paid as Dictionary).is_empty() and why.begins_with("Needs ") and why.contains("Intel") and why.contains("Main rig"),
-		"An unfunded head waits and says what it needs: '%s'" % why)
+	check(float(g._mq(P)[0].progress) < 0.1 * g._make_time("breach") and why.begins_with("Needs ") and why.contains("Intel") and why.contains("Main rig"),
+		"A copy the bank cannot pay for waits, making nothing, and says what it needs: '%s'" % why)
 	check(g._held(P, "recon") == 0 and recipes() == ["breach", "recon"], "Nothing behind it starts first, even a cheaper copy")
 	var bank0: Dictionary = g.bank[P].duplicate()
 	g._cmd(["unqueue", int(g._mq(P)[1].id)])
@@ -219,7 +224,7 @@ func waiting_head() -> void:
 	var price: Dictionary = g._recipe_cost("breach")
 	for r in price: g.bank[P][r] = float(price[r])   # exactly the head's price
 	step(0.5)
-	check(not (g._mq(P)[0].paid as Dictionary).is_empty() and g._mq_head_why(P) == "", "With the stock free the head pays and starts")
+	check(float(g._mq(P)[0].progress) > 0.3 and g._mq_head_why(P) == "", "With the stock in the bank it carries on, paying as it goes")
 
 
 func full_hand() -> void:
@@ -246,29 +251,26 @@ func full_hand() -> void:
 	check(not (g._mq(P)[0].paid as Dictionary).is_empty(), "When it has landed the place frees and the head starts")
 
 
-func pause_and_cancel() -> void:
+func pause_and_cancel() -> void:   # (0.6.27) paused, it neither pays nor progresses; cancelled, what it used is gone and nothing more is taken
 	fresh()
 	var price: Dictionary = g._recipe_cost("breach")
-	for r in price: g.bank[P][r] = 2.0 * float(price[r])   # twice its price, well below the caps, so a refund fits
+	for r in price: g.bank[P][r] = 2.0 * float(price[r])
 	queue("breach")
 	step(0.1)
-	var paid: Dictionary = (g._mq(P)[0].paid as Dictionary).duplicate()
-	var bank_after: Dictionary = g.bank[P].duplicate()
 	g._cmd(["queue_pause"])
 	var p0 := float(g._mq(P)[0].progress)
+	var paid0: float = float((g._mq(P)[0].paid as Dictionary).get("intel", 0.0))
 	step(3.0)
-	check(absf(float(g._mq(P)[0].progress) - p0) < 0.0001 and bool(g.mq_paused[P]), "Paused: the head keeps its payment and makes no progress")
+	check(absf(float(g._mq(P)[0].progress) - p0) < 0.0001 and absf(float((g._mq(P)[0].paid as Dictionary).get("intel", 0.0)) - paid0) < 0.0001 and bool(g.mq_paused[P]), "Paused: the head makes no progress and pays nothing")
 	g._cmd(["queue_pause"])
-	step(0.5 * g._make_time("breach") - 0.1)   # about half of its make time (0.1 s was worked before the pause)
-	var frac: float = 1.0 - float(g._mq(P)[0].progress) / float(g._make_time("breach"))
-	var trickle := {}
-	for r in g.RES: trickle[r] = float(g.bank[P][r]) - float(bank_after[r])
+	step(0.5 * g._make_time("breach") - 0.1)
+	var paid: float = float((g._mq(P)[0].paid as Dictionary).get("intel", 0.0))
+	var before: float = float(g.bank[P].intel)
 	g._cmd(["unqueue", int(g._mq(P)[0].id)])
-	var ok := true
-	for r in paid:
-		var want: float = float(bank_after[r]) + float(trickle[r]) + float(paid[r]) * frac
-		if absf(float(g.bank[P][r]) - want) > 0.01: ok = false; print("  %s bank %.2f want %.2f (paid %.1f, trickle %.2f)" % [r, float(g.bank[P][r]), want, float(paid[r]), float(trickle[r])])
-	check(ok and g._mq(P).is_empty() and absf(frac - 0.5) < 0.05, "Cancelling the paid head refunds its unworked share (%.0f%%)" % (frac * 100.0))
+	step(1.0)
+	var trickle: float = g.MAIN_INCOME * 1.0
+	check(g._mq(P).is_empty() and absf(float(g.bank[P].intel) - before - trickle) < 0.05 and absf(paid - 0.5 * float(price.intel)) < 0.06 * float(price.intel),
+		"Cancelled half-way: it had paid half its price (%s), nothing is refunded and nothing more is taken" % g._amt(paid))
 
 
 func command_ids() -> void:

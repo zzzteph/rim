@@ -260,9 +260,8 @@ Net forecast (0.6.17). The HUD's second line under each material is ONE signed n
 less what the bank pays out in the next minute, as things stand (`_forecast` returns `use: {res: {what: units}}`, `net`
 and `full` beside `rate`). `_bank_use(fac)` (it only reads) adds research while it runs and is not paused (it pays as it
 progresses: `_research_cost` × the part of the next minute it still runs / `_research_time`), the card queue while it
-runs and is not paused (each copy pays its `_recipe_cost` once, when it starts: the price of every copy that starts
-within the next minute — not the copy being made, already paid, and none while a full Ready inventory keeps it from
-starting — so one Recon counts 16 Intel, not 16 over its 3 s), building (`_build_owed`: what the projects still need from
+runs and is not paused (0.6.27: each copy pays its `_recipe_cost` as it is made, over its make time: what of each copy
+is made within the next minute — none that a full Ready inventory keeps from starting), building (`_build_owed`: what the projects still need from
 the bank, all of it within the next minute; a project the workers cannot reach holds nothing) and the main node's
 Firewalls' upkeep; `_forecast_now` adds what the bank sends to remote hosts (a Firewall's upkeep on a host that does not
 make enough Intel), as far as the workers' trips bring it. A full bank takes in again only what is used from it that the
@@ -447,9 +446,11 @@ arrival instead of spent, unless its attack is already there (`_apply_support`, 
 fires on its own when its trigger hits (`_fire_socket`, `SOCKET_TRIGGER`: an intrusion starting
 for Patch via `_start_exec`, Phishing/siphon/sabotage landing for Response, a DDoS landing for
 Filter, a siphon grabbing this host's cargo for Cover). Express route cannot be loaded. **Construction is
-supplied before work**: ordering is free; the project's bill (`BUILD_COSTS`) goes into an **escrow** at its site
-(separate from the 20-unit storage, so a 32-unit Bot station fits any host), first from what the host has spare, the
-rest carried by workers one unit a leg; only then do its `BUILD_TIME` s of work run (`_tick_jobs`). Replacing an
+paid as it is built** (0.6.29): ordering is free; at the main node each step of its `BUILD_TIME` s of work pays its
+share of the bill (`BUILD_COSTS`) straight from the bank, and waits (`job.stalled`) while the bank lacks it; elsewhere
+the bill goes into an **escrow** at its site (separate from the 20-unit storage, so a 32-unit Bot station fits any
+host), first from what the host has spare, the rest carried by workers one unit a leg, and the work never runs past
+the delivered share (`_tick_jobs`, `_job_done`, `_job_spare`). Replacing an
 installation demolishes it (`DEMOLISH_TIME` s) while the materials travel. Nothing can be paused (0.6.9: neither a
 project nor a producer); cancel leaves the delivered (unworked) materials at the site as salvage; capture destroys them;
 a Vault raid can steal unconsumed escrow, and the project's shortage reopens. DDoS, Supply-chain sabotage or a

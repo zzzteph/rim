@@ -122,13 +122,19 @@ func horizon() -> void:   # the next minute: a short card counts its price once,
 	step(60.0)
 	var got := float(g.bank[P].intel) - at0
 	check(absf(got - float(f.net.intel)) <= maxf(3.0, 0.2 * absf(float(f.net.intel))), "...and the net shown is what the Intel bank does in the next minute (%.1f shown, %.1f measured)" % [float(f.net.intel), got])
-	g._cmd(["queue", "recon"]); step(0.5)   # it has started: paid, being made
-	check(not (g.mq[P][0].paid as Dictionary).is_empty() and use_of("intel", "card queue") == 0.0, "...once it is being made (paid when it started) it takes nothing more")
+	g._cmd(["queue", "recon"]); step(0.5)   # it has started: it pays as it is made (0.6.27)
+	var left: float = rc * (1.0 - float(g.mq[P][0].progress) / g._make_time("recon"))
+	check(not (g.mq[P][0].paid as Dictionary).is_empty() and absf(use_of("intel", "card queue") - left) < 0.05, "...once it is being made it counts only what it has yet to pay (%s of %s)" % [g._amt(use_of("intel", "card queue")), g._amt(rc)])
 	g.mq[P].clear(); g.cards[P] = {}
 	g.known[P]["zeroday"] = true
 	for k in 4: g._cmd(["queue", "zeroday"])   # 26 s a copy: three start within the minute (now, at 26 s and at 52 s)
 	var zc := float(g._recipe_cost("zeroday").intel)
-	check(absf(use_of("intel", "card queue") - 3.0 * zc) < 0.01, "Four 0days (26 s each): the three that start within the minute, %s Intel" % g._amt(use_of("intel", "card queue")))
+	var zt: float = g._make_time("zeroday")
+	var within: float = 0.0   # (0.6.27) each pays over its make time: what of the four is made within the next minute
+	var t := 0.0
+	for k in 4:
+		within += clampf(g.NET_HORIZON - t, 0.0, zt) / zt; t += zt
+	check(absf(use_of("intel", "card queue") - within * zc) < 0.05, "Four 0days (%d s each): what of them is made within the minute, %s Intel" % [int(zt), g._amt(use_of("intel", "card queue"))])
 	g.cards[P] = {"recon": g.READY_SLOTS - 1}   # room for one more ready copy: only one starts
 	check(absf(use_of("intel", "card queue") - zc) < 0.01, "...with room for one more ready copy, only that one (%s Intel)" % g._amt(use_of("intel", "card queue")))
 	g.mq[P].clear(); g.cards[P] = {}
@@ -285,18 +291,13 @@ func overview() -> void:   # the Economy overview (E) shows the same net as the 
 	g._cmd(["research", "ddos"]); g._cmd(["queue", "patch"]); g._cmd(["queue", "patch"])
 	step(2.0)   # (the first copy has started, paid; the second starts within the minute)
 	g._fc_gen += 1
-	g._toggle_economy()
-	var texts := []
+	g._toggle_economy(); g._econ_tab = "banks"; g._refresh_panel()   # (0.6.28) the Banks tab: a card per bank, its uses on its out bar and in its list
+	var cards := {}
 	for c in g.panel_box.get_children():
-		if c is Label: texts.append((c as Label).text)
-	var all := "\n".join(PackedStringArray(texts))
+		if c.has_method("want_h"): cards[str(c.res)] = c
 	var bad := []
 	for res in g.RES:
-		var hud := str(g._hud_rate(res)[0])
-		var head := "%s  %d / %d   %s" % [str(g.RES_NAME[res]).to_upper(), int(g._avail(P, res)), int(g._cap(P, res)), hud if hud == "full" else "net " + hud]
-		if not texts.has(head): bad.append(head)
-	check(bad.is_empty() and all.contains("Used per minute: research") and all.contains("card queue"),
-		"The Economy overview shows each bank's net as the HUD does, and what uses it %s" % str(bad))
-	var nets := 0
-	for t in texts: if str(t).begins_with("Net: "): nets += 1
-	check(nets == 1, "...once per bank, on its heading (no second net line under it, only the overview's opening line)")
+		if not cards.has(res): bad.append(res); continue
+		var uses: Array = (cards[res].rows() as Array).filter(func(e): return bool(e[2])).map(func(e): return str(e[0]))
+		if res == "intel" and not (uses.has("research") and uses.has("card queue")): bad.append("intel uses %s" % str(uses))
+	check(bad.is_empty() and cards.has("workers"), "The Economy view's Banks tab has a card per bank (and the workers), with what uses each %s" % str(bad))

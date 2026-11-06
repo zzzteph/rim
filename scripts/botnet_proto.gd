@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.26"   # tiles sized to the sidebar, the hand kept clear of the workshop (lobbies match exact versions)
+const GAME_VERSION := "0.6.29"   # buildings pay as they are built; the main menu never scrolls (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -379,7 +379,7 @@ func _ready() -> void:
 	var sz := get_viewport_rect().size
 	hud = HudBar.new(); hud.game = self; hud.position = Vector2(24, 10)
 	hud.size = Vector2(sz.x - PANEL_W - 60.0, 32); add_child(hud)
-	research_bar = ResearchBar.new(); research_bar.game = self; research_bar.name = "ResearchBar"; add_child(research_bar)
+	research_bar = ResearchBar.new(); research_bar.game = self; research_bar.name = "ResearchBar"; add_child(research_bar); research_bar.visible = false   # (the research chip replaces it)
 	panel = Panel.new(); panel.size = Vector2(PANEL_W, sz.y - 70.0)
 	panel.position = Vector2(sz.x - PANEL_W - 16.0, 56.0); add_child(panel)   # a clear gap below the top dashboard
 	panel.gui_input.connect(_on_panel_input)
@@ -486,11 +486,7 @@ func _ready() -> void:
 	ready_count = Label.new(); ready_count.name = "ReadyCount"; ready_count.add_theme_font_size_override("font_size", 12)
 	ready_count.add_theme_color_override("font_color", C_DIM); ready_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	ready_count.custom_minimum_size = Vector2(0, 34); hand_tools.add_child(ready_count)
-	for spec in [["Recipes", "Make copies of the cards you know (C).", func(): _open_drawer("attack" if _card_bank not in ["attack", "defense"] else _card_bank)],
-			["Tree", "The development tree (R).", _toggle_research]]:
-		var tb := Button.new(); tb.name = "Hand" + str(spec[0]); tb.text = str(spec[0]); tb.focus_mode = Control.FOCUS_NONE
-		tb.custom_minimum_size = Vector2(96, 34); tb.add_theme_font_size_override("font_size", 13); tb.tooltip_text = str(spec[1])
-		tb.pressed.connect(spec[2]); hand_tools.add_child(tb)
+	# (0.6.27: no Recipes / Tree buttons: + Craft in the workshop, C, and the research chip on the top bar open them)
 	deck_pager = HBoxContainer.new(); deck_pager.add_theme_constant_override("separation", 6)
 	for step in [-1, 0, 1]:
 		if step == 0:
@@ -1049,17 +1045,20 @@ func _link_entry(key: String, t: float) -> float:
 	var arr: Array = _res.get(key, [])
 	var cap := _key_cap(key)
 	var e := t
+	var gap := LINK_TIME / float(maxi(1, cap))   # (0.6.27) packets enter one by one, never side by side: the same capacity, spaced out
 	var guard := 0
 	while guard < 10000:
 		guard += 1
-		var oldest := INF; var n := 0
+		var oldest := INF; var n := 0; var clash := -INF
 		for x in arr:
 			var xf := float(x)
 			if xf > e - LINK_TIME and xf <= e + 0.00001:
 				n += 1
 				if xf < oldest: oldest = xf
-		if n < cap: return e
-		e = oldest + LINK_TIME + 0.0001
+			if absf(xf - e) < gap - 0.00001: clash = maxf(clash, xf)
+		if n >= cap: e = oldest + LINK_TIME + 0.0001
+		elif clash > -INF: e = clash + gap
+		else: return e
 	return e
 
 
@@ -1704,9 +1703,8 @@ func _forecast_now(fac: int) -> Dictionary:
 # ---- the bank's spending in the next minute (0.6.17), for the net forecast: what research, the card queue, building and
 # the main node's Firewalls take from the bank within NET_HORIZON s, as things stand. Research while it runs and is not
 # paused: it pays as it progresses, so its price over its time for the part of the next minute it still runs. The card
-# queue while it runs and is not paused: the price of each copy that STARTS within the next minute (a copy pays once, when
-# it starts; the copy being made is paid for already; an unpaid copy cannot start while the Ready inventory is full), so
-# one short card counts its price once, not its price over its few seconds. Building: what the projects still need from
+# queue while it runs and is not paused (0.6.27): each copy pays as it is made, so what of each copy is made within the
+# next minute (none starts while the Ready inventory is full). Building: what the projects still need from
 # the bank (_build_owed: a project the workers cannot reach holds nothing), all of it within the next minute. A remote
 # host's Firewall upkeep the bank pays is added by _forecast_now (the supplies the workers bring). It only reads.
 const NET_HORIZON := 60.0
@@ -1725,19 +1723,21 @@ func _bank_use(fac: int) -> Dictionary:   # {res: {what: units within the next m
 		for r in cost: _use_add(use, str(r), "research", float(cost[r]) * runs / maxf(0.001, secs))
 	var q: Array = mq.get(fac, [])   # (not _mq(): reading must never add a queue to the state)
 	if not q.is_empty() and not bool(mq_paused.get(fac, false)):
-		var t := 0.0   # when the next copy starts, from now
+		var t := 0.0   # when the next copy starts, from now (0.6.27: each copy pays as it is made, its price over its make time)
 		var room := READY_SLOTS - _ready_total(fac)   # (the copy being made already holds its ready slot)
 		for e in q:
 			if t >= NET_HORIZON - 0.0001: break
 			var recipe := str(e.recipe)
-			if not (e.get("paid", {}) as Dictionary).is_empty():   # the copy being made: paid when it started
-				t += maxf(0.0, _make_time(recipe) - float(e.get("progress", 0.0)))
-				continue
-			if room <= 0: break   # the Ready inventory is full: nothing more starts until a card is used
+			var mt := _make_time(recipe)
+			var started := not (e.get("paid", {}) as Dictionary).is_empty()
+			if not started:
+				if room <= 0: break   # the Ready inventory is full: nothing more starts until a card is used
+				room -= 1
+			var rem := maxf(0.0, mt - (float(e.get("progress", 0.0)) if started else 0.0))
+			var runs := minf(rem, NET_HORIZON - t)
 			var cost := _recipe_cost(recipe)
-			for r in cost: _use_add(use, str(r), "card queue", float(cost[r]))
-			room -= 1
-			t += _make_time(recipe)
+			for r in cost: _use_add(use, str(r), "card queue", float(cost[r]) * runs / maxf(0.001, mt))
+			t += rem
 	var owed := _build_owed(fac)
 	for r in owed: _use_add(use, str(r), "building", float(owed[r]))
 	var walls := _count_all(hub, "wall") - _walls_building(hub)   # the main node's Firewalls eat from the bank every cycle
@@ -2438,9 +2438,14 @@ func _upkeep_extra(fac: int, _owed: Dictionary) -> float:   # bank Intel held fo
 
 func _head_owed(fac: int) -> Dictionary:   # the unpaid price of the card queue's first copy (0.6.12): research and supplies leave it alone,
 	var q: Array = mq.get(fac, [])           # so the copy is not kept waiting while they take the bank unit by unit (building still goes first)
-	if q.is_empty() or bool(mq_paused.get(fac, false)) or not (q[0].get("paid", {}) as Dictionary).is_empty(): return {}
-	if _ready_total(fac) >= READY_SLOTS: return {}   # (0.6.14: it cannot start while the Ready inventory is full, whatever the bank holds)
-	return _recipe_cost(str(q[0].recipe))
+	if q.is_empty() or bool(mq_paused.get(fac, false)): return {}
+	var paid: Dictionary = q[0].get("paid", {})
+	if paid.is_empty() and _ready_total(fac) >= READY_SLOTS: return {}   # (0.6.14: it cannot start while the Ready inventory is full, whatever the bank holds)
+	var out := _recipe_cost(str(q[0].recipe))   # (0.6.27: it pays as it is made: what it pays over the next production cycle is held for it)
+	var mt := _make_time(str(q[0].recipe))
+	var nxt := minf(1.0, PROD_CYCLE / maxf(0.001, mt))
+	for r in out: out[r] = minf(maxf(0.0, float(out[r]) - float(paid.get(r, 0.0))), float(out[r]) * nxt)
+	return out
 
 
 func _research_hold(fac: int) -> Dictionary:   # bank stock research leaves alone (0.6.14): what the projects still need (building
@@ -3312,10 +3317,19 @@ func _fill_escrow(i: int, job: Dictionary) -> void:   # what is already at the s
 		job.escrow[res] = float((job.escrow as Dictionary).get(res, 0.0)) + q
 
 
-func _job_salvage(i: int, job: Dictionary, frac: float) -> void:   # the unused share of the escrow stays at the site as a pile
+func _job_done(job: Dictionary) -> float:   # the share of a project already built (its materials in that share are the building)
+	if str(job.get("phase", "")) != "build": return 0.0
+	return clampf(1.0 - float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0)
+
+
+func _job_spare(job: Dictionary, res: String) -> float:   # material at the site not yet built in
+	return maxf(0.0, float((job.get("escrow", {}) as Dictionary).get(res, 0.0)) - float((job.get("bill", {}) as Dictionary).get(res, 0.0)) * _job_done(job))
+
+
+func _job_salvage(i: int, job: Dictionary) -> void:   # the unused share of the escrow stays at the site as a pile
 	var fac := int(hosts[i].owner)
 	for res in (job.escrow as Dictionary):
-		var q := float(job.escrow[res]) * frac
+		var q := _job_spare(job, str(res))
 		if q <= 0.0001: continue
 		if i == _hub(fac): _bank_put(fac, str(res), q, "refunds")   # at the main node the site is the bank
 		else: _add_to(i, "loot", fac, str(res), q)
@@ -3344,8 +3358,7 @@ func _cancel_job(i: int, slot: int) -> void: _cmd(["cancel", i, slot])
 func _do_cancel_job(fac: int, i: int, slot: int) -> void:
 	if not _owns(fac, i) or not (hosts[i].jobs as Dictionary).has(slot): return
 	var job: Dictionary = hosts[i].jobs[slot]
-	var started := str(job.phase) == "build" and _job_funded(job) and float(job.left) < float(job.total) - 0.0001
-	_job_salvage(i, job, clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0) if started else 1.0)   # the worked share is used up
+	_job_salvage(i, job)   # the worked share is used up
 	(hosts[i].jobs as Dictionary).erase(slot)
 	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
@@ -3371,9 +3384,29 @@ func _tick_jobs(dt: float) -> void:
 		var jobs: Dictionary = hosts[i].jobs
 		for slot_key in jobs.keys():
 			var job: Dictionary = jobs[slot_key]
-			if str(job.kind) != "": _fill_escrow(i, job)
-			if str(job.phase) == "build" and not _job_funded(job): continue   # building work waits for its materials
-			job.left = maxf(0.0, float(job.left) - dt)
+			var at_hub := i == _hub(fac)
+			if str(job.kind) != "" and not at_hub: _fill_escrow(i, job)
+			var used := minf(dt, float(job.left))
+			if str(job.phase) == "build":   # (0.6.29) the materials go in as it is built, not all before
+				var bill: Dictionary = job.get("bill", {})
+				if at_hub:   # at the main node it pays its bill as the work goes, from the bank
+					var share := used / maxf(0.001, float(job.total))
+					var ok := true
+					for r in bill:
+						if _free(fac, str(r)) < float(bill[r]) * share - 0.000001: ok = false; break
+					job.stalled = not ok
+					if not ok: continue
+					for r in bill:
+						var q := minf(float(bill[r]) * share, maxf(0.0, float(bill[r]) - float((job.escrow as Dictionary).get(r, 0.0))))
+						if q > 0.0: _spend(fac, str(r), q, "buildings"); job.escrow[r] = float((job.escrow as Dictionary).get(r, 0.0)) + q
+				else:   # elsewhere the work goes as far as its materials have come
+					var funded := 1.0
+					for r in bill: funded = minf(funded, float((job.escrow as Dictionary).get(r, 0.0)) / maxf(0.001, float(bill[r])))
+					var done := 1.0 - float(job.left) / maxf(0.001, float(job.total))
+					used = minf(used, maxf(0.0, (funded - done) * float(job.total)))
+					job.stalled = used <= 0.000001 and float(job.left) > 0.00001
+					if bool(job.stalled): continue
+			job.left = maxf(0.0, float(job.left) - used)
 			if float(job.left) > 0.00001: continue
 			var slot := int(job.slot)
 			if str(job.phase) == "demolish":
@@ -3383,6 +3416,10 @@ func _tick_jobs(dt: float) -> void:
 					job.phase = "build"; job.left = BUILD_TIME; job.total = BUILD_TIME
 					continue
 			else:
+				if at_hub:   # (a last fraction the shares left over)
+					for r in (job.get("bill", {}) as Dictionary):
+						var rest := float(job.bill[r]) - float((job.escrow as Dictionary).get(r, 0.0))
+						if rest > 0.000001: _spend(fac, str(r), minf(rest, _free(fac, str(r))), "buildings")
 				hosts[i].builds[slot] = str(job.kind)
 				if str(job.kind) == "wall": hosts[i].fw_on = true
 				job.escrow = {}   # the materials are now the building
@@ -3394,6 +3431,7 @@ func _tick_jobs(dt: float) -> void:
 
 func _job_state(job: Dictionary) -> String:   # demolishing · waiting for materials · building
 	if str(job.phase) == "demolish": return "demolishing"
+	if job.has("stalled"): return "waiting" if bool(job.stalled) else "building"   # (0.6.29: it builds as its materials come)
 	return "building" if _job_funded(job) else "waiting"
 
 
@@ -4518,10 +4556,8 @@ func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the targ
 		_cap_claims(int(h))   # (0.6.15) workers already on their way for what it took find what is left
 		for slot in (hosts[int(h)].jobs as Dictionary):   # and so is construction material not yet built in (the worked share is the building)
 			var job: Dictionary = hosts[int(h)].jobs[slot]
-			var unused := 1.0
-			if str(job.phase) == "build" and _job_funded(job): unused = clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0)
 			for res in RES:
-				var n3 := mini(int(floor(float((job.get("escrow", {}) as Dictionary).get(res, 0.0)) * unused + 0.0001)), left)
+				var n3 := mini(int(floor(_job_spare(job, res) + 0.0001)), left)
 				if n3 <= 0: continue
 				job.escrow[res] = float(job.escrow[res]) - float(n3)   # the project lacks it again: its work stops until it is replaced
 				_add_to(t, "loot", fac, res, float(n3))
@@ -4648,10 +4684,10 @@ func _tick_research(dt: float) -> void:
 
 
 # ---- manufacture: ONE first-in-first-out queue of at most QUEUE_SIZE copies, the one being made included ----
-# Only the head is made. It pays its price once, from unclaimed main-node stock, when it starts (and needs a free
-# ready slot); later entries never overtake it. A recipe click always appends one copy ("queue" command); pausing is
-# a separate control for the whole queue; removing a waiting entry costs nothing, cancelling a paid head refunds
-# the unworked share. Finished copies move to the ready inventory and leave the queue.
+# Only the head is made. It starts with a free ready slot and (0.6.27) pays its price as it is made, from unclaimed
+# main-node stock the projects do not need; later entries never overtake it. A recipe click always appends one copy ("queue" command); pausing is
+# a separate control for the whole queue; removing a waiting entry costs nothing, cancelling the head refunds nothing
+# (it paid only for the work done). Finished copies move to the ready inventory and leave the queue.
 func _mq(fac: int) -> Array:
 	if not mq.has(fac): mq[fac] = []
 	return mq[fac]
@@ -4673,15 +4709,12 @@ func _mq_add(fac: int, recipe: String, cid := -1) -> bool:   # one more copy at 
 	return true
 
 
-func _mq_remove(fac: int, jid: int) -> void:   # a waiting entry goes for nothing; a paid head refunds its unworked share
-	var q := _mq(fac)
+func _mq_remove(fac: int, jid: int) -> void:   # a waiting entry goes for nothing; (0.6.27) the head paid as it was made: cancelling stops it,
+	var q := _mq(fac)                                # and what it used is not refunded (the rest was never taken)
 	for k in q.size():
 		if int(q[k].id) != jid: continue
 		var paid: Dictionary = q[k].paid
-		if not paid.is_empty():
-			var frac := clampf(1.0 - float(q[k].progress) / maxf(0.001, _make_time(str(q[k].recipe))), 0.0, 1.0)
-			for r in paid: _add_bank(fac, str(r), float(paid[r]) * frac, "refunds")
-			if fac == PLAYER: _flash("Cancelled %s: %s refunded" % [str(CARDS[str(q[k].recipe)].name), _res_list(_scaled(paid, frac))], 0)
+		if not paid.is_empty() and fac == PLAYER: _flash("Cancelled %s: what it used is not refunded" % str(CARDS[str(q[k].recipe)].name), 0)
 		q.remove_at(k)
 		break
 	if fac == PLAYER: _refresh_hand()
@@ -4696,21 +4729,33 @@ func _scaled(d: Dictionary, f: float) -> Dictionary:
 func _mq_toggle_pause(fac: int) -> void: mq_paused[fac] = not bool(mq_paused.get(fac, false))
 
 
-func _mq_head_short(fac: int) -> Dictionary:   # what the waiting head still needs at the main node ({} if it can start)
+func _mq_head_stalled(fac: int) -> bool:   # (0.6.27) the head is being made but the bank lacks this step's share of its price
 	var q := _mq(fac)
-	if q.is_empty() or not (q[0].paid as Dictionary).is_empty(): return {}
+	if q.is_empty() or (q[0].paid as Dictionary).is_empty() or bool(mq_paused.get(fac, false)): return false
+	var cost := _recipe_cost(str(q[0].recipe))
+	var step := SIM_DT / maxf(0.001, _make_time(str(q[0].recipe)))
+	var owed := _build_owed(fac, _can_carry(fac) == 0)
+	for r in cost:
+		if _free(fac, str(r)) - float(owed.get(r, 0.0)) < float(cost[r]) * step - 0.000001: return true
+	return false
+
+
+func _mq_head_short(fac: int) -> Dictionary:   # (0.6.27) what the stalled head still has to pay and the bank lacks ({} while it runs)
+	var q := _mq(fac)
+	if not _mq_head_stalled(fac): return {}
 	var out := {}
 	var cost := _recipe_cost(str(q[0].recipe))
+	var step := SIM_DT / maxf(0.001, _make_time(str(q[0].recipe)))
 	for r in cost:
-		var need := float(cost[r]) - _free(fac, str(r))
-		if need > 0.0001: out[r] = need
+		if _free(fac, str(r)) < float(cost[r]) * step - 0.000001: out[r] = maxf(0.0, float(cost[r]) - float((q[0].paid as Dictionary).get(r, 0.0)) - _free(fac, str(r)))
 	return out
 
 
 func _mq_head_why(fac: int) -> String:   # "" while it is made or can start; else why the head waits
 	var q := _mq(fac)
-	if q.is_empty() or not (q[0].paid as Dictionary).is_empty(): return ""
-	if _ready_total(fac) >= READY_SLOTS: return "Ready inventory full — use a card"
+	if q.is_empty(): return ""
+	if (q[0].paid as Dictionary).is_empty():
+		return "Ready inventory full — use a card" if _ready_total(fac) >= READY_SLOTS else ""
 	var short := _mq_head_short(fac)
 	if short.is_empty(): return ""
 	var parts := []
@@ -4730,8 +4775,8 @@ func _mq_head_short_whole(fac: int) -> Dictionary:   # the head's shortage in wh
 
 func _mq_head_why_short(fac: int) -> String:   # the strip's chip: the first thing the waiting head lacks, in a few words
 	var q := _mq(fac)
-	if q.is_empty() or not (q[0].paid as Dictionary).is_empty(): return ""
-	if _ready_total(fac) >= READY_SLOTS: return "Ready full"
+	if q.is_empty(): return ""
+	if (q[0].paid as Dictionary).is_empty(): return "Ready full" if _ready_total(fac) >= READY_SLOTS else ""
 	var short := _mq_head_short(fac)
 	for r in RES:
 		if short.has(r): return "Needs %d %s%s" % [ceili(float(short[r]) - 0.0001), RES_NAME[r], "…" if short.size() > 1 else ""]
@@ -4759,11 +4804,24 @@ func _tick_manufacture(dt: float) -> void:
 		var left := dt
 		while left > 0.000001 and not q.is_empty():
 			var job: Dictionary = q[0]
-			if (job.paid as Dictionary).is_empty():
-				if not _can_start_recipe(fac, str(job.recipe)): break   # the head waits; nothing overtakes it
-				job.paid = _start_recipe(fac, str(job.recipe)); job.progress = 0.0
-			var need := _make_time(str(job.recipe)) - float(job.progress)
-			var used := minf(left, need)
+			var cost := _recipe_cost(str(job.recipe))
+			if (job.paid as Dictionary).is_empty():   # (0.6.27) it starts once a ready slot is free, and pays as it is made
+				if _ready_total(fac) >= READY_SLOTS: break   # the head waits; nothing overtakes it
+				var z := {}
+				for r in cost: z[r] = 0.0
+				job.paid = z; job.progress = 0.0
+			var mt := _make_time(str(job.recipe))
+			var used := minf(left, mt - float(job.progress))
+			var frac := used / maxf(0.001, mt)
+			var afford := true
+			var owed := _build_owed(fac, _can_carry(fac) == 0)   # (building first: the projects' stock is not the card's)
+			for r in cost:
+				if _free(fac, r) - float(owed.get(r, 0.0)) < float(cost[r]) * frac - 0.000001: afford = false; break
+			job.stalled = not afford
+			if not afford: break   # the bank lacks this step's share: it waits, and nothing behind it starts
+			for r in cost:
+				_spend(fac, r, float(cost[r]) * frac, "manufacturing")
+				job.paid[r] = float(job.paid.get(r, 0.0)) + float(cost[r]) * frac
 			job.progress = float(job.progress) + used; left -= used
 			if float(job.progress) < _make_time(str(job.recipe)) - 0.00001: break
 			cards[fac][str(job.recipe)] = _held(fac, str(job.recipe)) + 1   # its ready slot was held while it was made
@@ -5501,8 +5559,8 @@ func _deck_top() -> float:   # the top edge of everything the drawer covers righ
 const HAND_W := 104.0   # (0.6.24) a hand card; it lifts to HAND_LIFT times this under the mouse
 const HAND_H := 146.0
 const HAND_LIFT := 1.6
-const WORKSHOP_W := 252.0
-const WORKSHOP_H := 136.0
+const WORKSHOP_W := 280.0   # (0.6.27) the copy being made is a card as big as a hand card, its queue beside it
+const WORKSHOP_H := 172.0
 func _layout_hand() -> void:   # the fan: cards side by side, tilted by their place, the hovered one upright and lifted; the workshop and tools
 	if hand_fan == null: return
 	var sz := get_viewport_rect().size
@@ -5787,7 +5845,7 @@ func _recipe_action(key: String) -> Array:   # [label, enabled, tooltip] for a r
 		if str(research_job.get(PLAYER, {}).get("key", "")) == recipe: return ["Research", true, "Being researched: open Research to pause or follow it."]
 		return ["Research", true, "Learn the blueprint first: opens Research with it selected." + ("" if why == "" else " (%s)" % why)]
 	if _mq(PLAYER).size() >= QUEUE_SIZE: return ["+ Queue", false, "The queue is full: %d copies, the one being made included." % QUEUE_SIZE]
-	return ["+ Queue", true, "Add one copy to the back of the manufacturing queue. It pays when it starts: %s." % _res_list(_recipe_cost(recipe))]
+	return ["+ Queue", true, "Add one copy to the back of the manufacturing queue. It pays as it is made: %s." % _res_list(_recipe_cost(recipe))]
 
 
 func _recipe_act(key: String) -> void:
@@ -5849,6 +5907,8 @@ func _gui_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton): return
 	if _pointer_over_panel(): return   # the sidebar eats wheel/clicks — never zoom or command through it
 	if event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT] and not _chooser.is_empty(): _close_chooser()   # a click on the map closes the slot chooser
+	if event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT] and _deck_open and _armed == "":   # (0.6.27) a click outside the
+		_set_deck_open(false); accept_event(); return                                                                   # card drawer closes it
 	if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed: _zoom_at(event.position, 1.15); return
 	if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed: _zoom_at(event.position, 1.0 / 1.15); return
 	if event.button_index == MOUSE_BUTTON_MIDDLE:   # middle-drag pans the map
@@ -6218,11 +6278,18 @@ func _layout_menu() -> void:   # one rule for every view: MENU_PAD all round, th
 	var content := menu_box.get_combined_minimum_size().y
 	var maxh := vp.y - 2.0 * MENU_MARGIN
 	var h := maxh if _menu_fill else minf(content + 2.0 * MENU_PAD, maxh)
-	var scrolls := content > h - 2.0 * MENU_PAD + 0.5
+	var main := _menu_view == "main"
+	var k := 1.0
+	if main:   # (0.6.29) the main menu never scrolls: in a short window it is drawn smaller to fit
+		h = content + 2.0 * MENU_PAD
+		k = clampf((vp.y - 2.0 * MENU_MARGIN) / maxf(1.0, h), 0.4, 1.0)
+	var scrolls := not main and content > h - 2.0 * MENU_PAD + 0.5
+	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER if main else ScrollContainer.SCROLL_MODE_AUTO
+	menu_panel.scale = Vector2(k, k)
 	menu_panel.size = Vector2(_menu_w, h)
 	menu_panel.position = ((vp - menu_panel.size) * 0.5).floor()
-	if _menu_view == "main":   # (0.6.25) the main menu stands on the left, over the city, with no box
-		menu_panel.position = Vector2(48.0, floorf((vp.y - h) * 0.5))
+	if main:   # (0.6.25) the main menu stands on the left, over the city, with no box
+		menu_panel.position = Vector2(48.0, floorf((vp.y - h * k) * 0.5))
 		menu_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	else: menu_panel.remove_theme_stylebox_override("panel")
 	# the scrollbar, when there is one, sits in the right-hand inset: the content keeps the same width either way
@@ -7099,7 +7166,7 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When the copy is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
 		1: return [
-			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Click an empty relay slot and choose Bot station: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Click an empty relay slot and choose Bot station: it builds as its materials arrive.", "role": "relay", "ui": "build:bot", "pause": true},
 			{"t": "Producers", "r": "Each producer makes 1 unit of its resource every 6 s.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
 			{"t": "Output goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: your workers carry the relay's Intel and Crypto to your main node.", "role": "relay", "pause": false},
 		]
@@ -7287,7 +7354,7 @@ func _camp_status() -> String:   # what the game is still resolving for this ste
 					"waiting":
 						var bill := 0.0; var here := 0.0
 						for r2 in (jb.bill as Dictionary): bill += float(jb.bill[r2]); here += minf(float(jb.bill[r2]), float((jb.escrow as Dictionary).get(r2, 0.0)))
-						return "Your order is underway: %s materials %d of %d here; workers bring the rest, then %d s of work." % [what, int(here + 0.0001), int(bill + 0.0001), int(BUILD_TIME)]
+						return "Your order is underway: %s materials %d of %d here; workers bring the rest, and it builds as they come." % [what, int(here + 0.0001), int(bill + 0.0001)]
 					_: return "Your order is underway: building %s, %d s left." % [what, ceili(float(jb.left))]
 	return ""
 
@@ -8221,7 +8288,7 @@ func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is d
 				for r in RES:
 					if not (job.bill as Dictionary).has(r): continue
 					parts.append("%s %s/%s" % [RES_NAME[r], _amt(float((job.escrow as Dictionary).get(r, 0.0))), _amt(float(job.bill[r]))])
-				out.append("Waiting for its materials (%s); workers bring them, then %d s of work." % [", ".join(parts), int(BUILD_TIME)])
+				out.append("Waiting for its materials (%s); it builds on as they come." % ", ".join(parts))
 			_: out.append("Building: %d s left." % ceili(float(job.left)))
 	else: out.append("Click it to replace it; a right click removes it.")
 	if _mine(i):
@@ -8372,7 +8439,7 @@ func _option_view(kind: String, i: int, slot: int) -> Dictionary:   # one buildi
 
 
 func _option_tip(kind: String, i: int, slot: int) -> String:
-	var out := ["%s\n\nMaterials: %s. Ordering is free: they must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [_build_desc(kind, i), _build_cost_text(kind), int(BUILD_TIME)]]
+	var out := ["%s\n\nMaterials: %s, used up over its %d s of work as they reach the site: ordering takes nothing at once; what the host has spare is used first, workers bring the rest." % [_build_desc(kind, i), _build_cost_text(kind), int(BUILD_TIME)]]
 	var cur := str(hosts[i].builds[slot]) if slot < (hosts[i].builds as Array).size() else ""
 	var v := _option_view(kind, i, slot)
 	if _slot_busy(i, slot): out.append("Cancel the project in this slot first.")
@@ -8564,7 +8631,7 @@ func _draw_slot_tile(c: Control, i: int, slot: int, hover: bool, sockets: bool) 
 		else: _draw_centered_items(c, items, y, icon, fs)
 	if busy:
 		line.call(v.mats, ty[1], 13.0, 11)
-		var st := "then %d s of work" % int(BUILD_TIME) if _job_state(job) == "waiting" else ""
+		var st := "waits for materials" if _job_state(job) == "waiting" else ""
 		if st != "": _text(c, f, Vector2(8, c.size.y - 12.0), st, 11, C_DIM, w - 76.0, HORIZONTAL_ALIGNMENT_LEFT)   # (clear of Cancel)
 		return
 	if not sockets or (not compact and ty[1] + 8.0 <= c.size.y - 36.0): line.call(v.flow, ty[1], 13.0, 12)   # (a Firewall's sockets take the bottom)
@@ -9524,19 +9591,93 @@ func _toggle_economy() -> void:   # the Economy overview in the sidebar (E, the 
 	_refresh_panel(); queue_redraw()
 
 
-func _panel_economy() -> void:
+var _econ_tab := ""      # (0.6.28) the Economy view's tab: "fix", "banks", or "" (fix when there is something to fix)
+var _econ_open := {}     # res -> its bank card is expanded
+
+
+func _econ_problems() -> Array:   # (0.6.28) what needs you now, most urgent first: [{sev, title, cause, acts: [[label, Callable]]}]
+	var out := []
+	var fc := _forecast(PLAYER)
+	var show := func(i: int) -> Callable: return func(): sel = {i: true}; _inspect = -1; _tab = ""; _keep_target_visible(); _refresh_panel(); queue_redraw()
+	for res in RES:   # a bank that runs dry soon, and what drains it most
+		var net := float(fc.net[res])
+		if net >= -0.5: continue
+		var mins := _avail(PLAYER, res) / -net
+		if mins >= 5.0: continue
+		var uses: Dictionary = (fc.use as Dictionary).get(res, {})
+		var top := ""; var tv := 0.0
+		for k in uses: if float(uses[k]) > tv: top = str(k); tv = float(uses[k])
+		var inc := float(fc.rate[res])
+		var acts := []
+		if top == "card queue": acts.append(["Pause the queue", func(): _cmd(["queue_pause"])])
+		elif top == "research" and not (research_job.get(PLAYER, {}) as Dictionary).is_empty(): acts.append(["Pause research", func(): _cmd(["research", str(research_job[PLAYER].key)])])
+		elif top == "building":
+			for i in hosts.size(): if _mine(i) and not (hosts[i].jobs as Dictionary).is_empty(): acts.append(["Show the project", show.call(i)]); break
+		else:
+			for i in hosts.size(): if top.ends_with(" " + str(hosts[i].name)) or top.ends_with("at " + str(hosts[i].name)): acts.append(["Show %s" % str(hosts[i].name), show.call(i)]); break
+		out.append({"sev": 0 if mins < 2.0 else 1, "title": "%s runs out in %s" % [str(RES_NAME[res]), ("%d:%02d" % [int(mins), int(fmod(mins, 1.0) * 60.0)]) if mins >= 1.0 else "under a minute"],
+			"cause": "+%d a minute comes in, %d goes out; the most goes to %s (%d)." % [int(round(inc)), int(round(_use_sum(fc.use, res))), top, int(round(tv))], "acts": acts, "res": res})
+	for i in hosts.size():   # Firewalls that are off: their sockets do not fire
+		if _mine(i) and _count_all(i, "wall") > 0 and not bool(hosts[i].get("fw_on", true)) and i != _hub(PLAYER):
+			out.append({"sev": 0, "title": "Firewall off at %s" % str(hosts[i].name), "cause": "No Intel there for its upkeep: its loaded cards do not fire.", "acts": [["Show %s" % str(hosts[i].name), show.call(i)]]})
+	if float(fc.need) > float(fc.fleet) + 0.5:   # too few workers for the output
+		var spot := -1
+		for i in hosts.size():
+			if spot < 0 and _mine(i) and _free_slot(i) >= 0: spot = i
+		var acts2 := []
+		if spot >= 0: acts2.append(["+ Bot station on %s" % str(hosts[spot].name), func(): _open_chooser(spot, _free_slot(spot))])
+		out.append({"sev": 1, "title": "Workers can't keep up (%d of ~%d)" % [int(fc.fleet), int(ceil(float(fc.need) - 0.05))], "cause": "Output waits on hosts and storages fill. A Bot station adds 2 workers.", "acts": acts2})
+	var full_hosts := 0
+	for i in hosts.size():   # storages that are full: their producers stop
+		if full_hosts >= 2 or not _mine(i) or i == _hub(PLAYER) or _store_total(i) < STORE_CAP - 0.5: continue
+		full_hosts += 1
+		out.append({"sev": 1, "title": "Storage full at %s" % str(hosts[i].name), "cause": "Its producers stop until workers carry its output away.", "acts": [["Show %s" % str(hosts[i].name), show.call(i)]]})
+	var stall := _research_stall(PLAYER)
+	if stall != "": out.append({"sev": 1, "title": "Research stopped", "cause": stall, "acts": [["Open the tree", _toggle_research]]})
+	for res in RES:   # a full bank whose income is lost
+		if bool(fc.full[res]) and float(fc.rate[res]) > _use_sum(fc.use, res) + 0.5:
+			out.append({"sev": 2, "title": "%s bank is full" % str(RES_NAME[res]), "cause": "%d a minute more comes in than is used, and is lost. Make cards or research with it." % int(round(float(fc.rate[res]) - _use_sum(fc.use, res))), "acts": [["Make cards", func(): _open_drawer("attack")]]})
+	out.sort_custom(func(a, b): return int(a.sev) < int(b.sev))
+	return out
+
+
+func _panel_economy() -> void:   # (0.6.28) two tabs: what to fix now (ranked, with actions) and the four banks as cards
 	_plabel("Economy", 20, C_TEXT)
-	_plabel("Net: what each bank gains or loses per minute: the income your network brings in, less what research, cards, building and Firewalls use. Historical: what happened over the last %d s." % int(_ledger_window()), 12, C_DIM)
+	var probs := _econ_problems()
+	var tab := _econ_tab if _econ_tab != "" else ("fix" if not probs.is_empty() else "banks")
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6); panel_box.add_child(row)
+	for t in [["fix", "To fix (%d)" % probs.size()], ["banks", "Banks"]]:
+		var b := Button.new(); b.text = str(t[1]); b.toggle_mode = true; b.button_pressed = tab == str(t[0]); b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(120, 30); b.add_theme_font_size_override("font_size", 13)
+		b.pressed.connect(func(): _econ_tab = str(t[0]); _refresh_panel()); row.add_child(b)
 	_gap(4.0)
-	_plabel("DELIVERY WORKERS", 14, BUILD_KINDS.bot.col)
-	for l in _forecast_lines("workers"): _plabel(str(l[0]), 12, l[1])
-	for res in RES:
-		_gap(4.0)
-		var col: Color = BUILD_KINDS[str({"intel": "intel", "cash": "cash", "creds": "cred", "research": "lab"}[res])].col
-		var net := str(_hud_rate(res)[0])
-		_plabel("%s  %d / %d   %s" % [str(RES_NAME[res]).to_upper(), int(_avail(PLAYER, res)), int(_cap(PLAYER, res)), net if net == "full" else "net " + net], 14, col)
-		for l in _forecast_lines(res, false): _plabel(str(l[0]), 12, l[1])   # (the net is on the line above, as in the HUD)
-		for l in _history_lines(res): _plabel(str(l), 12, C_DIM)
+	if tab == "fix":
+		if probs.is_empty(): _plabel("Nothing to fix: every bank holds or grows, workers keep up.", 13, C_GOOD)
+		for k in probs.size():
+			var pr: Dictionary = probs[k]
+			var card := PanelContainer.new()
+			var sb := StyleBoxFlat.new(); sb.bg_color = Color(0.07, 0.09, 0.13); sb.set_corner_radius_all(6); sb.content_margin_left = 12; sb.content_margin_right = 10
+			sb.content_margin_top = 8; sb.content_margin_bottom = 8; sb.border_width_left = 3
+			sb.border_color = [C_BAD, C_WARN, C_DIM][int(pr.sev)]
+			card.add_theme_stylebox_override("panel", sb); panel_box.add_child(card)
+			var col := VBoxContainer.new(); col.add_theme_constant_override("separation", 4); card.add_child(col)
+			_lbl(col, "%d  %s" % [k + 1, str(pr.title)], 14, [C_BAD, C_WARN, C_TEXT][int(pr.sev)], _panel_width() - 90.0)
+			_lbl(col, str(pr.cause), 12, C_DIM, _panel_width() - 90.0)
+			if not (pr.acts as Array).is_empty():
+				var ar := HBoxContainer.new(); ar.add_theme_constant_override("separation", 6); col.add_child(ar)
+				for a in pr.acts: _small_btn(ar, str(a[0]), a[1], false, "")
+		var ok := []
+		for res in RES:
+			if not probs.any(func(p): return str(p.get("res", "")) == res): ok.append("%s %s" % [str(RES_NAME[res]), str(_hud_rate(res)[0])])
+		if not ok.is_empty():
+			_gap(4.0)
+			_plabel("OK: " + " · ".join(PackedStringArray(ok)), 12, C_DIM)
+	else:
+		for res in RES:
+			var bc := BankCard.new(); bc.game = self; bc.res = res; bc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			bc.custom_minimum_size = Vector2(0, bc.want_h()); panel_box.add_child(bc)
+		var wcard := BankCard.new(); wcard.game = self; wcard.res = "workers"; wcard.custom_minimum_size = Vector2(0, 64); wcard.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		panel_box.add_child(wcard)
 	_gap(4.0)
 	_plabel("E or Esc closes this view.", 11, C_DIM)
 
@@ -9763,10 +9904,10 @@ func _paint_packets(cx: Dictionary) -> void:   # packets in flight and worm jump
 	_paint_workers(mine, vt, cx.f)
 
 
-const WORKER_R := 9.0   # (0.6.21) a worker's sprite radius on screen
+const WORKER_R := 6.0   # (0.6.21) a worker's sprite radius on screen (0.6.27: smaller)
 func _worker_screen(fl: Dictionary, vt: float) -> Vector2:   # where a worker of yours is drawn: beside its road, each direction on its own side
 	var dir := _flight_dir(fl, vt)
-	var side := Vector2(-dir.y, dir.x) * (7.0 + 7.0 * float(int(fl.get("wid", 0)) % 2))
+	var side := Vector2(-dir.y, dir.x) * 6.0   # (0.6.27) one lane each way: workers follow one another, never two abreast
 	return _w2s(_packet_pos(fl, vt)) + side
 
 
@@ -9797,7 +9938,7 @@ func _paint_workers(list: Array, vt: float, f: Font) -> void:   # (0.6.21) scree
 		if res != "":   # loaded: a dark disc ringed in its cargo's colour, its icon inside
 			_cv.draw_circle(pp, r, Color(0.03, 0.05, 0.08, 0.92 * ba))
 			_cv.draw_arc(pp, r, 0.0, TAU, 28, Color(col, ba), 2.2, true)
-			_draw_kind_icon(_cv, _COST_ICON[res], pp, r * 1.25, Color(col, ba), f)
+			_draw_kind_icon(_cv, _COST_ICON[res], pp, r * 1.4, Color(col, ba), f)
 		else:   # empty, on its way to a pickup: a hollow dashed ring
 			_cv.draw_circle(pp, r - 1.0, Color(0.03, 0.05, 0.08, 0.55 * ba))
 			for s2 in 8: _cv.draw_arc(pp, r - 1.0, s2 * TAU / 8.0, s2 * TAU / 8.0 + TAU / 16.0, 5, Color(col, 0.9 * ba), 1.8, true)
@@ -10894,6 +11035,99 @@ class HudBar extends Control:   # (0.6.22) the top bar: one row of chips — wor
 		for k in chips.size(): game._draw_hud_chip(self, chips[k], f, k == hot)
 
 
+class BankCard extends Control:   # (0.6.28) one bank in the Economy view: stock, net, time to empty or full, what comes in and goes out
+	var game                       # on one scale for all four, the last minute's stock; a click lists every source and use
+	var res := "intel"
+	const USE_COL := {"research": Color(0.75, 0.55, 1.0), "card queue": Color(1.0, 0.5, 0.5), "building": Color(1.0, 0.85, 0.3)}
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	func rows() -> Array:   # [[name, value, is_use]] sources then uses, biggest first
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		var out := []
+		var src: Dictionary = (fc.from as Dictionary).get(res, {}); var ks := src.keys(); ks.sort_custom(func(a, b): return float(src[a]) > float(src[b]))
+		for k in ks: out.append([str(k), float(src[k]), false])
+		var uses: Dictionary = (fc.use as Dictionary).get(res, {}); var us := uses.keys(); us.sort_custom(func(a, b): return float(uses[a]) > float(uses[b]))
+		for k in us: out.append([str(k), float(uses[k]), true])
+		return out
+	func want_h() -> float: return 112.0 + (16.0 * rows().size() + 6.0 if bool(game._econ_open.get(res, false)) else 0.0)
+	func _gui_input(event: InputEvent) -> void:
+		if res != "workers" and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			game._econ_open[res] = not bool(game._econ_open.get(res, false)); custom_minimum_size.y = want_h(); accept_event()
+	func _process(_dt: float) -> void:
+		if res != "workers" and absf(custom_minimum_size.y - want_h()) > 0.5: custom_minimum_size.y = want_h()
+		queue_redraw()
+	func _draw() -> void:
+		var f := get_theme_default_font()
+		var w := size.x
+		var sb := StyleBoxFlat.new(); sb.bg_color = Color(0.07, 0.09, 0.13); sb.set_corner_radius_all(6)
+		var fc: Dictionary = game._forecast(game.PLAYER)
+		if res == "workers":   # the population and how many more the network needs
+			draw_style_box(sb, Rect2(Vector2.ZERO, size))
+			var n := int(fc.fleet); var need := int(ceil(float(fc.need) - 0.05))
+			game._text(self, f, Vector2(12, 20), "WORKERS  %d  ·  network needs ~%d" % [n, maxi(n, need)], 12, game.C_TEXT, w - 24.0)
+			var x := 14.0
+			for k in maxi(n, need):
+				if x > w - 20.0: break
+				if k < n: draw_circle(Vector2(x, 42), 5.0, game.COURIER_COL)
+				else: draw_arc(Vector2(x, 42), 5.0, 0.0, TAU, 16, game.C_WARN, 1.5, true)
+				x += 15.0
+			game._text(self, f, Vector2(12, 58), "A Bot station adds 2.", 11, game.C_DIM, w - 24.0)
+			return
+		var col: Color = game._res_col(res)
+		var net := float(fc.net[res])
+		if net < -0.5: sb.bg_color = Color(0.13, 0.07, 0.08)
+		draw_style_box(sb, Rect2(Vector2.ZERO, size))
+		draw_rect(Rect2(0, 0, 4, size.y), col)
+		var avail: float = game._avail(game.PLAYER, res); var cap: float = game._cap(game.PLAYER, res)
+		game._text(self, f, Vector2(12, 18), str(game.RES_NAME[res]).to_upper(), 12, col)
+		game._text(self, f, Vector2(12, 18), "%d / %d" % [int(avail), int(cap)], 12, game.C_TEXT, w - 24.0, HORIZONTAL_ALIGNMENT_RIGHT)
+		draw_rect(Rect2(12, 24, w - 24, 3), Color(0.15, 0.18, 0.24)); draw_rect(Rect2(12, 24, (w - 24) * clampf(avail / maxf(1.0, cap), 0.0, 1.0), 3), col)
+		var nt: String = "full" if bool(fc.full[res]) else "%s/min" % game._net_txt(net)
+		game._text(self, f, Vector2(12, 50), nt, 20, game.C_GOOD if net > 0.5 else (game.C_BAD if net < -0.5 else game.C_DIM))
+		var wx: float = 12.0 + game._text_w(f, nt, 20) + 10.0   # (the time to empty or full, after the net)
+		var when := ""
+		if net < -0.5: when = "empty in %d:%02d" % [int(avail / -net), int(fmod(avail / -net, 1.0) * 60.0)]
+		elif net > 0.5 and not bool(fc.full[res]): when = "full in %d:%02d" % [int((cap - avail) / net), int(fmod((cap - avail) / net, 1.0) * 60.0)]
+		game._text(self, f, Vector2(wx, 50), when, 11, game.C_DIM, maxf(10.0, w * 0.58 - wx - 6.0))
+		var hist: Array = game._hud_hist.get(res, [])   # the last minute of the stock
+		if hist.size() >= 2:
+			var lo := INF; var hi := -INF
+			for v in hist: lo = minf(lo, float(v)); hi = maxf(hi, float(v))
+			if hi - lo < 1.0: hi = lo + 1.0
+			var pts := PackedVector2Array()
+			for k in hist.size(): pts.append(Vector2(w * 0.58 + (w * 0.42 - 14.0) * float(k) / float(hist.size() - 1), 52.0 - 18.0 * (float(hist[k]) - lo) / (hi - lo)))
+			draw_polyline(pts, Color(col, 0.9), 1.4, true)
+		var inc := 0.0; var out := 0.0
+		var r := rows()
+		for e in r:
+			if bool(e[2]): out += float(e[1])
+			else: inc += float(e[1])
+		var scale := 1.0   # one scale for every bank card, so their bars compare
+		for rr in game.RES:
+			var a := float(fc.rate[rr]); var b: float = game._use_sum(fc.use, rr)
+			scale = maxf(scale, maxf(a, b))
+		var bw := w - 74.0
+		for side in 2:   # in, then out, each split by source or use
+			var y := 64.0 + 16.0 * side
+			game._text(self, f, Vector2(12, y + 8.0), ("in %d" % int(round(inc))) if side == 0 else ("out %d" % int(round(out))), 11, game.C_GOOD if side == 0 else game.C_BAD)
+			draw_rect(Rect2(62, y, bw, 8), Color(0.12, 0.15, 0.2))
+			var x := 62.0; var k := 0
+			for e in r:
+				if bool(e[2]) != (side == 1): continue
+				var ww := bw * float(e[1]) / scale
+				var c: Color = USE_COL.get(str(e[0]), Color(1.0, 0.45, 0.6)) if side == 1 else col.lerp(Color.WHITE, 0.12 * float(k % 3))
+				draw_rect(Rect2(x, y, maxf(0.0, ww - 1.0), 8), Color(c, 0.9)); x += ww; k += 1
+		var rates: Dictionary = game._econ_rates(game.PLAYER, res)
+		game._text(self, f, Vector2(12, 104), "last %d s: +%d / -%d a minute · click for every line" % [int(game._ledger_window()), int(round(float(rates["in"]))), int(round(float(rates.out)))], 11, game.C_DIM, w - 24.0)
+		if bool(game._econ_open.get(res, false)):   # every source and use by name
+			var y2 := 124.0
+			for e in r:
+				game._text(self, f, Vector2(16, y2), str(e[0]), 11, game.C_DIM, w - 90.0)
+				game._text(self, f, Vector2(16, y2), "%s%d" % ["-" if bool(e[2]) else "+", int(round(float(e[1])))], 11, game.C_BAD if bool(e[2]) else game.C_GOOD, w - 32.0, HORIZONTAL_ALIGNMENT_RIGHT)
+				y2 += 16.0
+
+
 class HudPop extends Control:   # (0.6.22) a bank chip's hover: income by source, what uses it, the two side by side, recent history
 	var game
 	var res := "intel"
@@ -10973,7 +11207,7 @@ class CardTile extends Control:   # a recipe: what it does, copies ready and que
 		stop_button = Button.new(); stop_button.text = "Remove"; stop_button.name = "CancelResearch"   # a quiet link: the newest queued copy goes
 		stop_button.focus_mode = Control.FOCUS_NONE
 		game._link_button_style(stop_button)
-		stop_button.tooltip_text = "Remove the newest queued copy of this card (a copy being made refunds its unworked share)."
+		stop_button.tooltip_text = "Remove the newest queued copy of this card (a copy being made has paid only for the work done)."
 		stop_button.pressed.connect(game._card_research_cancel.bind(key)); add_child(stop_button)
 		queue_button = Button.new(); queue_button.name = "Queue"; queue_button.focus_mode = Control.FOCUS_NONE
 		queue_button.add_theme_font_size_override("font_size", 13)
@@ -11076,9 +11310,7 @@ class ResearchBar extends Control:   # always on screen: what is being researche
 		if str(st.get("slow", "")) != "": return "Researching %s (%s track): %d%%, %s. It pays as it goes and goes faster once your bank keeps up. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), str(st.slow)]
 		return "Researching %s (%s track): %d%%, %d s of work left. It pays as it goes. Click to open Research." % [str(st.name), str(st.track), int(float(st.frac) * 100), ceili(float(st.left))]
 	func _process(_dt: float) -> void:
-		var on: bool = not game.menu_open and not game.won and not game.lost and str(game._research_bar_state().state) != "idle"
-		if visible != on: visible = on   # only while research runs: an idle bar says nothing useful
-		if on: queue_redraw()
+		if visible: visible = false   # (0.6.22: the research chip on the top bar replaces this bar)
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			game._toggle_research(); accept_event()
@@ -11127,6 +11359,7 @@ class QueueChip extends Control:   # one of the queue's four positions: the head
 				out.progress = clampf(float(j.progress) / maxf(0.001, game._make_time(recipe)), 0.0, 1.0)
 				out.kind = "paused" if bool(game.mq_paused.get(game.PLAYER, false)) else "making"
 				out.text = ("Paused %d%%" if str(out.kind) == "paused" else "Making %d%%") % int(float(out.progress) * 100)
+				if str(out.kind) == "making" and game._mq_head_stalled(game.PLAYER): out.kind = "waiting"; out.text = game._mq_head_why_short(game.PLAYER)   # (0.6.27)
 			elif bool(game.mq_paused.get(game.PLAYER, false)):   # (0.6.14) paused before it started: nothing paid, nothing held
 				out.kind = "paused"; out.text = "Paused"
 			else:
@@ -11138,7 +11371,7 @@ class QueueChip extends Control:   # one of the queue's four positions: the head
 		if str(st.recipe) == "": return "The manufacturing queue holds %d copies, the one being made included. Open the recipes (C) and use + Queue." % game.QUEUE_SIZE
 		var nm := str(game.CARDS[str(st.recipe)].name)
 		match str(st.kind):
-			"making": return "Making %s. Its price is paid. x cancels it and refunds the unworked share." % nm
+			"making": return "Making %s: its price is paid as it is made. x cancels it; what it used is not refunded." % nm
 			"paused":
 				if (job().get("paid", {}) as Dictionary).is_empty(): return "%s is paused with the queue and has not started: nothing was spent, and research may use the bank meanwhile. x removes it." % nm
 				return "%s is paused with the queue. Resume continues it; x cancels it." % nm
@@ -11240,8 +11473,8 @@ class WorkshopPile extends Control:   # (0.6.24) the manufacturing queue, bottom
 		return game._wrapped_tooltip(for_text)
 	func _process(_dt: float) -> void:
 		if visible: queue_redraw()
-	func head_rect() -> Rect2: return Rect2(0, 22, 66, 92)
-	func ticket_rect(k: int) -> Rect2: return Rect2(76, 22 + 24.0 * k, size.x - 76.0, 21)   # k 0..2: the copies after the head; 3: + Craft
+	func head_rect() -> Rect2: return Rect2(0, 22, game.HAND_W, game.HAND_H)
+	func ticket_rect(k: int) -> Rect2: return Rect2(game.HAND_W + 10.0, 22 + 30.0 * k, size.x - game.HAND_W - 10.0, 26)   # k 0..2: the copies after the head; 3: + Craft
 	func pause_rect() -> Rect2: return Rect2(size.x - 64.0, 0, 64, 18)
 	func _get_tooltip(at: Vector2) -> String:
 		var q: Array = game._mq(game.PLAYER)
@@ -11257,7 +11490,7 @@ class WorkshopPile extends Control:   # (0.6.24) the manufacturing queue, bottom
 		if q.is_empty(): return "idle"
 		var j: Dictionary = q[0]
 		if bool(game.mq_paused.get(game.PLAYER, false)): return "paused"
-		if (j.paid as Dictionary).is_empty():
+		if (j.paid as Dictionary).is_empty() or game._mq_head_stalled(game.PLAYER):   # (0.6.27: a started copy waits for the bank too)
 			var why: String = game._mq_head_why_short(game.PLAYER)
 			return why if why != "" else "starting"
 		var mt: float = game._make_time(str(j.recipe))
@@ -11288,14 +11521,17 @@ class WorkshopPile extends Control:   # (0.6.24) the manufacturing queue, bottom
 			var recipe := str(q[0].recipe)
 			var fam: Color = game.FAMILY_COL[str(game.CARDS[recipe].fam)]
 			sb.border_color = game.C_WARN if paused else fam; draw_style_box(sb, hr)
-			var cen := hr.position + Vector2(hr.size.x * 0.5, 38.0)
+			draw_rect(Rect2(hr.position + Vector2(6, 6), Vector2(hr.size.x - 12, 22)), fam.darkened(0.78))
+			game._text(self, f, hr.position + Vector2(10, 22), str(game.CARDS[recipe].short), 12, game.C_TEXT, hr.size.x - 20.0)
+			var cen := hr.position + Vector2(hr.size.x * 0.5, 66.0)
 			var mt: float = game._make_time(recipe)
 			var frac := clampf(float(q[0].progress) / maxf(0.001, mt), 0.0, 1.0) if not (q[0].paid as Dictionary).is_empty() else 0.0
-			draw_arc(cen, 24.0, 0.0, TAU, 32, Color(0.2, 0.23, 0.3), 3.0, true)
-			draw_arc(cen, 24.0, -PI * 0.5, -PI * 0.5 + TAU * frac, 32, game.C_WARN if paused else fam, 3.0, true)
-			game._draw_card_glyph(self, recipe, cen, 26.0, fam, f)
-			game._text(self, f, Vector2(hr.position.x + 3.0, hr.end.y - 22.0), str(game.CARDS[recipe].short), 11, game.C_TEXT, hr.size.x - 6.0, HORIZONTAL_ALIGNMENT_CENTER)
-			game._text(self, f, Vector2(hr.position.x + 3.0, hr.end.y - 8.0), head_text(), 10, game.C_WARN if paused or (q[0].paid as Dictionary).is_empty() else game.C_DIM, hr.size.x - 6.0, HORIZONTAL_ALIGNMENT_CENTER)
+			var waiting: bool = paused or (q[0].paid as Dictionary).is_empty() or game._mq_head_stalled(game.PLAYER)
+			draw_arc(cen, 30.0, 0.0, TAU, 40, Color(0.2, 0.23, 0.3), 4.0, true)
+			draw_arc(cen, 30.0, -PI * 0.5, -PI * 0.5 + TAU * frac, 40, game.C_WARN if waiting else fam, 4.0, true)
+			game._draw_card_glyph(self, recipe, cen, 34.0, fam, f)
+			game._text(self, f, Vector2(hr.position.x + 4.0, hr.end.y - 26.0), "MAKING" if not waiting else "WAITING", 10, game.C_DIM if not waiting else game.C_WARN, hr.size.x - 8.0, HORIZONTAL_ALIGNMENT_CENTER)
+			game._text(self, f, Vector2(hr.position.x + 4.0, hr.end.y - 10.0), head_text(), 11, game.C_WARN if waiting else game.C_TEXT, hr.size.x - 8.0, HORIZONTAL_ALIGNMENT_CENTER)
 		var labels := ["next", "3rd", "4th"]
 		for k in 3:   # the copies waiting behind it, as tickets with a ×
 			var r := ticket_rect(k)
@@ -11303,14 +11539,14 @@ class WorkshopPile extends Control:   # (0.6.24) the manufacturing queue, bottom
 			if k + 1 < q.size():
 				var rc := str(q[k + 1].recipe)
 				tsb.border_color = Color(game.FAMILY_COL[str(game.CARDS[rc].fam)], 0.7); draw_style_box(tsb, r)
-				game._draw_card_glyph(self, rc, r.position + Vector2(12, 10.5), 14.0, Color.WHITE, f)
-				game._text(self, f, r.position + Vector2(24, 15), str(game.CARDS[rc].short), 11, game.C_TEXT, r.size.x - 80.0)
-				game._text(self, f, r.position + Vector2(0, 15), labels[k], 10, game.C_DIM, r.size.x - 26.0, HORIZONTAL_ALIGNMENT_RIGHT)
+				game._draw_card_glyph(self, rc, r.position + Vector2(13, 13), 16.0, Color.WHITE, f)
+				game._text(self, f, r.position + Vector2(26, 18), str(game.CARDS[rc].short), 12, game.C_TEXT, r.size.x - 80.0)
+				game._text(self, f, r.position + Vector2(0, 18), labels[k], 10, game.C_DIM, r.size.x - 26.0, HORIZONTAL_ALIGNMENT_RIGHT)
 				var xc := Vector2(r.end.x - 10.0, r.get_center().y)
 				draw_line(xc + Vector2(-3.5, -3.5), xc + Vector2(3.5, 3.5), game.C_BAD, 1.6, true); draw_line(xc + Vector2(-3.5, 3.5), xc + Vector2(3.5, -3.5), game.C_BAD, 1.6, true)
 			elif k + 1 == maxi(1, q.size()):
 				tsb.border_color = Color(game.C_DIM, 0.55); draw_style_box(tsb, r)
-				game._text(self, f, r.position + Vector2(8, 15), "+ Craft  (C)", 11, game.C_TEXT, r.size.x - 16.0)
+				game._text(self, f, r.position + Vector2(8, 18), "+ Craft  (C)", 12, game.C_TEXT, r.size.x - 16.0)
 		var cr := ticket_rect(3)
 		if q.size() >= 4: game._text(self, f, cr.position + Vector2(0, 15), "Queue full", 10, game.C_DIM, cr.size.x)
 
