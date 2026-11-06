@@ -87,7 +87,7 @@ const CAPTIONS := {
 	"research": "Only materials at your main node fund cards and research. Research gives no free card; a copy pays as it is made.",
 	"deliver": "Workers serve building first, then research, then Firewall upkeep, then take output home. Losing a host destroys its stations' workers.",
 	"produce": "Every 6 s each producer makes 1 unit of its resource, with no input. A Firewall uses 1 Intel; full storage (20) stops a host's producers.",
-	"build": "A building's materials must reach its site before its 10 s of work start. The 12-card Ready inventory is separate from the queue.",
+	"build": "A building uses its materials over its 10 s of work, as they reach its site. The 12-card Ready inventory is separate from the queue.",
 	"attack": "Stolen resources help only when your workers bring them home. Defence cards travel too; a Firewall holds 3 that fire on their own.",
 	"goal": "Lose your main node and you are out: its captor takes your other hosts and their buildings. The top bar shows the hosts needed and the majority.",
 }

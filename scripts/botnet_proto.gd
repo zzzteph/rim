@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.28"   # the Economy view: what to fix, and a card per bank (lobbies match exact versions)
+const GAME_VERSION := "0.6.29"   # buildings pay as they are built; the main menu never scrolls (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -3317,10 +3317,19 @@ func _fill_escrow(i: int, job: Dictionary) -> void:   # what is already at the s
 		job.escrow[res] = float((job.escrow as Dictionary).get(res, 0.0)) + q
 
 
-func _job_salvage(i: int, job: Dictionary, frac: float) -> void:   # the unused share of the escrow stays at the site as a pile
+func _job_done(job: Dictionary) -> float:   # the share of a project already built (its materials in that share are the building)
+	if str(job.get("phase", "")) != "build": return 0.0
+	return clampf(1.0 - float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0)
+
+
+func _job_spare(job: Dictionary, res: String) -> float:   # material at the site not yet built in
+	return maxf(0.0, float((job.get("escrow", {}) as Dictionary).get(res, 0.0)) - float((job.get("bill", {}) as Dictionary).get(res, 0.0)) * _job_done(job))
+
+
+func _job_salvage(i: int, job: Dictionary) -> void:   # the unused share of the escrow stays at the site as a pile
 	var fac := int(hosts[i].owner)
 	for res in (job.escrow as Dictionary):
-		var q := float(job.escrow[res]) * frac
+		var q := _job_spare(job, str(res))
 		if q <= 0.0001: continue
 		if i == _hub(fac): _bank_put(fac, str(res), q, "refunds")   # at the main node the site is the bank
 		else: _add_to(i, "loot", fac, str(res), q)
@@ -3349,8 +3358,7 @@ func _cancel_job(i: int, slot: int) -> void: _cmd(["cancel", i, slot])
 func _do_cancel_job(fac: int, i: int, slot: int) -> void:
 	if not _owns(fac, i) or not (hosts[i].jobs as Dictionary).has(slot): return
 	var job: Dictionary = hosts[i].jobs[slot]
-	var started := str(job.phase) == "build" and _job_funded(job) and float(job.left) < float(job.total) - 0.0001
-	_job_salvage(i, job, clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0) if started else 1.0)   # the worked share is used up
+	_job_salvage(i, job)   # the worked share is used up
 	(hosts[i].jobs as Dictionary).erase(slot)
 	if fac == PLAYER: _refresh_panel(); queue_redraw()
 
@@ -3376,9 +3384,29 @@ func _tick_jobs(dt: float) -> void:
 		var jobs: Dictionary = hosts[i].jobs
 		for slot_key in jobs.keys():
 			var job: Dictionary = jobs[slot_key]
-			if str(job.kind) != "": _fill_escrow(i, job)
-			if str(job.phase) == "build" and not _job_funded(job): continue   # building work waits for its materials
-			job.left = maxf(0.0, float(job.left) - dt)
+			var at_hub := i == _hub(fac)
+			if str(job.kind) != "" and not at_hub: _fill_escrow(i, job)
+			var used := minf(dt, float(job.left))
+			if str(job.phase) == "build":   # (0.6.29) the materials go in as it is built, not all before
+				var bill: Dictionary = job.get("bill", {})
+				if at_hub:   # at the main node it pays its bill as the work goes, from the bank
+					var share := used / maxf(0.001, float(job.total))
+					var ok := true
+					for r in bill:
+						if _free(fac, str(r)) < float(bill[r]) * share - 0.000001: ok = false; break
+					job.stalled = not ok
+					if not ok: continue
+					for r in bill:
+						var q := minf(float(bill[r]) * share, maxf(0.0, float(bill[r]) - float((job.escrow as Dictionary).get(r, 0.0))))
+						if q > 0.0: _spend(fac, str(r), q, "buildings"); job.escrow[r] = float((job.escrow as Dictionary).get(r, 0.0)) + q
+				else:   # elsewhere the work goes as far as its materials have come
+					var funded := 1.0
+					for r in bill: funded = minf(funded, float((job.escrow as Dictionary).get(r, 0.0)) / maxf(0.001, float(bill[r])))
+					var done := 1.0 - float(job.left) / maxf(0.001, float(job.total))
+					used = minf(used, maxf(0.0, (funded - done) * float(job.total)))
+					job.stalled = used <= 0.000001 and float(job.left) > 0.00001
+					if bool(job.stalled): continue
+			job.left = maxf(0.0, float(job.left) - used)
 			if float(job.left) > 0.00001: continue
 			var slot := int(job.slot)
 			if str(job.phase) == "demolish":
@@ -3388,6 +3416,10 @@ func _tick_jobs(dt: float) -> void:
 					job.phase = "build"; job.left = BUILD_TIME; job.total = BUILD_TIME
 					continue
 			else:
+				if at_hub:   # (a last fraction the shares left over)
+					for r in (job.get("bill", {}) as Dictionary):
+						var rest := float(job.bill[r]) - float((job.escrow as Dictionary).get(r, 0.0))
+						if rest > 0.000001: _spend(fac, str(r), minf(rest, _free(fac, str(r))), "buildings")
 				hosts[i].builds[slot] = str(job.kind)
 				if str(job.kind) == "wall": hosts[i].fw_on = true
 				job.escrow = {}   # the materials are now the building
@@ -3399,6 +3431,7 @@ func _tick_jobs(dt: float) -> void:
 
 func _job_state(job: Dictionary) -> String:   # demolishing · waiting for materials · building
 	if str(job.phase) == "demolish": return "demolishing"
+	if job.has("stalled"): return "waiting" if bool(job.stalled) else "building"   # (0.6.29: it builds as its materials come)
 	return "building" if _job_funded(job) else "waiting"
 
 
@@ -4523,10 +4556,8 @@ func _resolve_vault(fac: int, t: int) -> void:   # empty the storage of the targ
 		_cap_claims(int(h))   # (0.6.15) workers already on their way for what it took find what is left
 		for slot in (hosts[int(h)].jobs as Dictionary):   # and so is construction material not yet built in (the worked share is the building)
 			var job: Dictionary = hosts[int(h)].jobs[slot]
-			var unused := 1.0
-			if str(job.phase) == "build" and _job_funded(job): unused = clampf(float(job.left) / maxf(0.001, float(job.total)), 0.0, 1.0)
 			for res in RES:
-				var n3 := mini(int(floor(float((job.get("escrow", {}) as Dictionary).get(res, 0.0)) * unused + 0.0001)), left)
+				var n3 := mini(int(floor(_job_spare(job, res) + 0.0001)), left)
 				if n3 <= 0: continue
 				job.escrow[res] = float(job.escrow[res]) - float(n3)   # the project lacks it again: its work stops until it is replaced
 				_add_to(t, "loot", fac, res, float(n3))
@@ -6247,11 +6278,18 @@ func _layout_menu() -> void:   # one rule for every view: MENU_PAD all round, th
 	var content := menu_box.get_combined_minimum_size().y
 	var maxh := vp.y - 2.0 * MENU_MARGIN
 	var h := maxh if _menu_fill else minf(content + 2.0 * MENU_PAD, maxh)
-	var scrolls := content > h - 2.0 * MENU_PAD + 0.5
+	var main := _menu_view == "main"
+	var k := 1.0
+	if main:   # (0.6.29) the main menu never scrolls: in a short window it is drawn smaller to fit
+		h = content + 2.0 * MENU_PAD
+		k = clampf((vp.y - 2.0 * MENU_MARGIN) / maxf(1.0, h), 0.4, 1.0)
+	var scrolls := not main and content > h - 2.0 * MENU_PAD + 0.5
+	menu_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER if main else ScrollContainer.SCROLL_MODE_AUTO
+	menu_panel.scale = Vector2(k, k)
 	menu_panel.size = Vector2(_menu_w, h)
 	menu_panel.position = ((vp - menu_panel.size) * 0.5).floor()
-	if _menu_view == "main":   # (0.6.25) the main menu stands on the left, over the city, with no box
-		menu_panel.position = Vector2(48.0, floorf((vp.y - h) * 0.5))
+	if main:   # (0.6.25) the main menu stands on the left, over the city, with no box
+		menu_panel.position = Vector2(48.0, floorf((vp.y - h * k) * 0.5))
 		menu_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	else: menu_panel.remove_theme_stylebox_override("panel")
 	# the scrollbar, when there is one, sits in the right-hand inset: the content keeps the same width either way
@@ -7128,7 +7166,7 @@ func _camp_steps(chapter: int) -> Array:
 			{"t": "Capture", "r": "The Neighborhood Relay is yours.", "a": "When the copy is ready, drag the Credential breach onto the Neighborhood Relay.", "role": "relay", "ui": "card:breach", "card": "breach", "pause": false},
 		]
 		1: return [
-			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Click an empty relay slot and choose Bot station: its materials travel there before work starts.", "role": "relay", "ui": "build:bot", "pause": true},
+			{"t": "A building far from home", "r": "The Bot station is built: 2 more workers join your pool at the main node.", "a": "Click an empty relay slot and choose Bot station: it builds as its materials arrive.", "role": "relay", "ui": "build:bot", "pause": true},
 			{"t": "Producers", "r": "Each producer makes 1 unit of its resource every 6 s.", "a": "Build an Intel harvester and a Crypto miner on the relay.", "role": "relay", "ui": ["build:intel", "build:cash"], "pause": true},
 			{"t": "Output goes home", "r": "Crypto made on the relay reached your main node.", "a": "Watch: your workers carry the relay's Intel and Crypto to your main node.", "role": "relay", "pause": false},
 		]
@@ -7316,7 +7354,7 @@ func _camp_status() -> String:   # what the game is still resolving for this ste
 					"waiting":
 						var bill := 0.0; var here := 0.0
 						for r2 in (jb.bill as Dictionary): bill += float(jb.bill[r2]); here += minf(float(jb.bill[r2]), float((jb.escrow as Dictionary).get(r2, 0.0)))
-						return "Your order is underway: %s materials %d of %d here; workers bring the rest, then %d s of work." % [what, int(here + 0.0001), int(bill + 0.0001), int(BUILD_TIME)]
+						return "Your order is underway: %s materials %d of %d here; workers bring the rest, and it builds as they come." % [what, int(here + 0.0001), int(bill + 0.0001)]
 					_: return "Your order is underway: building %s, %d s left." % [what, ceili(float(jb.left))]
 	return ""
 
@@ -8250,7 +8288,7 @@ func _slot_tip(i: int, slot: int) -> String:   # what is in a slot, what it is d
 				for r in RES:
 					if not (job.bill as Dictionary).has(r): continue
 					parts.append("%s %s/%s" % [RES_NAME[r], _amt(float((job.escrow as Dictionary).get(r, 0.0))), _amt(float(job.bill[r]))])
-				out.append("Waiting for its materials (%s); workers bring them, then %d s of work." % [", ".join(parts), int(BUILD_TIME)])
+				out.append("Waiting for its materials (%s); it builds on as they come." % ", ".join(parts))
 			_: out.append("Building: %d s left." % ceili(float(job.left)))
 	else: out.append("Click it to replace it; a right click removes it.")
 	if _mine(i):
@@ -8401,7 +8439,7 @@ func _option_view(kind: String, i: int, slot: int) -> Dictionary:   # one buildi
 
 
 func _option_tip(kind: String, i: int, slot: int) -> String:
-	var out := ["%s\n\nMaterials: %s. Ordering is free: they must reach this site before its %d s of work start; what the host has spare is used first, workers bring the rest." % [_build_desc(kind, i), _build_cost_text(kind), int(BUILD_TIME)]]
+	var out := ["%s\n\nMaterials: %s, used up over its %d s of work as they reach the site: ordering takes nothing at once; what the host has spare is used first, workers bring the rest." % [_build_desc(kind, i), _build_cost_text(kind), int(BUILD_TIME)]]
 	var cur := str(hosts[i].builds[slot]) if slot < (hosts[i].builds as Array).size() else ""
 	var v := _option_view(kind, i, slot)
 	if _slot_busy(i, slot): out.append("Cancel the project in this slot first.")
@@ -8593,7 +8631,7 @@ func _draw_slot_tile(c: Control, i: int, slot: int, hover: bool, sockets: bool) 
 		else: _draw_centered_items(c, items, y, icon, fs)
 	if busy:
 		line.call(v.mats, ty[1], 13.0, 11)
-		var st := "then %d s of work" % int(BUILD_TIME) if _job_state(job) == "waiting" else ""
+		var st := "waits for materials" if _job_state(job) == "waiting" else ""
 		if st != "": _text(c, f, Vector2(8, c.size.y - 12.0), st, 11, C_DIM, w - 76.0, HORIZONTAL_ALIGNMENT_LEFT)   # (clear of Cancel)
 		return
 	if not sockets or (not compact and ty[1] + 8.0 <= c.size.y - 36.0): line.call(v.flow, ty[1], 13.0, 12)   # (a Firewall's sockets take the bottom)

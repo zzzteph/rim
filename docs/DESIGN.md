@@ -4,7 +4,7 @@
 
 The whole design of RIM as the game runs it: flow, map, economy, logistics, every card, defence, winning, the AI, multiplayer and the interface, with derived numbers for analysis. Same content as [design.html](design.html); every constant is in [rim_constants.json](rim_constants.json).
 
-RIM 0.6.28 · commit d75831b
+RIM 0.6.29 · commit dfe5171
 
 ## Contents
 
@@ -296,7 +296,7 @@ Supply is automatic and in the background: there is nothing to set per host. Wha
 
 #### Construction
 
-Ordering is free. A project's materials go into an escrow at its site — separate from the 20-unit storage, so a 32-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work run only once the whole bill is there. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.
+Ordering is free. A project's materials go into an escrow at its site — separate from the 20-unit storage, so a 32-unit Bot station fits any host — first from what the host has spare, the rest carried by workers one unit a leg. Its 10 s of work use the bill up as they go and never run ahead of what has arrived: at the main node each moment's share is paid straight from the bank (the work waits when the bank lacks it), elsewhere the work stops where the delivered materials run out. A project cannot be paused, only cancelled: cancel leaves what was delivered (less what the work used) at the site as salvage for workers to take home; capture destroys it; a Vault raid can steal unconsumed escrow and the shortage reopens.
 
 #### Routes
 

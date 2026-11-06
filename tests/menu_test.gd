@@ -103,6 +103,12 @@ func main_menu(res: Vector2i) -> void:
 	var prose := false
 	for t in texts(): prose = prose or str(t).contains("New to RIM") or str(t).contains("Skip for now") or str(t).length() > 40
 	check(not prose, "%s: navigation only, no guidance text (%s)" % [where, texts()])
+	game._t = 5.0; game._refresh_menu(); await settle()   # (0.6.29) in a match it has Resume too, and still no scrollbar
+	var bar: VScrollBar = game.menu_sc.get_v_scroll_bar()
+	var ex: Rect2 = game.menu_panel.get_global_transform() * Rect2(Vector2.ZERO, game.menu_panel.size)
+	check(buttons().has("Resume") and not bar.visible and ex.position.y >= 0.0 and ex.end.y <= float(res.y) + 0.5,
+		"%s: with Resume the main menu fits the window with no scrollbar (panel %s, bar %s)" % [where, str(ex), bar.visible])
+	game._t = 0.0; game._refresh_menu(); await settle()
 
 
 func help_round_trips(res: Vector2i) -> void:

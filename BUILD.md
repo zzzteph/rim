@@ -446,9 +446,11 @@ arrival instead of spent, unless its attack is already there (`_apply_support`, 
 fires on its own when its trigger hits (`_fire_socket`, `SOCKET_TRIGGER`: an intrusion starting
 for Patch via `_start_exec`, Phishing/siphon/sabotage landing for Response, a DDoS landing for
 Filter, a siphon grabbing this host's cargo for Cover). Express route cannot be loaded. **Construction is
-supplied before work**: ordering is free; the project's bill (`BUILD_COSTS`) goes into an **escrow** at its site
-(separate from the 20-unit storage, so a 32-unit Bot station fits any host), first from what the host has spare, the
-rest carried by workers one unit a leg; only then do its `BUILD_TIME` s of work run (`_tick_jobs`). Replacing an
+paid as it is built** (0.6.29): ordering is free; at the main node each step of its `BUILD_TIME` s of work pays its
+share of the bill (`BUILD_COSTS`) straight from the bank, and waits (`job.stalled`) while the bank lacks it; elsewhere
+the bill goes into an **escrow** at its site (separate from the 20-unit storage, so a 32-unit Bot station fits any
+host), first from what the host has spare, the rest carried by workers one unit a leg, and the work never runs past
+the delivered share (`_tick_jobs`, `_job_done`, `_job_spare`). Replacing an
 installation demolishes it (`DEMOLISH_TIME` s) while the materials travel. Nothing can be paused (0.6.9: neither a
 project nor a producer); cancel leaves the delivered (unworked) materials at the site as salvage; capture destroys them;
 a Vault raid can steal unconsumed escrow, and the project's shortage reopens. DDoS, Supply-chain sabotage or a
