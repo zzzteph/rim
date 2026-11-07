@@ -213,7 +213,9 @@ func waiting_head() -> void:   # (0.6.27) a started head the bank cannot pay wai
 	fresh()
 	for r in g.RES: g.bank[P][r] = 0.0
 	queue("breach"); queue("recon")
-	step(1.0)
+	for k in int(ceil((g.STALL_SHOW_SECS + 1.0) / g.SIM_DT)):   # (0.6.30) shown as waiting once it has not moved for a cycle (no trickle either)
+		for r in g.RES: g.bank[P][r] = 0.0
+		g._sim_step(g.SIM_DT)
 	var why: String = g._mq_head_why(P)
 	check(float(g._mq(P)[0].progress) < 0.1 * g._make_time("breach") and why.begins_with("Needs ") and why.contains("Intel") and why.contains("Main rig"),
 		"A copy the bank cannot pay for waits, making nothing, and says what it needs: '%s'" % why)

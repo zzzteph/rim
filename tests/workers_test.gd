@@ -817,8 +817,25 @@ func main_node_pays_as_built() -> void:   # (0.6.29) a main-node building takes 
 	var keep := {}
 	for r in g.RES: keep[r] = float(g.bank[P].get(r, 0.0)); g.bank[P][r] = 0.0
 	var left0 := float(g.hosts[home].jobs[slot].left)
+	var flips := 0
+	var last := str(g._job_state(g.hosts[home].jobs[slot]))
+	for k in int(round((g.STALL_SHOW_SECS + 0.5) / g.SIM_DT)):   # (0.6.30) only a trickle: it never flickers between waiting and building
+		for r in g.RES: g.bank[P][r] = minf(float(g.bank[P][r]), 0.0)
+		g._sim_step(g.SIM_DT)
+		var st := str(g._job_state(g.hosts[home].jobs[slot]))
+		if st != last: flips += 1; last = st
+	check(g.hosts[home].jobs.has(slot) and absf(float(g.hosts[home].jobs[slot].left) - left0) < 0.001 and g._job_state(g.hosts[home].jobs[slot]) == "waiting" and flips <= 1,
+		"An empty bank stops the work part-way; after %.0f s without progress it shows as waiting for materials, changing once (%d)" % [g.STALL_SHOW_SECS, flips])
+	var trickle_flips := 0
+	for r in keep: g.bank[P][r] = keep[r]
 	g._sim_step(g.SIM_DT)
-	check(g.hosts[home].jobs.has(slot) and absf(float(g.hosts[home].jobs[slot].left) - left0) < 0.001 and g._job_state(g.hosts[home].jobs[slot]) == "waiting", "An empty bank stops the work part-way (it waits for materials)")
+	last = str(g._job_state(g.hosts[home].jobs[slot]))
+	for k in int(round(2.0 / g.SIM_DT)):   # a bank that pays one step in three: slow, shown as building all along
+		for r in g.RES: g.bank[P][r] = keep[r] if k % 3 == 0 else 0.0
+		g._sim_step(g.SIM_DT)
+		var st := str(g._job_state(g.hosts[home].jobs[slot])) if g.hosts[home].jobs.has(slot) else "done"
+		if st != last: trickle_flips += 1; last = st
+	check(trickle_flips == 0 and last == "building", "Paid now and then, it shows as building, with no flicker (%d changes, %s)" % [trickle_flips, last])
 	for r in keep: g.bank[P][r] = keep[r]
 	for k in int(round(1.2 * g.BUILD_TIME / g.SIM_DT)): g._sim_step(g.SIM_DT)
 	check(str(g.hosts[home].builds[slot]) == "bot", "...and finishes once the bank has stock again")

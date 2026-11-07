@@ -136,6 +136,7 @@ func run() -> void:
 	await view_stays_put()
 	await chooser()
 	await notes_know_their_height()
+	await refresh_keeps_controls()
 	print(JSON.stringify({"checks": checks, "failures": failures}))
 	g.free(); quit(0 if failures.is_empty() else 1)
 
@@ -500,3 +501,43 @@ func chooser() -> void:   # a click on an empty slot opens the chooser: every bu
 	var esc2 := InputEventKey.new(); esc2.keycode = KEY_ESCAPE; esc2.pressed = true
 	g._input(esc2); await frames(3)
 	check(g._mp_hash() == hash1, "Opening, hovering and closing the chooser and drawing the rows change nothing the simulation reads (lockstep fingerprint unchanged)")
+
+
+func refresh_keeps_controls() -> void:   # (0.6.30) the 4-a-second refresh updates every view in place: no flicker, hover notes stay
+	fresh()
+	var hub: int = int(g.rig[P])
+	var mine := neighbour(g.NEUTRAL); g._capture(mine, P); g.hosts[mine].slots = 3; g._set_builds(mine, [])
+	var theirs := -1   # a host you see but do not own (a fogged one is closed by the fog, rightly)
+	for i in g.hosts.size():
+		if int(g.hosts[i].owner) != P and g._visible_to(P, i) and i != mine: theirs = i; break
+	var slot := (g.hosts[hub].builds as Array).find("")
+	if slot >= 0: g._cmd(["build", hub, slot, "bot"])
+	g._cmd(["build", mine, 0, "lab"])
+	g._cmd(["research", "ddos"])
+	for k in 3: g._cmd(["queue", "recon", 950 + k])
+	g._start_exec({"id": 9902, "fac": R, "card": "breach", "effect": "capture", "target": mine, "gen": int(g.hosts[mine].gen), "ends": g._t + 60.0, "stage": 1, "victim": P, "seen": [mine]})
+	for r in g.RES: g.bank[P][r] = 0.2   # an empty bank: everything waits, the Economy view lists what to fix with its buttons
+	step(1.0)
+	var views := [["economy: to fix", func(): g.sel = {}; g._inspect = -1; g._tab = "economy"; g._econ_tab = "fix"],
+		["economy: banks", func(): g.sel = {}; g._inspect = -1; g._tab = "economy"; g._econ_tab = "banks"],
+		["logs", func(): g.sel = {}; g._inspect = -1; g._tab = "events"],
+		["board", func(): g.sel = {}; g._inspect = -1; g._tab = ""],
+		["main node with a project", func(): g._tab = ""; g._inspect = -1; g.sel = {hub: true}],
+		["host under a breach", func(): g._tab = ""; g._inspect = -1; g.sel = {mine: true}],
+		["slot chooser", func(): g._tab = ""; g._inspect = -1; g.sel = {mine: true}; g._open_chooser(mine, 1)]]
+	if theirs >= 0: views.append(["a host you see but do not own", func(): g._tab = ""; g.sel = {}; g._inspect = theirs])
+	for v in views:
+		(v[1] as Callable).call()
+		g._refresh_panel(); await frames(1)
+		if str(v[0]) == "economy: to fix": check(not g._econ_problems().is_empty(), "There is something to fix with an empty bank (%d)" % g._econ_problems().size())
+		var box = g.panel_box
+		var same := true
+		for k in 6:   # 1.5 s of the sim and its refreshes: timers tick, the bank trickles in and is spent
+			for r in g.RES: g.bank[P][r] = minf(float(g.bank[P][r]), 0.2)
+			step(0.25)
+			g._refresh_panel()
+			if g.panel_box != box:
+				same = false
+				print("  rebuilt: %s inspect=%d sel=%s visible=%s" % [str(v[0]), g._inspect, str(g.sel.keys()), str(theirs >= 0 and g._visible_to(P, theirs))])
+				box = g.panel_box
+		check(same, "%s: the refresh updates the panel in place, it does not rebuild it" % str(v[0]))

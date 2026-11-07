@@ -118,7 +118,7 @@ const QUEUE_DONE_SECS := 3.0    # how long the strip shows a finished copy as do
 const MENU_W := 384.0           # menu panel width
 const MENU_PAD := 24.0          # one rule for every menu view: the same visible inset on all four sides of its content
 const MENU_MARGIN := 24.0       # a menu panel keeps this far from the window's edges
-const GAME_VERSION := "0.6.29"   # buildings pay as they are built; the main menu never scrolls (lobbies match exact versions)
+const GAME_VERSION := "0.6.30"   # a slowly paid building or card no longer flickers between waiting and working (lobbies match exact versions)
 # Feedback is collected IN-GAME (no redirect). It is always appended to user://feedback.jsonl, and — if you set
 # an endpoint — POSTed there as JSON too (point it at any collector: a webhook, an Apps Script, your own API).
 const FEEDBACK_ENDPOINT := ""   # e.g. "https://script.google.com/macros/s/XXXX/exec"  (empty = save locally only)
@@ -3406,6 +3406,7 @@ func _tick_jobs(dt: float) -> void:
 					used = minf(used, maxf(0.0, (funded - done) * float(job.total)))
 					job.stalled = used <= 0.000001 and float(job.left) > 0.00001
 					if bool(job.stalled): continue
+			if used > 0.0: job.paid_t = _t   # (0.6.30) when it last moved: a slow trickle shows as building, not as flicker
 			job.left = maxf(0.0, float(job.left) - used)
 			if float(job.left) > 0.00001: continue
 			var slot := int(job.slot)
@@ -3431,7 +3432,8 @@ func _tick_jobs(dt: float) -> void:
 
 func _job_state(job: Dictionary) -> String:   # demolishing · waiting for materials · building
 	if str(job.phase) == "demolish": return "demolishing"
-	if job.has("stalled"): return "waiting" if bool(job.stalled) else "building"   # (0.6.29: it builds as its materials come)
+	if job.has("stalled"):   # (0.6.29: it builds as its materials come; 0.6.30: "waiting" only once it has not moved for a cycle)
+		return "waiting" if bool(job.stalled) and _t - float(job.get("paid_t", -999.0)) >= STALL_SHOW_SECS else "building"
 	return "building" if _job_funded(job) else "waiting"
 
 
@@ -4729,9 +4731,10 @@ func _scaled(d: Dictionary, f: float) -> Dictionary:
 func _mq_toggle_pause(fac: int) -> void: mq_paused[fac] = not bool(mq_paused.get(fac, false))
 
 
-func _mq_head_stalled(fac: int) -> bool:   # (0.6.27) the head is being made but the bank lacks this step's share of its price
+func _mq_head_stalled(fac: int, raw := false) -> bool:   # (0.6.27) the head is being made but the bank lacks this step's share of its price
 	var q := _mq(fac)
 	if q.is_empty() or (q[0].paid as Dictionary).is_empty() or bool(mq_paused.get(fac, false)): return false
+	if not raw and _t - float(q[0].get("paid_t", -999.0)) < STALL_SHOW_SECS: return false   # (0.6.30) shown: it paid within the last cycle, slow, not stopped (the AI reads it raw)
 	var cost := _recipe_cost(str(q[0].recipe))
 	var step := SIM_DT / maxf(0.001, _make_time(str(q[0].recipe)))
 	var owed := _build_owed(fac, _can_carry(fac) == 0)
@@ -4740,9 +4743,9 @@ func _mq_head_stalled(fac: int) -> bool:   # (0.6.27) the head is being made but
 	return false
 
 
-func _mq_head_short(fac: int) -> Dictionary:   # (0.6.27) what the stalled head still has to pay and the bank lacks ({} while it runs)
+func _mq_head_short(fac: int, raw := false) -> Dictionary:   # (0.6.27) what the stalled head still has to pay and the bank lacks ({} while it runs)
 	var q := _mq(fac)
-	if not _mq_head_stalled(fac): return {}
+	if not _mq_head_stalled(fac, raw): return {}
 	var out := {}
 	var cost := _recipe_cost(str(q[0].recipe))
 	var step := SIM_DT / maxf(0.001, _make_time(str(q[0].recipe)))
@@ -4751,12 +4754,12 @@ func _mq_head_short(fac: int) -> Dictionary:   # (0.6.27) what the stalled head 
 	return out
 
 
-func _mq_head_why(fac: int) -> String:   # "" while it is made or can start; else why the head waits
+func _mq_head_why(fac: int, raw := false) -> String:   # "" while it is made or can start; else why the head waits
 	var q := _mq(fac)
 	if q.is_empty(): return ""
 	if (q[0].paid as Dictionary).is_empty():
 		return "Ready inventory full — use a card" if _ready_total(fac) >= READY_SLOTS else ""
-	var short := _mq_head_short(fac)
+	var short := _mq_head_short(fac, raw)
 	if short.is_empty(): return ""
 	var parts := []
 	for r in RES:
@@ -4822,7 +4825,7 @@ func _tick_manufacture(dt: float) -> void:
 			for r in cost:
 				_spend(fac, r, float(cost[r]) * frac, "manufacturing")
 				job.paid[r] = float(job.paid.get(r, 0.0)) + float(cost[r]) * frac
-			job.progress = float(job.progress) + used; left -= used
+			job.progress = float(job.progress) + used; left -= used; job.paid_t = _t
 			if float(job.progress) < _make_time(str(job.recipe)) - 0.00001: break
 			cards[fac][str(job.recipe)] = _held(fac, str(job.recipe)) + 1   # its ready slot was held while it was made
 			q.remove_at(0)
@@ -5148,7 +5151,7 @@ func _ai_scout_first(fac: int, t: int, recipe: String) -> bool:   # true: this a
 	if _ai_scouting(fac, t): return true
 	if _held(fac, "recon") > 0 and _can_play(fac, "recon", t) == "":
 		_play_card(fac, "recon", t); return true
-	if _known(fac, "recon") and _mq_count(fac, "recon") > 0 and _mq_head_why(fac) == "": return true   # one is being made: wait for it
+	if _known(fac, "recon") and _mq_count(fac, "recon") > 0 and _mq_head_why(fac, true) == "": return true   # one is being made: wait for it
 	return false   # no Recon to hand or coming: attack at 25% rather than not at all
 
 
@@ -5432,6 +5435,7 @@ func _research_label() -> String:   # the Research button and tab: "Research 45%
 
 
 const RESEARCH_BAR_W := 520.0
+const STALL_SHOW_SECS := PROD_CYCLE + 1.0   # (0.6.30) a building or card copy that moved within this is shown as working, not waiting
 const RESEARCH_STALL_SECS := 13.0   # research that paid nothing for longer than a production cycle is "stopped" (else "slowed")
 const RESEARCH_BAR_H := 28.0
 
@@ -9598,7 +9602,7 @@ var _econ_open := {}     # res -> its bank card is expanded
 func _econ_problems() -> Array:   # (0.6.28) what needs you now, most urgent first: [{sev, title, cause, acts: [[label, Callable]]}]
 	var out := []
 	var fc := _forecast(PLAYER)
-	var show := func(i: int) -> Callable: return func(): sel = {i: true}; _inspect = -1; _tab = ""; _keep_target_visible(); _refresh_panel(); queue_redraw()
+	var show := func(i: int) -> Callable: return _econ_act.bind("show", i)   # (0.6.30) bound methods, not new lambdas: the 4-a-second refresh updates the buttons in place (no flicker)
 	for res in RES:   # a bank that runs dry soon, and what drains it most
 		var net := float(fc.net[res])
 		if net >= -0.5: continue
@@ -9609,8 +9613,8 @@ func _econ_problems() -> Array:   # (0.6.28) what needs you now, most urgent fir
 		for k in uses: if float(uses[k]) > tv: top = str(k); tv = float(uses[k])
 		var inc := float(fc.rate[res])
 		var acts := []
-		if top == "card queue": acts.append(["Pause the queue", func(): _cmd(["queue_pause"])])
-		elif top == "research" and not (research_job.get(PLAYER, {}) as Dictionary).is_empty(): acts.append(["Pause research", func(): _cmd(["research", str(research_job[PLAYER].key)])])
+		if top == "card queue": acts.append(["Pause the queue", _econ_act.bind("queue", -1)])
+		elif top == "research" and not (research_job.get(PLAYER, {}) as Dictionary).is_empty(): acts.append(["Pause research", _econ_act.bind("research", -1)])
 		elif top == "building":
 			for i in hosts.size(): if _mine(i) and not (hosts[i].jobs as Dictionary).is_empty(): acts.append(["Show the project", show.call(i)]); break
 		else:
@@ -9625,7 +9629,7 @@ func _econ_problems() -> Array:   # (0.6.28) what needs you now, most urgent fir
 		for i in hosts.size():
 			if spot < 0 and _mine(i) and _free_slot(i) >= 0: spot = i
 		var acts2 := []
-		if spot >= 0: acts2.append(["+ Bot station on %s" % str(hosts[spot].name), func(): _open_chooser(spot, _free_slot(spot))])
+		if spot >= 0: acts2.append(["+ Bot station on %s" % str(hosts[spot].name), _econ_act.bind("bot", spot)])
 		out.append({"sev": 1, "title": "Workers can't keep up (%d of ~%d)" % [int(fc.fleet), int(ceil(float(fc.need) - 0.05))], "cause": "Output waits on hosts and storages fill. A Bot station adds 2 workers.", "acts": acts2})
 	var full_hosts := 0
 	for i in hosts.size():   # storages that are full: their producers stop
@@ -9636,9 +9640,19 @@ func _econ_problems() -> Array:   # (0.6.28) what needs you now, most urgent fir
 	if stall != "": out.append({"sev": 1, "title": "Research stopped", "cause": stall, "acts": [["Open the tree", _toggle_research]]})
 	for res in RES:   # a full bank whose income is lost
 		if bool(fc.full[res]) and float(fc.rate[res]) > _use_sum(fc.use, res) + 0.5:
-			out.append({"sev": 2, "title": "%s bank is full" % str(RES_NAME[res]), "cause": "%d a minute more comes in than is used, and is lost. Make cards or research with it." % int(round(float(fc.rate[res]) - _use_sum(fc.use, res))), "acts": [["Make cards", func(): _open_drawer("attack")]]})
+			out.append({"sev": 2, "title": "%s bank is full" % str(RES_NAME[res]), "cause": "%d a minute more comes in than is used, and is lost. Make cards or research with it." % int(round(float(fc.rate[res]) - _use_sum(fc.use, res))), "acts": [["Make cards", _econ_act.bind("cards", -1)]]})
 	out.sort_custom(func(a, b): return int(a.sev) < int(b.sev))
 	return out
+
+
+func _econ_act(kind: String, i: int) -> void:   # (0.6.30) the Economy view's buttons
+	match kind:
+		"show": sel = {i: true}; _inspect = -1; _tab = ""; _keep_target_visible(); _refresh_panel(); queue_redraw()
+		"queue": _cmd(["queue_pause"])
+		"research": if not (research_job.get(PLAYER, {}) as Dictionary).is_empty(): _cmd(["research", str(research_job[PLAYER].key)])
+		"bot": _open_chooser(i, _free_slot(i))
+		"cards": _open_drawer("attack")
+		_: if kind.begins_with("tab:"): _econ_tab = kind.trim_prefix("tab:"); _refresh_panel()
 
 
 func _panel_economy() -> void:   # (0.6.28) two tabs: what to fix now (ranked, with actions) and the four banks as cards
@@ -9649,7 +9663,7 @@ func _panel_economy() -> void:   # (0.6.28) two tabs: what to fix now (ranked, w
 	for t in [["fix", "To fix (%d)" % probs.size()], ["banks", "Banks"]]:
 		var b := Button.new(); b.text = str(t[1]); b.toggle_mode = true; b.button_pressed = tab == str(t[0]); b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(120, 30); b.add_theme_font_size_override("font_size", 13)
-		b.pressed.connect(func(): _econ_tab = str(t[0]); _refresh_panel()); row.add_child(b)
+		b.pressed.connect(_econ_act.bind("tab:" + str(t[0]), -1)); row.add_child(b)
 	_gap(4.0)
 	if tab == "fix":
 		if probs.is_empty(): _plabel("Nothing to fix: every bank holds or grows, workers keep up.", 13, C_GOOD)
